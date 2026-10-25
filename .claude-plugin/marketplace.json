@@ -1,0 +1,14 @@
+{
+  "name": "jb-memory",
+  "owner": { "name": "Jim Burke" },
+  "metadata": {
+    "description": "Session continuity for Claude Code: a per-repo handoff, milestone checkpoints and compaction snapshots."
+  },
+  "plugins": [
+    {
+      "name": "jb-memory",
+      "source": "./plugins/jb-memory",
+      "description": "Session continuity: milestone checkpoints, budgeted handoff injection, compaction snapshots, parking and pruning."
+    }
+  ]
+}

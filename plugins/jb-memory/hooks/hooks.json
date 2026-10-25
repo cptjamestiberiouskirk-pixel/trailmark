@@ -1,0 +1,253 @@
+{
+  "description": "jb-memory: inject the repo handoff at session start, snapshot git state before compaction, log commits made through the Bash or PowerShell tool, also by a command that then failed (a PreToolUse hook records the folder each commit command starts in) and remind Claude to checkpoint after milestones. Each hook runs through jbm.js, which applies Node's permission model (writes only inside the repo's memory folder, no child processes). Every hook is silent in repos not set up with memory-setup.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "session-start"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "precompact"
+            ],
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "commit-start"
+            ],
+            "if": "Bash(git commit *)",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "commit-start"
+            ],
+            "if": "Bash(git -C *)",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "commit-start"
+            ],
+            "if": "PowerShell(git commit *)",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "commit-start"
+            ],
+            "if": "PowerShell(git -C *)",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "milestone",
+              "commit"
+            ],
+            "if": "Bash(git commit *)",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "milestone",
+              "commit"
+            ],
+            "if": "Bash(git -C *)",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "milestone",
+              "pr-merge"
+            ],
+            "if": "Bash(gh pr merge *)",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "milestone",
+              "commit"
+            ],
+            "if": "PowerShell(git commit *)",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "milestone",
+              "commit"
+            ],
+            "if": "PowerShell(git -C *)",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "milestone",
+              "pr-merge"
+            ],
+            "if": "PowerShell(gh pr merge *)",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "milestone",
+              "subagent"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "milestone",
+              "commit"
+            ],
+            "if": "Bash(git commit *)",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "milestone",
+              "commit"
+            ],
+            "if": "Bash(git -C *)",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "milestone",
+              "commit"
+            ],
+            "if": "PowerShell(git commit *)",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js",
+              "--hook",
+              "milestone",
+              "commit"
+            ],
+            "if": "PowerShell(git -C *)",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

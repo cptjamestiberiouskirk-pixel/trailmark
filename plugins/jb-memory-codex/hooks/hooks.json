@@ -1,0 +1,51 @@
+{
+  "description": "jb-memory for the ChatGPT desktop app (Codex mode): inject the repo handoff at session start (also after compaction), snapshot git state before compaction, log commits made through the shell tool and remind the agent to checkpoint after one. Each hook runs jbm.js, which applies Node's permission model (writes only inside the repo's memory folder, no child processes). Silent in repos not set up for jb-memory. The command finds jbm.js from PLUGIN_ROOT itself (an absolute path, or the hook does nothing), so it works in PowerShell, cmd and sh alike.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const p=require('path'),r=process.env.PLUGIN_ROOT;(r&&p.isAbsolute(r)&&/^(?:[A-Za-z]:|[/][A-Za-z0-9._~-])/.test(r))||process.exit(0);process.argv[1]=p.join(r,'scripts','jbm.js');require(process.argv[1])\" jbm --hook session-start",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const p=require('path'),r=process.env.PLUGIN_ROOT;(r&&p.isAbsolute(r)&&/^(?:[A-Za-z]:|[/][A-Za-z0-9._~-])/.test(r))||process.exit(0);process.argv[1]=p.join(r,'scripts','jbm.js');require(process.argv[1])\" jbm --hook precompact",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const p=require('path'),r=process.env.PLUGIN_ROOT;(r&&p.isAbsolute(r)&&/^(?:[A-Za-z]:|[/][A-Za-z0-9._~-])/.test(r))||process.exit(0);process.argv[1]=p.join(r,'scripts','jbm.js');require(process.argv[1])\" jbm --hook commit-start",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const p=require('path'),r=process.env.PLUGIN_ROOT;(r&&p.isAbsolute(r)&&/^(?:[A-Za-z]:|[/][A-Za-z0-9._~-])/.test(r))||process.exit(0);process.argv[1]=p.join(r,'scripts','jbm.js');require(process.argv[1])\" jbm --hook milestone auto",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

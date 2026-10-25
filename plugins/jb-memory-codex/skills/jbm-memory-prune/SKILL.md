@@ -1,0 +1,63 @@
+---
+name: jbm-memory-prune
+description: Shrink this repo's memory so the part loaded into every session stays small. Finds stale, duplicate, dead or finished entries and proposes archiving, deleting, or promoting them into path-scoped .claude/rules files. Use when a jb-memory budget warning appears, when MEMORY.md or the handoff nears its limit, or when the user asks to clean up, trim or shrink memory.
+---
+
+# Memory prune
+
+Size on disk is free. What loads every session isn't:
+
+- **MEMORY.md**: Claude Code loads its first 200 lines or 25 KB, and anything past that is silently not loaded.
+- **The handoff**: the SessionStart hook injects it into every Codex and Claude Code session in this repo. Codex puts hook output past about 2,500 tokens in a file instead of the context, and Claude Code cuts output over 10,000 characters to a preview.
+- **Repo rules**: Claude Code loads `.claude/rules/*.md` files without `paths:` frontmatter every session, and rules with `paths:` only when it touches a matching file. Codex reads AGENTS.md instead; promote there only what Codex sessions need too, and ask the user which file.
+
+Healthy memory shrinks. A finished thread belongs in the archive. A convention that keeps getting re-learned belongs in a rule, ideally a path-scoped one.
+
+Every command here runs jb-memory through its launcher, written below as `<launcher>`: the full path that the `[jb-memory]` note at the start of this session gives after "Launcher:". If there is no such note, it is `scripts/jbm.js` two folders up from this SKILL.md (this file is `<plugin folder>/skills/jbm-memory-prune/SKILL.md`). Use that one path, in full, in every command. If it doesn't work, stop and tell the user which command failed and what it printed. Don't look for jbm.js or memory.js anywhere else, and don't run another copy: one found by searching, such as an old copy in Claude Code's plugin cache, can write without the version check and overwrite another session's checkpoint. `<session id>` below is this session's ID from the same note; if the note gave none, leave `--session=...` out.
+
+## Steps
+
+1. **Measure and list candidates.**
+
+   ```text
+   node "<launcher>" prune-report
+   ```
+
+2. **Read only the flagged files.** For each candidate, choose one action:
+   - **keep**: still current and needed
+   - **archive**: finished or superseded. This is the default; it moves the file verbatim and keeps it recoverable.
+   - **delete**: only for dead MEMORY.md index lines and exact duplicates
+   - **promote**: a convention every session in this repo should follow, or one tied to specific paths
+
+3. **Propose** a table: `# | item | action | reason | evidence`. Ask "all, pick numbers, or skip?" and wait.
+
+4. **Apply only what the user approved.**
+   - Archive a topic or parked file. This also drops its MEMORY.md index line and keeps the old index as `MEMORY.md.prev`:
+
+     ```text
+     node "<launcher>" archive-file '<relative path>'
+     ```
+
+   - Dead index lines, or tightening MEMORY.md to one line per entry: edit MEMORY.md directly.
+   - Handoff over budget: mark finished items `[done]`, write the handoff the checkpoint way. `write-handoff` archives the `[done]` items as it saves.
+   - Promote:
+     - Write into `.claude/rules/<domain>.md` in the repo. Read the target first, add to it, and don't reorganize what's there.
+     - Add `paths:` frontmatter when the rule concerns particular files. A rule without `paths` loads every session, so leave paths off only when the rule really applies everywhere.
+     - State the rule in general form, with no ticket IDs, finding numbers or status. Rules and CLAUDE.md are not status records.
+     - Once promoted, archive the memory entry it came from.
+
+5. **Report** the loaded slice before and after, from `jbm.js budget`, in one or two lines.
+
+## Public repos
+
+When `.jbmem.json` has `"publicRepo": true`, or `gh repo view --json visibility` says PUBLIC, promoted rules get published. Before writing one:
+
+- Check the text for local absolute paths (`C:\Users\...`, `/home/...`), user names, email addresses, hostnames, tokens, and anything that refers to the memory folder.
+- Show the user the exact text that will be committed.
+- Don't commit or push. Leave that to the user's normal PR flow.
+
+## Rules
+
+- Nothing is deleted without a yes for that item. Archive is the default.
+- Don't edit CLAUDE.md unless the user asks.
+- Two good promotions is a fine result, and so is zero.

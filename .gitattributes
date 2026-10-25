@@ -1,0 +1,3 @@
+# Store every file byte for byte: the PowerShell and cmd scripts keep CRLF,
+# install.sh keeps LF, and SHA256SUMS stays valid on every platform.
+* -text

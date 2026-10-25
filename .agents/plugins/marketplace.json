@@ -1,0 +1,20 @@
+{
+  "name": "jb-memory-codex",
+  "interface": {
+    "displayName": "jb-memory for Codex"
+  },
+  "plugins": [
+    {
+      "name": "jb-memory-codex",
+      "source": {
+        "source": "local",
+        "path": "./plugins/jb-memory-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
