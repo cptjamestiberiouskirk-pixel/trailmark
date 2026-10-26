@@ -579,6 +579,22 @@ foreach ($t in 'node', 'git', 'claude') {
   Write-Host ($t + ': ' + $c.Source)
 }
 if (-not (Test-Path -LiteralPath $jbm)) { Write-Host ('STOPPED: missing ' + $jbm); Finish 1 }
+# What is under test: Part 1 runs this jbm.js directly; Parts 2 and 3 run
+# whatever copy Claude Code has installed, so both are shown, and a mismatch
+# is called out.
+$testedRoot = Split-Path -Parent (Split-Path -Parent $jbm)
+$testedVer = '?'
+try { $testedVer = [string]([IO.File]::ReadAllText((Join-Path $testedRoot '.claude-plugin\plugin.json')) | ConvertFrom-Json).version } catch { }
+Write-Host ('jb-memory under test (Part 1): ' + $testedVer + ' at ' + $testedRoot)
+$installed = @()
+try { $installed = @((& claude plugin list --json 2>$null | Out-String | ConvertFrom-Json) | Where-Object { [string]$_.id -like 'jb-memory@*' }) } catch { }
+if (-not $installed.Count) { Write-Host 'jb-memory Claude Code runs (Parts 2, 3): none installed; Parts 2 and 3 will fail' }
+foreach ($p in $installed) {
+  $from = $(if ($p.PSObject.Properties['readFromFolder'] -and $p.readFromFolder) { [string]$p.readFromFolder } else { [string]$p.installPath })
+  $same = $false
+  try { $same = ([IO.Path]::GetFullPath($from).TrimEnd('\') -ieq [IO.Path]::GetFullPath($testedRoot).TrimEnd('\')) } catch { }
+  Write-Host ('jb-memory Claude Code runs (Parts 2, 3): ' + [string]$p.id + ' ' + [string]$p.version + ' from ' + $from + $(if ($same) { '' } else { '   WARNING: not the copy Part 1 tests' }))
+}
 
 Step 'Throwaway repo'
 New-Item -ItemType Directory -Path $repo | Out-Null
@@ -659,7 +675,7 @@ $o = Invoke-Hook @{ cwd = $repo; hook_event_name = 'SessionStart'; source = 'com
 $okInject = $o -match 'Compaction \(manual\)'
 Result 'snapshot injected after compaction' 'mechanism' $(if ($okInject) { 'PASS' } else { 'FAIL' }) ('session-start output carries the snapshot: ' + $okInject)
 
-Step 'Part 1, jb-memory 0.3.3: commits in another folder (hooks fed by hand)'
+Step 'Part 1b: commits in another folder (checks added in jb-memory 0.3.3; hooks fed by hand)'
 & git clone -q $repo $clone 2>&1 | Out-Null
 Push-Location $clone
 & git config user.name 'jb-memory hook test'
@@ -785,7 +801,7 @@ if (-not (Test-Path -LiteralPath $marker)) {
   Result 'hardening: a hostile clone''s lazy fetch runs nothing' 'mechanism' $status ('a plain git log ran the planted uploadpack; the hook''s git calls reached that clone: ' + $reached + '; uploadpack ran from them: ' + $ran)
 }
 
-Step 'Part 1, jb-memory 0.3.4: end folder, printed commits, commit sweep, status filters, hook time (hooks fed by hand)'
+Step 'Part 1c: end folder, printed commits, commit sweep, status filters, hook time (checks added in jb-memory 0.3.4; hooks fed by hand)'
 # A command whose end folder, as read, isn't the folder Claude Code says it
 # ended in: one END_MISMATCH line, and the commit is still logged from the
 # clone. Here the session is back where it started (actual=start).
