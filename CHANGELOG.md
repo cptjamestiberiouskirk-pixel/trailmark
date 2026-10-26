@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 (jb-memory-codex): 2026-10-26
+
+- A plainer plugin description and README opening, saying what the plugin is for and what it gives you. Claude Code is named only for using both in one repo.
+
 ## 0.2.1 (jb-memory-codex): 2026-10-26
 
 - The `jbm-memory-setup` skill covers a repo used only from Codex: when the repo isn't set up, it asks whether Claude Code is used there too, and if not, shows the commands to set it up by hand (`init --force` with `JBMEM_CODEX_INIT=1` for that one command). It never sets the variable or runs `init` itself. The Codex README and MANUAL section 8 describe the same path.

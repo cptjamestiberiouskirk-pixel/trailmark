@@ -1,7 +1,7 @@
 {
   "name": "jb-memory-codex",
-  "version": "0.2.1",
-  "description": "Session continuity for the ChatGPT desktop app's Codex mode: the same size-budgeted repo handoff jb-memory keeps for Claude Code, shared between both, injected at session start and refreshed at milestones. Opt-in per repo (set up from Claude Code).",
+  "version": "0.2.2",
+  "description": "Gives Codex a memory for each project. A short handoff note keeps track of where the work stands and what to do next. It is updated after commits and merges and given to every new chat, so you don't have to explain the project again each time. Two chats working at once can't overwrite each other's notes. Turn it on per repo. If you also use Claude Code with jb-memory, both share the same note for that repo.",
   "author": {
     "name": "Jim Burke"
   },

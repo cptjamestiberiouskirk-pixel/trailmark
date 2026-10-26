@@ -1,6 +1,8 @@
 # jb-memory-codex
 
-jb-memory for the ChatGPT desktop app's Codex mode (and the Codex CLI). It keeps the same per-repo handoff jb-memory keeps for Claude Code, in the same folder, so a Codex chat and a Claude Code session in one repo read and write one handoff. Every write is version-checked, so neither can silently undo the other's checkpoint.
+jb-memory gives Codex, in the ChatGPT desktop app or the Codex CLI, a memory for each project. Each repo gets a short handoff note on where the work stands and what to do next, with the decisions behind it and the questions still open. The note is refreshed after commits and PR merges and before Codex compacts a long chat, and every new chat starts with it, so you don't have to explain the project again or dig back through old chats. It stays within a size budget, so it doesn't fill the context, and every write is version-checked, so two chats working at once can't overwrite each other's notes.
+
+You turn it on per repo. If you also use Claude Code with jb-memory in the same repo, both read and write the same note, so either one can pick up where the other stopped.
 
 The handoff, its budget, the commit log, parking, pruning and the Node permission-model sandbox work as described in jb-memory's own README (`plugins/jb-memory/README.md` in the release folder). This file covers what differs for Codex. The release's `MANUAL.md` has the full install walk-through.
 

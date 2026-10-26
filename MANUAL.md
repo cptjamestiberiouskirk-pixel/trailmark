@@ -2,7 +2,7 @@
 
 jb-memory keeps one short state file per repo, the handoff, and gives it to every new Claude Code session in that repo. Claude rewrites it at milestones (a commit, a merged PR, a subagent's result, before a compaction), so the next session starts from where the last one stopped instead of from a cold read of the code. This manual covers installing it, setting a repo up, using it day to day, the Codex copy for the ChatGPT desktop app, the Windows watchdog and the diagnostic scripts.
 
-Version 0.4.0 (Codex copy 0.2.1, jb-watchdog 1.6.0). MIT licensed.
+Version 0.4.0 (Codex copy 0.2.2, jb-watchdog 1.6.0). MIT licensed.
 
 ## Contents
 
