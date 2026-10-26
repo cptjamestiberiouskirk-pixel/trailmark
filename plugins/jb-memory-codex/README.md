@@ -15,7 +15,7 @@ The handoff, its budget, the commit log, parking, pruning and the Node permissio
 | Failed commands | Claude Code's PostToolUseFailure | Codex runs PostToolUse after a failed command too. Its exit code, read from the session's transcript, decides: a failed commit command still logs the commits it made, with no reminder; a failed PR merge is not logged |
 | Shell | Bash or PowerShell tool | Codex calls its shell tool Bash whatever runs it. On Windows a command is read as PowerShell (the agent's default). Set `JBMEM_CODEX_SHELL=bash` if the agent runs in Git Bash or WSL |
 | Transcript | Claude Code's `~/.claude/projects` | Codex's own rollouts in `%USERPROFILE%\.codex\sessions` and `archived_sessions`, by session ID only, and only for a session that started in this repo. Never a Claude Code transcript |
-| Setup | `jb-memory:memory-setup` creates the folder | Set the repo up from Claude Code. `init` is refused here, since a folder guessed by this copy could split the handoff in two (`JBMEM_CODEX_INIT=1` allows it for a repo used only from Codex) |
+| Setup | `jb-memory:memory-setup` creates the folder | Set the repo up from Claude Code. `init` is refused here, since a folder guessed by this copy could split the handoff in two. For a repo used only from Codex, you run `init --force` yourself with `JBMEM_CODEX_INIT=1` for that one command (see Install, step 6) |
 | Session start message | Always shown | Codex shows `systemMessage` as a warning, so it is sent only for a warning (old Node, other jb-memory copies, a handoff cut short) |
 | Injection cap | 10,000 characters | 9,000: Codex moves hook output past about 2,500 tokens to a file instead of the context |
 | Commit-folder end check | END_MISMATCH diagnostic | None: each Codex command runs in a fresh shell and the session's folder never moves |
@@ -55,7 +55,17 @@ Each step says whether it is CONFIRMED from Codex's documentation or from use wi
 
 5. **Restart the ChatGPT desktop app.** A local plugin's new files are picked up only after a restart, and the same goes after every update. (CONFIRMED in the docs and on Windows: the app copies the plugin to `~/.codex/plugins/cache/<marketplace>/jb-memory-codex/<version>/` and runs it from there.)
 
-6. **Check it.** In a repo set up from Claude Code, start a new Codex chat and ask it to run the `jbm-memory-setup` skill. It runs the sandbox check, finds the memory folder, writes a test note and confirms the session-start note arrived.
+6. **Set up a repo.** If you also use Claude Code in the repo, set it up from there (`/jb-memory:memory-setup`). If you use only Codex in it, run this yourself, outside Codex, from the repo's top folder (add `--public` for a public repo):
+
+   ```powershell
+   $env:JBMEM_CODEX_INIT = '1'
+   node "<release folder>\plugins\jb-memory-codex\scripts\jbm.js" init --force
+   Remove-Item Env:\JBMEM_CODEX_INIT
+   ```
+
+   On macOS or Linux: `JBMEM_CODEX_INIT=1 node "<release folder>/plugins/jb-memory-codex/scripts/jbm.js" init --force`. Keep the variable to that one command; set permanently, it would let a Codex session set up any repo on its own. `--force` is needed because, with no Claude Code session ever in the repo, the folder comes from Claude Code's naming formula and can't be confirmed; Claude Code uses the same formula, so it finds the same folder if you open the repo there later.
+
+7. **Check it.** Start a new Codex chat in the repo and ask it to run the `jbm-memory-setup` skill. It runs the sandbox check, finds the memory folder, writes a test note and confirms the session-start note arrived.
 
 ## Checking how the hooks ran
 

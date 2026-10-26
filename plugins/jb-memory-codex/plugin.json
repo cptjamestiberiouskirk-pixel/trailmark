@@ -1,6 +1,6 @@
 {
   "name": "jb-memory-codex",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Session continuity for the ChatGPT desktop app's Codex mode: the same size-budgeted repo handoff jb-memory keeps for Claude Code, shared between both, injected at session start and refreshed at milestones. Opt-in per repo (set up from Claude Code).",
   "author": {
     "name": "Jim Burke"

@@ -5,7 +5,7 @@ description: Check that jb-memory works in this Codex environment for the curren
 
 # Memory setup (Codex)
 
-This copy of jb-memory shares Claude Code's memory folder for each repo, under `~/.claude/projects/`, so Codex and Claude Code sessions keep one handoff. A repo is set up from Claude Code (its jb-memory:memory-setup skill), which finds that folder by Claude Code's own rules. This skill checks that Codex can use it. Nothing is written inside the repo.
+This copy of jb-memory shares Claude Code's memory folder for each repo, under `~/.claude/projects/`, so Codex and Claude Code sessions keep one handoff. A repo is normally set up from Claude Code (its jb-memory:memory-setup skill), which finds that folder by Claude Code's own rules. A repo used only from Codex is set up by the user by hand, with the commands in step 2. This skill checks that Codex can use the folder. Nothing is written inside the repo.
 
 Every command here runs jb-memory through its launcher, written below as `<launcher>`: the full path that the `[jb-memory]` note at the start of this session gives after "Launcher:". If there is no such note, it is `scripts/jbm.js` two folders up from this SKILL.md (this file is `<plugin folder>/skills/jbm-memory-setup/SKILL.md`). Use that one path, in full, in every command. If it doesn't work, stop and tell the user which command failed and what it printed. Don't look for jbm.js or memory.js anywhere else, and don't run another copy.
 
@@ -29,7 +29,26 @@ Every command here runs jb-memory through its launcher, written below as `<launc
    ```
 
    - Set up (status says so): show the folder and the handoff's age, and go on.
-   - Not set up, or `resolved by` is `formula-unverified`: tell the user to set the repo up from Claude Code (jb-memory:memory-setup there), then run this check again. Don't run `init` from here: a folder Codex guesses may not be the one Claude Code uses, and the two would then keep separate handoffs.
+   - Not set up, or `resolved by` is `formula-unverified`: ask the user whether they also use Claude Code in this repo.
+     - If they do, or might: tell them to set the repo up from Claude Code (jb-memory:memory-setup there), then run this check again. A folder Codex guesses may not be the one Claude Code uses, and the two would then keep separate handoffs.
+     - If they use only Codex here: show them these commands to run themselves, in a terminal outside Codex, with `<repo>` the repo's top folder and `<launcher>` the full launcher path. Add `--public` to the init line if the repo is public. Then stop; once they have run them, they start a new chat and run this check again.
+
+       Windows PowerShell:
+
+       ```text
+       Set-Location "<repo>"
+       $env:JBMEM_CODEX_INIT = '1'
+       node "<launcher>" init --force
+       Remove-Item Env:\JBMEM_CODEX_INIT
+       ```
+
+       macOS or Linux:
+
+       ```text
+       cd "<repo>" && JBMEM_CODEX_INIT=1 node "<launcher>" init --force
+       ```
+
+       The variable is set for that one command only. Never set it yourself, run `init` yourself or suggest making the variable permanent: it is what keeps a Codex session from setting up a repo on its own. `--force` is needed because, with no Claude Code session ever in the repo, the folder comes from Claude Code's naming formula and can't be confirmed; Claude Code uses the same formula, so it would find the same folder later.
 
 3. **Check that Codex can write there.** Commands Codex runs in its sandbox can write only in the workspace and in configured writable roots. Run `node "<launcher>" note '<one line: Codex setup check>'`. If Codex asks for approval, that is the expected default: each write to the memory folder is approved. The README's step 3 says how to skip the prompts, and what that costs; leave that choice to the user.
 

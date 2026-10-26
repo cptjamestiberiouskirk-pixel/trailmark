@@ -2,7 +2,7 @@
 
 jb-memory keeps one short state file per repo, the handoff, and gives it to every new Claude Code session in that repo. Claude rewrites it at milestones (a commit, a merged PR, a subagent's result, before a compaction), so the next session starts from where the last one stopped instead of from a cold read of the code. This manual covers installing it, setting a repo up, using it day to day, the Codex copy for the ChatGPT desktop app, the Windows watchdog and the diagnostic scripts.
 
-Version 0.4.0 (Codex copy 0.2.0, jb-watchdog 1.6.0). MIT licensed.
+Version 0.4.0 (Codex copy 0.2.1, jb-watchdog 1.6.0). MIT licensed.
 
 ## Contents
 
@@ -212,19 +212,28 @@ Environment variables:
 |---|---|
 | `JBMEM_SANDBOX=off` | Runs without Node's permission model. Set it in the `env` block of `~/.claude/settings.json` only if the sandbox check fails and you accept the risk. Every session start then warns. `"sandbox": false` in `.jbmem.json` is ignored on purpose |
 | `JBMEM_CODEX_SHELL=bash` | Codex copy: read commands as bash on Windows (for an agent running in Git Bash or WSL) |
-| `JBMEM_CODEX_INIT=1` | Codex copy: allow `init` from Codex, for a repo used only from Codex |
+| `JBMEM_CODEX_INIT=1` | Codex copy: allow `init`, for a repo used only from Codex. Set it for that one command (section 8, step 6), never permanently |
 | `JBMEM_SHAPES=off` | Codex copy: stop the payload-shape log |
 
 ## 8. Codex (ChatGPT desktop app)
 
-The Codex copy keeps the same handoff in the same folder as the Claude Code plugin, so a Codex chat and a Claude Code session in one repo read and write one handoff, with the same version check. Set the repo up from Claude Code first (section 4).
+The Codex copy keeps the same handoff in the same folder as the Claude Code plugin, so a Codex chat and a Claude Code session in one repo read and write one handoff, with the same version check. A repo you also use in Claude Code is set up from Claude Code (section 4). A repo you use only from Codex is set up by hand, in step 6 below.
 
 1. Add the marketplace: `./install.sh --codex`, `install.ps1 -Codex`, or by hand `codex plugin marketplace add <release folder>`.
 2. Restart the ChatGPT desktop app, open Plugins, choose the `jb-memory-codex` marketplace and install `jb-memory-codex`. The Codex CLI only manages marketplaces; installing happens in the app, and Codex runs a plugin's hooks only when it was installed there.
 3. Review and trust the hooks when the app asks. Each should read `node -e "...PLUGIN_ROOT..." jbm --hook <name>`. Codex asks again after any change to them.
 4. Checkpoints write outside the workspace, so Codex asks you to approve each write. That is the safer default. `plugins/jb-memory-codex/README.md`, step 3, explains how to skip the prompts with a writable root and what that costs.
 5. On Windows, set `NoDefaultCurrentDirectoryInExePath` (section 9) before restarting the app.
-6. In a repo set up from Claude Code, start a new Codex chat and ask it to run the `jbm-memory-setup` skill.
+6. Set the repo up, if Claude Code hasn't. For a repo used only from Codex, run this yourself in a terminal outside Codex, from the repo's top folder (add `--public` for a public repo):
+
+   ```powershell
+   $env:JBMEM_CODEX_INIT = '1'
+   node "<release folder>\plugins\jb-memory-codex\scripts\jbm.js" init --force
+   Remove-Item Env:\JBMEM_CODEX_INIT
+   ```
+
+   On macOS or Linux: `JBMEM_CODEX_INIT=1 node "<release folder>/plugins/jb-memory-codex/scripts/jbm.js" init --force`. The variable is for that one command only: set permanently, it would let a Codex session set up any repo on its own. `--force` is needed because, with no Claude Code session ever in the repo, the folder comes from Claude Code's naming formula and can't be confirmed. Claude Code uses the same formula, so it finds the same folder if you open the repo there later.
+7. Start a new Codex chat in the repo and ask it to run the `jbm-memory-setup` skill.
 
 The Codex skills are named `jbm-checkpoint`, `jbm-recall`, `jbm-park`, `jbm-session-end`, `jbm-memory-prune` and `jbm-memory-setup`. Codex installs a copy of the plugin in `~/.codex/plugins/cache/`, so after updating the release folder, restart the app and trust the hooks again.
 
