@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 (jb-memory), 0.2.3 (jb-memory-codex): 2026-10-26
+
+- Plainer hook descriptions, the text shown when you review or trust the hooks: what each hook does for you, that hooks do nothing in repos where jb-memory isn't on, and what the launcher may touch. The hooks themselves are unchanged.
+
 ## 0.2.2 (jb-memory-codex): 2026-10-26
 
 - A plainer plugin description and README opening, saying what the plugin is for and what it gives you. Claude Code is named only for using both in one repo.

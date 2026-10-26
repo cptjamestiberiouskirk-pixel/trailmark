@@ -1,6 +1,6 @@
 {
   "name": "jb-memory",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Session continuity for Claude Code: a size-budgeted handoff refreshed at milestones, injected at session start, with compaction snapshots, parking and pruning. Opt-in per repo.",
   "author": { "name": "Jim Burke" },
   "license": "MIT",
