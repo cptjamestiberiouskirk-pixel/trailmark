@@ -222,7 +222,7 @@ The Codex copy keeps the same handoff in the same folder as the Claude Code plug
 1. Add the marketplace: `./install.sh --codex`, `install.ps1 -Codex`, or by hand `codex plugin marketplace add <release folder>`.
 2. Restart the ChatGPT desktop app, open Plugins, choose the `jb-memory-codex` marketplace and install `jb-memory-codex`. The Codex CLI only manages marketplaces; installing happens in the app, and Codex runs a plugin's hooks only when it was installed there.
 3. Review and trust the hooks when the app asks. Each should read `node -e "...PLUGIN_ROOT..." jbm --hook <name>`. Codex asks again after any change to them.
-4. Checkpoints write outside the workspace, so Codex asks you to approve each write. That is the safer default. `plugins/jb-memory-codex/README.md`, step 3, explains how to skip the prompts with a writable root and what that costs.
+4. Checkpoints write outside the workspace, so Codex's sandbox refuses the first try and the skill asks you to approve the write. That is the safer default. `plugins/jb-memory-codex/README.md`, step 3, explains how to skip the prompts with a writable root and what that costs.
 5. On Windows, set `NoDefaultCurrentDirectoryInExePath` (section 9) before restarting the app.
 6. Set the repo up, if Claude Code hasn't. For a repo used only from Codex, run this yourself in a terminal outside Codex, from the repo's top folder (add `--public` for a public repo):
 

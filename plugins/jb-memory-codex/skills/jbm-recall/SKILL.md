@@ -7,6 +7,8 @@ description: Look things up in this repo's jb-memory, including the current hand
 
 Read-only lookups over the repo's memory folder, plus two small writes (`note` and `undo-handoff`). Every command resolves the memory folder from the current directory, worktrees included.
 
+The memory folder is outside the workspace, so Codex's sandbox refuses writes there until the user approves them. If a command that writes (`note`, `undo-handoff`) fails with `EPERM`, "access denied" or a note that the path is outside the writable folders, run the same command again with escalated permissions, so that Codex asks the user to approve it. A refused write saved nothing, so the retry is safe. Don't change the command or write some other way; if the user declines, say in one line that nothing was changed.
+
 Every command here runs jb-memory through its launcher, written below as `<launcher>`: the full path that the `[jb-memory]` note at the start of this session gives after "Launcher:". If there is no such note, it is `scripts/jbm.js` two folders up from this SKILL.md (this file is `<plugin folder>/skills/jbm-recall/SKILL.md`). Use that one path, in full, in every command. If it doesn't work, stop and tell the user which command failed and what it printed. Don't look for jbm.js or memory.js anywhere else, and don't run another copy: one found by searching, such as an old copy in Claude Code's plugin cache, can write without the version check and overwrite another session's checkpoint. `<session id>` below is this session's ID from the same note; if the note gave none, leave `--session=...` out.
 
 | Need | Command |

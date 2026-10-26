@@ -3,6 +3,7 @@
 ## 0.2.1 (jb-memory-codex): 2026-10-26
 
 - The `jbm-memory-setup` skill covers a repo used only from Codex: when the repo isn't set up, it asks whether Claude Code is used there too, and if not, shows the commands to set it up by hand (`init --force` with `JBMEM_CODEX_INIT=1` for that one command). It never sets the variable or runs `init` itself. The Codex README and MANUAL section 8 describe the same path.
+- Every Codex skill that writes to the memory folder (setup's test note, checkpoint, session-end, park, recall's `note` and `undo-handoff`, prune) says what to do when Codex's sandbox refuses the write: run the same action again with escalated permissions, so Codex asks you to approve it, and stop only if you decline. Before, the setup check stopped at the first `EPERM` (seen on Windows, 2026-10-26) instead of asking.
 - Test scripts: `verify-jb-hooks.ps1` names the jb-memory under test and the copy Claude Code runs, and its Part 1 headings say which version added each group of checks; `test-jb-watchdog.ps1` keeps every scan on its stand-in Claude folder.
 
 jb-memory stays 0.4.0 and jb-watchdog 1.6.0: neither changed.
