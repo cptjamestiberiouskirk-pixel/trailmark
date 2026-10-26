@@ -749,11 +749,13 @@ function cliMode(args) {
   // project folder that holds memory/. A memory folder set somewhere else is
   // made here, before the sandbox starts, so the grant stays on that folder
   // alone and never reaches its parent, which could be a whole drive.
-  // Codex: a repo is set up from Claude Code, which knows its own folder
-  // rules; a folder guessed here could split the handoff in two.
+  // Codex: a session can't set a repo up on its own. A repo also used from
+  // Claude Code is set up there, which knows its own folder rules (a folder
+  // guessed here could split the handoff in two); a Codex-only repo is set up
+  // by the user, by hand.
   // JBMEM_CODEX_INIT=1 allows it (the tests, or a repo used only from Codex).
   if (cmd === 'init' && process.env.JBMEM_CODEX_INIT !== '1') {
-    process.stderr.write('jb-memory: set this repo up from Claude Code (jb-memory:memory-setup there); this copy shares its memory folder. Nothing was written.\n');
+    process.stderr.write('jb-memory: init is off in this copy, so a Codex session can\'t set a repo up on its own. Nothing was written. To set this repo up, run the jbm-memory-setup skill: it shows the one command to run yourself, outside Codex.\n');
     process.exit(1);
   }
   if (cmd === 'init') {

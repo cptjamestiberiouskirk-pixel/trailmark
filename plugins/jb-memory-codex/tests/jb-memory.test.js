@@ -3343,7 +3343,8 @@ test('codex init: refused unless JBMEM_CODEX_INIT=1, so the folder comes from Cl
   const s = sandbox();
   const r = jbm(s, ['init'], undefined, { JBMEM_CODEX_INIT: '' });
   assert.notStrictEqual(r.status, 0);
-  assert.match(r.stderr, /set this repo up from Claude Code/);
+  assert.match(r.stderr, /init is off in this copy/);
+  assert.doesNotMatch(r.stderr, /Claude Code/);
   assert.ok(!fs.existsSync(path.join(s.memdir, '.jbmem.json')));
 });
 

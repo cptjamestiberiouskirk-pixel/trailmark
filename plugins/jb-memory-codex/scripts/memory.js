@@ -83,7 +83,7 @@ const dir = loc.dir;
 const repoName = path.basename(loc.root || process.cwd());
 
 function requireEnabled() {
-  if (!S.isEnabled(dir)) fail(`jb-memory is not set up for this repo (memory dir: ${dir}). Set it up from Claude Code first (jb-memory:memory-setup there); this copy shares Claude Code's memory folder.`);
+  if (!S.isEnabled(dir)) fail(`jb-memory is not set up for this repo (memory folder: ${dir}). Run the jbm-memory-setup skill to set it up.`);
 }
 
 function versionLine(v, what = 'write it back') {
@@ -151,7 +151,7 @@ switch (cmd) {
 
   case 'init': {
     if (loc.method === 'formula-unverified' && !flags.force) {
-      fail(`could not confirm Claude Code's memory folder for ${loc.root}. Start one Claude Code session at the repo root, then retry (or pass --force to use ${dir}).`);
+      fail(`could not confirm the memory folder for ${loc.root}: no Claude Code session has run there, so it comes from the naming formula. In a repo used only from Codex that is expected: pass --force to use ${dir}. If you also use Claude Code there, start one Claude Code session at the repo root first, then retry.`);
     }
     const created = S.init(dir, { publicRepo: !!flags.public, repoName });
     console.log(created.length ? `Set up ${dir}\n  created: ${created.join(', ')}` : `Already set up: ${dir}`);

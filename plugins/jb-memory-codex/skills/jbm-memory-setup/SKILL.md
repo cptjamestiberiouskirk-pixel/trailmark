@@ -57,4 +57,4 @@ Every command here runs jb-memory through its launcher, written below as `<launc
    - Check that `node` resolves in a new PowerShell window.
    - The plugin's data folder holds `payload-shapes.log`, one line per hook run. No line means the hooks didn't start.
 
-5. **Report** in three lines: folder, hooks seen or not, and what's left to check.
+5. **Report** in three lines: folder, hooks seen or not, and what's left to check. Speak in Codex terms: name Claude Code only when the user said they use it in this repo, or to explain why the memory folder is under `~/.claude`.
