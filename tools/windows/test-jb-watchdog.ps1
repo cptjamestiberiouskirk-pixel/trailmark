@@ -321,7 +321,10 @@ $tmpFile = $ls + '.tmp'
 if (Test-Path -LiteralPath $tmpFile) { Remove-Item -LiteralPath $tmpFile -Force }
 $psi = New-Object Diagnostics.ProcessStartInfo
 $psi.FileName = $ps51
-$psi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $wd + '" -Scan -StateDir "' + $state + '" -NoDefender -DryRunAlert'
+# -ClaudeDir too, like every other run here: without it this scan read your
+# real Claude Code settings, found runners the test's list doesn't have, and
+# exited 1 even though the save went through.
+$psi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $wd + '" -Scan -StateDir "' + $state + '" -ClaudeDir "' + $claudeTest + '" -NoDefender -DryRunAlert'
 $psi.UseShellExecute = $false
 $psi.CreateNoWindow = $true
 $held = New-Object IO.FileStream -ArgumentList $ls, ([IO.FileMode]::Open), ([IO.FileAccess]::Read), ([IO.FileShare]::Read)
@@ -408,7 +411,7 @@ Check 'nested layout: a plugin change is HIGH' (Has $s2 'HIGH' 'changed' 'jb-mem
 Step 'PowerShell 7'
 $pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
 if ($pwsh) {
-  $out = & $pwsh.Source -NoProfile -ExecutionPolicy Bypass -File $wd -Status -StateDir $state -NoDefender 2>&1 | ForEach-Object { [string]$_ }
+  $out = & $pwsh.Source -NoProfile -ExecutionPolicy Bypass -File $wd -Status -StateDir $state -ClaudeDir $claudeTest -NoDefender 2>&1 | ForEach-Object { [string]$_ }
   $code = $LASTEXITCODE
   Check '-Status works under PowerShell 7' (($code -eq 1) -and (($out -join "`n") -match 'Findings:')) ($out -join ' ')
 } else { Info 'PowerShell 7' 'pwsh not found on PATH, skipped' }
