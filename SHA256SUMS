@@ -70,7 +70,7 @@ fff8ebb7b6592c6d135aa364645e45447bf7b5718b0f27d8084ebf035ec9b1ca  ./tools/window
 ed8f99ebc875f563d5e81a699003f7b6aeea9449f22c66d9a5daa7b4e037a2a6  ./tools/windows/jb-watchdog.ps1
 3883ffec5d2cdfe6b9b491e2c48272d6ebaf0063938630d7e2e13ae7adf9aa08  ./tools/windows/test-jb-memory-roundtrip.ps1
 bd4d74398597635f15677a7313b5fa329413e4b94725d5c018fbb36fe2fdd9bd  ./tools/windows/test-jb-memory-sessions.ps1
-a4132bbb94a6100a48d76de23a24697ce376145e7d96870311c346fe1c933c15  ./tools/windows/test-jb-watchdog.ps1
+847d1c671696638edcd0689f55a2749e1b84a517a523d314d70ef712596a4e89  ./tools/windows/test-jb-watchdog.ps1
 4f0552cc3e1a9c84ff4a777f9a8046685f7ad041359966e390232b30b443c9d4  ./tools/windows/test-node-lookup.ps1
 38ec61101f705b6a596d535a885bc8ef19b9fde17f9102c88474058a47c1d400  ./tools/windows/trace-handoff-writes.ps1
 01040ec2987f686966764dcf7f40dbe2cce366221f25fb7ca1ecfd4d24a26e42  ./tools/windows/verify-jb-hooks.ps1

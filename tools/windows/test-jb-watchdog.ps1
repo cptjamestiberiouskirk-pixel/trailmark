@@ -413,7 +413,10 @@ $pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
 if ($pwsh) {
   $out = & $pwsh.Source -NoProfile -ExecutionPolicy Bypass -File $wd -Status -StateDir $state -ClaudeDir $claudeTest -NoDefender 2>&1 | ForEach-Object { [string]$_ }
   $code = $LASTEXITCODE
-  Check '-Status works under PowerShell 7' (($code -eq 1) -and (($out -join "`n") -match 'Findings:')) ($out -join ' ')
+  # Exit 0 with nothing to report, 1 with findings; either way the full
+  # status must print. (The check used to need findings, which only came
+  # from reading your real settings by mistake.)
+  Check '-Status works under PowerShell 7' ((@(0, 1) -contains $code) -and (($out -join "`n") -match 'Scanned now:\s+\d+ files, result \w+')) ('exit ' + $code + ' / ' + ($out -join ' '))
 } else { Info 'PowerShell 7' 'pwsh not found on PATH, skipped' }
 
 Step 'Your installed watchdog (read only)'
