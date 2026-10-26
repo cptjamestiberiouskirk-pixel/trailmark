@@ -2,13 +2,13 @@
   "name": "jb-memory",
   "owner": { "name": "Jim Burke" },
   "metadata": {
-    "description": "Session continuity for Claude Code: a per-repo handoff, milestone checkpoints and compaction snapshots."
+    "description": "jb-memory: a per-project memory for Claude Code and Codex, so every new session picks up where the last one stopped."
   },
   "plugins": [
     {
       "name": "jb-memory",
       "source": "./plugins/jb-memory",
-      "description": "Session continuity: milestone checkpoints, budgeted handoff injection, compaction snapshots, parking and pruning."
+      "description": "Gives Claude Code a memory for each project. A short handoff note keeps track of where the work stands and what to do next. It is updated after commits, merges and subagent results, and given to every new session, so you don't have to explain the project again each time. Two sessions working at once can't overwrite each other's notes. Turn it on per repo. If you also use Codex with jb-memory-codex, both share the same note for that repo."
     }
   ]
 }

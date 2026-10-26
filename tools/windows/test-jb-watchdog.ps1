@@ -128,32 +128,32 @@ Check 'a Codex hook command with anything added is HIGH' (Has $s 'HIGH' 'changed
 Accept-All
 
 Step 'Outside the folder: plugin cache and settings hooks'
-$cached = Join-Path $claudeTest 'plugins\cache\jb-local\jb-memory\0.2.0\scripts'
+$cached = Join-Path $claudeTest 'plugins\cache\old-local\jb-memory\0.2.0\scripts'
 New-Item -ItemType Directory -Path $cached -Force | Out-Null
 Set-Content -LiteralPath (Join-Path $cached 'jbm.js') -Value '// old copy'
 Set-Content -LiteralPath (Join-Path $claudeTest 'settings.json') -Value '{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"powershell -File C:\\x\\evil.ps1"}]}]}}'
 $r = Run-Wd @('-Scan'); $s = Last
-Check 'a jb-memory copy in the plugin cache is HIGH' (Has $s 'HIGH' 'cache' '<claude>/plugins/cache/jb-local/jb-memory/0.2.0') (Show $s)
+Check 'a jb-memory copy in the plugin cache is HIGH' (Has $s 'HIGH' 'cache' '<claude>/plugins/cache/old-local/jb-memory/0.2.0') (Show $s)
 Check 'a new hook in user settings is HIGH, with the hook' (Has $s 'HIGH' 'settings' '<claude>/settings' '+ settings.json: hook PostToolUse (command) powershell*') (Show $s)
 Accept-All
 Add-Content -LiteralPath (Join-Path $cached 'jbm.js') -Value '// changed'
 $r = Run-Wd @('-Scan'); $s = Last
-Check 'an accepted cached copy that changes is HIGH again' (Has $s 'HIGH' 'cache' '<claude>/plugins/cache/jb-local/jb-memory/0.2.0' '*') (Show $s)
+Check 'an accepted cached copy that changes is HIGH again' (Has $s 'HIGH' 'cache' '<claude>/plugins/cache/old-local/jb-memory/0.2.0' '*') (Show $s)
 Accept-All
 # Claude Code may run a local plugin from a copy in its cache: a copy that
 # matches the watched plugin is the installed one, not a stray.
-Copy-Item -LiteralPath (Join-Path $root 'plugins\jb-memory') -Destination (Join-Path $claudeTest 'plugins\cache\jb-local\jb-memory\9.9.9') -Recurse
+Copy-Item -LiteralPath (Join-Path $root 'plugins\jb-memory') -Destination (Join-Path $claudeTest 'plugins\cache\old-local\jb-memory\9.9.9') -Recurse
 $r = Run-Wd @('-Scan'); $s = Last
-Check 'a cached copy identical to the watched plugin is not flagged' (-not (Has $s 'HIGH' 'cache' '<claude>/plugins/cache/jb-local/jb-memory/9.9.9')) (Show $s)
+Check 'a cached copy identical to the watched plugin is not flagged' (-not (Has $s 'HIGH' 'cache' '<claude>/plugins/cache/old-local/jb-memory/9.9.9')) (Show $s)
 Accept-All
 # The copy Claude Code lists as installed is the one it runs: a change to
 # it is HIGH even though the watched folder is untouched.
-$inst = Join-Path $claudeTest 'plugins\cache\jb-local\jb-memory\9.9.9'
-Set-Content -LiteralPath (Join-Path $claudeTest 'plugins\installed_plugins.json') -Value ('{"version":2,"plugins":{"jb-memory@jb-local":[{"scope":"user","installPath":' + (ConvertTo-Json $inst) + '}]}}')
+$inst = Join-Path $claudeTest 'plugins\cache\old-local\jb-memory\9.9.9'
+Set-Content -LiteralPath (Join-Path $claudeTest 'plugins\installed_plugins.json') -Value ('{"version":2,"plugins":{"jb-memory@old-local":[{"scope":"user","installPath":' + (ConvertTo-Json $inst) + '}]}}')
 Accept-All
 Add-Content -LiteralPath (Join-Path $inst 'scripts\jbm.js') -Value '// tampered'
 $r = Run-Wd @('-Scan'); $s = Last
-Check 'a change to the installed cache copy is HIGH' (Has $s 'HIGH' 'cache' '<claude>/plugins/cache/jb-local/jb-memory/9.9.9') (Show $s)
+Check 'a change to the installed cache copy is HIGH' (Has $s 'HIGH' 'cache' '<claude>/plugins/cache/old-local/jb-memory/9.9.9') (Show $s)
 Remove-Item -LiteralPath (Join-Path $claudeTest 'plugins\installed_plugins.json')
 Accept-All
 # Attacks from the security review: padding, links, escape codes, other
@@ -163,15 +163,15 @@ for ($i = 0; $i -lt 210; $i++) { New-Item -ItemType Directory -Path (Join-Path $
 Add-Content -LiteralPath (Join-Path $cached 'jbm.js') -Value '// tampered behind padding'
 $r = Run-Wd @('-Scan'); $s = Last
 Check 'a padded plugin cache is HIGH, not a silent short list' (Has $s 'HIGH' 'cache' '<claude>/plugins/cache' '*more than 200 folders*') (Show $s)
-Check 'a copy accepted before is still checked behind padding' (Has $s 'HIGH' 'cache' '<claude>/plugins/cache/jb-local/jb-memory/0.2.0') (Show $s)
+Check 'a copy accepted before is still checked behind padding' (Has $s 'HIGH' 'cache' '<claude>/plugins/cache/old-local/jb-memory/0.2.0') (Show $s)
 Get-ChildItem -LiteralPath $pad -Directory | Where-Object { $_.Name -match '^a\d{3}$' } | Remove-Item -Recurse -Force
 Accept-All
 $jt = Join-Path $base 'junction-target'
 New-Item -ItemType Directory -Path $jt -Force | Out-Null
-New-Item -ItemType Junction -Path (Join-Path $pad 'jb-local\jb-memory\0.0.1') -Target $jt | Out-Null
+New-Item -ItemType Junction -Path (Join-Path $pad 'old-local\jb-memory\0.0.1') -Target $jt | Out-Null
 $r = Run-Wd @('-Scan'); $s = Last
-Check 'a junction where a jb-memory copy can be is HIGH, not followed' (Has $s 'HIGH' 'cache' '<claude>/plugins/cache/jb-local/jb-memory/0.0.1' '*link:*') (Show $s)
-Remove-Item -LiteralPath (Join-Path $pad 'jb-local\jb-memory\0.0.1') -Force
+Check 'a junction where a jb-memory copy can be is HIGH, not followed' (Has $s 'HIGH' 'cache' '<claude>/plugins/cache/old-local/jb-memory/0.0.1' '*link:*') (Show $s)
+Remove-Item -LiteralPath (Join-Path $pad 'old-local\jb-memory\0.0.1') -Force
 Accept-All
 $e = [char]27
 Set-Content -LiteralPath (Join-Path $claudeTest 'settings.json') -Value ('{"statusLine":{"type":"command","command":"node C:\\x\\s.js"},"apiKeyHelper":"C:\\x\\k.cmd","hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"powershell -enc AAAA\u001b[2K\r\u001b[1A"}]}]}}')

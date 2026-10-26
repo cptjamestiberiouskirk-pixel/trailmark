@@ -10,7 +10,7 @@ A copy for the ChatGPT desktop app's Codex mode shares the same handoff, so Clau
 
 ## Install
 
-Put this folder somewhere permanent that only you can write to, then:
+Get the release with `git clone https://github.com/cptjamestiberiouskirk-pixel/jb-memory.git` (or download it from the [releases](https://github.com/cptjamestiberiouskirk-pixel/jb-memory/releases)) and put the folder somewhere permanent that only you can write to, then:
 
 | Platform | Command |
 |---|---|
@@ -18,6 +18,8 @@ Put this folder somewhere permanent that only you can write to, then:
 | Windows | double-click `install.cmd`, or `powershell.exe -NoProfile -ExecutionPolicy Bypass -File install.ps1` |
 
 Then, in each repo you want covered, start Claude Code and run `/jb-memory:memory-setup`. Nothing happens in a repo until you do.
+
+Claude Code can also install it straight from GitHub with `claude plugin marketplace add cptjamestiberiouskirk-pixel/jb-memory`; MANUAL.md, section 3, says what that changes.
 
 You need Node.js 24.22.1 or later (or 22.23.4, 26.12.1 in those lines) and Claude Code 2.1.304 or later. git is optional. [MANUAL.md](MANUAL.md) covers installing by hand, every option, the Codex copy, the Windows watchdog and troubleshooting.
 

@@ -2,7 +2,7 @@
 
 jb-memory keeps one short state file per repo, the handoff, and gives it to every new Claude Code session in that repo. Claude rewrites it at milestones (a commit, a merged PR, a subagent's result, before a compaction), so the next session starts from where the last one stopped instead of from a cold read of the code. This manual covers installing it, setting a repo up, using it day to day, the Codex copy for the ChatGPT desktop app, the Windows watchdog and the diagnostic scripts.
 
-Version 0.4.1 (Codex copy 0.2.3, jb-watchdog 1.6.0). MIT licensed.
+Version 0.4.2 (Codex copy 0.2.3, jb-watchdog 1.6.0). MIT licensed.
 
 ## Contents
 
@@ -101,7 +101,14 @@ User scope, the default, covers the terminal, the desktop app's local sessions a
 
 ### From a git host
 
-You can also push the release folder to a git repository and have people run `claude plugin marketplace add <owner>/<repo>`. Claude Code then installs a copy into its plugin cache instead of reading the folder in place, and updates come from the repository. The installers, jb-watchdog and the diagnostic scripts assume a local folder; with a hosted marketplace, use the plugin alone.
+Claude Code can also install straight from GitHub, without a local folder:
+
+```text
+claude plugin marketplace add cptjamestiberiouskirk-pixel/jb-memory
+claude plugin install jb-memory@jb-memory
+```
+
+Claude Code then installs a copy into its plugin cache instead of reading a folder in place, and `claude plugin marketplace update jb-memory` fetches new versions. The installers, jb-watchdog and the diagnostic scripts assume a local folder; with a hosted marketplace, use the plugin alone.
 
 ## 4. Set up a repo
 

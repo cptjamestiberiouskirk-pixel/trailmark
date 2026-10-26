@@ -4,7 +4,7 @@ jb-memory runs code at every Claude Code session start, after every commit comma
 
 ## Reporting a problem
 
-Open an issue on the repository this release came from, or contact the author listed in `LICENSE`. For anything that lets a repo, a web page or another program run code or change memory through jb-memory, please don't post details publicly until a fix is out.
+For a security problem, report it privately through GitHub: on the [repository](https://github.com/cptjamestiberiouskirk-pixel/jb-memory), open the Security tab and choose **Report a vulnerability** (https://github.com/cptjamestiberiouskirk-pixel/jb-memory/security/advisories/new). Please don't open a public issue for anything that lets a repo, a web page or another program run code or change memory through jb-memory until a fix is out. Other bugs go in the repository's [issues](https://github.com/cptjamestiberiouskirk-pixel/jb-memory/issues).
 
 ## What runs, and with what rights
 
