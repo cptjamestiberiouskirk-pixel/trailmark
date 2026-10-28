@@ -148,8 +148,9 @@ test('store identity: the first start records the repo; a second repo on the sam
   const s = sandbox();
   s.start();
   const st = () => JSON.parse(fs.readFileSync(path.join(s.memdir, '.jbmem-state.json'), 'utf8'));
-  assert.strictEqual(st().repoRoot, s.repo);
-  assert.match(s.jbm(['dir']).stdout, new RegExp(`first used for: ${s.repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  const { samePath } = require(path.join(ROOT, 'scripts', 'lib', 'paths.js'));
+  assert.ok(samePath(st().repoRoot, s.repo), st().repoRoot);
+  assert.ok(s.jbm(['dir']).stdout.includes('first used for: ' + S.escapeTags(S.fieldText(st().repoRoot, 400))));
   // A worktree of the same repo is the same repo.
   const wt = path.join(s.base, 'wt');
   s.g('worktree', 'add', '-q', wt);
@@ -169,7 +170,7 @@ test('store identity: the first start records the repo; a second repo on the sam
   const gone = st(); gone.repoRoot = path.join(s.base, 'moved-away');
   fs.writeFileSync(path.join(s.memdir, '.jbmem-state.json'), JSON.stringify(gone));
   assert.ok(!/shared with another repo/.test(s.start(SB).context));
-  assert.strictEqual(st().repoRoot, s.repo);
+  assert.ok(samePath(st().repoRoot, s.repo), st().repoRoot);
 });
 
 test('daily log: "notes": false turns it off, and old days age out', () => {

@@ -15,5 +15,20 @@ for (let i = 0; i < lines.length && shown < 10; i++) {
   console.log(`::error title=${esc(m[1].slice(0, 120))}::${esc(keep.join('\n').slice(0, 3000))}`);
   shown++;
 }
+// Every failure in one annotation (name and first error line), past the
+// cap of ten per step.
+const all = [];
+for (let i = 0; i < lines.length; i++) {
+  const m = /^\s*not ok \d+ - (.*)$/.exec(lines[i]);
+  if (!m || /\.test\.js$/.test(m[1])) continue;
+  let err = '';
+  for (let k = i + 1; k < lines.length && k < i + 60 && !/^\s*\.\.\.\s*$/.test(lines[k]); k++) {
+    const t = lines[k].trim();
+    if (/^(error|location):/.test(t) || /^[+-] /.test(t)) err += (err ? ' | ' : '') + t.slice(0, 220);
+    if (err.length > 600) break;
+  }
+  all.push(`${m[1].slice(0, 110)} :: ${err}`);
+}
+if (all.length) console.log(`::error title=all failures (${all.length})::${esc(all.join('\n').slice(0, 60000))}`);
 const sum = lines.filter(l => /^# (tests|pass|fail)/.test(l)).join(', ');
 console.log(`::notice title=summary::${esc(sum)}`);
