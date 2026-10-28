@@ -18,10 +18,10 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         node: ['22', '24']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
       - name: Sandbox check
@@ -29,6 +29,16 @@ jobs:
           node plugins/jb-memory/scripts/jbm.js --sandbox-check
           node plugins/jb-memory-codex/scripts/jbm.js --sandbox-check
       - name: jb-memory tests
-        run: node --test plugins/jb-memory/tests/jb-memory.test.js plugins/jb-memory/tests/handoff-checks.test.js
+        if: always()
+        shell: bash
+        run: |
+          node --test --test-reporter=tap plugins/jb-memory/tests/jb-memory.test.js plugins/jb-memory/tests/handoff-checks.test.js > tap-claude.txt 2>&1 && ok=1 || ok=0
+          node .github/tap-annotate.js tap-claude.txt
+          [ "$ok" = 1 ]
       - name: jb-memory-codex tests
-        run: node --test plugins/jb-memory-codex/tests/jb-memory.test.js plugins/jb-memory-codex/tests/handoff-checks.test.js
+        if: always()
+        shell: bash
+        run: |
+          node --test --test-reporter=tap plugins/jb-memory-codex/tests/jb-memory.test.js plugins/jb-memory-codex/tests/handoff-checks.test.js > tap-codex.txt 2>&1 && ok=1 || ok=0
+          node .github/tap-annotate.js tap-codex.txt
+          [ "$ok" = 1 ]

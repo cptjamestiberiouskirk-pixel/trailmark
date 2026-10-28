@@ -1,7 +1,8 @@
 a14113d50357490d331ad9901f9e1c6cdb9b00a9005b3782f0cf2b7ab5465ea4  ./.agents/plugins/marketplace.json
 6a3b162069707b0728cca14fdcf893d8bf498c5e44e76808088b1056e32219c8  ./.claude-plugin/marketplace.json
 694bbeaca2e44ab94a6a23fff7b623a86ac4cdedcce26d7a86734f9aec6c2dac  ./.gitattributes
-3172120b44cbdcaffd4992f192f78b4eabd4884ee14bfbc94dc9fada5f95ab89  ./.github/workflows/tests.yml
+d4c84ddaac668170f5bb8ca60cefb487cdb0d91955d927a8087d0c97c0f78e7d  ./.github/tap-annotate.js
+e19b9069c12766723ba5effd97e55deccbeef9c49cb4096658061a26f93cfc24  ./.github/workflows/tests.yml
 0c4783ef9495551da26bd242a0cace9f7ad39e46bf1d5af8f51aeb8f338a9112  ./.gitignore
 2fc54943c438ca5d09dc84771d0a95dc798d3e2d3b58a23a637f2e75c46e3937  ./CHANGELOG.md
 772e299d3c90af1ed7d29ae543057c27beff24f013eb42b03fe969b5ee7ab493  ./LICENSE
