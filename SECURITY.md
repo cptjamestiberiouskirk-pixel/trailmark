@@ -28,6 +28,9 @@ git is run by the launcher, outside the sandbox, by full path (found on absolute
 | The repo and its `.git` config | Untrusted | See git above. A `node.exe` in the repo is the one gap the plugin can't close itself on Windows: see the next section |
 | Text saved in the handoff | Untrusted at the next session | Injected inside a frame marked as notes from earlier sessions, with a random marker per session; lines that imitate the frame are indented and tag-like text is escaped, so saved text can't close the frame or pose as markup |
 | The memory folder's own subfolders | Untrusted | Must be real folders, never links, before anything is written or pruned there; only plain files are read |
+| The handoff's `Updated:` line (HEAD, agent) | Untrusted | Its HEAD reaches git only as 7 to 12 hex digits, checked by the launcher; anything else is ignored. The agent name is shown only when it is exactly `Claude Code` or `Codex` |
+| Commit subjects listed at session start | Untrusted | Read by the launcher from `git log`, cut to one line of 80 characters, and injected in their own frame marked as repo data, with the same line and tag escaping as the handoff |
+| The repo root recorded in the state file | Untrusted | Used only to compare paths and to check, outside the sandbox, whether a `.git` entry is there. A network path is never resolved, compared or checked. Shown with tag-like text escaped |
 | `.jbmem.json` | Partly trusted | Budgets are clamped. `"sandbox": false` is ignored, because a session steered by text it read could write it |
 | `JBMEM_SANDBOX=off` | Trusted | Only the environment turns the sandbox off, and every session start then warns |
 | `NODE_OPTIONS`, other `NODE_*`, the launcher's own `JBMEM_*` | Untrusted | Not passed to the sandboxed script; the launcher sets its own |

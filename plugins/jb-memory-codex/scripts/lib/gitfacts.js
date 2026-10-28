@@ -501,6 +501,40 @@ function sweepCommits(folders, { homeCwd, budgetMs = 3000, now = Date.now() } = 
 }
 
 // Facts passed by the launcher, or collected now when run directly.
+// The commits on HEAD since `base`, the short SHA on the handoff's Updated
+// line, for the session-start injection. state: ok (base is an ancestor of
+// HEAD; count and the newest 10 follow), not-ancestor (another branch, or
+// rewritten history) or unknown-base (this checkout doesn't have it). null
+// when git couldn't answer in time. base is checked as hex before git sees it.
+const SINCE_SHOW = 10;
+function commitsSince(cwd, base, { budgetMs = 1500 } = {}) {
+  if (!/^[0-9a-f]{7,12}$/.test(String(base || ''))) return null;
+  const r = runner(budgetMs);
+  // Every object whose name starts with base, so a branch or tag that
+  // happens to be named like the SHA can't stand in for it; then the one
+  // that is a commit, looked up by its full name.
+  const all = r.run(cwd, ['rev-parse', `--disambiguate=${base}`]);
+  if (!all.ok) return all.why === 'error' ? { base, state: 'unknown-base' } : null;
+  const commits = [];
+  for (const cand of all.out.split(/\r?\n/).map(x => x.trim()).filter(x => SHA.test(x)).slice(0, 8)) {
+    const t = r.run(cwd, ['rev-parse', '--verify', '--quiet', `${cand}^{commit}`]);
+    if (t.ok && t.out.trim() === cand) commits.push(cand);
+    else if (!t.ok && t.why !== 'error') return null;
+  }
+  if (commits.length !== 1) return { base, state: 'unknown-base' };
+  const sha = commits[0];
+  const anc = r.run(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD']);
+  if (!anc.ok) return anc.status === 1 ? { base, state: 'not-ancestor' } : null;
+  const cnt = r.run(cwd, ['rev-list', '--count', `${sha}..HEAD`]);
+  if (!cnt.ok) return null;
+  const count = Number.parseInt(cnt.out.trim(), 10);
+  if (!Number.isInteger(count) || count < 0) return null;
+  if (!count) return { base, state: 'ok', count: 0, entries: [] };
+  const log = r.run(cwd, ['log', '--no-show-signature', '--no-color', `--max-count=${SINCE_SHOW}`, '--format=%H%x1f%h%x1f%ct%x1f%x1f%s', `${sha}..HEAD`]);
+  const entries = log.ok ? parseEntries(log.out, 'time').map(e => ({ short: e.short, subject: oneLine(e.subject, 80), t: Number.isFinite(e.t) ? e.t : 0 })) : [];
+  return { base, state: 'ok', count, entries };
+}
+
 function facts(cwd, wanted) {
   if (process.env.JBMEM_GIT) {
     try { return JSON.parse(process.env.JBMEM_GIT); } catch { /* fall through */ }
@@ -508,4 +542,4 @@ function facts(cwd, wanted) {
   return gitFacts(cwd, wanted);
 }
 
-module.exports = { farNetwork, gitFacts, commitFacts, fitCommitFacts, sweepCommits, facts, branchToken, sameFolder, windowMs, windowStart, STATUS_KEEP };
+module.exports = { commitsSince, farNetwork, gitFacts, commitFacts, fitCommitFacts, sweepCommits, facts, branchToken, sameFolder, windowMs, windowStart, STATUS_KEEP };

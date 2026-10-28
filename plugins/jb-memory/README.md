@@ -1,5 +1,11 @@
 # jb-memory
 
+jb-memory runs no background model and sends nothing over the network. Each hook is a short Node script that reads git and writes text files in one folder, under a sandbox that lets it write nowhere else ("What it runs, writes and sends" below). What it adds at session start stays under 8,500 characters, inside Claude Code's 10,000-character limit for hook output, and when it has to cut the handoff it says which sections it left out ("Size budget").
+
+![A new session's view: the handoff from the last session, then the commits made since it was written, with the next step one of them may already cover](docs/session-start.png)
+
+The text in the picture is the SessionStart hook's actual output in a test repo, as Claude receives it at the start of a fresh session or after `/clear`. Without jb-memory, that session starts with nothing about where the work stood.
+
 jb-memory gives Claude Code a memory for each project. Each repo gets a short handoff note on where the work stands and what to do next, with the decisions behind it and the questions still open. The note is refreshed after commits, PR merges and subagent results and before Claude Code compacts a long session, and every new session starts with it, so you don't have to explain the project again or dig back through old sessions. It stays within a size budget, so it doesn't turn into a per-session token cost, and every write is version-checked, so two sessions working at once can't overwrite each other's notes. Ideas you aren't ready for can be parked, and memory can be pruned before it grows.
 
 You turn it on per repo. If you also use Codex with jb-memory-codex in the same repo, both read and write the same note, so either one can pick up where the other stopped.
@@ -12,14 +18,14 @@ Once installed at user scope, and only in repos set up with `/jb-memory:memory-s
 
 | Event | Hook does |
 |---|---|
-| Session start, `/clear`, after compaction | Injects the handoff (budget-capped) and shows `[jb-memory] ...` with an estimated token count where the app displays hook messages. After a compaction it adds that session's own snapshot. At a fresh start it adds another session's snapshot if one from the same folder is newer than the handoff, and names the other sessions active in the repo in the last 3 hours. Logs a `SESSION_START` line with the sandbox state, the node that ran the hook and Claude Code's entry point; `jbm.js status` shows the latest. On a resume or after a compaction it also logs the commits in this session's folders that no hook logged (see "Commits no hook saw") |
+| Session start, `/clear`, after compaction | Injects the handoff (budget-capped) and shows `[jb-memory] ...` with an estimated token count where the app displays hook messages. After a compaction it adds that session's own snapshot. At a fresh start it adds another session's snapshot if one from the same folder is newer than the handoff, and names the other sessions active in the repo in the last 3 hours. Logs a `SESSION_START` line with the sandbox state, the node that ran the hook and Claude Code's entry point; `jbm.js status` shows the latest. On a resume or after a compaction it also logs the commits in this session's folders that no hook logged (see "Commits no hook saw"). After the handoff it lists the commits made on HEAD since the handoff was written (its `Updated:` line records HEAD), the newest 10 with their subjects, and names any next-step item that shares two or more words with one of them, so Claude checks before redoing that work. If the handoff's HEAD is on another branch or isn't in this checkout, it says that instead. The first start records which repo the memory folder serves; when a second repo that still exists maps to the same folder, every start warns |
 | Resumed session | Injects one line with the handoff's age, not the whole file. If another session wrote the handoff since this one last saw it, the line says so and asks for a re-read |
 | `git commit`, including `git -C <path> commit`, run through the Bash or PowerShell tool | Logs the commit to `notes/`, read from the folder it ran in (see below). If this session's last checkpoint is older than 3 minutes and this session got no reminder in the last 20, it asks Claude to consider a checkpoint. Other `git -C` commands also start the hook, which leaves before doing any git work. A command that commits and then fails (`git commit && git push`, the push failing) gets Claude Code's PostToolUseFailure event instead; the same hook runs there and logs the commit, with no reminder. Without a PreToolUse record for that command, only the commits git printed (in the error text Claude Code passes) are logged |
 | `gh pr merge` (Bash or PowerShell tool; a `--help` or `-h` call doesn't count), subagent finished | Same reminder, same throttle |
 | Before a `git commit` or `git -C` command (Bash or PowerShell tool) | Records the folder the command starts in, and the folders its commits go to as read from the text, for the commit hooks. Prints nothing, runs no git |
 | Before compaction | Writes `snapshots/<session id>.md`: branch, HEAD, uncommitted files. No commit subjects. Snapshots older than 7 days are removed. `git status` runs with any filter the repo itself defines switched off; when that can't be done the count reads `not read (<reason>)` |
 
-Writing the handoff stays a model action, through the `jb-memory:checkpoint` skill. A hook can remind but can't make Claude write. When the handoff is saved, `write-handoff` sets its `Updated:` line from the clock and from git (branch and HEAD), so those never depend on the model, and moves `[done]` items verbatim to `archive/<date>.md`. An item whose exact text was already archived that day isn't added twice.
+Writing the handoff stays a model action, through the `jb-memory:checkpoint` skill. A hook can remind but can't make Claude write. When the handoff is saved, `write-handoff` sets its `Updated:` line from the clock, from git (branch and HEAD) and from the agent that wrote it (`by Claude Code`, or `by Codex` from jb-memory-codex), so those never depend on the model, and moves `[done]` items verbatim to `archive/<date>.md`. An item whose exact text was already archived that day isn't added twice.
 
 ### Where a commit ran
 
@@ -118,6 +124,8 @@ Files on disk cost nothing until something reads them. Two things load every ses
 
 Each budget in `.jbmem.json` must be a number. One outside its allowed range is clamped (the injection to at most 9,500 characters), and anything else falls back to the default.
 
+The whole injection, the commit list and any warnings included, stays inside the injection budget. When the handoff has to give way, the cut ends with a line saying how much was shown, which sections were left out (the rest of the one it stopped in, then up to five more by heading) and the full file's path, so Claude knows to read it.
+
 ## Install
 
 The release folder's `install.ps1` (Windows) or `install.sh` (macOS and Linux) checks Node, git and Claude Code, runs the sandbox check, then adds the marketplace and installs the plugin. `MANUAL.md` there covers each step by hand, setup per repo, the Codex copy, the Windows watchdog and troubleshooting.
@@ -143,6 +151,30 @@ It applies to programs started after it is set, so restart Claude Code (and the 
 
 Claude Code loads a plugin from a local marketplace folder in place, so an edit there takes effect at the next session start or after `/reload-plugins`. That also means anything that can write to that folder can change the hook code, so keep it somewhere only you write to.
 
+## What it runs, writes and sends
+
+All of this happens only in repos set up with `/jb-memory:memory-setup`. In any other repo each hook exits before it does anything.
+
+| Hook | Runs | Writes, in the memory folder |
+|---|---|---|
+| SessionStart | git: branch, top-level folder, HEAD's history since the handoff, commits in this session's folders | one log line, the state file |
+| PreToolUse (Bash and PowerShell, `git commit` and `git -C`) | nothing | `pending/`: where the command starts |
+| PostToolUse and PostToolUseFailure (the same commands, and `gh pr merge`) | git: the commits the command made | log lines, the state file |
+| PostToolUse (Agent, Task) | nothing | the reminder time in the state file |
+| PreCompact | git: branch, HEAD, status | `snapshots/<session>.md`, one log line |
+
+Every hook goes through `scripts/jbm.js`, which only reads. It runs git by full path, without a shell, with timeouts, and with every repo setting that could start a program switched off (`lib/gitbin.js` lists them). The git subcommands it uses are `rev-parse`, `branch`, `log` (also over the reflog), `rev-list`, `merge-base`, `status`, `ls-files`, `check-attr` and `config --show-scope`. Then it starts the script that writes, under Node's permission model: that script can write only in the repo's memory folder, and can't start programs.
+
+It writes only in the memory folder listed in "Where files live": nothing in the repo, nothing in Claude Code's settings, no CLAUDE.md, no shell profile. The skills write the handoff, parked ideas and the archive in the same folder; memory-prune edits CLAUDE.md only when you ask it to.
+
+Besides the repo, which it reads through git, it reads the memory folder; Claude Code's `settings.json` (for `autoMemoryDirectory`) and the first lines of transcripts in its projects folder, to find the memory folder; `installed_plugins.json` and the plugin cache, to warn about other jb-memory copies; and the session's own transcript when the checkpoint skill asks for it.
+
+It sends nothing. No script opens a network connection (a test checks that none loads Node's network modules), there is no telemetry, and no model is called outside the session you're in.
+
+The daily log in `notes/` holds events only: session starts (with the sandbox state and which Node ran), commits (short SHA and subject line), PR merges (flag names only), compactions, and lines you ask for with `note`. It keeps no prompt or reply text. A day's file is deleted 90 days after its date, when a new day's log starts; `"notesKeepDays"` in `.jbmem.json` sets another number of days, and `"notes": false` turns the log off.
+
+The plugin works from its own folder alone: the hooks need only `node` on PATH, and the installers in the release add checks around the install, nothing the hooks rely on.
+
 ## Where files live
 
 In Claude Code's auto-memory folder for the repo (`~/.claude/projects/<project>/memory/`). Every worktree of the repo shares it.
@@ -151,14 +183,15 @@ In Claude Code's auto-memory folder for the repo (`~/.claude/projects/<project>/
 .jbmem.json        opt-in marker and budgets
 handoff.md         the state register (injected)
 handoff.prev.md    previous version (undo-handoff)
-.jbmem-state.json  commits logged (last 200), last writer, per-session records (14 days)
+.jbmem-state.json  commits logged (last 200), last writer, per-session records (14 days),
+                   the repo root this folder serves
 .jbmem.lock        present only while a command is changing shared files
 snapshots/         one compaction snapshot per session (7 days)
 precompact.md      snapshot from 0.2.x, before there was a session ID
 archive/           verbatim archived items and files (never injected)
 archive/handoff-history/  copy of the handoff before each overwrite (last 20)
 parked/            parked ideas (only the count is injected)
-notes/             daily log: session starts, commits, merges, compactions
+notes/             daily log: session starts, commits, merges, compactions (90 days)
 pending/           where each recent git commit command started (6 hours)
 ```
 
@@ -178,5 +211,6 @@ pending/           where each recent git commit command started (6 hours)
 
 ```text
 node --test tests/jb-memory.test.js
+node --test tests/handoff-checks.test.js
 node scripts/jbm.js --sandbox-check
 ```

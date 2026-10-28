@@ -2,7 +2,7 @@
 
 jb-memory keeps one short state file per repo, the handoff, and gives it to every new Claude Code session in that repo. Claude rewrites it at milestones (a commit, a merged PR, a subagent's result, before a compaction), so the next session starts from where the last one stopped instead of from a cold read of the code. This manual covers installing it, setting a repo up, using it day to day, the Codex copy for the ChatGPT desktop app, the Windows watchdog and the diagnostic scripts.
 
-Version 0.4.4 (Codex copy 0.2.3, jb-watchdog 1.6.0). MIT licensed.
+Version 0.4.5 (Codex copy 0.2.4, jb-watchdog 1.6.0). MIT licensed.
 
 ## Contents
 
@@ -128,7 +128,7 @@ Most of it happens on its own.
 
 | When | What jb-memory does |
 |---|---|
-| Session start, `/clear`, after a compaction | Injects the handoff (within its budget) as notes from earlier sessions, and shows `[jb-memory] ...` with a token estimate. After a compaction it adds that session's snapshot. It names other sessions active in the repo in the last 3 hours |
+| Session start, `/clear`, after a compaction | Injects the handoff (within its budget) as notes from earlier sessions, and shows `[jb-memory] ...` with a token estimate. Then it lists the commits made on HEAD since the handoff was written, and names any next step one of them may already cover. After a compaction it adds that session's snapshot. It names other sessions active in the repo in the last 3 hours, and warns if a second repo maps to the same memory folder |
 | Resumed session | One line with the handoff's age, and a request to re-read it if another session wrote it since |
 | `git commit` through the Bash or PowerShell tool | Logs each commit it made, in whichever folder it ran, and reminds Claude to checkpoint |
 | `gh pr merge` | Logs the merge and reminds Claude to checkpoint |
@@ -205,13 +205,15 @@ Keep the evidence labels unless you have a reason to drop them. They are what le
 |---|---|---|---|
 | `budgets.handoffChars` | 7000 | 500 to 100000 | Handoff size limit in characters |
 | `budgets.handoffLines` | 120 | 10 to 5000 | Handoff size limit in lines |
-| `budgets.injectChars` | 8500 | 1000 to 9500 | Most the session-start injection may hold (Claude Code cuts hook output over 10,000) |
+| `budgets.injectChars` | 8500 | 2000 to 9500 | Most the session-start injection may hold (Claude Code cuts hook output over 10,000) |
 | `budgets.memoryMdLines` | 150 | 10 to 1000 | Warning level for Claude Code's own MEMORY.md |
 | `budgets.memoryMdBytes` | 20000 | 1000 to 200000 | Same, in bytes |
 | `hints.minMinutesBetween` | 20 | 0 to 1440 | Least time between checkpoint reminders |
 | `hints.freshCheckpointMinutes` | 3 | 0 to 1440 | No reminder this soon after a checkpoint |
 | `staleDays` | 30 | 1 to 3650 | Age at which prune calls an item stale |
 | `publicRepo` | false | true or false | Extra checks before anything is promoted into committed files |
+| `notes` | true | true or false | `false` turns off the daily log in `notes/` |
+| `notesKeepDays` | 90 | 1 to 3650 | Days a daily log file is kept; older ones are deleted when a new day's log starts |
 
 Environment variables:
 
@@ -244,6 +246,8 @@ The Codex copy keeps the same handoff in the same folder as the Claude Code plug
 
 The Codex skills are named `jbm-checkpoint`, `jbm-recall`, `jbm-park`, `jbm-session-end`, `jbm-memory-prune` and `jbm-memory-setup`. Codex installs a copy of the plugin in `~/.codex/plugins/cache/`, so after updating the release folder, restart the app and trust the hooks again.
 
+After Codex compacts a long chat, the handoff comes back through the SessionStart hook, which the desktop app runs with source `compact`. Codex's PostCompact hook can't add text to a chat, and the Codex copy doesn't use it. Whether the app puts the SessionStart text into the compacted chat hasn't been checked on its own; if the agent seems to have lost the thread after a compaction, ask it to run `jbm-recall`.
+
 ## 9. Windows: the working-folder lookup
 
 Every hook starts `node` by name. On Windows, cmd.exe and Node's own child_process look in the current folder before PATH, so a `node.exe` (or, through cmd, a `node.cmd` or `node.bat`) committed to a repo could run in place of Node at every hook, as you. One user setting turns that lookup off for cmd and for programs that honor it:
@@ -261,6 +265,8 @@ macOS and Linux shells don't search the current folder unless PATH holds `.` or 
 ## 10. jb-watchdog (Windows)
 
 jb-watchdog watches the release folder for changes and for content that looks malicious, because Claude Code runs the hooks from there at every session start. It also watches what decides which code Claude Code runs outside that folder: copies of jb-memory in Claude Code's plugin cache, and the hooks, helpers, plugins, marketplaces and MCP servers in Claude Code's user settings. It runs as you, with no admin rights, and never changes anything it watches.
+
+It is a separate, opt-in tool. Neither plugin installs or starts it, and nothing in a plugin folder creates a scheduled task; only the steps below do.
 
 ### Install
 
@@ -338,6 +344,8 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 | A checkpoint write is refused with exit code 3 | Another session wrote the handoff first | Nothing: the skill merges and writes again. Three refusals in a row means two sessions are checkpointing at the same moment |
 | Exit code 2 | Over budget | The skill tightens the text and writes again |
 | "another jb-memory command is using the memory folder" | The lock was busy for over 10 seconds | Wait and retry; the message names what holds it |
+| Warning that the memory folder was first used for another repo | Two repo paths that differ only in punctuation map to one folder name (`C:\a-b` and `C:\a\b` both give `C--a-b`), so they share one handoff | Rename or move one repo so the paths differ in letters or digits. Once the other path no longer holds a repo, the next session start takes the record over and the warning stops |
+| A list of commits since the handoff, or a note that its HEAD is on another branch | Work was committed after the last checkpoint, or the branch changed | Nothing to fix: it is there so Claude checks the next steps against what was committed before redoing anything. A checkpoint records the new HEAD |
 | Commits aren't logged | git not on PATH; the commit ran through a tool other than Bash or PowerShell; a hook didn't fire | `check-jb-checkpoints.ps1` (Windows) shows what each session ran next to what was logged |
 | The installer says jb-memory is installed as another id | An older install from a different marketplace | Section 15 |
 | The installer refuses the folder's permissions | A broad group can write there | Move the folder under your user profile, or fix the permissions |

@@ -1,0 +1,34 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }}, Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Sandbox check
+        run: |
+          node plugins/jb-memory/scripts/jbm.js --sandbox-check
+          node plugins/jb-memory-codex/scripts/jbm.js --sandbox-check
+      - name: jb-memory tests
+        run: node --test plugins/jb-memory/tests/jb-memory.test.js plugins/jb-memory/tests/handoff-checks.test.js
+      - name: jb-memory-codex tests
+        run: node --test plugins/jb-memory-codex/tests/jb-memory.test.js plugins/jb-memory-codex/tests/handoff-checks.test.js

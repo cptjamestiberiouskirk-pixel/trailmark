@@ -392,7 +392,7 @@ test('write-handoff: the Updated line gets the clock time, and git branch and HE
   assert.strictEqual(w.status, 0, w.stdout + w.stderr);
   const after = fmt(new Date());
   const text = fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8');
-  const m = /^Updated: (\S+ \S+) \| branch (\S+) \| HEAD ([0-9a-f]+)$/m.exec(text);
+  const m = /^Updated: (\S+ \S+) \| branch (\S+) \| HEAD ([0-9a-f]+) \| by Codex$/m.exec(text);
   assert.ok(m, text);
   assert.ok(m[1] >= before && m[1] <= after, `${m[1]} is not between ${before} and ${after}`);
   const g = a => execFileSync('git', a, { cwd: s.repo, encoding: 'utf8' }).trim();
@@ -402,18 +402,18 @@ test('write-handoff: the Updated line gets the clock time, and git branch and HE
   // No Updated line: one goes under the heading. CRLF input, as from a PowerShell pipe, is normalized.
   wh(J(s), '# Handoff: x\r\n\r\n## Bootstrap\r\n- go\r\n');
   const t2 = fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8');
-  assert.match(t2, /# Handoff: x\nUpdated: \S+ \S+ \| branch \S+ \| HEAD [0-9a-f]+\n/);
+  assert.match(t2, /# Handoff: x\nUpdated: \S+ \S+ \| branch \S+ \| HEAD [0-9a-f]+ \| by Codex\n/);
   assert.ok(!t2.includes('\r'));
   // Run directly, without the launcher's git facts: the time is stamped, the model's branch and HEAD stay.
   const d = wh(s.cli, '# Handoff: x\nUpdated: 2020-01-01 00:00 | branch mine | HEAD abc1234\n');
   assert.strictEqual(d.status, 0, d.stdout + d.stderr);
   const t3 = fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8');
-  assert.match(t3, /^Updated: \S+ \S+ \| branch mine \| HEAD abc1234$/m);
+  assert.match(t3, /^Updated: \S+ \S+ \| branch mine \| HEAD abc1234 \| by Codex$/m);
   assert.ok(!t3.includes('2020-01-01'));
   // Frontmatter is left alone; only the body's Updated line changes.
   const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
   const fm = S.stampUpdated('---\nname: handoff\n---\n# H\nUpdated: 2020-01-01 00:00\n', null, new Date(2026, 9, 17, 9, 5));
-  assert.strictEqual(fm, '---\nname: handoff\n---\n# H\nUpdated: 2026-10-17 09:05\n');
+  assert.strictEqual(fm, '---\nname: handoff\n---\n# H\nUpdated: 2026-10-17 09:05 | by Codex\n');
 });
 
 test('write-handoff and park: --from=<file> works like stdin; a file in the memory folder is removed once saved', () => {
@@ -516,7 +516,7 @@ test('version check: a write needs a base, a stale base is refused with a diff, 
   assert.strictEqual(merged.status, 0, merged.stdout + merged.stderr);
   const after = fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8');
   assert.match(after, /B ADDED THIS[\s\S]*A ADDED THIS/);
-  assert.match(after, /^Updated: .* \| session 11111111$/m);
+  assert.match(after, /^Updated: .* \| session 11111111 \| by Codex$/m);
   assert.match(merged.stdout, /handoff version: ([0-9a-f]{12}) \(this session's next write goes with --base=\1\)/);
   // A version line copied in from the `handoff` output is dropped.
   const copied = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], `[jb-memory] handoff version: ${v2} (write it back with --base=${v2})\n# H\n- body\n`);
@@ -625,8 +625,8 @@ test('sessions: per-session snapshots, start messages, notes, status and the Upd
   // The Updated line names the writing session and drops one the model copied.
   const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
   const t = S.stampUpdated('# H\nUpdated: 2020-01-01 00:00 | branch x | session deadbeef\n', null, new Date(2026, 9, 17, 9, 5), SB);
-  assert.strictEqual(t, '# H\nUpdated: 2026-10-17 09:05 | branch x | session 22222222\n');
-  assert.strictEqual(S.stampUpdated('# H\nUpdated: 2020-01-01 00:00 | session deadbeef\n', null, new Date(2026, 9, 17, 9, 5)), '# H\nUpdated: 2026-10-17 09:05\n');
+  assert.strictEqual(t, '# H\nUpdated: 2026-10-17 09:05 | branch x | session 22222222 | by Codex\n');
+  assert.strictEqual(S.stampUpdated('# H\nUpdated: 2020-01-01 00:00 | session deadbeef\n', null, new Date(2026, 9, 17, 9, 5)), '# H\nUpdated: 2026-10-17 09:05 | by Codex\n');
   // A session ID that isn't one (an unsubstituted ${CLAUDE_SESSION_ID}) is ignored.
   assert.strictEqual(S.cleanSession('${CLAUDE_SESSION_ID}'), '');
   assert.strictEqual(jbm(s, ['note', 'no id', '--session=${CLAUDE_SESSION_ID}']).status, 0);
@@ -1533,10 +1533,10 @@ test('Updated line: only the one under the title is restamped; a later body line
   const text = ['# Handoff: x', '', '## Notes', 'Updated: the README is now current', ''].join('\n');
   const out = S.stampUpdated(text, { branch: 'main', head: 'abc1234' }, new Date(2026, 9, 18, 9, 5));
   const lines = out.split('\n');
-  assert.strictEqual(lines[1], 'Updated: 2026-10-18 09:05 | branch main | HEAD abc1234');
+  assert.strictEqual(lines[1], 'Updated: 2026-10-18 09:05 | branch main | HEAD abc1234 | by Codex');
   assert.ok(lines.includes('Updated: the README is now current'), out);
   const top = S.stampUpdated(['# Handoff: x', 'Updated: old', '', 'body'].join('\n'), null, new Date(2026, 9, 18, 9, 5));
-  assert.strictEqual(top.split('\n')[1], 'Updated: 2026-10-18 09:05 | old');
+  assert.strictEqual(top.split('\n')[1], 'Updated: 2026-10-18 09:05 | old | by Codex');
 });
 
 test('findTranscript: reads only the head of each transcript it scans', () => {
@@ -1655,7 +1655,7 @@ test('Updated line: one stamp whatever the layout around the title, after severa
     let t = l.join('\n');
     for (let k = 0; k < 3; k++) t = S.stampUpdated(t, { branch: 'main', head: 'abc1234' }, new Date(2026, 9, 18, 9, k));
     assert.strictEqual(t.split('\n').filter(x => /^Updated:/.test(x)).length, 1, t);
-    assert.match(t, /^Updated: 2026-10-18 09:02 \| branch main \| HEAD abc1234$/m, t);
+    assert.match(t, /^Updated: 2026-10-18 09:02 \| branch main \| HEAD abc1234 \| by Codex$/m, t);
   }
 });
 
@@ -1801,17 +1801,17 @@ test('0.3.3 Updated line: branch and HEAD come from where the session\'s last co
     return /^Updated: .*$/m.exec(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8'))[0];
   };
   const a = run(wt, SA);
-  assert.match(a, new RegExp(`^Updated: \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} \\| branch audit \\| HEAD ${head(clone)} \\| in ${clone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\| session 11111111$`), a);
+  assert.match(a, new RegExp(`^Updated: \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} \\| branch audit \\| HEAD ${head(clone)} \\| in ${clone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\| session 11111111 \\| by Codex$`), a);
   // A session in the main checkout: the 0.3.2 format, no folder.
   s.g('commit', '-q', '--allow-empty', '-m', 'main work');
   const b = run(s.repo, SB);
-  assert.match(b, new RegExp(`^Updated: \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} \\| branch \\S+ \\| HEAD ${head(s.repo)} \\| session 22222222$`), b);
+  assert.match(b, new RegExp(`^Updated: \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} \\| branch \\S+ \\| HEAD ${head(s.repo)} \\| session 22222222 \\| by Codex$`), b);
   // A session in the worktree that never committed: the worktree, named.
   const c = run(wt, SC);
-  assert.match(c, new RegExp(`\\| branch wa \\| HEAD ${head(wt)} \\| in ${wt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\| session 33333333$`), c);
+  assert.match(c, new RegExp(`\\| branch wa \\| HEAD ${head(wt)} \\| in ${wt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\| session 33333333 \\| by Codex$`), c);
   // A recorded folder that is gone: back to the session's own folder.
   fs.rmSync(clone, { recursive: true, force: true });
-  assert.match(run(wt, SA), new RegExp(`\\| branch wa \\| HEAD ${head(wt)} \\| in .*wa \\| session 11111111$`));
+  assert.match(run(wt, SA), new RegExp(`\\| branch wa \\| HEAD ${head(wt)} \\| in .*wa \\| session 11111111 \\| by Codex$`));
 });
 
 test('0.3.3 commits: two folders in one command are both logged; a commit named only in a heredoc, a quoted string or a pull is not a commit', () => {
@@ -2268,7 +2268,7 @@ test('0.3.3 Updated line: a main checkout reached through another spelling (a li
   hook(s.repo, SA, `cd "${link}" && git commit -q -m "through the link"`, { end: s.repo });
   wh(J(s), '# H\n- x\n', [`--session=${SA}`]);
   const line = /^Updated: .*$/m.exec(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8'))[0];
-  assert.match(line, new RegExp(`\\| HEAD ${head(s.repo)} \\| session 11111111$`), line);
+  assert.match(line, new RegExp(`\\| HEAD ${head(s.repo)} \\| session 11111111 \\| by Codex$`), line);
   // A clone whose folder name has a %.
   const odd = path.join(s.base, '100% done');
   execFileSync('git', ['clone', '-q', s.repo, odd], { stdio: 'ignore' });

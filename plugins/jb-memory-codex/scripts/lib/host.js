@@ -19,4 +19,4 @@ const SKILL_RULE = `Its instructions are in ${skillFile('checkpoint')}; follow t
 
 const CONTEXT_CHARS = 9000;
 
-module.exports = { HOST: 'codex', CONTEXT_CHARS, NAME: 'jb-memory-codex', ROOT, LAUNCHER, skill, skillFile, CHECKPOINT_SKILL, SKILL_RULE };
+module.exports = { HOST: 'codex', AGENT: 'Codex', CONTEXT_CHARS, NAME: 'jb-memory-codex', ROOT, LAUNCHER, skill, skillFile, CHECKPOINT_SKILL, SKILL_RULE };

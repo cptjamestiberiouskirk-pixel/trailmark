@@ -43,7 +43,7 @@ const { spawnSync } = require('child_process');
 const { findMemoryDir, projectsRoot, samePath, repoRoot, configDir } = require('./lib/paths');
 const { nodeAdvice, otherCopies, nodeInside } = require('./lib/health');
 const S = require('./lib/store');
-const { gitFacts, commitFacts, fitCommitFacts, sweepCommits, sameFolder, windowMs, farNetwork } = require('./lib/gitfacts');
+const { commitsSince, gitFacts, commitFacts, fitCommitFacts, sweepCommits, sameFolder, windowMs, farNetwork } = require('./lib/gitfacts');
 // When the launcher started: a hook's sandboxed script gets what is left of
 // the host's hook timeout, not a fixed time on top of the launcher's own work.
 const T0 = Date.now();
@@ -303,6 +303,12 @@ function hookMode(name, extra) {
     facts = gitFacts(cwd, spec.facts, { budgetMs: Math.max(0, 5000 - (Date.now() - started)) });
     // At session start, commits in this session's folders that no hook logged.
     if (name === 'session-start') {
+      // Commits since the handoff was written, and which repo this memory
+      // folder was first used for.
+      const since = sinceHandoff(loc, cwd, 5000 - (Date.now() - started) - 1500);
+      if (since) facts.since = since;
+      const seen = rootSeen(loc, cwd);
+      if (seen) facts.rootSeen = seen;
       const sweep = sweepFacts(loc, S.cleanSession(payload.session_id), sessionHome(payload) || cwd, 5000 - (Date.now() - started));
       if (sweep) facts.sweep = sweep;
       // Read here, before the sandbox: the hook can't see Claude Code's
@@ -314,6 +320,33 @@ function hookMode(name, extra) {
     }
   }
   process.exit(run(spec.script, extra, { ...opts, facts }));
+}
+
+// The commits on HEAD since the handoff's HEAD (its Updated line), read
+// before the sandbox since the hook can't run git.
+function sinceHandoff(loc, cwd, left) {
+  if (left < 400) return null;
+  let text = null;
+  try { text = S.readText(path.join(loc.dir, S.HANDOFF)); } catch { return null; }
+  const st = S.handoffStamp(text || '');
+  if (!st.head) return null;
+  try { return commitsSince(cwd, st.head, { budgetMs: Math.min(1200, left) }); } catch { return null; }
+}
+
+// The repo root recorded in the state file, and, when it differs from this
+// one, whether it still holds a repo (lib/store.js, checkRepoRoot).
+function rootSeen(loc, cwd) {
+  let st = {};
+  try { st = S.readState(loc.dir); } catch { return null; }
+  const r = typeof st.repoRoot === 'string' && st.repoRoot.length < 4096 && path.isAbsolute(st.repoRoot) ? st.repoRoot : '';
+  if (!r) return { recorded: '' };
+  // A network path is never looked up, not even to compare it: resolving it
+  // would reach the server, outside the sandbox.
+  if (farNetwork(r, cwd)) return { recorded: r, same: false, network: true };
+  if (sameFolder(r, loc.root)) return { recorded: r, same: true };
+  let exists = false;
+  try { exists = fs.lstatSync(path.join(r, '.git')) !== null; } catch { exists = false; }
+  return { recorded: r, same: false, exists };
 }
 
 // The short SHAs git printed for its commits ("[main 1a2b3c4] fix", also

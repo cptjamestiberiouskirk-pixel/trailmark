@@ -212,8 +212,11 @@ function Run-Pass([string]$tool, [string]$marker, [string]$nextAction, [string]$
   Result ($tool + ': Updated line carries git HEAD') $(if ($okHead) { 'PASS' } else { 'FAIL' }) ('expected HEAD ' + $head + ', line says:' + $m.Groups[2].Value)
   # 0.3.0: the skill passes the ID Claude Code substitutes for ${CLAUDE_SESSION_ID}.
   # No session on the line means the substitution didn't happen in this Claude Code.
-  $okSid = $m.Success -and ($m.Groups[2].Value -match '\| session [0-9a-f]{8}$')
+  $okSid = $m.Success -and ($m.Groups[2].Value -match '\| session [0-9a-f]{8}(?: \| by (?:Claude Code|Codex))?$')
   Result ($tool + ': Updated line names the writing session') $(if ($okSid) { 'PASS' } else { 'FAIL' }) ('line says:' + $m.Groups[2].Value)
+  # 0.4.5: write-handoff adds the agent that wrote the handoff.
+  $okAgent = $m.Success -and ($m.Groups[2].Value -match '\| by Claude Code$')
+  Result ($tool + ': Updated line names the agent (0.4.5)') $(if ($okAgent) { 'PASS' } else { 'FAIL' }) ('line says:' + $m.Groups[2].Value)
 
   Step ('Pass ' + $tool + ', session two: a brand-new session, no tools')
   $s0 = @(Notes | Where-Object { $_ -match 'SESSION_START' }).Count

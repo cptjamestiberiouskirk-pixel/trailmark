@@ -29,7 +29,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { findMemoryDir } = require('./lib/paths');
+const { findMemoryDir, samePath } = require('./lib/paths');
 const S = require('./lib/store');
 
 const argv = process.argv.slice(2);
@@ -143,9 +143,17 @@ function printBudget(m) {
 switch (cmd) {
   case 'dir': {
     const sandbox = process.env.JBMEM_SANDBOX || 'off (run directly, not via jbm.js)';
-    const out = { dir, exists: loc.exists, enabled: S.isEnabled(dir), method: loc.method, repoRoot: loc.root, sandbox };
+    let recorded = '';
+    try { const st = S.readState(dir); recorded = typeof st.repoRoot === 'string' ? st.repoRoot : ''; } catch { recorded = ''; }
+    const clash = !!recorded && !samePath(recorded, loc.root);
+    // From the state file, which a session can write: shown escaped.
+    recorded = recorded ? S.escapeTags(S.fieldText(recorded, 400)) : '';
+    const out = { dir, exists: loc.exists, enabled: S.isEnabled(dir), method: loc.method, repoRoot: loc.root, recordedRepo: recorded, sandbox };
     if (flags.json) console.log(JSON.stringify(out, null, 2));
-    else console.log(`${dir}\n  resolved by: ${loc.method}\n  repo root: ${loc.root}\n  exists: ${loc.exists}\n  set up: ${out.enabled}\n  sandbox: ${sandbox}`);
+    else {
+      console.log(`${dir}\n  resolved by: ${loc.method}\n  repo root: ${loc.root}\n  first used for: ${recorded || (out.enabled ? 'not recorded yet (the next session start records it)' : '-')}\n  exists: ${loc.exists}\n  set up: ${out.enabled}\n  sandbox: ${sandbox}`);
+      if (clash) console.log(`WARNING: this folder was first used for ${recorded}, not this repo. If that is another repo that still exists, the two share one handoff; if the repo moved, the next session start takes the record over.`);
+    }
     break;
   }
 
@@ -153,7 +161,7 @@ switch (cmd) {
     if (loc.method === 'formula-unverified' && !flags.force) {
       fail(`could not confirm the memory folder for ${loc.root}: no Claude Code session has run there, so it comes from the naming formula. In a repo used only from Codex that is expected: pass --force to use ${dir}. If you also use Claude Code there, start one Claude Code session at the repo root first, then retry.`);
     }
-    const created = S.init(dir, { publicRepo: !!flags.public, repoName });
+    const created = S.init(dir, { publicRepo: !!flags.public, repoName, repoRoot: loc.root });
     console.log(created.length ? `Set up ${dir}\n  created: ${created.join(', ')}` : `Already set up: ${dir}`);
     break;
   }
@@ -250,8 +258,9 @@ switch (cmd) {
 
   case 'note': {
     requireEnabled();
-    try { S.note(dir, args.join(' '), session); } catch (e) { fail(e.message); }
-    console.log(`noted in notes/${S.localDate()}.md`);
+    let file;
+    try { file = S.note(dir, args.join(' '), session); } catch (e) { fail(e.message); }
+    console.log(file ? `noted in notes/${S.localDate()}.md` : 'not noted: the daily log is turned off ("notes": false in .jbmem.json)');
     break;
   }
 

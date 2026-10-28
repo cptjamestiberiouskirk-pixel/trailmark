@@ -60,9 +60,17 @@ guard(() => {
   // launcher's full path reach the model here, ahead of the handoff.
   const names = ['checkpoint', 'recall', 'park', 'session-end', 'memory-prune'].map(H.skill).join(', ');
   notes.unshift(`[jb-memory] ChatGPT/Codex copy of jb-memory. Launcher: ${H.LAUNCHER} (run every jb-memory command as node "<launcher>" ...). ${session ? `This session's ID: ${session}; pass --session=${session} where a skill asks for it.` : 'No session ID was given: leave --session out.'} Skills: ${names}, in ${S.fieldText(require('path').join(H.ROOT, 'skills'), 400)}. This handoff is shared with Claude Code sessions in this repo.`);
+  // Two repos whose paths map to one memory folder share one handoff.
+  try {
+    const clash = S.checkRepoRoot(dir, process.env.JBMEM_ROOT, f.rootSeen);
+    if (clash) {
+      warn.push(`${clash}. Rename or move one of them so their paths differ in letters or digits (MANUAL.md, Troubleshooting)`);
+      notes.push(`[jb-memory] This memory folder is shared with another repo, so the handoff may describe that repo instead (${S.oneLine(clash, 300)}). Check it against this repo before relying on it.`);
+    }
+  } catch (e) { if (e && e.code === 'ERR_ACCESS_DENIED') throw e; }
   // Built before this start is recorded, so a resume compares the handoff
   // with when this session last saw it, not with now.
-  const { text, summary } = S.buildInjection(dir, { source, session, worktree: toplevel || cwd, notes });
+  const { text, summary } = S.buildInjection(dir, { source, session, worktree: toplevel || cwd, notes, since: f.since });
   try {
     S.recordSessionStart(dir, session, { source, transcriptPath: payload.transcript_path, home: cwd });
   } catch (e) {
@@ -79,6 +87,6 @@ guard(() => {
   // handoff cut short is one.
   if (/TRUNCATED/.test(summary)) warn.push('the handoff was cut short to fit; run the jbm-memory-prune skill');
   const out = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } };
-  if (warn.length) out.systemMessage = `[jb-memory] ${summary}, ${sandboxNote()}. WARNING: ${warn.join('. ')}.`;
+  if (warn.length) out.systemMessage = `[jb-memory] ${summary}, ${sandboxNote()}. WARNING: ${warn.map(w => w.replace(/\.\s*$/, '')).join('. ')}.`;
   emit(out);
 });

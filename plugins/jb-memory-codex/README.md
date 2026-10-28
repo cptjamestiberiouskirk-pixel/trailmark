@@ -1,5 +1,7 @@
 # jb-memory-codex
 
+jb-memory runs no background model and sends nothing over the network. Each hook is a short Node script that reads git and writes text files in the repo's memory folder, under a sandbox that lets it write nowhere else, plus a small log of hook payload shapes in the plugin's own data folder ("What it runs, writes and sends" below). What it adds at the start of a chat stays under 8,500 characters, inside the point where Codex moves hook output to a file, and when it has to cut the handoff it says which sections it left out.
+
 jb-memory gives Codex, in the ChatGPT desktop app or the Codex CLI, a memory for each project. Each repo gets a short handoff note on where the work stands and what to do next, with the decisions behind it and the questions still open. The note is refreshed after commits and PR merges and before Codex compacts a long chat, and every new chat starts with it, so you don't have to explain the project again or dig back through old chats. It stays within a size budget, so it doesn't fill the context, and every write is version-checked, so two chats working at once can't overwrite each other's notes.
 
 You turn it on per repo. If you also use Claude Code with jb-memory in the same repo, both read and write the same note, so either one can pick up where the other stopped.
@@ -21,6 +23,7 @@ The handoff, its budget, the commit log, parking, pruning and the Node permissio
 | Session start message | Always shown | Codex shows `systemMessage` as a warning, so it is sent only for a warning (old Node, other jb-memory copies, a handoff cut short) |
 | Injection cap | 10,000 characters | 9,000: Codex moves hook output past about 2,500 tokens to a file instead of the context |
 | Commit-folder end check | END_MISMATCH diagnostic | None: each Codex command runs in a fresh shell and the session's folder never moves |
+| After a compaction | SessionStart with source `compact` brings the handoff and the session's snapshot back | The same SessionStart hook, which the desktop app ran with source `compact` (see "Observed"). Codex's PostCompact hook can't add text to the chat, and this copy doesn't use it. Whether the app puts the SessionStart text into the compacted chat hasn't been checked on its own, so after a long chat compacts, run `jbm-recall` if the agent seems to have lost the thread |
 
 ## Install
 
@@ -69,6 +72,17 @@ Each step says whether it is CONFIRMED from Codex's documentation or from use wi
 
 7. **Check it.** Start a new Codex chat in the repo and ask it to run the `jbm-memory-setup` skill. It runs the sandbox check, finds the memory folder, writes a test note and confirms the session-start note arrived.
 
+## What it runs, writes and sends
+
+The same as jb-memory's README section of that name, with these differences:
+
+- The PostToolUse hook starts on every shell command, since Codex has no per-command filter, and leaves before any git work unless the command is a commit or a PR merge.
+- It reads Codex's own rollouts (`%USERPROFILE%\.codex\sessions` and `archived_sessions`) by session ID, for the exit code of a commit command and for the checkpoint skill. It never reads a Claude Code transcript.
+- Outside the memory folder it writes one file, `payload-shapes.log` in the plugin's data folder (`PLUGIN_DATA`), which records field names and types only and stops growing at 256 KB. `JBMEM_SHAPES=off` turns it off. See the next section.
+- Writes to the memory folder go through Codex's approval for commands outside the workspace (Install, step 3).
+
+The daily log, the `"notes": false` switch and the 90-day retention (`"notesKeepDays"`) are the same in both copies, since they share the memory folder and its `.jbmem.json`.
+
 ## Checking how the hooks ran
 
 In a repo set up for jb-memory, each hook run that gets past its first checks (a session start, a compaction, or a commit or PR merge command) adds one line to `payload-shapes.log` in the plugin's data folder (`PLUGIN_DATA`): the event, the tool name, the payload's field names and types, the first word of the command when it is a common program name (git, gh, node, powershell and a few others; anything else shows as `other`), the exit code, and whether `CODEX_THREAD_ID` matches the session ID. No command text or output is kept (only the `transcript=` field below names up to two folders under your home), nothing is logged for other repos, and the file stops growing at 256 KB. It is how this copy gets checked against the app: the Windows shell, the payload shapes and the transcript location are documented only in part. To find it:
@@ -85,7 +99,7 @@ To see one tool result in full, create an empty file named `dump-next-tool-resul
 
 ## Observed with the ChatGPT desktop app on Windows (October 2026)
 
-- The desktop app's Codex mode runs the plugin's hooks: SessionStart (sources startup, resume, fork and compact), PreToolUse, PostToolUse and PreCompact all fired, run by the installed Node with the sandbox on.
+- The desktop app's Codex mode runs the plugin's hooks: SessionStart (sources startup, resume, fork and compact), PreToolUse, PostToolUse and PreCompact all fired, run by the installed Node with the sandbox on. That the `compact` start's text then reached the agent was not checked separately.
 - The agent's commands run in PowerShell 7 (`pwsh.exe -Command ...`); the shell tool is named `Bash` in the hooks, with `tool_input.command` a string.
 - `tool_response` is only what the command printed, with no exit code (seen with a capture, 0.1.4). The transcript records each command as a `CommandExecution` item under the hook's `tool_use_id`, with `exit_code` and `status`, just before the hook runs; since 0.1.5 the hook reads the exit code from there (a few short waits if the line isn't written yet). When it can't, a `gh pr merge` counts only if gh printed that it merged the pull request.
 - The commit was logged, the PostToolUse reminder reached the agent (it checkpointed unasked), and the checkpoint skill wrote the shared handoff.
@@ -98,7 +112,7 @@ Not seen yet: whether `writable_roots` applies under the Windows sandbox (approv
 
 ## Keeping the two copies in step
 
-This is a separate copy of jb-memory's code with the changes above, mostly in `scripts/lib/host.js`, `scripts/jbm.js` (lines marked "Codex:"), `scripts/lib/transcript.js` and the skills. A fix to the shared code in jb-memory needs the same fix here. `node --test tests/jb-memory.test.js` runs the shared tests plus the Codex ones.
+This is a separate copy of jb-memory's code with the changes above, mostly in `scripts/lib/host.js`, `scripts/jbm.js` (lines marked "Codex:"), `scripts/lib/transcript.js` and the skills. A fix to the shared code in jb-memory needs the same fix here. `node --test tests/jb-memory.test.js` runs the shared tests plus the Codex ones, and `node --test tests/handoff-checks.test.js` runs the checks added in 0.2.4 (the same file in both copies).
 
 ## License
 

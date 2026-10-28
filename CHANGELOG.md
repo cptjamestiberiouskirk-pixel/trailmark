@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.5 (jb-memory), 0.2.4 (jb-memory-codex): 2026-10-28
+
+Ahead of listing in Anthropic's plugin directory: the handoff is checked against git when it loads, and the docs say plainly what the plugin runs, writes and sends.
+
+- Session start lists the commits made on HEAD since the handoff was written, the newest 10 with their subjects, in their own frame marked as repo data. A next-step item that shares two or more words with one of those subjects is named, so the session checks it before redoing the work. When the handoff's HEAD is on another branch or isn't in the checkout, the injection says that instead. The launcher reads the HEAD from the handoff's `Updated:` line and passes it to git only as 7 to 12 hex digits.
+- The `Updated:` line ends with the agent that wrote it, `by Claude Code` or `by Codex`, and the session-start text names it.
+- The whole injection, warnings and the commit list included, stays inside `injectChars` (8,500 by default). When the handoff is cut, the note says which sections were left out, as well as the full file's path.
+- The first session start (or `init`) records which repo the memory folder serves. When a second repo that still exists turns out to map to the same folder, every session start warns, to you and to the model, and `dir` shows it. When the recorded repo is gone, the repo moved and the record follows.
+- The daily log in `notes/` can be turned off with `"notes": false`, and a day's file is deleted 90 days after its date (`"notesKeepDays"`). It holds events and commit subjects only.
+- READMEs open with what jb-memory doesn't do, show a before-and-after of a fresh session (`plugins/jb-memory/docs/session-start.png`), and have a section on what it runs, writes and sends. The Codex copy's README and MANUAL say how the handoff comes back after a Codex compaction and what hasn't been checked.
+- A GitHub Actions workflow runs the sandbox check and both copies' tests on Linux, macOS and Windows with Node 22 and 24.
+- New tests in `tests/handoff-checks.test.js` (both copies), including one that no script loads a network module.
+- The session-start warning line no longer ends some warnings with two periods.
+- The smallest allowed `injectChars` is now 2,000 (it was 1,000): below that, the parts that are never cut, such as launcher warnings and the Codex copy's startup note, may not fit. When the whole doesn't fit, the handoff gives way first, then the optional lines go in a fixed order; the commit list shrinks to one line, and warnings are shortened, never dropped.
+
+Fixed before release, from an independent review of this change:
+
+- The recorded repo root comes from the state file, which a session can write. A network path there is never resolved or compared, since even that would reach the server from outside the sandbox; the warning says the path wasn't looked up. Both paths in the warning, and the one `dir` prints, have tag-like text escaped.
+- The handoff's short SHA is resolved among objects only, so a branch or tag named like it can't stand in for the commit.
+
 ## 0.4.4 (jb-memory): 2026-10-28
 
 - A new plugin icon: a ring of neurons joined by synapses, with a glowing signal running around the loop back to the node where it started, the way a new session picks up where the last one stopped.

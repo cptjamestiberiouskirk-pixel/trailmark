@@ -320,7 +320,7 @@ $r3 = Jbm @('write-handoff', ('--base=' + $v1), ('--session=' + $S2)) "# H`n## N
 $h = Handoff-Text
 $both = $h.Contains('S1 ADDED THIS') -and $h.Contains('S2 ADDED THIS')
 Result 'the merged write goes through with both lines' (PassFail (($r3.Code -eq 0) -and $both)) ('exit ' + $r3.Code + ', both lines: ' + $both)
-$okStamp = $h -match ('(?m)^Updated: .*\| session ' + (Short $S2) + '\s*$')
+$okStamp = $h -match ('(?m)^Updated: .*\| session ' + (Short $S2) + '(?: \| by (?:Claude Code|Codex))?\s*$')
 Result 'the Updated line names the writing session' (PassFail $okStamp) ([regex]::Match($h, '(?m)^Updated:.*$').Value)
 
 Step 'Part A3: six writers on the same version at once, five rounds'
@@ -523,7 +523,7 @@ $archived = @(Get-ChildItem -LiteralPath (Join-Path $memDir 'archive') -Filter '
 $dupes = @(([regex]::Matches($archived, '(?m)^\s*(?:[-*]|\d+[.)])\s+\[done\].*$') | ForEach-Object { $_.Value.Trim() }) | Group-Object | Where-Object { $_.Count -gt 1 }).Count
 Result 'no [done] item archived twice' (PassFail ($dupes -eq 0)) ('' + $dupes + ' duplicated')
 Result 'the second session''s line survived the merge' (PassFail $h.Contains('KESTREL-9')) ('KESTREL-9 present: ' + $h.Contains('KESTREL-9'))
-$okSid = ($sid8.Length -eq 8) -and ($h -match ('(?m)^Updated: .*\| session ' + [regex]::Escape($sid8) + '\s*$'))
+$okSid = ($sid8.Length -eq 8) -and ($h -match ('(?m)^Updated: .*\| session ' + [regex]::Escape($sid8) + '(?: \| by (?:Claude Code|Codex))?\s*$'))
 Result 'the Updated line names the real session' (PassFail $okSid) ('session ' + $sid8 + ': ' + [regex]::Match($h, '(?m)^Updated:.*$').Value)
 $state = $null
 try { $state = (Read-Shared (Join-Path $memDir '.jbmem-state.json')) | ConvertFrom-Json } catch { }

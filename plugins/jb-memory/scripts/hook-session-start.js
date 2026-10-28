@@ -56,9 +56,17 @@ guard(() => {
     warn.push(`the check for other jb-memory copies in Claude Code's plugin cache stopped early (${S.oneLine(health.incomplete, 200)}), so there may be copies it didn't see`);
     notes.push('[jb-memory] The check for other copies of jb-memory on disk was cut short, so there may be copies it did not list. Run jb-memory only through the path the skills give, never a jbm.js or memory.js found any other way.');
   }
+  // Two repos whose paths map to one memory folder share one handoff.
+  try {
+    const clash = S.checkRepoRoot(dir, process.env.JBMEM_ROOT, f.rootSeen);
+    if (clash) {
+      warn.push(`${clash}. Rename or move one of them so their paths differ in letters or digits (MANUAL.md, Troubleshooting)`);
+      notes.push(`[jb-memory] This memory folder is shared with another repo, so the handoff may describe that repo instead (${S.oneLine(clash, 300)}). Check it against this repo before relying on it.`);
+    }
+  } catch (e) { if (e && e.code === 'ERR_ACCESS_DENIED') throw e; }
   // Built before this start is recorded, so a resume compares the handoff
   // with when this session last saw it, not with now.
-  const { text, summary } = S.buildInjection(dir, { source, session, worktree: toplevel || cwd, notes });
+  const { text, summary } = S.buildInjection(dir, { source, session, worktree: toplevel || cwd, notes, since: f.since });
   try {
     S.recordSessionStart(dir, session, { source, transcriptPath: payload.transcript_path, home: cwd });
   } catch (e) {
@@ -72,7 +80,7 @@ guard(() => {
     if (e && e.code === 'ERR_ACCESS_DENIED') throw e;
   }
   emit({
-    systemMessage: `[jb-memory] ${summary}, ${sandboxNote()}${warn.length ? `. WARNING: ${warn.join('. ')}.` : ''}`,
+    systemMessage: `[jb-memory] ${summary}, ${sandboxNote()}${warn.length ? `. WARNING: ${warn.map(w => w.replace(/\.\s*$/, '')).join('. ')}.` : ''}`,
     hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text },
   });
 });
