@@ -200,7 +200,7 @@ $list = RunOut 'claude' @('plugin', 'list', '--json')
 if ($LASTEXITCODE -ne 0) { Fail 'claude plugin list --json failed, so other installs could not be checked.' }
 $other = NodeCheck 'others' $list
 if ($null -eq $other) { Fail 'could not read the output of claude plugin list --json.' }
-if ($other) { Fail ('trailmark is already installed as ' + $other + '. Two copies would each run every hook. Uninstall it first: claude plugin uninstall <id>') }
+if ($other) { Fail ('another copy is already installed as ' + $other + ' (jb-memory is Trailmark''s old name). Two copies would each run every hook. Uninstall it first: claude plugin uninstall ' + $other) }
 $mlist = RunOut 'claude' @('plugin', 'marketplace', 'list', '--json')
 if ($LASTEXITCODE -ne 0) { Fail 'claude plugin marketplace list --json failed, so other marketplaces could not be checked.' }
 $where = NodeCheck 'marketplace' $mlist
@@ -209,7 +209,7 @@ if ($where -and -not ($where.TrimEnd('\') -ieq $here)) {
   if ($Repoint) { Warn ('the trailmark marketplace pointed at ' + $where + '; it will point here (-Repoint).') }
   else { Fail ('a marketplace named trailmark already points at ' + $where + '. Run again with -Repoint to point it here, or install from that folder.') }
 }
-Ok 'no other trailmark install'
+Ok 'no other Trailmark or jb-memory install'
 
 if ($Check) { Write-Host ''; Write-Host 'Checks done (-Check): nothing was changed.'; exit 0 }
 
@@ -240,7 +240,7 @@ if ($Watchdog) {
 }
 
 Step 'Done'
-Write-Host '  Next, in each repo you want trailmark in:'
+Write-Host '  Next, in each repo you want Trailmark in:'
 Write-Host '    1. Start Claude Code there and run /trailmark:memory-setup'
 Write-Host '    2. Start a new session and look for the [trailmark] status line;'
 Write-Host '       it ends with "sandbox on".'

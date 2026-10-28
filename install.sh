@@ -129,14 +129,14 @@ printf '%s\n' "$SC" | sed 's/^/  /'
 step 'Check for other copies'
 LIST="$(claude plugin list --json 2>/dev/null)" || fail 'claude plugin list --json failed, so other installs could not be checked.'
 OTHER="$(printf '%s' "$LIST" | node "$CHECK_JS" others)" || fail 'could not read the output of claude plugin list --json.'
-[ -z "$OTHER" ] || fail "trailmark is already installed as $OTHER. Two copies would each run every hook. Uninstall it first: claude plugin uninstall <id>"
+[ -z "$OTHER" ] || fail "another copy is already installed as $OTHER (jb-memory is Trailmark's old name). Two copies would each run every hook. Uninstall it first: claude plugin uninstall $OTHER"
 MLIST="$(claude plugin marketplace list --json 2>/dev/null)" || fail 'claude plugin marketplace list --json failed, so other marketplaces could not be checked.'
 WHERE="$(printf '%s' "$MLIST" | node "$CHECK_JS" marketplace)" || fail 'could not read the output of claude plugin marketplace list --json.'
 if [ -n "$WHERE" ] && [ "$WHERE" != "$HERE" ]; then
   if [ "$REPOINT" = 1 ]; then warn "the trailmark marketplace pointed at $WHERE; it will point here (--repoint)."
   else fail "a marketplace named trailmark already points at $WHERE. Run again with --repoint to point it here, or install from that folder."; fi
 fi
-ok 'no other trailmark install'
+ok 'no other Trailmark or jb-memory install'
 
 if [ "$CHECK" = 1 ]; then echo; echo 'Checks done (--check): nothing was changed.'; exit 0; fi
 
@@ -159,7 +159,7 @@ fi
 
 step 'Done'
 cat <<EOF
-  Next, in each repo you want trailmark in:
+  Next, in each repo you want Trailmark in:
     1. Start Claude Code there and run /trailmark:memory-setup
     2. Start a new session and look for the [trailmark] status line;
        it ends with "sandbox on".
