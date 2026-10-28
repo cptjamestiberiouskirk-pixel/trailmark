@@ -28,6 +28,26 @@ jobs:
         run: |
           node plugins/jb-memory/scripts/jbm.js --sandbox-check
           node plugins/jb-memory-codex/scripts/jbm.js --sandbox-check
+      - name: PowerShell scripts parse (Windows PowerShell 5.1 and PowerShell 7)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Join-Path $env:RUNNER_TEMP 'parse-check.ps1'
+          Set-Content -LiteralPath $p -Value @'
+          param([string]$File)
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($File, [ref]$tokens, [ref]$errors)
+          foreach ($e in $errors) { Write-Output ('::error file={0},line={1}::{2}' -f $File, $e.Extent.StartLineNumber, $e.Message) }
+          if ($errors) { exit 1 }
+          '@
+          $files = @(Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object FullName)
+          $bad = 0
+          foreach ($f in $files) {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p $f; if ($LASTEXITCODE) { $bad++ }
+            & pwsh -NoProfile -File $p $f; if ($LASTEXITCODE) { $bad++ }
+          }
+          Write-Output "parsed $($files.Count) files with both shells, $bad failures"
+          if ($bad) { exit 1 }
       - name: Checks added in 0.4.5 (both copies)
         shell: bash
         run: |

@@ -27,7 +27,7 @@ git is run by the launcher, outside the sandbox, by full path (found on absolute
 | Command text Claude runs | Untrusted | Parsed to find where commits ran; never executed by jb-memory. Folders named in it are only passed to hardened git |
 | The repo and its `.git` config | Untrusted | See git above. A `node.exe` in the repo is the one gap the plugin can't close itself on Windows: see the next section |
 | Text saved in the handoff | Untrusted at the next session | Injected inside a frame marked as notes from earlier sessions, with a random marker per session; lines that imitate the frame are indented and tag-like text is escaped, so saved text can't close the frame or pose as markup |
-| The memory folder's own subfolders | Untrusted | Must be real folders, never links, before anything is written or pruned there; only plain files are read |
+| The memory folder's own subfolders and files | Untrusted | Subfolders must be real folders, never links, before anything is written or pruned there. Files are read only when they are plain files and never through a link (`O_NOFOLLOW` where the platform has it, a check that the open file is the one seen before it was opened elsewhere), since the launcher reads some of them outside the sandbox and a link could lead to a network share |
 | The handoff's `Updated:` line (HEAD, agent) | Untrusted | Its HEAD reaches git only as 7 to 12 hex digits, checked by the launcher; anything else is ignored. The agent name is shown only when it is exactly `Claude Code` or `Codex` |
 | Commit subjects listed at session start | Untrusted | Read by the launcher from `git log`, cut to one line of 80 characters, and injected in their own frame marked as repo data, with the same line and tag escaping as the handoff |
 | The repo root recorded in the state file | Untrusted | Used only to compare paths and to check, outside the sandbox, whether a `.git` entry is there. A network path is never resolved, compared or checked. Shown with tag-like text escaped |
@@ -50,6 +50,12 @@ Text in the handoff reaches every later session. The skills tell Claude to keep 
 
 The environment Claude Code or Codex starts the hooks with is otherwise trusted. That includes `CLAUDE_CONFIG_DIR`, which Claude Code itself uses to find its settings, and with them `autoMemoryDirectory`. A repo's `.claude/settings.json` can set environment variables, and it can also add hooks of its own, which jb-memory can't stop; review repo settings before you trust a repo.
 
+A repo's own files can send git to a network share even when the folder git runs in is local: a `.git` file's `gitdir`, a worktree's `commondir`, `include.path` and `includeIf` paths, settings that name a file, and `objects/info/alternates`. git follows them whatever settings it is given, so before git runs in a folder the launcher reads the `.git` above it as text, included local config files too, and stays out when any of them names a network path. A mapped drive letter that leads to a share can't be told apart from a local drive this way.
+
+Two grants are wider than the memory folder. `init` gets read and write on the project folder above `memory/`, since it creates `memory/` there; Claude Code keeps that session's transcripts in the same folder. And when `memory/` doesn't exist yet, a command gets read access to the nearest folder above it that does, to see that it is missing.
+
+Not changed in this release, noted by the review: when looking for other jb-memory copies in Claude Code's plugin cache, only the last link on a path is checked for a network target; CLI output that skills read (`handoff`, `search`, `list`) prints memory text without the session-start frame; and a very large `handoff.md` or state file is read whole, so the injection could miss the hook's time limit (the session itself isn't held up).
+
 Node's permission model follows a symbolic link out of a granted folder. jb-memory checks its own subfolders and the files it reads, but a link swapped in at the exact moment between that check and the write would still be followed. That needs a process already running as you.
 
 In Codex, checkpoints need write access outside the workspace. Approving each write keeps that to the launcher. Making the memory folder a writable root lets every command the agent runs write there, past the version check (plugin README, step 3).
@@ -63,7 +69,7 @@ jb-watchdog (Windows, `tools/windows`) records a known-good list of the release 
 | Tool | Changes |
 |---|---|
 | `install.sh`, `install.ps1` | What `claude plugin marketplace add` and `claude plugin install` write to Claude Code's user settings; the same for `codex plugin marketplace add` with `--codex` / `-Codex`. With `-SetNoCwdLookup`, one user environment variable. No downloads, no deletes. `--uninstall` / `-Uninstall` removes the plugin and the marketplace from Claude Code's settings and leaves memory folders alone |
-| `install-jb-watchdog.ps1` | Copies the watchdog to `%LOCALAPPDATA%\jb-watchdog` and adds two scheduled tasks as you (no admin). `-Uninstall` removes both tasks and the copied script |
+| `install-jb-watchdog.ps1` | Copies the watchdog to `%LOCALAPPDATA%\jb-watchdog` and adds two scheduled tasks as you (no admin). `-Uninstall` removes both tasks and the copied script. It also saves what it prints to `install-jb-watchdog.log` next to itself |
 | Diagnostic scripts | The read-only ones change nothing. The test scripts create throwaway repos in the temp folder and their own projects folders, and delete only folders they marked as theirs |
 
 None of the code in this release makes network requests. The `claude` and `codex` commands the installers run, and `claude -p` in the end-to-end tests, talk to their own services as usual.

@@ -26,7 +26,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
+const { farGitConfig, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
 
 function configDir() {
   return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -65,6 +65,8 @@ function candidateKeys(root) {
 
 // git by full path from PATH, never from the repo itself (see gitbin.js).
 function git(cwd, args, timeout = 3000) {
+  const far = farGitConfig(cwd);
+  if (far) { const e = new Error(`git not run: the repo's .git points at a network path (${far})`); e.code = 'JBMEM_FAR'; throw e; }
   const bin = gitPath(cwd);
   if (!bin) { const e = new Error('git not found on PATH'); e.code = 'ENOENT'; throw e; }
   return execFileSync(bin, [...GIT_GLOBAL, ...args], {
@@ -156,11 +158,12 @@ function findMemoryDir(ctx = {}) {
     return out(path.resolve(process.env.JBMEM_DIR), process.env.JBMEM_METHOD || 'JBMEM_DIR', process.env.JBMEM_ROOT || cwd);
   }
 
-  // One folder name under the projects folder, never a path: a value with a
-  // separator or a dot-name could move the memory folder (and the sandbox's
-  // write grant) anywhere.
+  // One folder name under the projects folder, never a path, and only the
+  // characters Claude Code uses in those names: a separator or a dot-name
+  // could move the memory folder (and the sandbox's write grant) anywhere,
+  // and a * would widen the grant, which Node reads as a wildcard.
   const pdn = process.env.CLAUDE_CODE_PROJECT_DIR_NAME;
-  if (pdn && /^[^\\/:]+$/.test(pdn) && pdn !== '.' && pdn !== '..') {
+  if (pdn && /^[A-Za-z0-9._-]{1,255}$/.test(pdn) && pdn !== '.' && pdn !== '..') {
     return out(path.join(projectsRoot(), process.env.CLAUDE_CODE_PROJECT_DIR_NAME, 'memory'),
       'CLAUDE_CODE_PROJECT_DIR_NAME', cwd);
   }

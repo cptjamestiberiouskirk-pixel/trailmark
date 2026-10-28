@@ -77,11 +77,25 @@ const estTokens = chars => Math.ceil(chars / 4);
 // Reads a file through one descriptor, and only a plain file: a FIFO or a
 // device planted in place of handoff.md would otherwise block the hook
 // forever. O_NONBLOCK makes opening a FIFO return at once (0 on Windows).
-const O_READ = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0);
+// A link is never read, nor a file in a memory subfolder that is itself a
+// link: the target could be anywhere, a network share included, and the
+// launcher reads these files outside the sandbox, so opening one could reach
+// that server (on Windows, with your sign-in hash). O_NOFOLLOW refuses a link
+// where the platform has it; elsewhere the lstat before the open does, and
+// the open file must be the one lstat saw.
+const O_READ = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0) | (fs.constants.O_NOFOLLOW || 0);
+const MEMORY_SUBS = new Set(['notes', 'snapshots', 'archive', 'handoff-history', 'parked', 'pending', 'files']);
+function notPlain(file) { const e = new Error(`${file} is a link or not a plain file`); e.code = 'ENOTFILE'; return e; }
 function readPlain(file) {
+  const l = fs.lstatSync(file, { bigint: true });
+  if (l.isSymbolicLink() || !l.isFile()) throw notPlain(file);
+  for (let p = path.dirname(file), i = 0; i < 2 && MEMORY_SUBS.has(path.basename(p)); p = path.dirname(p), i++) {
+    if (fs.lstatSync(p).isSymbolicLink()) throw notPlain(file);
+  }
   const fd = fs.openSync(file, O_READ);
   try {
-    if (!fs.fstatSync(fd).isFile()) { const e = new Error(`${file} is not a plain file`); e.code = 'ENOTFILE'; throw e; }
+    const st = fs.fstatSync(fd, { bigint: true });
+    if (!st.isFile() || (l.ino && (st.ino !== l.ino || st.dev !== l.dev))) throw notPlain(file);
     return fs.readFileSync(fd, 'utf8');
   } finally { fs.closeSync(fd); }
 }
@@ -1084,9 +1098,9 @@ function readCommitStart(dir, toolUseId, session = '', now = Date.now()) {
   const f = path.join(dir, PENDING, `${toolUseId}.json`);
   let rec;
   try {
-    const st = fs.lstatSync(f);
-    if (!st.isFile() || st.size > 8192) return null;
-    rec = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const text = readPlain(f);
+    if (text.length > 8192) return null;
+    rec = JSON.parse(text);
   } catch { return null; }
   if (!isPlainObject(rec) || typeof rec.cwd !== 'string' || !rec.cwd || rec.cwd.length > 4096 || !path.isAbsolute(rec.cwd)) return null;
   if (!Number.isFinite(rec.at) || now - rec.at > PENDING_KEEP_MS || rec.at - now > 60000) return null;
@@ -1497,7 +1511,11 @@ const LINE_BREAKS = /\r\n|[\r\u000b\u000c\u0085\u2028\u2029]/g;
 // (<system-reminder>, <user>, <instructions>). Code such as Array<string>,
 // i<n or <https://...> is left alone.
 const FRAME_LIKE = /^[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:[-\p{Pd}\u2212\u02d7\u2043\u2500-\u257f\u23af\u2e3a\u2e3b\ufe58\ufe63\uff0d]{2}|[[\uff3b<\uff1c\u2039\u2329\u27e8\u3008\u300a\u3010\u3014\u3016\u3018\u301a\u2770-\u2775\ufe64])/u;
-const TAG_LIKE = /[<\uff1c\ufe64](?=[\s\p{Cf}]*\/[\s\p{Cf}]*[\p{L}_]|[\s\p{Cf}]*(?:[\p{L}_][\p{L}\p{N}_]*[-_][\p{L}\p{N}_-]*|(?:system|user|assistant|human|tool|function|instructions?|context|documents?|example|reminder|message|prompt)s?)[\s\p{Cf}]*[\s>\uff1e\/])/giu;
+// An opening tag is escaped when its name has a separator (- _ . or a colon
+// before a letter) or an invisible character in it, starts with a role or
+// block word (<systemprompt>, <developer>), or has a letter outside ASCII in
+// it (a look-alike such as a Cyrillic s).
+const TAG_LIKE = /[<＜﹤](?=[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*\/[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*[\p{L}_]|[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:[\p{L}_][\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:[-_.\p{Cf}\p{Default_Ignorable_Code_Point}]|:(?=\p{L}))[\p{L}\p{N}_.:\p{Cf}\p{Default_Ignorable_Code_Point}-]*|(?:system|user|assistant|human|tool|function|developer|instructions?|context|documents?|example|reminder|message|prompt)[\p{L}\p{N}_]*|[\p{L}\p{N}_]*(?:(?![\x00-\x7f])\p{L})[\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}]*)[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*[\s>＞\/])/giu;
 function framed(text) {
   return text.replace(LINE_BREAKS, '\n').split('\n').map(l => (FRAME_LIKE.test(l) ? '  ' + l : l).replace(TAG_LIKE, m => m + '\\')).join('\n');
 }
@@ -1762,7 +1780,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
 }
 
 module.exports = {
-  checkRepoRoot, escapeTags, handoffStamp, checkSinceFacts, coveredSteps, pruneNotes, AGENT,
+  checkRepoRoot, escapeTags, readPlain, handoffStamp, checkSinceFacts, coveredSteps, pruneNotes, AGENT,
   MARKER, HANDOFF, HANDOFF_PREV, PRECOMPACT, SNAPSHOTS, LOCK, PENDING, DEFAULTS, HISTORY, CHECKPOINT_SKILL, SKILL_RULE,
   cleanSession, shortSession, versionOf, withLock, updateState, sessionRecord, otherSessions, lastWriterOf,
   findVersionText, lineDiff, snapshotPath, writeSnapshot, listSnapshots, retryWin, splitDone, lockInfo,

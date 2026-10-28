@@ -160,6 +160,14 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
 } else {
   $items = @($here) + @(Get-ChildItem -LiteralPath $here -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch '\\tools\\windows\\[^\\]+\.log$' } | ForEach-Object { $_.FullName })
 }
+# The release ships no links. A symbolic link or junction inside it could point
+# at a folder others can write to, and the permission check above would never
+# see it (Windows PowerShell 5.1 recurses into some of them, PowerShell 7 into none).
+# OneDrive's cloud placeholders are reparse points too, but not links, so they pass.
+if ($items.Count) {
+  $lk = @(Get-ChildItem -LiteralPath $here -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { $_.LinkType -eq 'SymbolicLink' -or $_.LinkType -eq 'Junction' } | Select-Object -First 1)
+  if ($lk.Count) { Fail ($lk[0].FullName + ' is a ' + $lk[0].LinkType + '. The release has none; replace it with the real file or folder.') }
+}
 foreach ($it in $items) { $bad += Get-Bad $it $false; if ($bad.Count -ge 5) { break } }
 $par = $(if ($items.Count) { Split-Path -Parent $here } else { '' })
 while ($par -and $bad.Count -lt 5) { $bad += Get-Bad $par $true; $next = Split-Path -Parent $par; if ($next -eq $par) { break }; $par = $next }

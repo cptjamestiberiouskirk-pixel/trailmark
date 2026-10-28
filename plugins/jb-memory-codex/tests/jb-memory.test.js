@@ -19,7 +19,14 @@ const dp = p => require(path.join(__dirname, '..', 'scripts', 'lib', 'store.js')
 // Tests that put a shell script in place of git, or need git to run one,
 // can't run on Windows: jb-memory starts git.exe only, and Node won't start a
 // .cmd file without a shell.
-const POSIX_ONLY = WIN && 'needs a shell script in place of git, which Windows cannot run';
+const POSIX_ONLY = WIN && 'needs a shell script run in place of git or by git, which Windows cannot do';
+// Bash syntax in a command: on Windows the Codex copy reads commands as
+// PowerShell unless JBMEM_CODEX_SHELL=bash, so such a test asks for bash.
+function bashSyntax(t) {
+  if (process.env.JBMEM_CODEX_SHELL === 'bash') return;
+  process.env.JBMEM_CODEX_SHELL = 'bash';
+  t.after(() => { delete process.env.JBMEM_CODEX_SHELL; });
+}
 
 // The Codex copy refuses init unless this is set (scripts/jbm.js).
 process.env.JBMEM_CODEX_INIT = '1';
@@ -1831,7 +1838,8 @@ test('0.3.3 Updated line: branch and HEAD come from where the session\'s last co
   assert.match(run(wt, SA), new RegExp(`\\| branch wa \\| HEAD ${head(wt)} \\| in .*wa \\| session 11111111 \\| by Codex$`));
 });
 
-test('0.3.3 commits: two folders in one command are both logged; a commit named only in a heredoc, a quoted string or a pull is not a commit', () => {
+test('0.3.3 commits: two folders in one command are both logged; a commit named only in a heredoc, a quoted string or a pull is not a commit', (t) => {
+  bashSyntax(t);
   const { s, wt, clone, gClone, gWt, head, hook } = multiFolder();
   gWt('commit', '-q', '--allow-empty', '-m', 'own one');
   gClone('commit', '-q', '--allow-empty', '-m', 'other one');
@@ -2193,7 +2201,8 @@ test('0.3.3 start folder: a session left in an added folder (another clone) stil
   assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${dp(clone)}" still there session=11111111`)), notesOf(s));
 });
 
-test('0.3.3 commits: loops, many commits, functions, scripts on stdin and a message that looks like a flag are all logged', () => {
+test('0.3.3 commits: loops, many commits, functions, scripts on stdin and a message that looks like a flag are all logged', (t) => {
+  bashSyntax(t);
   const { s, clone, gClone, head, hook } = multiFolder();
   const shas = [];
   for (let i = 1; i <= 3; i++) { gClone('commit', '-q', '--allow-empty', '-m', `loop ${i}`); shas.push(head(clone)); }
@@ -2584,7 +2593,8 @@ test('0.3.3 parser: script files built with printf, echo -e and >>, or changed b
   ]) assert.deepStrictEqual(one(P(c)), want, c);
 });
 
-test('0.3.3 commits: thousands of unresolved reasons stay one short list, and the facts fit a Windows environment variable', () => {
+test('0.3.3 commits: thousands of unresolved reasons stay one short list, and the facts fit a Windows environment variable', (t) => {
+  bashSyntax(t);
   const { s, wt, gWt, head, hook } = multiFolder();
   let helpers = 'f0() { :; }; ';
   for (let i = 1; i <= 12; i++) helpers += `f${i}() { ${Array(10).fill(`f${i - 1}`).join('; ')}; }; `;
@@ -2644,7 +2654,7 @@ function toolCall(s, sid, command, { tool_name = 'Bash', id = `toolu_c${++toolSe
   };
 }
 
-test('0.3.4 hardening: the PreCompact status switches off a filter the repo defines, keeps one from the user\'s own config, and skips status for an odd filter name', () => {
+test('0.3.4 hardening: the PreCompact status switches off a filter the repo defines, keeps one from the user\'s own config, and skips status for an odd filter name', { skip: POSIX_ONLY }, () => {
   const s = sandbox();
   jbm(s, ['init']);
   const marks = path.join(s.base, 'marks');
@@ -2866,7 +2876,7 @@ test('0.3.4 sweep: a commit made after the sweep started is the next sweep\'s', 
 });
 
 const HAVE_LFS = spawnSync('git', ['lfs', 'version'], { stdio: 'ignore' }).status === 0;
-test('0.3.4 hardening: Git LFS set up in the repo\'s own config still runs for status; an LFS extension the repo defines skips status', { skip: !HAVE_LFS && 'git-lfs is not installed' }, () => {
+test('0.3.4 hardening: Git LFS set up in the repo\'s own config still runs for status; an LFS extension the repo defines skips status', { skip: POSIX_ONLY || (!HAVE_LFS && 'git-lfs is not installed') }, () => {
   const s = sandbox();
   jbm(s, ['init']);
   // Only the repo's own config: no system or global LFS install.
@@ -3229,7 +3239,8 @@ test('codex session start: launcher path and session ID reach the model; no syst
   assert.match(jbm(s, ['status']).stdout, /SESSION_START source=startup branch=\S+ sandbox=on host=codex/);
 });
 
-test('codex payloads: argv commands, a failed commit command, a failed PR merge, workdir', () => {
+test('codex payloads: argv commands, a failed commit command, a failed PR merge, workdir', (t) => {
+  bashSyntax(t);
   const s = sandbox();
   jbm(s, ['init']);
   const old = new Date(Date.now() - 3600000);
@@ -3267,7 +3278,7 @@ test('codex payloads: argv commands, a failed commit command, a failed PR merge,
   execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'in workdir'], { cwd: other });
   r = post({ tool_use_id: 'c6', tool_input: { command: 'git commit --allow-empty -m "in workdir"', workdir: other }, tool_response: 'Exit code: 0' });
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.ok(commitLines(s).some(l => l.includes('in workdir') && l.includes(`in="${other}"`)), notesOf(s));
+  assert.ok(commitLines(s).some(l => l.includes('in workdir') && l.includes(`in="${dp(other)}"`)), notesOf(s));
 });
 
 test('codex shape log: field names and types only, in PLUGIN_DATA, never command text, only in set-up repos', () => {

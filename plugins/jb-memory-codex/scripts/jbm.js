@@ -165,6 +165,12 @@ function run(script, args, { dir, method, root, cwd, input, reads, writes, facts
   });
   if (dirMissing) env.JBMEM_DIR_MISSING = '1'; else delete env.JBMEM_DIR_MISSING;
   if (facts) env.JBMEM_GIT = JSON.stringify(facts);
+  // Node reads * in a grant as a wildcard, so a granted path with one in it
+  // would allow more than that folder. Such a path is refused, not granted.
+  if (sb.on && [...reads, ...writes].some(p => path.resolve(p).includes('*'))) {
+    process.stderr.write('jb-memory: a folder it would grant has * in its path, which the sandbox reads as a wildcard; nothing was run.\n');
+    return 1;
+  }
   const nodeArgs = [...(sb.on ? permissionFlags({ reads, writes }) : []), path.join(SCRIPTS, script), ...args];
   // For the tests: show what the sandboxed script is allowed to touch.
   if (process.env.JBMEM_SHOW_GRANTS === '1') process.stderr.write(`jb-memory grants: read=${reads.map(r => path.resolve(r)).join('|')} write=${writes.map(w => path.resolve(w)).join('|')}\n`);

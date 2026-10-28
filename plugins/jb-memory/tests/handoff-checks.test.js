@@ -24,6 +24,7 @@ delete process.env.CODEX_THREAD_ID;
 const ROOT = path.join(__dirname, '..');
 const JBM = path.join(ROOT, 'scripts', 'jbm.js');
 const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
+const WIN = process.platform === 'win32';
 const SA = '11111111-1111-4111-8111-111111111111';
 const SB = '22222222-2222-4222-8222-222222222222';
 
@@ -267,5 +268,89 @@ test('fit: a small injectChars holds with a commit list, a snapshot and warnings
     assert.ok(context.length <= limit, `${context.length} > ${limit}`);
     assert.match(context, /--- END HANDOFF [0-9a-f]{8} ---/);
     assert.match(context, /commits? on HEAD since|COMMITS SINCE THIS HANDOFF/);
+  }
+});
+
+// ---------- security review fixes (0.4.5) ----------
+
+test('network paths: folder comparison never resolves one, NT object paths count as network', () => {
+  const gf = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const real = fs.realpathSync.native;
+  const seen = [];
+  fs.realpathSync.native = (p, ...a) => { seen.push(String(p)); return real(p, ...a); };
+  try {
+    for (const p of ['//evil.invalid/share', '\\\\evil.invalid\\share', '\\??\\UNC\\evil.invalid\\share', '/??/UNC/evil.invalid/share']) gf.sameFolder(p, os.tmpdir());
+  } finally { fs.realpathSync.native = real; }
+  assert.ok(!seen.some(p => /evil\.invalid/.test(p)), seen.join('\n'));
+  for (const p of ['\\\\evil\\x', '\\??\\UNC\\evil\\x', '//evil/x', '\\\\?\\C:\\x']) assert.strictEqual(gf.farNetwork(p, 'C:\\work', path.win32), true, p);
+  assert.strictEqual(gf.farNetwork('C:\\work\\sub', 'C:\\work', path.win32), false);
+});
+
+test('git pointers: a .git that leads to a network path keeps git out of the folder', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const gf = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-far-');
+  const a = path.join(base, 'a'); repoAt(a);
+  execFileSync('git', ['config', 'include.path', '//evil.invalid/x.cfg'], { cwd: a });
+  const b = path.join(base, 'b'); fs.mkdirSync(b); fs.writeFileSync(path.join(b, '.git'), 'gitdir: //evil.invalid/share/.git\n');
+  const c = path.join(base, 'c'); repoAt(c);
+  fs.writeFileSync(path.join(c, 'inc.cfg'), '[core]\n  attributesFile = "\\\\\\\\evil.invalid\\\\a"\n');
+  execFileSync('git', ['config', 'include.path', '../inc.cfg'], { cwd: c });
+  const d = path.join(base, 'd'); repoAt(d);
+  fs.writeFileSync(path.join(d, '.git', 'objects', 'info', 'alternates'), '//evil.invalid/objects\n');
+  const ok = path.join(base, 'ok'); repoAt(ok);
+  assert.strictEqual(farGitConfig(a), 'network-config');
+  assert.strictEqual(farGitConfig(b), 'network-gitdir');
+  assert.strictEqual(farGitConfig(c), 'network-config');
+  assert.strictEqual(farGitConfig(path.join(c, 'deeper', 'still')), 'network-config');
+  assert.strictEqual(farGitConfig(d), 'network-config');
+  assert.strictEqual(farGitConfig(ok), '');
+  assert.strictEqual(gf.gitFacts(a, ['head']).head, '', 'git ran in a folder whose config points at a share');
+  assert.match(gf.gitFacts(ok, ['head']).head, /^[0-9a-f]{7,}$/);
+});
+
+test('links: the launcher and hooks never read through a link in the memory folder', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const s = sandbox();
+  s.write('# H\n- real state\n');
+  const secret = path.join(s.base, 'outside.md');
+  fs.writeFileSync(secret, '# H\nUpdated: 2026-10-28 09:00 | HEAD abcdef1\n- OUTSIDE-SECRET\n');
+  const h = path.join(s.memdir, 'handoff.md');
+  fs.renameSync(h, h + '.real');
+  fs.symlinkSync(secret, h);
+  assert.ok(!s.start(SB).context.includes('OUTSIDE-SECRET'));
+  assert.throws(() => S.readPlain(h), /link or not a plain file/);
+  // A notes folder that is a link is neither read nor written through.
+  fs.unlinkSync(h); fs.renameSync(h + '.real', h);
+  const notes = path.join(s.memdir, 'notes');
+  const elsewhere = path.join(s.base, 'notes-elsewhere');
+  fs.renameSync(notes, elsewhere);
+  fs.symlinkSync(elsewhere, notes);
+  const before = fs.readdirSync(elsewhere).map(f => fs.readFileSync(path.join(elsewhere, f), 'utf8')).join('');
+  s.start(SB);
+  const after = fs.readdirSync(elsewhere).map(f => fs.readFileSync(path.join(elsewhere, f), 'utf8')).join('');
+  assert.strictEqual(after, before, 'a log line went through the link');
+});
+
+test('grants: a project folder name with * is not used, and a * in a granted path runs nothing', () => {
+  const s = sandbox();
+  const r = spawnSync(process.execPath, [JBM, 'dir', '--json'], { cwd: s.repo, env: { ...s.env, CLAUDE_CODE_PROJECT_DIR_NAME: '*', JBMEM_SHOW_GRANTS: '1' }, encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.notStrictEqual(JSON.parse(r.stdout).method, 'CLAUDE_CODE_PROJECT_DIR_NAME');
+  assert.ok(!/projects[\\/]\*/.test(r.stderr), r.stderr);
+  if (!WIN) {
+    const wild = path.join(s.base, 'cfg*');
+    fs.mkdirSync(path.join(wild, 'projects'), { recursive: true });
+    const w = spawnSync(process.execPath, [JBM, 'dir'], { cwd: s.repo, env: { ...s.env, CLAUDE_CONFIG_DIR: wild }, encoding: 'utf8' });
+    assert.strictEqual(w.status, 1);
+    assert.match(w.stderr, /reads as a wildcard; nothing was run/);
+  }
+});
+
+test('tags: look-alike opening tags are escaped, code and placeholders are not', () => {
+  for (const t of ['<sys\u200btem-reminder>', '<system.reminder>', '<system:reminder>', '<systemprompt>', '<developer>', '<\u0455ystem>', '<\u202euser>']) {
+    assert.ok(S.escapeTags(t).startsWith('<\\'), t);
+  }
+  for (const t of ['Array<string>', 'i<n', '<https://x.example/a>', '<repo>', 'a < b', 'Map<string, number>', '<release folder>']) {
+    assert.strictEqual(S.escapeTags(t), t);
   }
 });

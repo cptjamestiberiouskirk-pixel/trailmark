@@ -19,7 +19,14 @@ const dp = p => require(path.join(__dirname, '..', 'scripts', 'lib', 'store.js')
 // Tests that put a shell script in place of git, or need git to run one,
 // can't run on Windows: jb-memory starts git.exe only, and Node won't start a
 // .cmd file without a shell.
-const POSIX_ONLY = WIN && 'needs a shell script in place of git, which Windows cannot run';
+const POSIX_ONLY = WIN && 'needs a shell script run in place of git or by git, which Windows cannot do';
+// Bash syntax in a command: on Windows the Codex copy reads commands as
+// PowerShell unless JBMEM_CODEX_SHELL=bash, so such a test asks for bash.
+function bashSyntax(t) {
+  if (process.env.JBMEM_CODEX_SHELL === 'bash') return;
+  process.env.JBMEM_CODEX_SHELL = 'bash';
+  t.after(() => { delete process.env.JBMEM_CODEX_SHELL; });
+}
 
 const ROOT = path.join(__dirname, '..');
 const CLI = path.join(ROOT, 'scripts', 'memory.js');
@@ -2760,7 +2767,7 @@ function toolCall(s, sid, command, { tool_name = 'Bash', id = `toolu_c${++toolSe
   };
 }
 
-test('0.3.4 hardening: the PreCompact status switches off a filter the repo defines, keeps one from the user\'s own config, and skips status for an odd filter name', () => {
+test('0.3.4 hardening: the PreCompact status switches off a filter the repo defines, keeps one from the user\'s own config, and skips status for an odd filter name', { skip: POSIX_ONLY }, () => {
   const s = sandbox();
   jbm(s, ['init']);
   const marks = path.join(s.base, 'marks');
@@ -2810,7 +2817,7 @@ test('0.3.4 end check: an end folder that differs from Claude Code\'s is logged 
   // Claude Code put the session back where it started.
   gClone('commit', '-q', '--allow-empty', '-m', 'went back');
   assert.strictEqual(hook(wt, SA, `cd "${clone}" && git commit -q -m "went back"`, { end: wt }).status, 0);
-  assert.deepStrictEqual(mismatches().map(l => l.slice(8)), [`END_MISMATCH tool=bash parsed="${clone}" actual="${wt}" actual=start session=11111111`]);
+  assert.deepStrictEqual(mismatches().map(l => l.slice(8)), [`END_MISMATCH tool=bash parsed="${dp(clone)}" actual="${dp(wt)}" actual=start session=11111111`]);
   assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${dp(clone)}" went back session=11111111`)), notesOf(s));
   // Where the session started (its transcript's first cwd) is named too when it isn't where the command started.
   const tdir = path.join(s.cfg, 'projects', wt.replace(/[^a-zA-Z0-9]/g, '-'));
@@ -2819,7 +2826,7 @@ test('0.3.4 end check: an end folder that differs from Claude Code\'s is logged 
   fs.writeFileSync(transcript, JSON.stringify({ type: 'user', cwd: wt, sessionId: SA, message: { content: 'hi' } }) + '\n');
   gClone('commit', '-q', '--allow-empty', '-m', 'from the clone');
   hook(clone, SA, `git commit -q -m "from the clone"; cd "${s.repo}"`, { end: wt, transcript_path: transcript });
-  assert.strictEqual(mismatches()[1].slice(8), `END_MISMATCH tool=bash parsed="${s.repo}" actual="${wt}" actual=home session=11111111`);
+  assert.strictEqual(mismatches()[1].slice(8), `END_MISMATCH tool=bash parsed="${dp(s.repo)}" actual="${dp(wt)}" actual=home session=11111111`);
   // Read and actual agree: nothing.
   gClone('commit', '-q', '--allow-empty', '-m', 'stayed there');
   hook(wt, SA, `cd "${clone}" && git commit -q -m "stayed there"`, { end: clone });
@@ -3022,7 +3029,7 @@ test('0.3.4 sweep: a commit made after the sweep started is the next sweep\'s', 
 });
 
 const HAVE_LFS = spawnSync('git', ['lfs', 'version'], { stdio: 'ignore' }).status === 0;
-test('0.3.4 hardening: Git LFS set up in the repo\'s own config still runs for status; an LFS extension the repo defines skips status', { skip: !HAVE_LFS && 'git-lfs is not installed' }, () => {
+test('0.3.4 hardening: Git LFS set up in the repo\'s own config still runs for status; an LFS extension the repo defines skips status', { skip: POSIX_ONLY || (!HAVE_LFS && 'git-lfs is not installed') }, () => {
   const s = sandbox();
   jbm(s, ['init']);
   // Only the repo's own config: no system or global LFS install.

@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { oneLine, displayPath, inside } = require('./store');
-const { gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
+const { farGitConfig, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
 // and Windows caps a variable at 32,767 characters (Linux at 128 KB), so only
@@ -40,6 +40,8 @@ function runner(budgetMs) {
   r.run = (cwd, args, input) => {
     const left = Math.min(4000, deadline - Date.now());
     if (r.hung || left < 250) return { ok: false, out: '', why: 'timeout' };
+    const far = farGitConfig(cwd);
+    if (far) return { ok: false, out: '', why: far };
     const bin = gitPath(cwd);
     if (!bin) return { ok: false, out: '', why: 'no-git' };
     try {
@@ -212,7 +214,10 @@ function folderKey(p) {
   return process.platform === 'win32' ? r.replace(/\//g, '\\').toLowerCase() : r;
 }
 
+// A network path is compared by name only: resolving it would reach the
+// server. Paths reach here from command text and the state file.
 function realOr(p) {
+  if (NET_RE.test(String(p || ''))) return p;
   try { return fs.realpathSync.native(p); } catch { return p; }
 }
 
@@ -442,7 +447,7 @@ const MAX_SWEEP_FOLDERS = 6;
 // command text is never touched unless the session itself works under it:
 // even a stat would connect to that server, from outside any sandbox the host
 // put the command in, and on Windows send it your sign-in hash.
-const NET_RE = /^(\\\\|\/\/)/;
+const NET_RE = /^(?:\\\\|\/\/|[\\/]\?\?[\\/])/;
 function farNetwork(dir, base, P = path) {
   const d = P.resolve(String(dir || ''));
   if (!NET_RE.test(d) && !NET_RE.test(String(dir || ''))) return false;

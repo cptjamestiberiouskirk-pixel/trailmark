@@ -149,4 +149,94 @@ function gitEnv(base = process.env) {
   return { ...env, GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: 'jbmem-none', GIT_TERMINAL_PROMPT: '0' };
 }
 
-module.exports = { findGit, gitPath, gitEnv, GIT_GLOBAL };
+// A repo's own files can send git to a network share even when the folder
+// git runs in is local: a .git file's gitdir, a worktree's commondir,
+// include.path and includeIf paths, core.attributesFile and the other
+// settings that name a file, and objects/info/alternates. git follows them
+// whatever -c settings it gets, and on Windows reaching a share sends it your
+// sign-in hash. So before git runs in a folder, the .git above it is read as
+// text, and a network path in any of those places (\\server, //server, or an
+// NT path such as \??\UNC\server) keeps git out of that folder. Included
+// config files that are local are read the same way, five deep.
+const NET_TEXT = /^\s*["']?(?:\\\\|\/\/|[\\/]\?\?[\\/])/;
+const farCache = new Map();
+function readSmall(file, max) {
+  try {
+    const st = fs.lstatSync(file);
+    if (!st.isFile() || st.size > max) return null;
+    return fs.readFileSync(file, 'utf8');
+  } catch { return null; }
+}
+function farConfig(file, depth, seen) {
+  if (depth > 5 || seen.has(file)) return '';
+  seen.add(file);
+  const text = readSmall(file, 512 * 1024);
+  if (text === null) return '';
+  for (const line of text.split(/\r?\n/)) {
+    const eq = line.indexOf('=');
+    if (eq < 0) continue;
+    const value = line.slice(eq + 1);
+    if (NET_TEXT.test(value)) return 'network-config';
+    if (/^\s*path\s*$/i.test(line.slice(0, eq))) {
+      let p = value.trim().replace(/^"(.*)"$/, '$1');
+      if (p.startsWith('~/')) p = path.join(os.homedir(), p.slice(2));
+      const why = farConfig(path.resolve(path.dirname(file), p), depth + 1, seen);
+      if (why) return why;
+    }
+  }
+  return '';
+}
+function farGit(gitEntry) {
+  let st;
+  try { st = fs.lstatSync(gitEntry); } catch { return ''; }
+  let gitdir = gitEntry;
+  if (st.isSymbolicLink()) {
+    let t = '';
+    try { t = fs.readlinkSync(gitEntry); } catch { return 'network-gitdir'; }
+    if (NET_TEXT.test(t)) return 'network-gitdir';
+    gitdir = path.resolve(path.dirname(gitEntry), t);
+  } else if (st.isFile()) {
+    const t = readSmall(gitEntry, 4096);
+    const m = t === null ? null : /^gitdir:\s*(.+?)\s*$/m.exec(t);
+    if (!m) return '';
+    if (NET_TEXT.test(m[1])) return 'network-gitdir';
+    gitdir = path.resolve(path.dirname(gitEntry), m[1]);
+  }
+  const dirs = [gitdir];
+  const common = readSmall(path.join(gitdir, 'commondir'), 4096);
+  if (common !== null && common.trim()) {
+    if (NET_TEXT.test(common)) return 'network-gitdir';
+    dirs.push(path.resolve(gitdir, common.trim()));
+  }
+  for (const d of dirs) {
+    for (const f of ['config', 'config.worktree']) {
+      const why = farConfig(path.join(d, f), 0, new Set());
+      if (why) return why;
+    }
+    const alt = readSmall(path.join(d, 'objects', 'info', 'alternates'), 64 * 1024);
+    if (alt !== null && alt.split(/\r?\n/).some(l => NET_TEXT.test(l))) return 'network-config';
+  }
+  return '';
+}
+// '' when git may run in cwd, else the reason it may not. The .git is the
+// first one in cwd or a folder above it, as git finds it.
+function farGitConfig(cwd) {
+  const key = path.resolve(String(cwd || '.'));
+  if (farCache.has(key)) return farCache.get(key);
+  let why = '';
+  let d = key;
+  for (let i = 0; i < 64; i++) {
+    const g = path.join(d, '.git');
+    let found = false;
+    try { fs.lstatSync(g); found = true; } catch { found = false; }
+    if (found) { why = farGit(g); break; }
+    const up = path.dirname(d);
+    if (up === d) break;
+    d = up;
+  }
+  if (farCache.size > 64) farCache.clear();
+  farCache.set(key, why);
+  return why;
+}
+
+module.exports = { farGitConfig, findGit, gitPath, gitEnv, GIT_GLOBAL };
