@@ -2844,7 +2844,7 @@ test('0.3.4 end check: an end folder that differs from Claude Code\'s is logged 
   assert.strictEqual(mismatches().length, 3, mismatches().join('\n'));
   // The PowerShell tool.
   hook(wt, SA, `Set-Location '${clone}'; git commit -q -m ps`, { tool_name: 'PowerShell', end: s.repo });
-  assert.match(mismatches()[3], new RegExp(`END_MISMATCH tool=powershell parsed="${reEsc(clone)}" actual="${reEsc(s.repo)}" session=11111111$`));
+  assert.match(mismatches()[3], new RegExp(`END_MISMATCH tool=powershell parsed="${reEsc(dp(clone))}" actual="${reEsc(dp(s.repo))}" session=11111111$`));
   // Nothing else changed: each commit once, no reminder for a mismatch alone.
   const shas = commitLines(s).map(l => /COMMIT ([0-9a-f]+)/.exec(l)[1]);
   assert.strictEqual(new Set(shas).size, shas.length);

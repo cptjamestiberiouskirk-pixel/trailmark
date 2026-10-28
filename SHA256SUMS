@@ -67,7 +67,7 @@ c69ff63e8e26d70828182a1d6eaa885006ffb5dd75b3edf61bded06f1ae2d1c0  ./plugins/jb-m
 e4f926597f95d02ddbaefea2f95c58261879d18bb498a031a65d43a213cb0bce  ./plugins/jb-memory/skills/recall/SKILL.md
 37f45278ce7b9e33c48ffcb635f50e706c697f194c1b6d56b85871a07e84b9c8  ./plugins/jb-memory/skills/session-end/SKILL.md
 f04c1f4893da33d160b9c4f1445f2ab5d19c2be39230cb9c7512c5cc477c57bf  ./plugins/jb-memory/tests/handoff-checks.test.js
-f0217171ee51e4d22212386eb673c0f484f88b93271443e3a64b117e6a0b069e  ./plugins/jb-memory/tests/jb-memory.test.js
+f03395fc558614c5fe00cf0459c1fa4166885a8a4b891746da492c5d2894f7b8  ./plugins/jb-memory/tests/jb-memory.test.js
 3a6dbb0066579e275ddf35e325cbdbeb097cff649501d85e5e5460c34adf0a51  ./tools/install-check.js
 09d1ab21ae1fb617635b315f4729d770467b86404fc9c6ce5dde074a0e3749c2  ./tools/windows/check-jb-checkpoints.ps1
 7edfc6c9d73e91ae3d4fbf3b7a14534122852c7ed919a64b1b9efb4fad36ac61  ./tools/windows/inspect-last-checkpoint.ps1
