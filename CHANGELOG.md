@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 (jb-memory): 2026-10-28
+
+- A new plugin icon: a ring of neurons joined by synapses, with a glowing signal running around the loop back to the node where it started, the way a new session picks up where the last one stopped.
+
 ## 0.4.3 (jb-memory): 2026-10-28
 
 - A plugin icon (`plugins/jb-memory/.claude-plugin/icon.png`, 1024 x 1024) for plugin directory listings: an earlier session's note behind the next one, joined by a thread through milestone points.
