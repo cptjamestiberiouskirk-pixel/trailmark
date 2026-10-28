@@ -48,6 +48,20 @@ jobs:
           }
           Write-Output "parsed $($files.Count) files with both shells, $bad failures"
           if ($bad) { exit 1 }
+      # The watchdog's own test (Windows PowerShell 5.1, a throwaway copy of the
+      # release). It needs a desktop for its two notification checks, so it
+      # reports here without failing the job; its FAIL lines become annotations.
+      - name: Watchdog test (reports only)
+        if: runner.os == 'Windows' && matrix.node == '24'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $out = & "$env:windir\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/windows/test-trailmark-watchdog.ps1 2>&1 | ForEach-Object { [string]$_ }
+          $fails = @($out | Where-Object { $_ -match '^\s+FAIL\s' })
+          $result = @($out | Where-Object { $_ -match '^Result: ' }) | Select-Object -Last 1
+          Write-Output "::notice title=watchdog test::$result"
+          if ($fails.Count) { Write-Output ("::warning title=watchdog test failures ($($fails.Count))::" + (($fails | ForEach-Object { $_.Trim() }) -join '%0A')) }
+          if (-not $result -or $fails.Count) { exit 1 }
       - name: Checks added in 0.4.5 (both copies)
         shell: bash
         run: |
