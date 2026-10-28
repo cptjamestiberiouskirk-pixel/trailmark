@@ -2,7 +2,7 @@ a14113d50357490d331ad9901f9e1c6cdb9b00a9005b3782f0cf2b7ab5465ea4  ./.agents/plug
 6a3b162069707b0728cca14fdcf893d8bf498c5e44e76808088b1056e32219c8  ./.claude-plugin/marketplace.json
 694bbeaca2e44ab94a6a23fff7b623a86ac4cdedcce26d7a86734f9aec6c2dac  ./.gitattributes
 2a8cd05372f0ae35b43633c00630c5c4f54e250811830e65d5ac813c1c32ad01  ./.github/tap-annotate.js
-65f69acf97af3772699c9ad1f5d70eef388397ac3e9f5071ae3fe9ab8a8001f1  ./.github/workflows/tests.yml
+29722488c1ae1b87205d1fae9f8fe6598ef29850438a4783d12d114231ad49f7  ./.github/workflows/tests.yml
 0c4783ef9495551da26bd242a0cace9f7ad39e46bf1d5af8f51aeb8f338a9112  ./.gitignore
 046873dd35e5e92a269cf6be23182c6fb8b19cca9ebdd1e686210039fe0425b5  ./CHANGELOG.md
 772e299d3c90af1ed7d29ae543057c27beff24f013eb42b03fe969b5ee7ab493  ./LICENSE
@@ -39,7 +39,7 @@ a9b61d25c5669f0aa0735cfe6dcb7b3c80479f6002ca5cc226e980e218270177  ./plugins/jb-m
 8bc65d70146625a494a189df37e9726df09d22bac963e6576e7820500c5b050a  ./plugins/jb-memory-codex/skills/jbm-recall/SKILL.md
 f3696cf522be0567146759b203552485891790a5777521246fc87c3ee3a9349c  ./plugins/jb-memory-codex/skills/jbm-session-end/SKILL.md
 97ef3edc3fb94d334367b972cddf6f7214a8261907eb59c18691c6ed2877d9e3  ./plugins/jb-memory-codex/tests/handoff-checks.test.js
-56e5260faa902792bc22e0a2c5bb94ef9e9792d3089396991fa82275ddf02245  ./plugins/jb-memory-codex/tests/jb-memory.test.js
+6bb57a11703ecc563d6453f2129d53969c09b9eb0eb3601a93a5660f6d43f077  ./plugins/jb-memory-codex/tests/jb-memory.test.js
 5a897a1cd17f861f2059168075657abbb4af95f8b0c0fe515c211d244021d854  ./plugins/jb-memory/.claude-plugin/icon.png
 98e7b569c98fd9a5586248fe3df24b44f6b5fa1ee293eabaacd4944e013f8912  ./plugins/jb-memory/.claude-plugin/plugin.json
 772e299d3c90af1ed7d29ae543057c27beff24f013eb42b03fe969b5ee7ab493  ./plugins/jb-memory/LICENSE
@@ -67,7 +67,7 @@ c69ff63e8e26d70828182a1d6eaa885006ffb5dd75b3edf61bded06f1ae2d1c0  ./plugins/jb-m
 e4f926597f95d02ddbaefea2f95c58261879d18bb498a031a65d43a213cb0bce  ./plugins/jb-memory/skills/recall/SKILL.md
 37f45278ce7b9e33c48ffcb635f50e706c697f194c1b6d56b85871a07e84b9c8  ./plugins/jb-memory/skills/session-end/SKILL.md
 97ef3edc3fb94d334367b972cddf6f7214a8261907eb59c18691c6ed2877d9e3  ./plugins/jb-memory/tests/handoff-checks.test.js
-575a11592cf0e3dc0c0daf2a43b902fd23015a231ca372e15dbe5e7ef6f0d049  ./plugins/jb-memory/tests/jb-memory.test.js
+98933096f8d50220dd4fa0b0b005b70fefcd3f74b0b1a1952e1f95b0cea5003f  ./plugins/jb-memory/tests/jb-memory.test.js
 3a6dbb0066579e275ddf35e325cbdbeb097cff649501d85e5e5460c34adf0a51  ./tools/install-check.js
 09d1ab21ae1fb617635b315f4729d770467b86404fc9c6ce5dde074a0e3749c2  ./tools/windows/check-jb-checkpoints.ps1
 7edfc6c9d73e91ae3d4fbf3b7a14534122852c7ed919a64b1b9efb4fad36ac61  ./tools/windows/inspect-last-checkpoint.ps1

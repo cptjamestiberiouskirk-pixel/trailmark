@@ -12,6 +12,14 @@ const { execFileSync, spawnSync } = require('child_process');
 // through a link (/var -> /private/var), and on Windows through an 8.3 short
 // name (RUNNER~1), while git and jb-memory report the real one.
 const realTemp = (prefix) => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+const WIN = process.platform === 'win32';
+// How jb-memory writes a folder in the log and on the Updated line (forward
+// slashes on Windows; lib/store.js, displayPath).
+const dp = p => require(path.join(__dirname, '..', 'scripts', 'lib', 'store.js')).displayPath(p);
+// Tests that put a shell script in place of git, or need git to run one,
+// can't run on Windows: jb-memory starts git.exe only, and Node won't start a
+// .cmd file without a shell.
+const POSIX_ONLY = WIN && 'needs a shell script in place of git, which Windows cannot run';
 
 // The Codex copy refuses init unless this is set (scripts/jbm.js).
 process.env.JBMEM_CODEX_INIT = '1';
@@ -982,7 +990,7 @@ test('hooks: a busy lock costs the reminder, never the commit log line; a payloa
   assert.ok(stateOf(s).sessions[SB], 'the session with a BOM-prefixed payload was recorded');
 });
 
-test('slow git: hooks finish well inside Claude Code\'s timeout when git hangs, and still inject', () => {
+test('slow git: hooks finish well inside Claude Code\'s timeout when git hangs, and still inject', { skip: POSIX_ONLY }, () => {
   const s = sandbox();
   jbm(s, ['init']);
   wh(J(s), '# H\n- SLOW GIT STATE\n', [`--session=${SA}`]);
@@ -1041,12 +1049,15 @@ test('git path: PATH entries that are relative, "." or the working folder are sk
   const real = path.join(base, 'real');
   fs.mkdirSync(path.join(work, 'bin'), { recursive: true });
   fs.mkdirSync(real);
-  for (const f of [path.join(work, 'git'), path.join(work, 'bin', 'git'), path.join(real, 'git')]) {
-    fs.writeFileSync(f, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  // The POSIX rules check real files for the execute bit, which Windows lacks.
+  if (!WIN) {
+    for (const f of [path.join(work, 'git'), path.join(work, 'bin', 'git'), path.join(real, 'git')]) {
+      fs.writeFileSync(f, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    }
+    const env = { PATH: ['bin', '.', '', work, real].join(':') };
+    assert.strictEqual(findGit({ env, cwd: work, platform: 'linux' }), path.join(real, 'git'));
+    assert.strictEqual(findGit({ env: { PATH: 'bin:.' }, cwd: work, platform: 'linux' }), '');
   }
-  const env = { PATH: ['bin', '.', '', work, real].join(':') };
-  assert.strictEqual(findGit({ env, cwd: work, platform: 'linux' }), path.join(real, 'git'));
-  assert.strictEqual(findGit({ env: { PATH: 'bin:.' }, cwd: work, platform: 'linux' }), '');
   // The Windows rules, with a stand-in for the file check: drive-relative and
   // relative entries, '.', and the repo folder are skipped; PATHEXT order counts.
   const have = new Set(['C:\\repo\\git.exe', 'bin\\git.exe', 'C:\\Program Files\\Git\\cmd\\git.exe', 'C:\\Program Files\\Git\\cmd\\git.com']);
@@ -1105,7 +1116,7 @@ test('drop files: --from removes only incoming-*.md drop files; handoff.md, .jbm
   assert.ok(fs.existsSync(outside));
 });
 
-test('git: hooks never rewrite .git/index; only the commit hook reads the reflog; every call is hardened', () => {
+test('git: hooks never rewrite .git/index; only the commit hook reads the reflog; every call is hardened', { skip: POSIX_ONLY }, () => {
   const s = sandbox();
   jbm(s, ['init']);
   // A tracked file whose time no longer matches the index makes a plain
@@ -1387,7 +1398,7 @@ test('init: a memory folder outside the projects folder is made by the launcher,
   assert.ok(writes.includes(path.resolve(mem)), g[2]);
 });
 
-test('git path: the working folder is also skipped under another name for it (a symlink)', () => {
+test('git path: the working folder is also skipped under another name for it (a symlink)', { skip: POSIX_ONLY }, () => {
   const { findGit } = require('../scripts/lib/gitbin');
   const base = realTemp('jbmem-gitreal-');
   const repo = path.join(base, 'repo');
@@ -1784,7 +1795,7 @@ test('0.3.3 commits: a session committing in another clone logs that clone\'s co
   }
   const lines = commitLines(s);
   for (const [i, sha] of made.entries()) {
-    assert.ok(lines.some(l => l.includes(`COMMIT ${sha} in="${clone}" audit ${i + 1} session=11111111`)), `audit ${i + 1} (${sha}) not logged from the clone:\n${lines.join('\n')}`);
+    assert.ok(lines.some(l => l.includes(`COMMIT ${sha} in="${dp(clone)}" audit ${i + 1} session=11111111`)), `audit ${i + 1} (${sha}) not logged from the clone:\n${lines.join('\n')}`);
   }
   assert.ok(!lines.some(l => l.includes(` ${w0} `)), `the worktree's HEAD ${w0} was logged:\n${lines.join('\n')}`);
   const shas = lines.map(l => /COMMIT ([0-9a-f]+)/.exec(l)[1]);
@@ -1807,14 +1818,14 @@ test('0.3.3 Updated line: branch and HEAD come from where the session\'s last co
     return /^Updated: .*$/m.exec(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8'))[0];
   };
   const a = run(wt, SA);
-  assert.match(a, new RegExp(`^Updated: \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} \\| branch audit \\| HEAD ${head(clone)} \\| in ${clone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\| session 11111111 \\| by Codex$`), a);
+  assert.match(a, new RegExp(`^Updated: \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} \\| branch audit \\| HEAD ${head(clone)} \\| in ${dp(clone).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\| session 11111111 \\| by Codex$`), a);
   // A session in the main checkout: the 0.3.2 format, no folder.
   s.g('commit', '-q', '--allow-empty', '-m', 'main work');
   const b = run(s.repo, SB);
   assert.match(b, new RegExp(`^Updated: \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} \\| branch \\S+ \\| HEAD ${head(s.repo)} \\| session 22222222 \\| by Codex$`), b);
   // A session in the worktree that never committed: the worktree, named.
   const c = run(wt, SC);
-  assert.match(c, new RegExp(`\\| branch wa \\| HEAD ${head(wt)} \\| in ${wt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\| session 33333333 \\| by Codex$`), c);
+  assert.match(c, new RegExp(`\\| branch wa \\| HEAD ${head(wt)} \\| in ${dp(wt).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\| session 33333333 \\| by Codex$`), c);
   // A recorded folder that is gone: back to the session's own folder.
   fs.rmSync(clone, { recursive: true, force: true });
   assert.match(run(wt, SA), new RegExp(`\\| branch wa \\| HEAD ${head(wt)} \\| in .*wa \\| session 11111111 \\| by Codex$`));
@@ -1824,10 +1835,10 @@ test('0.3.3 commits: two folders in one command are both logged; a commit named 
   const { s, wt, clone, gClone, gWt, head, hook } = multiFolder();
   gWt('commit', '-q', '--allow-empty', '-m', 'own one');
   gClone('commit', '-q', '--allow-empty', '-m', 'other one');
-  hook(wt, SA, `git commit -q -m "own one" && cd ${clone} && git commit -q -m "other one"`);
+  hook(wt, SA, `git commit -q -m "own one" && cd "${clone}" && git commit -q -m "other one"`);
   let lines = commitLines(s);
   assert.ok(lines.some(l => l.endsWith(`COMMIT ${head(wt)} own one session=11111111`)), lines.join('\n'));
-  assert.ok(lines.some(l => l.endsWith(`COMMIT ${head(clone)} in="${clone}" other one session=11111111`)), lines.join('\n'));
+  assert.ok(lines.some(l => l.endsWith(`COMMIT ${head(clone)} in="${dp(clone)}" other one session=11111111`)), lines.join('\n'));
   // A commit made outside any session (no hook ran), then commands that only
   // mention git commit: 0.3.2 logged that HEAD as this session's commit.
   s.g('commit', '-q', '--allow-empty', '-m', 'made by hand');
@@ -1856,14 +1867,16 @@ test('0.3.3 commits: two folders in one command are both logged; a commit named 
 
 test('0.3.3 commits: a folder that can\'t be known is logged as unresolved, never as the session folder\'s HEAD', () => {
   const { s, wt, head, hook } = multiFolder();
+  // Bash syntax: on Windows this copy reads commands as PowerShell unless told.
+  const BASH = { JBMEM_CODEX_SHELL: 'bash' };
   s.g('commit', '-q', '--allow-empty', '-m', 'not mine');
   const w0 = head(wt);
-  const r = hook(wt, SA, 'cd "$REPO" && git commit -q -m "x"');
+  const r = hook(wt, SA, 'cd "$REPO" && git commit -q -m "x"', { env: BASH });
   assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /Commit landed/);
   assert.match(notesOf(s), /COMMIT_UNRESOLVED why=unknown-folder session=11111111/);
-  hook(wt, SA, 'GIT_DIR=/elsewhere/.git git commit -m x');
+  hook(wt, SA, 'GIT_DIR=/elsewhere/.git git commit -m x', { env: BASH });
   assert.match(notesOf(s), /COMMIT_UNRESOLVED why=other-repo session=11111111/);
-  hook(wt, SA, `cd "${path.join(s.base, 'gone')}" && git commit -m x`);
+  hook(wt, SA, `cd "${path.join(s.base, 'gone')}" && git commit -m x`, { env: BASH });
   assert.match(notesOf(s), /COMMIT_UNRESOLVED why=missing-folder in="[^"]*gone" session=11111111/);
   assert.strictEqual(commitLines(s).length, 0, commitLines(s).join('\n'));
   assert.ok(!notesOf(s).includes(w0));
@@ -1874,10 +1887,10 @@ test('0.3.3 commits: the PowerShell tool\'s Set-Location and Push-Location are f
   gClone('commit', '-q', '--allow-empty', '-m', 'from powershell');
   const r = hook(wt, SA, `Set-Location -LiteralPath '${clone}'; git commit -q -m 'from powershell'`, { tool_name: 'PowerShell' });
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${clone}" from powershell session=11111111`)), notesOf(s));
+  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${dp(clone)}" from powershell session=11111111`)), notesOf(s));
   gClone('commit', '-q', '--allow-empty', '-m', 'pushed');
   hook(wt, SA, `Push-Location '${clone}'\ngit commit -q -m pushed\nPop-Location`, { tool_name: 'PowerShell' });
-  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${clone}" pushed session=11111111`)), notesOf(s));
+  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${dp(clone)}" pushed session=11111111`)), notesOf(s));
 });
 
 test('0.3.3 commits: a commit logged while the lock was busy is not logged again afterwards', () => {
@@ -1927,7 +1940,7 @@ function S_note(s, text) {
   require('../scripts/lib/store').note(s.memdir, text, '');
 }
 
-test('0.3.3 hardening: hostile repo config in the folder git runs in starts no program (lazy fetch, uploadpack, gpg, fsmonitor, hooks)', () => {
+test('0.3.3 hardening: hostile repo config in the folder git runs in starts no program (lazy fetch, uploadpack, gpg, fsmonitor, hooks)', { skip: POSIX_ONLY }, () => {
   const s = sandbox();
   jbm(s, ['init']);
   const marks = path.join(s.base, 'marks');
@@ -2025,8 +2038,9 @@ test('0.3.3 hardening: the PreCompact status runs no fsmonitor, hook or submodul
   fs.chmodSync(path.join(hooks, 'post-index-change'), 0o755);
   s.g('config', 'core.hooksPath', hooks);
   // Proof that the fixture is live: a plain status runs both.
+  // (On Windows git doesn't run these shell scripts, so only the trace below counts there.)
   spawnSync('git', ['status', '--porcelain'], { cwd: s.repo, stdio: 'ignore' });
-  assert.deepStrictEqual(fs.readdirSync(marks).sort(), ['fsmonitor', 'post-index-change']);
+  if (!WIN) assert.deepStrictEqual(fs.readdirSync(marks).sort(), ['fsmonitor', 'post-index-change']);
   fs.rmSync(marks, { recursive: true }); fs.mkdirSync(marks);
   fs.utimesSync(path.join(s.repo, 'a'), new Date(Date.now() - 4 * 3600000), new Date(Date.now() - 4 * 3600000));
   const old = new Date(Date.now() - 3 * 3600000);
@@ -2172,11 +2186,11 @@ test('0.3.3 start folder: a session left in an added folder (another clone) stil
   gClone('commit', '-q', '--allow-empty', '-m', 'into the clone');
   // The clone is a folder the session may use, so Claude Code leaves it there.
   hook(wt, SA, `cd "${clone}" && git commit -q --allow-empty -m "into the clone"`, { end: clone, transcript_path: transcript });
-  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${clone}" into the clone session=11111111`)), notesOf(s));
+  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${dp(clone)}" into the clone session=11111111`)), notesOf(s));
   // The next command starts there: both hooks get the clone as cwd.
   gClone('commit', '-q', '--allow-empty', '-m', 'still there');
   hook(clone, SA, 'git commit -q --allow-empty -m "still there"', { transcript_path: transcript });
-  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${clone}" still there session=11111111`)), notesOf(s));
+  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${dp(clone)}" still there session=11111111`)), notesOf(s));
 });
 
 test('0.3.3 commits: loops, many commits, functions, scripts on stdin and a message that looks like a flag are all logged', () => {
@@ -2203,7 +2217,7 @@ test('0.3.3 commits: loops, many commits, functions, scripts on stdin and a mess
   ]) {
     gClone('commit', '-q', '--allow-empty', '-m', msg);
     hook(s.repo, SA, cmd, { end: s.repo });
-    assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${clone}" ${msg} session=11111111`)), `${msg}: ${notesOf(s)}`);
+    assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${dp(clone)}" ${msg} session=11111111`)), `${msg}: ${notesOf(s)}`);
   }
 });
 
@@ -2225,13 +2239,13 @@ test('0.3.3 commits: only commits made while the command ran; a rebase in the sa
   hook(s.repo, SA, `cd "${clone}" && git commit -q -m fix && git pull -q --rebase`, { end: s.repo });
   const fix = commitLines(s).filter(l => / fix /.test(l + ' '));
   assert.strictEqual(fix.length, 1, notesOf(s));
-  assert.ok(fix[0].includes(`COMMIT ${now} in="${clone}" fix (rebased in the same command)`), fix[0]);
+  assert.ok(fix[0].includes(`COMMIT ${now} in="${dp(clone)}" fix (rebased in the same command)`), fix[0]);
   // commit, then amend.
   gClone('commit', '-q', '--allow-empty', '-m', 'first try');
   gClone('commit', '-q', '--amend', '--allow-empty', '-m', 'second try');
   hook(s.repo, SA, `cd "${clone}" && git commit -q -m "first try" && git commit -q --amend -m "second try"`, { end: s.repo });
   assert.ok(!notesOf(s).includes('first try'), notesOf(s));
-  assert.ok(commitLines(s).some(l => l.includes(`COMMIT ${head(clone)} in="${clone}" second try session=`)), notesOf(s));
+  assert.ok(commitLines(s).some(l => l.includes(`COMMIT ${head(clone)} in="${dp(clone)}" second try session=`)), notesOf(s));
 });
 
 test('0.3.3 commits: a command that runs the hook twice (git commit and git -C in one) logs nothing twice; the PreToolUse hook prints nothing', () => {
@@ -2280,7 +2294,7 @@ test('0.3.3 Updated line: a main checkout reached through another spelling (a li
   execFileSync('git', ['clone', '-q', s.repo, odd], { stdio: 'ignore' });
   execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'odd'], { cwd: odd });
   hook(s.repo, SA, `cd "${odd}" && git commit -q -m odd`, { end: s.repo });
-  assert.ok(notesOf(s).includes(`in="${s.base}/100%25 done" odd`), notesOf(s));
+  assert.ok(notesOf(s).includes(`in="${dp(s.base)}/100%25 done" odd`), notesOf(s));
 });
 
 test('0.3.3 parser: code that may not run, functions, scriptblocks, GIT_DIR set earlier, and odd input', () => {
@@ -2483,8 +2497,8 @@ test('0.3.3 commits: a hook that starts late still finds the command\'s first co
   g('checkout', '-q', '-b', 'featB', 'HEAD~1');
   g('commit', '-q', '--allow-empty', '-m', 'fix B');
   hook(s.repo, SA, `cd "${clone}" && git commit -q -m "fix A on audit" && git checkout -q -b featB HEAD~1 && git commit -q -m "fix B"`, { end: s.repo });
-  assert.ok(commitLines(s).some(l => l.includes(`COMMIT ${a} in="${clone}" fix A on audit (not on HEAD after the command) session=`)), notesOf(s));
-  assert.ok(commitLines(s).some(l => l.includes(`COMMIT ${head(clone)} in="${clone}" fix B session=`)), notesOf(s));
+  assert.ok(commitLines(s).some(l => l.includes(`COMMIT ${a} in="${dp(clone)}" fix A on audit (not on HEAD after the command) session=`)), notesOf(s));
+  assert.ok(commitLines(s).some(l => l.includes(`COMMIT ${head(clone)} in="${dp(clone)}" fix B session=`)), notesOf(s));
 });
 
 // ---------- 0.3.3 review round 3 ----------
@@ -2753,7 +2767,7 @@ test('0.3.4 sweep: a commit no hook saw is logged once as (found later) at write
   assert.match(out, /logged 2 commit\(s\) found in this session's folders that no hook had logged/, out);
   let lines = commitLines(s).map(l => l.slice(8));
   assert.ok(lines.includes(`COMMIT ${scripted} by a script (found later) session=11111111`), lines.join('\n'));
-  assert.ok(lines.includes(`COMMIT ${head(clone)} in="${clone}" fixed typo (found later) session=11111111`), lines.join('\n'));
+  assert.ok(lines.includes(`COMMIT ${head(clone)} in="${dp(clone)}" fixed typo (found later) session=11111111`), lines.join('\n'));
   assert.strictEqual(lines.filter(l => / hooked /.test(l)).length, 1, lines.join('\n'));
   assert.ok(!lines.some(l => / typo \(found later\)/.test(l) && !/fixed typo/.test(l)), 'the amended-away commit: ' + lines.join('\n'));
   assert.ok(!notesOf(s).includes('main by hand'), notesOf(s));
@@ -2781,7 +2795,7 @@ test('0.3.4 sweep: a commit no hook saw is logged once as (found later) at write
   assert.ok(!notesOf(s).includes('while the clone was away'));
   tick();
   write(SA, wt);
-  assert.strictEqual(commitLines(s).filter(l => l.endsWith(` in="${clone}" while the clone was away (found later) session=11111111`)).length, 1, notesOf(s));
+  assert.strictEqual(commitLines(s).filter(l => l.endsWith(` in="${dp(clone)}" while the clone was away (found later) session=11111111`)).length, 1, notesOf(s));
   // A session the hooks never saw start isn't swept.
   gWt('commit', '-q', '--allow-empty', '-m', 'unrecorded');
   tick();
@@ -2826,7 +2840,7 @@ test('0.3.4 sweep: another clone with its own memory folder: what its sessions l
   tick();
   write(SA, wt);
   const mine = notesOf(s);
-  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${shaN} in="${clone}" nobody logged (found later) session=11111111`)), mine);
+  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${shaN} in="${dp(clone)}" nobody logged (found later) session=11111111`)), mine);
   assert.ok(!mine.includes(shaB), 'B\'s logged commit: ' + mine);
   assert.ok(!mine.includes(shaB2), 'B\'s running command\'s commit: ' + mine);
   assert.ok(!mine.includes('B at home') && !mine.includes('B running'), mine);
@@ -2916,7 +2930,7 @@ test('0.3.4 commits: a command that commits and then fails (PostToolUseFailure) 
   const r = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify(fail));
   assert.strictEqual(r.status, 0, r.stderr);
   assert.strictEqual(r.stdout, '');
-  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${clone}" then the push failed session=11111111`)), notesOf(s));
+  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(clone)} in="${dp(clone)}" then the push failed session=11111111`)), notesOf(s));
   assert.ok(!notesOf(s).includes('END_MISMATCH'), notesOf(s));
   assert.ok(fs.existsSync(path.join(s.memdir, 'pending', `${t.id}.done`)));
   // Run twice (git commit and git -C both match): logged once.
