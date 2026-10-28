@@ -371,10 +371,10 @@ Trailmark was called jb-memory up to 0.4.5. The memory folders, handoffs and `.j
    claude plugin marketplace remove jb-memory
    ```
 
-   Until you do, the Trailmark installer refuses to install: two copies would each run every hook. A session start also names any jb-memory copy left in Claude Code's plugin cache.
+   Until you do, the Trailmark installer refuses to install: two copies would each run every hook. If you install by hand instead, every session start names the jb-memory copy, installed or only cached, until it is gone.
 2. Put the new release where you keep it (renaming the folder is optional) and run its installer.
 3. Type the new skill names: `/trailmark:checkpoint`, `/trailmark:session-end` and so on. A handoff is only text, so one that still mentions a `jb-memory:` skill name changes nothing; edit it when it suits you.
-4. Codex: uninstall jb-memory-codex in the ChatGPT app, remove its marketplace (`codex plugin marketplace remove jb-memory-codex`), then add this release's (section 8) and trust the new hooks. The skills are now `tm-checkpoint`, `tm-recall` and so on.
+4. Codex: uninstall jb-memory-codex in the ChatGPT app, remove its marketplace (`codex plugin marketplace remove jb-memory-codex`), then add this release's (section 8) and trust the new hooks. The skills are now `tm-checkpoint`, `tm-recall` and so on. While a `jb-memory-codex` folder is still in Codex's plugin cache, each chat start warns about it.
 5. Windows watchdog: run `install-trailmark-watchdog.ps1` from the new `tools\windows`. It removes the old `jb-watchdog` tasks and installed copy first, then records the new folder. The old log and known-good list stay in `%LOCALAPPDATA%\jb-watchdog`; delete that folder once you no longer need them.
 
 ### From an earlier private marketplace

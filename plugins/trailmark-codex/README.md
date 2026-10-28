@@ -77,6 +77,7 @@ Each step says whether it is CONFIRMED from Codex's documentation or from use wi
 The same as Trailmark's README section of that name, with these differences:
 
 - The PostToolUse hook starts on every shell command, since Codex has no per-command filter, and leaves before any git work unless the command is a commit or a PR merge.
+- At chat start it reads folder names in Codex's plugin cache (`%USERPROFILE%\.codex\plugins\cache`, or under `CODEX_HOME`), three levels down, to warn about a leftover `jb-memory-codex`, this plugin's name before 0.5.0. It opens no files there.
 - It reads Codex's own rollouts (`%USERPROFILE%\.codex\sessions` and `archived_sessions`) by session ID, for the exit code of a commit command and for the checkpoint skill. It never reads a Claude Code transcript.
 - Outside the memory folder it writes one file, `payload-shapes.log` in the plugin's data folder (`PLUGIN_DATA`), which records field names and types only and stops growing at 256 KB. `JBMEM_SHAPES=off` turns it off. See the next section.
 - Writes to the memory folder go through Codex's approval for commands outside the workspace (Install, step 3).

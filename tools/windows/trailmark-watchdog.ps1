@@ -128,10 +128,13 @@ function Set-Layout([string]$Name) {
     $script:Layout = $LayoutRoot
     $script:MarketManifest = '.claude-plugin/marketplace.json'
     $script:PluginRel      = 'plugins/trailmark'
+    $script:HookScript     = '${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js'
   } else {
     $script:Layout = $LayoutNested
     $script:MarketManifest = 'jb-memory-marketplace/.claude-plugin/marketplace.json'
     $script:PluginRel      = 'jb-memory-marketplace/plugins/jb-memory'
+    # A nested folder is from before the rename: its hooks run jbm.js.
+    $script:HookScript     = '${CLAUDE_PLUGIN_ROOT}/scripts/jbm.js'
   }
 }
 function Find-Layout([string]$RootFull) {
@@ -139,7 +142,7 @@ function Find-Layout([string]$RootFull) {
   if (Test-Path -LiteralPath (Join-Path $RootFull '.claude-plugin\marketplace.json') -PathType Leaf) { return $LayoutRoot }
   return $LayoutNested
 }
-$KnownPlugins = @('trailmark', 'trailmark-codex')
+$KnownPlugins = @('trailmark', 'trailmark-codex', 'jb-memory', 'jb-memory-codex')
 # Copies in the plugin cache under these names are watched; jb-memory is the
 # name before 0.5.0, and a copy left from then would run every hook again.
 $CopyNames = @('trailmark', 'jb-memory')
@@ -996,7 +999,8 @@ function Get-CacheCopies([string]$MarketHash, [string[]]$Hints = @()) {
         $hash = Get-CopyHash $v.FullName
         $listed = $installed.ContainsKey((($v.FullName -replace '\\', '/').TrimEnd('/')).ToLowerInvariant())
         $same = [bool]($MarketHash -and $hash -eq $MarketHash)
-        $out[$key] = [ordered]@{ hash = $hash; installed = [bool]($listed -or $same); listed = [bool]$listed; same = $same }
+        $isOld = ($p.Name -eq 'jb-memory') -or (-not (Test-Path -LiteralPath (Join-Path (Join-Path $v.FullName 'scripts') 'trailmark.js') -PathType Leaf))
+        $out[$key] = [ordered]@{ hash = $hash; installed = [bool]($listed -or $same); listed = [bool]$listed; same = $same; old = [bool]$isOld }
       }
     }
     if ((Get-Date) -gt $until) { if ($why -notcontains 'the walk took longer than 90 seconds') { [void]$why.Add('the walk took longer than 90 seconds') }; break }
@@ -1175,6 +1179,13 @@ function Get-OutsideFindings($State, $Baseline) {
     $changed = $known -and $oldCopies[$k] -ne [string]$c.hash
     if ($c.Contains('link') -and $c.link) {
       if (-not $known -or $changed) { [void]$f.Add((New-Finding 'HIGH' 'cache' $path 'a link in Claude Code''s plugin cache where a trailmark copy can be; what it points to was not checked' @(Clean-Text ([string]$c.hash) 400))) }
+      continue
+    }
+    # A copy under the old name (jb-memory, or one that holds only jbm.js) is
+    # reported at every scan, installed or not and accepted or not: it would
+    # run every hook a second time next to Trailmark.
+    if ($c.Contains('old') -and $c.old) {
+      [void]$f.Add((New-Finding 'HIGH' 'cache' $path ('a copy of jb-memory, Trailmark''s old name, is in Claude Code''s plugin cache' + $(if ($c.listed) { ' and listed as installed' } else { '' }) + '. It would run every hook a second time. Uninstall it (claude plugin uninstall jb-memory@<marketplace>) or remove the folder; MANUAL.md, section 15.') @()))
       continue
     }
     # A copy that matches the watched plugin: any change in it is the

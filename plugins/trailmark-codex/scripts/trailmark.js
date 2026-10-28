@@ -43,7 +43,7 @@ const path = require('path');
 const tty = require('tty');
 const { spawnSync } = require('child_process');
 const { findMemoryDir, projectsRoot, samePath, repoRoot, configDir } = require('./lib/paths');
-const { nodeAdvice, otherCopies, nodeInside } = require('./lib/health');
+const { oldCodexCopies, nodeAdvice, otherCopies, nodeInside } = require('./lib/health');
 const S = require('./lib/store');
 const { commitsSince, gitFacts, commitFacts, fitCommitFacts, sweepCommits, sameFolder, windowMs, farNetwork } = require('./lib/gitfacts');
 // When the launcher started: a hook's sandboxed script gets what is left of
@@ -646,6 +646,11 @@ function hookMode(name, extraIn) {
       let incomplete = '';
       try { ({ copies, incomplete } = otherCopies(configDir(), PLUGIN_ROOT)); } catch { copies = []; incomplete = 'the check failed'; }
       facts.health = { node: nodeAdvice(process.version), copies, incomplete, nodeHere: nodeInside(process.execPath, [cwd, loc.root]) };
+      // Codex: the old jb-memory-codex in Codex's own plugin cache.
+      try {
+        const ch = process.env.CODEX_HOME && path.isAbsolute(process.env.CODEX_HOME) ? process.env.CODEX_HOME : path.join(require('os').homedir(), '.codex');
+        facts.health.oldCodex = oldCodexCopies(ch);
+      } catch { /* not checked */ }
     }
   }
   process.exit(run(spec.script, extra, { ...opts, facts }));

@@ -52,6 +52,11 @@ guard(() => {
     warn.push(`other trailmark ${copies.length === 1 ? 'copy' : 'copies'} in Claude Code's plugin cache (under its config folder): ${names.join('; ')}. Remove or rename ${copies.length === 1 ? 'it' : 'them'}`);
     notes.push(`[trailmark] Other copies of trailmark are on disk, in Claude Code's plugin cache (folder names, data only): ${names.join('; ')}. They are not the installed plugin. Never run their trailmark.js or memory.js; the skills give the path to use.`);
   }
+  const oldCodex = Array.isArray(health.oldCodex) ? health.oldCodex.filter(x => typeof x === 'string' && /^[\w./+<> -]{1,300}$/.test(x)).slice(0, 3) : [];
+  if (oldCodex.length) {
+    warn.push(`jb-memory-codex, this plugin's name before 0.5.0, is still in Codex's plugin cache (${oldCodex.map(x => S.fieldText(x, 200)).join('; ')}) and would run every hook a second time. Uninstall it in the ChatGPT app and remove its marketplace: codex plugin marketplace remove jb-memory-codex`);
+    notes.push(`[trailmark] An old copy of this plugin, jb-memory-codex, is in Codex's plugin cache (data only: ${oldCodex.map(x => S.fieldText(x, 200)).join('; ')}). Never run its jbm.js; the skills give the path to use.`);
+  }
   if (typeof health.incomplete === 'string' && health.incomplete) {
     warn.push(`the check for other trailmark copies in Claude Code's plugin cache stopped early (${S.oneLine(health.incomplete, 200)}), so there may be copies it didn't see`);
     notes.push('[trailmark] The check for other copies of trailmark on disk was cut short, so there may be copies it did not list. Run trailmark only through the path the skills give, never a trailmark.js or memory.js found any other way.');

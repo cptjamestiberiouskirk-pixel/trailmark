@@ -381,3 +381,35 @@ test('rename: the installers refuse when jb-memory, the old name, is installed',
   assert.strictEqual(run([{ id: 'jb-memory@jb-memory' }, { id: 'trailmark@trailmark' }]), 'jb-memory@jb-memory');
   assert.strictEqual(run([{ id: 'trailmark@elsewhere' }]), 'trailmark@elsewhere');
 });
+
+test('rename: an installed jb-memory is named too, the installed Trailmark is not', () => {
+  const s = sandbox();
+  s.write('# H\n- state\n');
+  const old = path.join(s.cfg, 'plugins', 'cache', 'jb-memory', 'jb-memory', '0.4.5');
+  const cur = path.join(s.cfg, 'plugins', 'cache', 'trailmark', 'trailmark', '0.5.0');
+  for (const [d, l] of [[old, 'jbm.js'], [cur, 'trailmark.js']]) { fs.mkdirSync(path.join(d, 'scripts'), { recursive: true }); fs.writeFileSync(path.join(d, 'scripts', l), '//'); }
+  fs.writeFileSync(path.join(s.cfg, 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: {
+    'jb-memory@jb-memory': [{ scope: 'user', installPath: old, version: '0.4.5' }],
+    'trailmark@trailmark': [{ scope: 'user', installPath: cur, version: '0.5.0' }] } }));
+  const { context } = s.start(SB);
+  assert.match(context, /jb-memory\/jb-memory\/0\.4\.5/);
+  assert.ok(!/trailmark\/trailmark\/0\.5\.0/.test(context), context);
+});
+
+test('rename: an old jb-memory-codex in the Codex plugin cache is found', () => {
+  const { oldCodexCopies } = require(path.join(ROOT, 'scripts', 'lib', 'health.js'));
+  const home = realTemp('jbmem-codexhome-');
+  fs.mkdirSync(path.join(home, 'plugins', 'cache', 'jb-memory-codex', 'jb-memory-codex', '0.2.3'), { recursive: true });
+  fs.mkdirSync(path.join(home, 'plugins', 'cache', 'trailmark-codex', 'trailmark-codex', '0.3.0'), { recursive: true });
+  assert.deepStrictEqual(oldCodexCopies(home), ['plugins/cache/jb-memory-codex']);
+  assert.deepStrictEqual(oldCodexCopies(realTemp('jbmem-codexempty-')), []);
+  assert.deepStrictEqual(oldCodexCopies('//evil.invalid/share'), []);
+  if (S.AGENT === 'Codex') {
+    const s = sandbox();
+    s.write('# H\n- state\n');
+    const r = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, CODEX_HOME: home }, input: JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB }), encoding: 'utf8' });
+    const out = JSON.parse(r.stdout);
+    assert.match(out.systemMessage || '', /jb-memory-codex, this plugin's name before 0\.5\.0/);
+    assert.match(out.hookSpecificOutput.additionalContext, /An old copy of this plugin, jb-memory-codex/);
+  }
+});

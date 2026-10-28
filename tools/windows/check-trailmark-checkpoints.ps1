@@ -201,7 +201,7 @@ function JbmRun([string]$seg) {
   if (-not $m.Success) { return $null }
   $p = $m.Groups[1].Value
   $p = $(if ($p -match '^["'']') { $p.Trim('"').Trim("'") } else { $p.Replace('\ ', ' ') })
-  if ($p -notmatch '(?:jbm|memory)\.js$' -and $p -notmatch '^\$\{?(?:env:)?[A-Za-z_]\w*\}?$') { return $null }
+  if ($p -notmatch '(?:trailmark|jbm|memory)\.js$' -and $p -notmatch '^\$\{?(?:env:)?[A-Za-z_]\w*\}?$') { return $null }
   return @{ Sub = $m.Groups[2].Value; Path = $p; Seg = $seg }
 }
 # The trailmark.js (or memory.js) a write ran, when it isn't the installed

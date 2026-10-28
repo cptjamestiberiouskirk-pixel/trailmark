@@ -405,7 +405,7 @@ foreach ($d in @('.claude-plugin', 'plugins')) { Copy-Item -LiteralPath (Join-Pa
 Rename-Item -LiteralPath (Join-Path $root2 'jb-memory-marketplace\plugins\trailmark') -NewName 'jb-memory'
 $o = & $ps51 -NoProfile -ExecutionPolicy Bypass -File $wd -Init -Root $root2 -Yes -StateDir $state2 -ClaudeDir $claudeTest -NoDefender -DryRunAlert 2>&1 | ForEach-Object { [string]$_ }
 Check 'nested layout is recorded' (([IO.File]::ReadAllText((Join-Path $state2 'baseline.json')) | ConvertFrom-Json).layout -eq 'nested') ($o -join ' ')
-Add-Content -LiteralPath (Join-Path $root2 'jb-memory-marketplace\plugins\jb-memory\scripts\jbm.js') -Value '// changed'
+Add-Content -LiteralPath (Join-Path $root2 'jb-memory-marketplace\plugins\jb-memory\scripts\trailmark.js') -Value '// changed'
 $o = & $ps51 -NoProfile -ExecutionPolicy Bypass -File $wd -Scan -StateDir $state2 -ClaudeDir $claudeTest -NoDefender -DryRunAlert 2>&1 | ForEach-Object { [string]$_ }
 $s2 = [IO.File]::ReadAllText((Join-Path $state2 'last-scan.json')) | ConvertFrom-Json
 Check 'nested layout: a plugin change is HIGH' (Has $s2 'HIGH' 'changed' 'jb-memory-marketplace/plugins/jb-memory/scripts/trailmark.js') (Show $s2)

@@ -3,14 +3,14 @@
 # release folder two levels up when this script sits in its tools\windows
 # folder, otherwise the folder this script is in. -Root names another.
 #
-#   0. Removes the tasks and installed copy of jb-watchdog, its name before
-#      0.5.0, if they are there. Their log and known-good list stay.
 #   1. Copies trailmark-watchdog.ps1 to %LOCALAPPDATA%\trailmark-watchdog, outside
 #      the folder it watches.
 #   2. Records the folder's current contents as known-good. You see a summary
 #      and type yes. If a known-good list already exists, it shows what changed
 #      instead and asks again.
-#   3. Adds two scheduled tasks, as you, with no admin rights. They run only
+#   3. Removes the tasks and installed copy of jb-watchdog, its name before
+#      0.5.0, if they are there (their log and known-good list stay), then
+#      adds two scheduled tasks, as you, with no admin rights. They run only
 #      while you're logged on, which is what lets them show notifications.
 #        trailmark-watchdog           scans every 15 minutes
 #        trailmark-watchdog-reminder  scans when you log on or unlock the PC, and
@@ -99,9 +99,6 @@ Write-Host ('  folder to watch: ' + $here)
 Write-Host ('  running as:      ' + $me)
 Write-Host ('  PowerShell:      ' + $PSVersionTable.PSVersion.ToString() + ' (scans run under Windows PowerShell 5.1)')
 
-Step 'Remove jb-watchdog, the old name, if it is installed'
-Remove-Legacy
-
 Step 'Copy the watchdog'
 New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
 Copy-Item -LiteralPath $src -Destination $dest -Force
@@ -125,6 +122,11 @@ $code = $LASTEXITCODE
 if ($code -eq 3) { Write-Host '  Not recorded, so no task was added. Run this again when you are ready.'; Finish 1 }
 if ($code -eq 4) { Write-Host '  A scheduled scan was still running. Nothing was changed; run this again in a minute.'; Finish 1 }
 if ($code -ne 0) { Write-Host ('  Recording did not finish (exit ' + $code + ').'); Finish 1 }
+
+Step 'Remove jb-watchdog, the old name, if it is installed'
+# Only now, once the new known-good list is recorded, so declining above
+# leaves the old watchdog running.
+Remove-Legacy
 
 Step 'Add the scheduled tasks'
 

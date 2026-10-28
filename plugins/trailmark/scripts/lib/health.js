@@ -182,7 +182,10 @@ function otherCopies(configDir, ownRoot, { maxCopies = 10, budgetMs = 300, maxEn
     const scripts = path.join(root, 'scripts');
     const hasLauncher = () => local(scripts) && LAUNCHERS.some(l => { const f = path.join(scripts, l); return local(f) && fs.existsSync(f); });
     if (!named && !hasLauncher()) return;
-    if (samePlace(root, ownRoot) || inst.paths.some(p => samePlace(root, p))) return;
+    // An installed Trailmark is the plugin itself. An installed copy under the
+    // old name is not: it runs next to Trailmark, so it is named all the same.
+    const current = plugin.toLowerCase() !== 'jb-memory' && local(scripts) && fs.existsSync(path.join(scripts, 'trailmark.js'));
+    if (samePlace(root, ownRoot) || (current && inst.paths.some(p => samePlace(root, p)))) return;
     let version = SAFE_NAME.test(ver) ? ver : '';
     const text = readSmall(path.join(root, '.claude-plugin', 'plugin.json'), 4096);
     if (text !== null) {
@@ -270,4 +273,23 @@ function nodeInside(execPath, folders, platform = process.platform) {
   return '';
 }
 
-module.exports = { nodeAdvice, otherCopies, nodeInside, NODE_FLOORS, parseVersion, SAFE_NAME };
+// jb-memory-codex, the Codex copy's name before 0.5.0, in Codex's own plugin
+// cache: left installed, it would run every hook next to trailmark-codex.
+// Codex doesn't document the cache's layout, so the folders are searched by
+// name, three levels down, local folders only. Returns their display paths.
+function oldCodexCopies(codexHome, { maxEntries = 200, depth = 3 } = {}) {
+  const found = [];
+  if (typeof codexHome !== 'string' || !path.isAbsolute(codexHome) || networkPath(codexHome)) return found;
+  const walk = (dir, rel, d) => {
+    if (d > depth || found.length >= 3 || !local(dir)) return;
+    for (const n of list(dir, maxEntries).names) {
+      const p = path.join(dir, n);
+      if (n.toLowerCase() === 'jb-memory-codex') { if (local(p)) found.push([...rel, showName(n)].join('/')); continue; }
+      walk(p, [...rel, showName(n)], d + 1);
+    }
+  };
+  walk(path.join(codexHome, 'plugins', 'cache'), ['plugins', 'cache'], 1);
+  return found;
+}
+
+module.exports = { oldCodexCopies, nodeAdvice, otherCopies, nodeInside, NODE_FLOORS, parseVersion, SAFE_NAME };
