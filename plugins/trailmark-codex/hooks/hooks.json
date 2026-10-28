@@ -1,0 +1,51 @@
+{
+  "description": "Keeps this repo's handoff note current. At the start of each chat, and after Codex compacts one, the chat gets the note. Before a compaction, a short snapshot of the repo's git state is saved. After a commit or a PR merge, it is logged and the agent is reminded to update the note; a commit made by a command that then failed is logged too. Before each commit command, the folder it starts in is noted, so commits made in another folder are logged correctly. In repos where Trailmark isn't turned on, every hook does nothing. Each hook goes through Trailmark's launcher (scripts/trailmark.js). The launcher only reads, running git to look up commits and status; the part that writes runs under Node's permission model, so it can write only in the repo's memory folder and can't start other programs. The command finds the launcher from PLUGIN_ROOT and does nothing unless that is a full local path, so it works the same in PowerShell, cmd and sh.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const p=require('path'),r=process.env.PLUGIN_ROOT;(r&&p.isAbsolute(r)&&/^(?:[A-Za-z]:|[/][A-Za-z0-9._~-])/.test(r))||process.exit(0);process.argv[1]=p.join(r,'scripts','trailmark.js');require(process.argv[1])\" trailmark --hook session-start",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const p=require('path'),r=process.env.PLUGIN_ROOT;(r&&p.isAbsolute(r)&&/^(?:[A-Za-z]:|[/][A-Za-z0-9._~-])/.test(r))||process.exit(0);process.argv[1]=p.join(r,'scripts','trailmark.js');require(process.argv[1])\" trailmark --hook precompact",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const p=require('path'),r=process.env.PLUGIN_ROOT;(r&&p.isAbsolute(r)&&/^(?:[A-Za-z]:|[/][A-Za-z0-9._~-])/.test(r))||process.exit(0);process.argv[1]=p.join(r,'scripts','trailmark.js');require(process.argv[1])\" trailmark --hook commit-start",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const p=require('path'),r=process.env.PLUGIN_ROOT;(r&&p.isAbsolute(r)&&/^(?:[A-Za-z]:|[/][A-Za-z0-9._~-])/.test(r))||process.exit(0);process.argv[1]=p.join(r,'scripts','trailmark.js');require(process.argv[1])\" trailmark --hook milestone auto",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

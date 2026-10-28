@@ -1,7 +1,7 @@
 # test-node-lookup.ps1 -- does a node program in the working folder run in
 # place of the installed Node?
 #
-# Every jb-memory hook starts `node` by name. On Windows some ways of starting
+# Every trailmark hook starts `node` by name. On Windows some ways of starting
 # a program look in the working folder before PATH. This finds out, on this
 # PC, which ones do, with and without NoDefaultCurrentDirectoryInExePath=1.
 #
@@ -14,14 +14,14 @@
 # and the script reports which node ran.
 #
 # Part 2 (-ClaudeCode, then -Finish): a throwaway git repo with a copy of
-# node.exe at its root, set up for jb-memory (its memory folder is made under
+# node.exe at its root, set up for trailmark (its memory folder is made under
 # %USERPROFILE%\.claude\projects). You start one Claude Code session there (and
 # a Codex chat, if the Codex copy is installed). Each SessionStart hook logs the
 # path of the node that ran it; -Finish reads those lines and says whether the
 # repo's copy ran, then removes the repo and its memory folder.
 #
 # What it changes: it creates and removes only its own folders, each marked
-# with a .jbm-nodelookup file, and removes nothing without that marker. It sets
+# with a .tm-nodelookup file, and removes nothing without that marker. It sets
 # NoDefaultCurrentDirectoryInExePath for its own process only; your user
 # setting is not touched. No network access.
 #
@@ -36,11 +36,11 @@ param([switch]$ClaudeCode, [switch]$Finish, [switch]$Keep)
 # Continue, not Stop: Windows PowerShell 5.1 turns a native program's stderr
 # line into a terminating error under Stop when 2>&1 is used.
 $ErrorActionPreference = 'Continue'
-$Marker = '.jbm-nodelookup'
-$Launcher = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\plugins\jb-memory\scripts\jbm.js'))
+$Marker = '.tm-nodelookup'
+$Launcher = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\plugins\trailmark\scripts\trailmark.js'))
 # An older layout kept this script next to jb-memory-marketplace.
 if (-not (Test-Path -LiteralPath $Launcher -PathType Leaf)) { $Launcher = Join-Path $PSScriptRoot 'jb-memory-marketplace\plugins\jb-memory\scripts\jbm.js' }
-$StatePath = Join-Path $env:LOCALAPPDATA 'jbm-nodelookup-state.json'
+$StatePath = Join-Path $env:LOCALAPPDATA 'tm-nodelookup-state.json'
 
 # PowerShell's own lookup never uses the current folder, so this is the
 # installed Node from PATH. Node is asked for its own path, so a shim (volta,
@@ -53,13 +53,13 @@ function Get-RealNode {
 }
 
 # A probe folder's full path, if it is one this script makes: directly in
-# %LOCALAPPDATA%, named jbm-nodelookup-<kind>-<time>. '' otherwise.
+# %LOCALAPPDATA%, named tm-nodelookup-<kind>-<time>. '' otherwise.
 function Test-ProbePath([string]$Dir) {
   if (-not $Dir) { return '' }
   try { $full = [IO.Path]::GetFullPath($Dir).TrimEnd('\') } catch { return '' }
   $parent = [IO.Path]::GetFullPath($env:LOCALAPPDATA).TrimEnd('\')
   if (-not ([IO.Path]::GetDirectoryName($full)).Equals($parent, [StringComparison]::OrdinalIgnoreCase)) { return '' }
-  if ((Split-Path -Leaf $full) -notmatch '^jbm-nodelookup-(exe|cmd|repo)-\d{8}-\d{6}$') { return '' }
+  if ((Split-Path -Leaf $full) -notmatch '^tm-nodelookup-(exe|cmd|repo)-\d{8}-\d{6}$') { return '' }
   return $full
 }
 
@@ -103,7 +103,7 @@ function Remove-ProbeProject([string]$Memory) {
     if (-not (Test-Path -LiteralPath $proj)) { return $true }
     $fits = ([IO.Path]::GetDirectoryName($proj)).Equals($projects, [StringComparison]::OrdinalIgnoreCase) -and
       ((Split-Path -Leaf $mem) -eq 'memory') -and
-      ((Split-Path -Leaf $proj) -match 'jbm-nodelookup-repo-\d{8}-\d{6}$') -and
+      ((Split-Path -Leaf $proj) -match 'tm-nodelookup-repo-\d{8}-\d{6}$') -and
       (Test-Path -LiteralPath (Join-Path $mem $Marker) -PathType Leaf)
     if ($fits -and -not (Test-HasLinks $proj)) {
       Remove-Item -LiteralPath $proj -Recurse -Force -ErrorAction SilentlyContinue
@@ -157,7 +157,7 @@ if ($Finish) {
   $lines = @()
   if (Test-Path -LiteralPath $notes) { $lines = @(Get-ChildItem -LiteralPath $notes -Filter '*.md' | ForEach-Object { Get-Content -LiteralPath $_.FullName } | Where-Object { $_ -match 'SESSION_START' }) }
   if (-not $lines.Count) {
-    Write-Host 'No session start was logged. Either no session was started in the repo, or the hooks did not run there (check that jb-memory is enabled and the folder was trusted).'
+    Write-Host 'No session start was logged. Either no session was started in the repo, or the hooks did not run there (check that trailmark is enabled and the folder was trusted).'
   } else {
     foreach ($l in $lines) {
       $exec = ''; if ($l -match 'exec=(.+?)( session=[0-9a-f]{8})?\s*$') { $exec = $Matches[1].Trim() }
@@ -180,8 +180,8 @@ if ($Finish) {
 }
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$dA = New-ProbeFolder ('jbm-nodelookup-exe-' + $stamp)
-$dB = New-ProbeFolder ('jbm-nodelookup-cmd-' + $stamp)
+$dA = New-ProbeFolder ('tm-nodelookup-exe-' + $stamp)
+$dB = New-ProbeFolder ('tm-nodelookup-cmd-' + $stamp)
 $copyA = Join-Path $dA 'node.exe'
 Copy-Item -LiteralPath $real -Destination $copyA
 Set-Content -LiteralPath (Join-Path $dB 'node.cmd') -Value "@echo off`r`necho planted-cmd`r`nexit /b 0" -Encoding ASCII
@@ -198,9 +198,9 @@ Write-Host 'Claude Code and Codex use their own runners; -ClaudeCode checks Clau
 if (-not $Keep) { [void](Remove-ProbeFolder $dA); [void](Remove-ProbeFolder $dB) }
 
 if ($ClaudeCode) {
-  if (-not (Test-Path -LiteralPath $Launcher -PathType Leaf)) { Write-Host ('jb-memory not found at ' + $Launcher); exit 1 }
+  if (-not (Test-Path -LiteralPath $Launcher -PathType Leaf)) { Write-Host ('trailmark not found at ' + $Launcher); exit 1 }
   $git = (Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-  $repo = New-ProbeFolder ('jbm-nodelookup-repo-' + $stamp)
+  $repo = New-ProbeFolder ('tm-nodelookup-repo-' + $stamp)
   $copy = Join-Path $repo 'node.exe'
   $memory = ''
   $initOut = ''; $dirOut = ''

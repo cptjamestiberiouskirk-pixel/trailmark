@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0 (Trailmark), 0.3.0 (trailmark-codex), 1.7.0 (trailmark-watchdog): 2026-10-28
+
+jb-memory is now Trailmark, ahead of its first public release. Everything in 0.4.5 below is part of this release.
+
+- Names: the plugin and its marketplace are `trailmark` (install `trailmark@trailmark`), the Codex copy and its marketplace are `trailmark-codex`, the watchdog is `trailmark-watchdog`, and the launcher is `scripts/trailmark.js`. Skills are `/trailmark:checkpoint` and so on; the Codex copy's skills are `tm-checkpoint` and so on. The status line reads `[trailmark]`. The Codex hook text changed, so Codex asks you to trust the hooks again.
+- Unchanged on purpose, so existing repos need nothing: the memory folder's files (`.jbmem.json`, `.jbmem-state.json`, `.jbmem.lock`) and the `JBMEM_*` environment variables.
+- A copy under the old name still counts as another copy: session start names a jb-memory copy in Claude Code's plugin cache (or any copy that holds the old `jbm.js`), the installers refuse while `jb-memory` is installed, and the watchdog watches cached jb-memory copies as well. Two copies would each run every hook.
+- `install-trailmark-watchdog.ps1` removes the old `jb-watchdog` scheduled tasks and installed copy before it adds its own, and its `-Uninstall` removes both. The old watchdog's log and known-good list are left in `%LOCALAPPDATA%\jb-watchdog`.
+- The Windows diagnostics recognize both names in older transcripts (`jbm.js`, `jb-memory:checkpoint`).
+- MANUAL.md, section 15, has the steps for moving from jb-memory.
+- New tests for the old-name checks.
+
+Older entries below keep the names of their time.
+
 ## 0.4.5 (jb-memory), 0.2.4 (jb-memory-codex): 2026-10-28
 
 Ahead of listing in Anthropic's plugin directory: the handoff is checked against git when it loads, and the docs say plainly what the plugin runs, writes and sends.

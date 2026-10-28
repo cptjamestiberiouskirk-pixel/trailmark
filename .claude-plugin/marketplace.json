@@ -1,14 +1,14 @@
 {
-  "name": "jb-memory",
+  "name": "trailmark",
   "owner": { "name": "Jim Burke" },
   "metadata": {
-    "description": "jb-memory: a per-project memory for Claude Code and Codex, so every new session picks up where the last one stopped."
+    "description": "Trailmark: a per-project memory for Claude Code and Codex, so every new session picks up where the last one stopped."
   },
   "plugins": [
     {
-      "name": "jb-memory",
-      "source": "./plugins/jb-memory",
-      "description": "Gives Claude Code a memory for each project. A short handoff note keeps track of where the work stands and what to do next. It is updated after commits, merges and subagent results, and given to every new session, so you don't have to explain the project again each time. Two sessions working at once can't overwrite each other's notes. Turn it on per repo. If you also use Codex with jb-memory-codex, both share the same note for that repo."
+      "name": "trailmark",
+      "source": "./plugins/trailmark",
+      "description": "Gives Claude Code a memory for each project. A short handoff note keeps track of where the work stands and what to do next. It is updated after commits, merges and subagent results, and given to every new session, so you don't have to explain the project again each time. Two sessions working at once can't overwrite each other's notes. Turn it on per repo. If you also use Codex with trailmark-codex, both share the same note for that repo."
     }
   ]
 }

@@ -1,24 +1,24 @@
 # trace-handoff-writes.ps1
-# Read-only. Shows what touched a repo's jb-memory handoff in a time window:
+# Read-only. Shows what touched a repo's trailmark handoff in a time window:
 # the tool calls in Claude Code transcripts that ran write-handoff (or any
-# jbm.js or memory.js command) or wrote or edited a file named handoff*, each
-# with the start of its result, and the jb-memory hook messages in the window.
+# trailmark.js or memory.js command) or wrote or edited a file named handoff*, each
+# with the start of its result, and the trailmark hook messages in the window.
 # Beside them, from the memory folder: handoff.md's last change, the last
 # write the state file records, the saved versions in archive\handoff-history
 # changed near the window, and the log lines in it.
 #
 # Skill calls are shown too, with what each returned, and the skill text
-# Claude Code brought in after it: the folder it names and its first jbm.js
-# line, so you can see which jbm.js path the session was given.
+# Claude Code brought in after it: the folder it names and its first trailmark.js
+# line, so you can see which trailmark.js path the session was given.
 #
-# Use it when check-jb-checkpoints.ps1 says something other than write-handoff
+# Use it when check-trailmark-checkpoints.ps1 says something other than write-handoff
 # may have written the handoff. For example, for session f96570df between
 # 01:14 and 01:17 on 2026-10-20:
 #   .\trace-handoff-writes.ps1 -Session f96570df -Date 2026-10-20 -From 01:14 -To 01:17
 # -AllSessions reads every transcript changed since the window opened instead
 # of one session's, and shows only the calls above.
 #
-# What it reads: the memory folder (found with jbm.js dir, as the checker does)
+# What it reads: the memory folder (found with trailmark.js dir, as the checker does)
 # and transcripts under %USERPROFILE%\.claude\projects. It prints the first 400
 # characters of each matching command and of its result, the file path and any
 # Updated: line of each matching Write or Edit, and, for -Session alone, the
@@ -43,7 +43,7 @@ param(
 $ErrorActionPreference = 'Continue'
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$jbm  = [IO.Path]::Combine($root, '..', '..', 'plugins', 'jb-memory', 'scripts', 'jbm.js')
+$jbm  = [IO.Path]::Combine($root, '..', '..', 'plugins', 'trailmark', 'scripts', 'trailmark.js')
 # The release layout keeps this script in tools\windows; an older layout kept it
 # next to jb-memory-marketplace.
 if (-not (Test-Path -LiteralPath $jbm -PathType Leaf)) { $jbm = [IO.Path]::Combine($root, 'jb-memory-marketplace', 'plugins', 'jb-memory', 'scripts', 'jbm.js') }
@@ -155,7 +155,7 @@ if ($AllSessions) {
 Write-Host ('  transcripts to read: ' + $files.Count)
 if ($files.Count -eq 0) { Write-Host '  none found'; Done 0 }
 
-$relCmd = '(?i)write-handoff|undo-handoff|\brotate\b|jbm\.js|memory\.js|handoff[^\s"''/\\]*\.md'
+$relCmd = '(?i)write-handoff|undo-handoff|\brotate\b|(?:trailmark|jbm)\.js|memory\.js|handoff[^\s"''/\\]*\.md'
 $found = 0
 foreach ($f in $files) {
   $sid = ''
@@ -180,18 +180,18 @@ foreach ($f in $files) {
       }
     }
     # The text a skill brought in (Claude Code adds it as a message of its
-    # own, headed "Base directory for this skill"): which jbm.js path the
+    # own, headed "Base directory for this skill"): which trailmark.js path the
     # session was given.
-    if (-not $line.Contains('tool_result') -and -not $line.Contains('"isCompactSummary":true') -and ($line.Contains('Base directory for this skill') -or ($line.Contains('"isMeta":true') -and $line.Contains('jbm.js')))) {
+    if (-not $line.Contains('tool_result') -and -not $line.Contains('"isCompactSummary":true') -and ($line.Contains('Base directory for this skill') -or ($line.Contains('"isMeta":true') -and $line.Contains('trailmark.js')))) {
       $dirText = ''; $jbmText = ''
       if ($line -match 'Base directory for this skill: ((?:[^"\\]|\\[^n]){1,300})') { $dirText = Unescape $Matches[1] }
-      if ($line -match '(?:"|\\n)((?:[^"\\]|\\[^n]){0,200}jbm\.js(?:[^"\\]|\\[^n]){0,60})') { $jbmText = Unescape $Matches[1] }
-      [void]$shown.Add($where + '>> skill text: base folder ' + $(if ($dirText) { Short $dirText 200 } else { 'not named' }) + '; first jbm.js line: ' + $(if ($jbmText) { Short $jbmText 200 } else { 'none' }))
+      if ($line -match '(?:"|\\n)((?:[^"\\]|\\[^n]){0,200}(?:trailmark|jbm)\.js(?:[^"\\]|\\[^n]){0,60})') { $jbmText = Unescape $Matches[1] }
+      [void]$shown.Add($where + '>> skill text: base folder ' + $(if ($dirText) { Short $dirText 200 } else { 'not named' }) + '; first trailmark.js line: ' + $(if ($jbmText) { Short $jbmText 200 } else { 'none' }))
       $found++
       continue
     }
-    if ($line.Contains('[jb-memory] ') -and $line.Contains('"attachment"')) {
-      if ($line -match '\[jb-memory\] ((?:[^"\\]|\\.){0,160})') { [void]$shown.Add($where + 'hook message: [jb-memory] ' + (Short (Unescape $Matches[1]) 160)) }
+    if ($line.Contains('[trailmark] ') -and $line.Contains('"attachment"')) {
+      if ($line -match '\[trailmark\] ((?:[^"\\]|\\.){0,160})') { [void]$shown.Add($where + 'hook message: [trailmark] ' + (Short (Unescape $Matches[1]) 160)) }
       continue
     }
     if (-not $line.Contains('"tool_use"')) { continue }
@@ -250,6 +250,6 @@ foreach ($f in $files) {
 }
 
 Step 'Summary'
-Write-Host ('  skill calls and texts, and calls that ran a jb-memory command or wrote a handoff file, in the window (marked >>): ' + $found)
-Write-Host '  A Write or Edit of handoff.md, or a jbm.js command run with another memory folder, is how a handoff gets an Updated line write-handoff did not write.'
+Write-Host ('  skill calls and texts, and calls that ran a trailmark command or wrote a handoff file, in the window (marked >>): ' + $found)
+Write-Host '  A Write or Edit of handoff.md, or a trailmark.js command run with another memory folder, is how a handoff gets an Updated line write-handoff did not write.'
 Done 0

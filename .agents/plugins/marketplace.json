@@ -1,14 +1,14 @@
 {
-  "name": "jb-memory-codex",
+  "name": "trailmark-codex",
   "interface": {
-    "displayName": "jb-memory for Codex"
+    "displayName": "Trailmark for Codex"
   },
   "plugins": [
     {
-      "name": "jb-memory-codex",
+      "name": "trailmark-codex",
       "source": {
         "source": "local",
-        "path": "./plugins/jb-memory-codex"
+        "path": "./plugins/trailmark-codex"
       },
       "policy": {
         "installation": "AVAILABLE",

@@ -6,11 +6,11 @@
 //
 //   node install-check.js node-advice      '' or one sentence on updating Node
 //   node install-check.js others           reads `claude plugin list --json` on
-//                                          stdin; prints the ids of jb-memory
+//                                          stdin; prints the ids of trailmark
 //                                          installed from another marketplace
 //   node install-check.js marketplace      reads `claude plugin marketplace list
 //                                          --json` on stdin; prints the real path
-//                                          the jb-memory marketplace points at,
+//                                          the trailmark marketplace points at,
 //                                          or '' when there is none
 //
 // Exit code 3 means the input wasn't the JSON list expected, so the caller can
@@ -32,13 +32,13 @@ function readList() {
 
 const cmd = process.argv[2];
 if (cmd === 'node-advice') {
-  const { nodeAdvice } = require(path.join(__dirname, '..', 'plugins', 'jb-memory', 'scripts', 'lib', 'health.js'));
+  const { nodeAdvice } = require(path.join(__dirname, '..', 'plugins', 'trailmark', 'scripts', 'lib', 'health.js'));
   process.stdout.write(nodeAdvice(process.version));
 } else if (cmd === 'others') {
-  const ids = readList().map(p => String((p && p.id) || '')).filter(id => /^jb-memory@/i.test(id) && id !== 'jb-memory@jb-memory');
+  const ids = readList().map(p => String((p && p.id) || '')).filter(id => /^(?:trailmark|jb-memory)@/i.test(id) && id !== 'trailmark@trailmark'); // jb-memory: the name before 0.5.0
   process.stdout.write(ids.join(' '));
 } else if (cmd === 'marketplace') {
-  const m = readList().find(x => x && x.name === 'jb-memory');
+  const m = readList().find(x => x && x.name === 'trailmark');
   if (!m) process.exit(0);
   const p = String(m.path || m.installLocation || '');
   if (!p) { process.stdout.write(String(m.source || 'unknown source')); process.exit(0); }

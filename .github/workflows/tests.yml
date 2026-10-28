@@ -26,8 +26,8 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Sandbox check
         run: |
-          node plugins/jb-memory/scripts/jbm.js --sandbox-check
-          node plugins/jb-memory-codex/scripts/jbm.js --sandbox-check
+          node plugins/trailmark/scripts/trailmark.js --sandbox-check
+          node plugins/trailmark-codex/scripts/trailmark.js --sandbox-check
       - name: PowerShell scripts parse (Windows PowerShell 5.1 and PowerShell 7)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -51,22 +51,22 @@ jobs:
       - name: Checks added in 0.4.5 (both copies)
         shell: bash
         run: |
-          node --test --test-reporter=tap plugins/jb-memory/tests/handoff-checks.test.js plugins/jb-memory-codex/tests/handoff-checks.test.js > tap-new.txt 2>&1 && ok=1 || ok=0
+          node --test --test-reporter=tap plugins/trailmark/tests/handoff-checks.test.js plugins/trailmark-codex/tests/handoff-checks.test.js > tap-new.txt 2>&1 && ok=1 || ok=0
           node .github/tap-annotate.js tap-new.txt
           [ "$ok" = 1 ]
       # A few tests need a shell script in place of git; they say so and
-      # skip themselves on Windows, where jb-memory runs git.exe only.
-      - name: jb-memory tests
+      # skip themselves on Windows, where trailmark runs git.exe only.
+      - name: trailmark tests
         if: always()
         shell: bash
         run: |
-          node --test --test-reporter=tap plugins/jb-memory/tests/jb-memory.test.js > tap-claude.txt 2>&1 && ok=1 || ok=0
+          node --test --test-reporter=tap plugins/trailmark/tests/trailmark.test.js > tap-claude.txt 2>&1 && ok=1 || ok=0
           node .github/tap-annotate.js tap-claude.txt
           [ "$ok" = 1 ]
-      - name: jb-memory-codex tests
+      - name: trailmark-codex tests
         if: always()
         shell: bash
         run: |
-          node --test --test-reporter=tap plugins/jb-memory-codex/tests/jb-memory.test.js > tap-codex.txt 2>&1 && ok=1 || ok=0
+          node --test --test-reporter=tap plugins/trailmark-codex/tests/trailmark.test.js > tap-codex.txt 2>&1 && ok=1 || ok=0
           node .github/tap-annotate.js tap-codex.txt
           [ "$ok" = 1 ]

@@ -1,4 +1,4 @@
-# install.ps1 -- installs jb-memory for Claude Code on Windows (and, with
+# install.ps1 -- installs trailmark for Claude Code on Windows (and, with
 # -Codex, adds the Codex marketplace), from this release folder. Runs under
 # Windows PowerShell 5.1 or PowerShell 7. install.cmd runs it without changing
 # the machine's execution policy.
@@ -11,14 +11,14 @@
 #      SYSTEM, TrustedInstaller and CREATOR OWNER, or another owner, are refused.
 #   3. Checks NoDefaultCurrentDirectoryInExePath (see MANUAL.md); with
 #      -SetNoCwdLookup it sets it to 1 for your user.
-#   4. Runs jb-memory's sandbox check (Node's permission model on this PC).
-#   5. Refuses if jb-memory is already installed from another marketplace, or
-#      if a marketplace named jb-memory points at another folder, since two
+#   4. Runs trailmark's sandbox check (Node's permission model on this PC).
+#   5. Refuses if trailmark is already installed from another marketplace, or
+#      if a marketplace named trailmark points at another folder, since two
 #      copies would each run the hooks. -Repoint allows the second case.
 #   6. claude plugin validate, claude plugin marketplace add <this folder>,
-#      claude plugin install jb-memory@jb-memory (user scope).
+#      claude plugin install trailmark@trailmark (user scope).
 #   7. With -Codex: codex plugin marketplace add <this folder>.
-#   8. With -Watchdog: runs tools\windows\install-jb-watchdog.ps1, which adds
+#   8. With -Watchdog: runs tools\windows\install-trailmark-watchdog.ps1, which adds
 #      two scheduled tasks that watch this folder (it asks before recording).
 #
 # It downloads nothing, changes no file in this folder and touches no repo.
@@ -28,13 +28,13 @@
 #
 #   .\install.ps1                  install for Claude Code
 #   .\install.ps1 -Codex           also add the Codex marketplace
-#   .\install.ps1 -Watchdog        also install jb-watchdog
+#   .\install.ps1 -Watchdog        also install trailmark-watchdog
 #   .\install.ps1 -SetNoCwdLookup  also set NoDefaultCurrentDirectoryInExePath=1
 #   .\install.ps1 -Check           run the checks only, change nothing
 #   .\install.ps1 -Uninstall       uninstall the plugin and remove the
 #                                  marketplace (memory folders are kept)
 #   .\install.ps1 -AllowOldNode    continue on a Node below the security floor
-#   .\install.ps1 -Repoint         let an existing jb-memory marketplace that
+#   .\install.ps1 -Repoint         let an existing trailmark marketplace that
 #                                  points elsewhere point here instead
 
 param(
@@ -53,8 +53,8 @@ $OutputEncoding = New-Object System.Text.UTF8Encoding $false
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
 $here   = (Resolve-Path -LiteralPath (Split-Path -Parent $MyInvocation.MyCommand.Path)).ProviderPath.TrimEnd('\')
 if ($here -match '^[A-Za-z]:$') { $here += '\' }
-$mkt    = 'jb-memory'
-$plugin = 'jb-memory'
+$mkt    = 'trailmark'
+$plugin = 'trailmark'
 
 function Step([string]$t) { Write-Host ''; Write-Host "=== $t" }
 function Ok([string]$t) { Write-Host ('  ok    ' + $t) }
@@ -85,13 +85,13 @@ if ($Uninstall) {
   & claude plugin marketplace remove $mkt
   if ($LASTEXITCODE -ne 0) { Warn "claude plugin marketplace remove $mkt did not succeed (it may not be configured)." }
   if (Have 'codex') {
-    $null = Run 'codex' @('plugin', 'marketplace', 'remove', 'jb-memory-codex')
-    if ($LASTEXITCODE -eq 0) { Ok 'removed the jb-memory-codex marketplace from Codex (uninstall the plugin in the ChatGPT app too)' }
+    $null = Run 'codex' @('plugin', 'marketplace', 'remove', 'trailmark-codex')
+    if ($LASTEXITCODE -eq 0) { Ok 'removed the trailmark-codex marketplace from Codex (uninstall the plugin in the ChatGPT app too)' }
   }
   Write-Host ''
   Write-Host 'Done. The memory folders (%USERPROFILE%\.claude\projects\<repo>\memory) were kept.'
-  Write-Host 'jb-watchdog, if installed, stays: remove it with'
-  Write-Host ('  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $here 'tools\windows\install-jb-watchdog.ps1') + '" -Uninstall')
+  Write-Host 'trailmark-watchdog, if installed, stays: remove it with'
+  Write-Host ('  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $here 'tools\windows\install-trailmark-watchdog.ps1') + '" -Uninstall')
   exit 0
 }
 
@@ -106,13 +106,13 @@ if ($advice) {
   if ($AllowOldNode) { Warn ($advice + ' (continuing: -AllowOldNode)') } else { Fail ($advice + ' Or run again with -AllowOldNode.') }
 } else { Ok ('node ' + $nodeVer + ' (' + $nodePath + ')') }
 if ($nodePath.StartsWith($here + '\', [StringComparison]::OrdinalIgnoreCase)) { Fail 'the node on PATH is inside this folder. Use the installed Node.' }
-if (Have 'git') { Ok (Run 'git' @('--version')) } else { Warn 'git is not on PATH. jb-memory works, but logs no commits and shows no branch until it is.' }
+if (Have 'git') { Ok (Run 'git' @('--version')) } else { Warn 'git is not on PATH. trailmark works, but logs no commits and shows no branch until it is.' }
 if (-not (Have 'claude')) { Fail 'claude is not on PATH. Install Claude Code first.' }
 $cv = ((Run 'claude' @('--version')) -split "`n")[0]
 Ok ('claude ' + $cv)
 if ($cv -match '(\d+)\.(\d+)\.(\d+)') {
   $v = [version]('{0}.{1}.{2}' -f $Matches[1], $Matches[2], $Matches[3])
-  if ($v -lt [version]'2.1.304') { Warn 'this Claude Code is older than 2.1.304, the oldest version tested. Hooks need command hooks with args and if; update Claude Code if the [jb-memory] line never appears.' }
+  if ($v -lt [version]'2.1.304') { Warn 'this Claude Code is older than 2.1.304, the oldest version tested. Hooks need command hooks with args and if; update Claude Code if the [trailmark] line never appears.' }
 }
 foreach ($p in ([string]$env:PATH).Split([IO.Path]::PathSeparator)) {
   $t = $p.Trim().Trim('"')
@@ -189,7 +189,7 @@ elseif ($SetNoCwdLookup -and -not $Check) {
 
 Step 'Sandbox check'
 Push-Location -LiteralPath $here
-$sc = Run 'node' @([IO.Path]::Combine($here, 'plugins', 'jb-memory', 'scripts', 'jbm.js'), '--sandbox-check')
+$sc = Run 'node' @([IO.Path]::Combine($here, 'plugins', 'trailmark', 'scripts', 'trailmark.js'), '--sandbox-check')
 $scCode = $LASTEXITCODE
 Pop-Location
 foreach ($l in ($sc -split "`n")) { Write-Host ('  ' + $l) }
@@ -200,16 +200,16 @@ $list = RunOut 'claude' @('plugin', 'list', '--json')
 if ($LASTEXITCODE -ne 0) { Fail 'claude plugin list --json failed, so other installs could not be checked.' }
 $other = NodeCheck 'others' $list
 if ($null -eq $other) { Fail 'could not read the output of claude plugin list --json.' }
-if ($other) { Fail ('jb-memory is already installed as ' + $other + '. Two copies would each run every hook. Uninstall it first: claude plugin uninstall <id>') }
+if ($other) { Fail ('trailmark is already installed as ' + $other + '. Two copies would each run every hook. Uninstall it first: claude plugin uninstall <id>') }
 $mlist = RunOut 'claude' @('plugin', 'marketplace', 'list', '--json')
 if ($LASTEXITCODE -ne 0) { Fail 'claude plugin marketplace list --json failed, so other marketplaces could not be checked.' }
 $where = NodeCheck 'marketplace' $mlist
 if ($null -eq $where) { Fail 'could not read the output of claude plugin marketplace list --json.' }
 if ($where -and -not ($where.TrimEnd('\') -ieq $here)) {
-  if ($Repoint) { Warn ('the jb-memory marketplace pointed at ' + $where + '; it will point here (-Repoint).') }
-  else { Fail ('a marketplace named jb-memory already points at ' + $where + '. Run again with -Repoint to point it here, or install from that folder.') }
+  if ($Repoint) { Warn ('the trailmark marketplace pointed at ' + $where + '; it will point here (-Repoint).') }
+  else { Fail ('a marketplace named trailmark already points at ' + $where + '. Run again with -Repoint to point it here, or install from that folder.') }
 }
-Ok 'no other jb-memory install'
+Ok 'no other trailmark install'
 
 if ($Check) { Write-Host ''; Write-Host 'Checks done (-Check): nothing was changed.'; exit 0 }
 
@@ -227,22 +227,22 @@ if ($Codex) {
     & codex plugin marketplace add $here
     if ($LASTEXITCODE -ne 0) { Warn 'codex plugin marketplace add failed.' }
     Write-Host '  Next, in the ChatGPT desktop app: restart it, open Plugins, choose the'
-    Write-Host '  jb-memory-codex marketplace, install jb-memory-codex, then review and trust'
+    Write-Host '  trailmark-codex marketplace, install trailmark-codex, then review and trust'
     Write-Host '  its hooks. MANUAL.md, "Codex", has the rest.'
   } else { Warn 'codex is not on PATH. Add the marketplace from the ChatGPT app or install the Codex CLI; see MANUAL.md, "Codex".' }
 }
 
 if ($Watchdog) {
-  Step 'jb-watchdog'
-  $wi = Join-Path $here 'tools\windows\install-jb-watchdog.ps1'
+  Step 'trailmark-watchdog'
+  $wi = Join-Path $here 'tools\windows\install-trailmark-watchdog.ps1'
   $ps51 = Join-Path $env:windir 'System32\WindowsPowerShell\v1.0\powershell.exe'
   & $ps51 -NoProfile -ExecutionPolicy Bypass -File $wi -Root $here
 }
 
 Step 'Done'
-Write-Host '  Next, in each repo you want jb-memory in:'
-Write-Host '    1. Start Claude Code there and run /jb-memory:memory-setup'
-Write-Host '    2. Start a new session and look for the [jb-memory] status line;'
+Write-Host '  Next, in each repo you want trailmark in:'
+Write-Host '    1. Start Claude Code there and run /trailmark:memory-setup'
+Write-Host '    2. Start a new session and look for the [trailmark] status line;'
 Write-Host '       it ends with "sandbox on".'
 Write-Host '  MANUAL.md in this folder covers the rest.'
 Write-Host '  Keep this folder where it is: Claude Code loads the plugin from it.'

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh -- installs jb-memory for Claude Code (and, with --codex, adds
+# install.sh -- installs trailmark for Claude Code (and, with --codex, adds
 # the Codex marketplace) on macOS or Linux, from this release folder.
 #
 # What it does, in order. It stops at the first step that fails and says why.
@@ -8,13 +8,13 @@
 #   2. Checks this folder and the folders above it: Claude Code runs the
 #      hooks from here, so write access for other users or a shared group,
 #      another owner above it, or a link inside it is refused.
-#   3. Runs jb-memory's sandbox check (Node's permission model on this
+#   3. Runs trailmark's sandbox check (Node's permission model on this
 #      machine).
-#   4. Refuses if jb-memory is already installed from another marketplace, or
-#      if a marketplace named jb-memory points at another folder, since two
+#   4. Refuses if trailmark is already installed from another marketplace, or
+#      if a marketplace named trailmark points at another folder, since two
 #      copies would each run the hooks. --repoint allows the second case.
 #   5. claude plugin validate, claude plugin marketplace add <this folder>,
-#      claude plugin install jb-memory@jb-memory (user scope).
+#      claude plugin install trailmark@trailmark (user scope).
 #   6. With --codex: codex plugin marketplace add <this folder>. Installing in
 #      the ChatGPT desktop app is a manual step; it prints what to do.
 #
@@ -28,14 +28,14 @@
 #   ./install.sh --uninstall     uninstall the plugin and remove the
 #                                marketplace (memory folders are kept)
 #   ./install.sh --allow-old-node  continue on a Node below the security floor
-#   ./install.sh --repoint       let an existing jb-memory marketplace that
+#   ./install.sh --repoint       let an existing trailmark marketplace that
 #                                points elsewhere point here instead
 
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd -P)"
-MKT=jb-memory
-PLUGIN=jb-memory
+MKT=trailmark
+PLUGIN=trailmark
 CODEX=0; CHECK=0; UNINSTALL=0; OLDNODE=0; REPOINT=0
 for a in "$@"; do
   case "$a" in
@@ -60,7 +60,7 @@ if [ "$UNINSTALL" = 1 ]; then
   claude plugin uninstall "$PLUGIN@$MKT" || warn "claude plugin uninstall $PLUGIN@$MKT did not succeed (it may not be installed)."
   claude plugin marketplace remove "$MKT" || warn "claude plugin marketplace remove $MKT did not succeed (it may not be configured)."
   if command -v codex >/dev/null 2>&1; then
-    codex plugin marketplace remove jb-memory-codex >/dev/null 2>&1 && ok 'removed the jb-memory-codex marketplace from Codex (uninstall the plugin in the ChatGPT app too)'
+    codex plugin marketplace remove trailmark-codex >/dev/null 2>&1 && ok 'removed the trailmark-codex marketplace from Codex (uninstall the plugin in the ChatGPT app too)'
   fi
   echo
   echo 'Done. The memory folders (~/.claude/projects/<repo>/memory) were kept; each repo'"'"'s'
@@ -79,7 +79,7 @@ else ok "node $NODEV ($(command -v node))"; fi
 case "$(command -v node)" in
   "$HERE"/*) fail 'the node on PATH is inside this folder. Use the installed Node.' ;;
 esac
-if command -v git >/dev/null 2>&1; then ok "$(git --version)"; else warn 'git is not on PATH. jb-memory works, but logs no commits and shows no branch until it is.'; fi
+if command -v git >/dev/null 2>&1; then ok "$(git --version)"; else warn 'git is not on PATH. trailmark works, but logs no commits and shows no branch until it is.'; fi
 command -v claude >/dev/null 2>&1 || fail 'claude is not on PATH. Install Claude Code first.'
 CV="$(claude --version 2>/dev/null | head -n1)"
 ok "claude $CV"
@@ -87,7 +87,7 @@ node -e '
 const m=/(\d+)\.(\d+)\.(\d+)/.exec(process.argv[1]||""); if(!m) process.exit(0);
 const v=[+m[1],+m[2],+m[3]], f=[2,1,304];
 for (let i=0;i<3;i++){ if(v[i]!==f[i]){ process.exit(v[i]<f[i]?1:0);} }' "$CV" \
-  || warn 'this Claude Code is older than 2.1.304, the oldest version tested. Hooks need command hooks with args and if; update Claude Code if the [jb-memory] line never appears.'
+  || warn 'this Claude Code is older than 2.1.304, the oldest version tested. Hooks need command hooks with args and if; update Claude Code if the [trailmark] line never appears.'
 case ":$PATH:" in
   *::*|*:.:*) warn 'PATH holds an empty entry or ".", so programs named by bare name can be found in the current folder (a repo). Remove it from PATH; every hook starts node by name.' ;;
 esac
@@ -122,21 +122,21 @@ OWNER_BAD="$(find "$HERE" ! -user "$(id -u)" -print -quit 2>/dev/null)"
 ok 'only you can write here'
 
 step 'Sandbox check'
-SC="$(cd "$HERE" && node plugins/jb-memory/scripts/jbm.js --sandbox-check 2>&1)"; SCR=$?
+SC="$(cd "$HERE" && node plugins/trailmark/scripts/trailmark.js --sandbox-check 2>&1)"; SCR=$?
 printf '%s\n' "$SC" | sed 's/^/  /'
 [ $SCR -eq 0 ] && printf '%s' "$SC" | grep -q '^SANDBOX OK' || fail 'the sandbox check did not pass. See MANUAL.md, "Sandbox check failed".'
 
 step 'Check for other copies'
 LIST="$(claude plugin list --json 2>/dev/null)" || fail 'claude plugin list --json failed, so other installs could not be checked.'
 OTHER="$(printf '%s' "$LIST" | node "$CHECK_JS" others)" || fail 'could not read the output of claude plugin list --json.'
-[ -z "$OTHER" ] || fail "jb-memory is already installed as $OTHER. Two copies would each run every hook. Uninstall it first: claude plugin uninstall <id>"
+[ -z "$OTHER" ] || fail "trailmark is already installed as $OTHER. Two copies would each run every hook. Uninstall it first: claude plugin uninstall <id>"
 MLIST="$(claude plugin marketplace list --json 2>/dev/null)" || fail 'claude plugin marketplace list --json failed, so other marketplaces could not be checked.'
 WHERE="$(printf '%s' "$MLIST" | node "$CHECK_JS" marketplace)" || fail 'could not read the output of claude plugin marketplace list --json.'
 if [ -n "$WHERE" ] && [ "$WHERE" != "$HERE" ]; then
-  if [ "$REPOINT" = 1 ]; then warn "the jb-memory marketplace pointed at $WHERE; it will point here (--repoint)."
-  else fail "a marketplace named jb-memory already points at $WHERE. Run again with --repoint to point it here, or install from that folder."; fi
+  if [ "$REPOINT" = 1 ]; then warn "the trailmark marketplace pointed at $WHERE; it will point here (--repoint)."
+  else fail "a marketplace named trailmark already points at $WHERE. Run again with --repoint to point it here, or install from that folder."; fi
 fi
-ok 'no other jb-memory install'
+ok 'no other trailmark install'
 
 if [ "$CHECK" = 1 ]; then echo; echo 'Checks done (--check): nothing was changed.'; exit 0; fi
 
@@ -150,7 +150,7 @@ if [ "$CODEX" = 1 ]; then
   if command -v codex >/dev/null 2>&1; then
     codex plugin marketplace add "$HERE" || warn 'codex plugin marketplace add failed.'
     echo '  Next, in the ChatGPT desktop app: restart it, open Plugins, choose the'
-    echo '  jb-memory-codex marketplace, install jb-memory-codex, then review and trust'
+    echo '  trailmark-codex marketplace, install trailmark-codex, then review and trust'
     echo '  its hooks. MANUAL.md, "Codex", has the rest.'
   else
     warn 'codex is not on PATH. Add the marketplace from the ChatGPT app or install the Codex CLI; see MANUAL.md, "Codex".'
@@ -159,9 +159,9 @@ fi
 
 step 'Done'
 cat <<EOF
-  Next, in each repo you want jb-memory in:
-    1. Start Claude Code there and run /jb-memory:memory-setup
-    2. Start a new session and look for the [jb-memory] status line;
+  Next, in each repo you want trailmark in:
+    1. Start Claude Code there and run /trailmark:memory-setup
+    2. Start a new session and look for the [trailmark] status line;
        it ends with "sandbox on".
   MANUAL.md in this folder covers the rest.
   Keep this folder where it is: Claude Code loads the plugin from it.
