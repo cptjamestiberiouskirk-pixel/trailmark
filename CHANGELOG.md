@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3 (jb-memory): 2026-10-28
+
+- A plugin icon (`plugins/jb-memory/.claude-plugin/icon.png`, 1024 x 1024) for plugin directory listings: an earlier session's note behind the next one, joined by a thread through milestone points.
+
 ## 0.4.2 (jb-memory): 2026-10-26
 
 - A plainer plugin description, marketplace description and README opening, saying what the plugin is for and what it gives you, in the same style as the Codex copy.

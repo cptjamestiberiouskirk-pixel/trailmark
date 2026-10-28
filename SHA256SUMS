@@ -2,9 +2,9 @@ a14113d50357490d331ad9901f9e1c6cdb9b00a9005b3782f0cf2b7ab5465ea4  ./.agents/plug
 6a3b162069707b0728cca14fdcf893d8bf498c5e44e76808088b1056e32219c8  ./.claude-plugin/marketplace.json
 694bbeaca2e44ab94a6a23fff7b623a86ac4cdedcce26d7a86734f9aec6c2dac  ./.gitattributes
 0c4783ef9495551da26bd242a0cace9f7ad39e46bf1d5af8f51aeb8f338a9112  ./.gitignore
-004e5531ac2d6e24485e023ebb842b75d438e3190033cfb56e2edd153cd6aa1a  ./CHANGELOG.md
+7813c8f5c19a7f039d5690e7b7da61d491957ed9165edf9453e50e6f464d98ee  ./CHANGELOG.md
 772e299d3c90af1ed7d29ae543057c27beff24f013eb42b03fe969b5ee7ab493  ./LICENSE
-e7f1c5b230ba7a708c0f41ff62439ed15d26ca8ae41cf44fe0305390e81c9549  ./MANUAL.md
+ca9c07293a7684bc00731cd3a3468e930c77afabfb086513163c2ace5c1ffc8d  ./MANUAL.md
 375d80e43afbe5e2dc610f2d77d8aff031fd0645463df500fe6c958705d1d032  ./README.md
 0fdbcc58d1179363f06d4d2458668684953650aa401502ec23c312a959b3a3d4  ./SECURITY.md
 da45034da9ed9066f0f14be1a55c89d51c9ef3b9cbe9b6f37992c31c05416472  ./install.cmd
@@ -37,7 +37,8 @@ a9b61d25c5669f0aa0735cfe6dcb7b3c80479f6002ca5cc226e980e218270177  ./plugins/jb-m
 8bc65d70146625a494a189df37e9726df09d22bac963e6576e7820500c5b050a  ./plugins/jb-memory-codex/skills/jbm-recall/SKILL.md
 f3696cf522be0567146759b203552485891790a5777521246fc87c3ee3a9349c  ./plugins/jb-memory-codex/skills/jbm-session-end/SKILL.md
 d4675d2b4fe56e1ec6eed252a6e0843f64288f480e19463236afea2567476818  ./plugins/jb-memory-codex/tests/jb-memory.test.js
-798db1971de5a5b1ddde8f485a934f67f77eba72eaef60441a0de8dfda297f3b  ./plugins/jb-memory/.claude-plugin/plugin.json
+4230f5d89587b039dd8b2a84b7bed6a4ff38af413d12851f0dea77f3c4ff1c01  ./plugins/jb-memory/.claude-plugin/icon.png
+bd35367ba0c55ff6f75f584554c4977e91fa068eea10b88a665f446504cfeb32  ./plugins/jb-memory/.claude-plugin/plugin.json
 772e299d3c90af1ed7d29ae543057c27beff24f013eb42b03fe969b5ee7ab493  ./plugins/jb-memory/LICENSE
 c8c69dc6450527b3b915e82885934b2bc05202029439b09429bfac9ea5d0a7c6  ./plugins/jb-memory/README.md
 46799215a72f49aace9d9850d996978d82b89f43609831e450ddf2e4c6fdf9e6  ./plugins/jb-memory/hooks/hooks.json
