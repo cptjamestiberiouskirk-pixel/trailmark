@@ -12,6 +12,11 @@ const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 
+// Temp folders by their real path: on macOS the temp folder is reached
+// through a link (/var -> /private/var), and on Windows through an 8.3 short
+// name (RUNNER~1), while git and jb-memory report the real one.
+const realTemp = (prefix) => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+
 // The Codex copy refuses init unless this is set (scripts/jbm.js).
 process.env.JBMEM_CODEX_INIT = '1';
 delete process.env.CODEX_THREAD_ID;
@@ -31,7 +36,7 @@ function repoAt(dir) {
 }
 
 function sandbox() {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-'));
+  const base = realTemp('jbmem-');
   const cfg = path.join(base, 'cfg');
   const repo = path.join(base, 'repo');
   const g = repoAt(repo);

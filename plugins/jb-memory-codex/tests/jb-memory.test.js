@@ -8,6 +8,11 @@ const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 
+// Temp folders by their real path: on macOS the temp folder is reached
+// through a link (/var -> /private/var), and on Windows through an 8.3 short
+// name (RUNNER~1), while git and jb-memory report the real one.
+const realTemp = (prefix) => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+
 // The Codex copy refuses init unless this is set (scripts/jbm.js).
 process.env.JBMEM_CODEX_INIT = '1';
 delete process.env.CODEX_THREAD_ID;
@@ -15,7 +20,7 @@ const ROOT = path.join(__dirname, '..');
 const CLI = path.join(ROOT, 'scripts', 'memory.js');
 
 function sandbox() {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-'));
+  const base = realTemp('jbmem-');
   const cfg = path.join(base, 'cfg');
   const repo = path.join(base, 'repo');
   fs.mkdirSync(repo, { recursive: true });
@@ -284,7 +289,8 @@ test('launcher: hooks run sandboxed with launcher-collected git facts', () => {
   wh(J(s), '# H\n- state\n');
   const start = jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'startup' }));
   const out = JSON.parse(start.stdout);
-  assert.match(out.systemMessage, /sandbox on/);
+  // Codex gets the status line only with a warning (an old Node gives one).
+  assert.ok(!out.systemMessage || /sandbox on/.test(out.systemMessage), out.systemMessage);
   assert.match(out.hookSpecificOutput.additionalContext, /BEGIN HANDOFF/);
   const old = new Date(Date.now() - 3600000);
   fs.utimesSync(path.join(s.memdir, 'handoff.md'), old, old);
@@ -823,7 +829,7 @@ test('windows retries: a rename refused for a moment is retried on win32 only, a
   assert.ok(Date.now() - t0 >= 1900 && Date.now() - t0 < 4000);
   assert.throws(() => S.retryWin(() => { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; }, 'win32'), /ENOENT/);
   // atomicWrite removes its temp file when the rename fails for good.
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-aw-'));
+  const d = realTemp('jbmem-aw-');
   fs.mkdirSync(path.join(d, 'target.md')); // a folder where the file should go: the rename fails
   assert.throws(() => S.atomicWrite(path.join(d, 'target.md'), 'x'));
   assert.deepStrictEqual(fs.readdirSync(d), ['target.md']);
@@ -980,7 +986,7 @@ test('slow git: hooks finish well inside Claude Code\'s timeout when git hangs, 
   const s = sandbox();
   jbm(s, ['init']);
   wh(J(s), '# H\n- SLOW GIT STATE\n', [`--session=${SA}`]);
-  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-slowgit-'));
+  const bin = realTemp('jbmem-slowgit-');
   fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 });
   const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
   let t0 = Date.now();
@@ -1030,7 +1036,7 @@ test('state file: null, an array, a sessions list or a BOM are handled without l
 
 test('git path: PATH entries that are relative, "." or the working folder are skipped', () => {
   const { findGit } = require('../scripts/lib/gitbin');
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-gitpath-'));
+  const base = realTemp('jbmem-gitpath-');
   const work = path.join(base, 'work');
   const real = path.join(base, 'real');
   fs.mkdirSync(path.join(work, 'bin'), { recursive: true });
@@ -1109,7 +1115,7 @@ test('git: hooks never rewrite .git/index; only the commit hook reads the reflog
   const indexFile = path.join(s.repo, '.git', 'index');
   const before = fs.statSync(indexFile);
   const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
-  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-gitlog-'));
+  const bin = realTemp('jbmem-gitlog-');
   const log = path.join(bin, 'calls.txt');
   fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nprintf '%s | env %s %s %s %s\\n' "$*" "$GIT_ALLOW_PROTOCOL" "$GIT_NO_LAZY_FETCH" "$GIT_OPTIONAL_LOCKS" "\${GIT_DIR:-nodir}" >> ${JSON.stringify(log)}\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 });
   const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}`, GIT_DIR: path.join(s.base, 'elsewhere', '.git') };
@@ -1383,7 +1389,7 @@ test('init: a memory folder outside the projects folder is made by the launcher,
 
 test('git path: the working folder is also skipped under another name for it (a symlink)', () => {
   const { findGit } = require('../scripts/lib/gitbin');
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-gitreal-'));
+  const base = realTemp('jbmem-gitreal-');
   const repo = path.join(base, 'repo');
   const other = path.join(base, 'bin');
   fs.mkdirSync(repo); fs.mkdirSync(other);
@@ -1464,7 +1470,7 @@ test('archive-file: handoff and MEMORY.md are refused whatever the case of the n
 
 test('atomic writes: a link planted at a predictable temp name is never written through', () => {
   const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-tmpname-'));
+  const base = realTemp('jbmem-tmpname-');
   const target = path.join(base, 'handoff.md');
   const outside = path.join(base, 'outside.txt');
   fs.writeFileSync(outside, 'UNTOUCHED');
@@ -1519,7 +1525,7 @@ test('archive-file: edits MEMORY.md under the lock, so it waits for a write in p
 
 test('init: never replaces a handoff that appears between its check and its write', () => {
   const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-initrace-'));
+  const dir = realTemp('jbmem-initrace-');
   fs.writeFileSync(path.join(dir, 'handoff.md'), '# Handoff\n- WRITTEN BY ANOTHER SESSION\n');
   // Make the existence check miss it, the way a write landing in between would.
   const real = fs.existsSync;
@@ -1977,7 +1983,7 @@ test('0.3.3 hardening: hostile repo config in the folder git runs in starts no p
   assert.deepStrictEqual(fs.readdirSync(marks).sort(), ['gpg', 'lazy-ext', 'lazy-uploadpack'], 'the fixture should run its programs for an unhardened git');
   fs.rmSync(marks, { recursive: true }); fs.mkdirSync(marks);
   const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
-  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-hostile-'));
+  const bin = realTemp('jbmem-hostile-');
   const calls = path.join(bin, 'calls.txt');
   fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nprintf '%s\\n' "$PWD $*" >> ${JSON.stringify(calls)}\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 });
   const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
@@ -3028,7 +3034,7 @@ test('health: Node below the October 2026 security release is named, newer lines
 
 test('health: other jb-memory copies in the plugin cache are found, the running one is not', () => {
   const H = require(path.join(ROOT, 'scripts', 'lib', 'health'));
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-cache-'));
+  const base = realTemp('jbmem-cache-');
   const cache = path.join(base, 'cfg', 'plugins', 'cache');
   const mk = (rel, version) => {
     const d = path.join(cache, rel);
@@ -3079,12 +3085,12 @@ test('session start: names an old cached copy to the user and to Claude, inside 
   fs.rmSync(old, { recursive: true, force: true });
   const clean = JSON.parse(jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB })).stdout);
   assert.doesNotMatch(clean.hookSpecificOutput.additionalContext, /Other copies of jb-memory/);
-  assert.doesNotMatch(clean.systemMessage, /other jb-memory cop/);
+  assert.doesNotMatch(clean.systemMessage || '', /other jb-memory cop/);
 });
 
 test('health: a padded cache, oversized files and odd folder names are bounded and reported', () => {
   const H = require(path.join(ROOT, 'scripts', 'lib', 'health'));
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-pad-'));
+  const base = realTemp('jbmem-pad-');
   const cfg = path.join(base, 'cfg');
   const cache = path.join(cfg, 'plugins', 'cache');
   const mine = path.join(base, 'mine');
@@ -3323,7 +3329,7 @@ test('codex transcript: reads this session\'s rollout, events over response item
 test('codex transcript: the path recorded at session start is used only inside Codex\'s session folders', () => {
   const S = require(path.join(ROOT, 'scripts', 'lib', 'store'));
   const { findCodexTranscript } = require(path.join(ROOT, 'scripts', 'lib', 'transcript'));
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-cx-'));
+  const base = realTemp('jbmem-cx-');
   const prev = process.env.CODEX_HOME;
   process.env.CODEX_HOME = path.join(base, 'codex');
   try {
@@ -3386,7 +3392,7 @@ test('codex 0.1.1: "sandbox": false is ignored with a warning, and a Node inside
 
 test('transcript: lines are read in chunks, across chunk edges and split characters, and an overlong line is skipped', () => {
   const { forEachLine, extract } = require('../scripts/lib/transcript');
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-lines-'));
+  const base = realTemp('jbmem-lines-');
   const file = path.join(base, 't.jsonl');
   const lines = ['short', 'caf\u00e9 \u00b7 \u{1F680} across the edge', 'x'.repeat(100), '', 'last, no newline'];
   fs.writeFileSync(file, lines.join('\n'));
