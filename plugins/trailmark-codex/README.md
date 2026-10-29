@@ -1,12 +1,12 @@
 # trailmark-codex
 
-Trailmark runs no background model and sends nothing over the network. Each hook is a short Node script that reads git and writes text files in the repo's memory folder, under a sandbox that lets it write nowhere else, plus a small log of hook payload shapes in the plugin's own data folder ("What it runs, writes and sends" below). What it adds at the start of a chat stays under 8,500 characters, inside the point where Codex moves hook output to a file, and when it has to cut the handoff it says which sections it left out.
+Trailmark for Codex, in the ChatGPT desktop app or the Codex CLI. Each repo gets a short handoff note on where the work stands and what to do next, with the decisions behind it and the questions still open. The note is refreshed after commits and PR merges and before Codex compacts a long chat, and every new chat starts with it, so you don't have to explain the project again or dig back through old chats.
 
-Trailmark gives Codex, in the ChatGPT desktop app or the Codex CLI, a memory for each project. Each repo gets a short handoff note on where the work stands and what to do next, with the decisions behind it and the questions still open. The note is refreshed after commits and PR merges and before Codex compacts a long chat, and every new chat starts with it, so you don't have to explain the project again or dig back through old chats. It stays within a size budget, so it doesn't fill the context, and every write is version-checked, so two chats working at once can't overwrite each other's notes.
+You turn it on per repo. If you also use Claude Code with Trailmark in the same repo, both read and write the same note, so either agent can pick up where the other stopped. Every write is version-checked, so two chats, or a chat and a Claude Code session, can't overwrite each other's notes.
 
-You turn it on per repo. If you also use Claude Code with Trailmark in the same repo, both read and write the same note, so either one can pick up where the other stopped.
+It runs no background model and makes no network requests. Each hook is a short Node script that reads git and writes text files in the repo's memory folder, under Node's permission model, so it can't write anywhere else or start programs. The one other file it writes is a small log of hook payload shapes in the plugin's own data folder ("Checking how the hooks ran" below). What it adds at the start of a chat stays under 8,500 characters, below the point where Codex moves hook output to a file.
 
-The handoff, its budget, the commit log, parking, pruning and the Node permission-model sandbox work as described in Trailmark's own README (`plugins/trailmark/README.md` in the release folder). This file covers what differs for Codex. The release's `MANUAL.md` has the full install walk-through.
+The handoff, its budget, the commit log, parking, pruning and the sandbox work as [docs/how-it-works.md](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/docs/how-it-works.md) describes for the Claude Code plugin. This file covers what differs for Codex, and [MANUAL.md](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/MANUAL.md), section 8, has the full install walk-through.
 
 ## What differs from the Claude Code plugin
 
@@ -74,7 +74,7 @@ Each step says whether it is CONFIRMED from Codex's documentation or from use wi
 
 ## What it runs, writes and sends
 
-The same as Trailmark's README section of that name, with these differences:
+The same as the section of that name in docs/how-it-works.md, with these differences:
 
 - The PostToolUse hook starts on every shell command, since Codex has no per-command filter, and leaves before any git work unless the command is a commit or a PR merge.
 - At chat start it reads folder names in Codex's plugin cache (`%USERPROFILE%\.codex\plugins\cache`, or under `CODEX_HOME`), three levels down, to warn about a leftover `jb-memory-codex`, this plugin's name before 0.5.0. It opens no files there.
@@ -98,7 +98,7 @@ Since 0.1.4 each line also has `resp=`, how a tool result is built (its length, 
 
 To see one tool result in full, create an empty file named `dump-next-tool-result` in that same folder. The result of the next commit or PR merge command in a repo set up for Trailmark is written to `tool-result-dump.txt` there (the first 3,000 characters of the command and of its result, which can hold anything the command printed), and the request file is removed. Until such a command runs, the request stays armed. The dump, and the log, are never written through a link or into a file with other hard links. Delete the dump once you've read it.
 
-## Observed with the ChatGPT desktop app on Windows (October 2026)
+## Tested with the ChatGPT desktop app on Windows
 
 - The desktop app's Codex mode runs the plugin's hooks: SessionStart (sources startup, resume, fork and compact), PreToolUse, PostToolUse and PreCompact all fired, run by the installed Node with the sandbox on. That the `compact` start's text then reached the agent was not checked separately.
 - The agent's commands run in PowerShell 7 (`pwsh.exe -Command ...`); the shell tool is named `Bash` in the hooks, with `tool_input.command` a string.
@@ -111,9 +111,13 @@ To see one tool result in full, create an empty file named `dump-next-tool-resul
 
 Not seen yet: whether `writable_roots` applies under the Windows sandbox (approving each write works), and anything on macOS or Linux, where the same hooks and skills are expected to work but are untested with the desktop app.
 
-## Keeping the two copies in step
+## Tests
 
-This is a separate copy of Trailmark's code with the changes above, mostly in `scripts/lib/host.js`, `scripts/trailmark.js` (lines marked "Codex:"), `scripts/lib/transcript.js` and the skills. A fix to the shared code in Trailmark needs the same fix here. `node --test tests/trailmark.test.js` runs the shared tests plus the Codex ones, and `node --test tests/handoff-checks.test.js` runs the checks added in 0.2.4 (the same file in both copies).
+```text
+node --test tests/trailmark.test.js tests/handoff-checks.test.js
+```
+
+CONTRIBUTING.md in the repository covers keeping this copy in step with the Claude Code plugin.
 
 ## License
 

@@ -11,6 +11,7 @@ jb-memory is now Trailmark, ahead of its first public release. Everything in 0.4
 - `install-trailmark-watchdog.ps1` removes the old `jb-watchdog` scheduled tasks and installed copy once the new known-good list is recorded, just before it adds its own tasks, so declining at that step leaves the old watchdog running. Its `-Uninstall` removes both. The old watchdog's log and known-good list are left in `%LOCALAPPDATA%\jb-watchdog`.
 - The Windows diagnostics recognize both names in older transcripts (`jbm.js`, `jb-memory:checkpoint`).
 - MANUAL.md, section 15, has the steps for moving from jb-memory.
+- Documentation rewritten for public release: the README is a landing page, the plugin README (the plugin directory's listing) covers what it does, installing and everyday use, the technical reference moved to `docs/how-it-works.md`, and CONTRIBUTING.md is new.
 - New tests for the old-name checks.
 
 Older entries below keep the names of their time.

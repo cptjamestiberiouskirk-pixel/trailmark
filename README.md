@@ -1,53 +1,82 @@
 # Trailmark
 
-Trailmark runs no background model and sends nothing over the network. What it adds at session start stays under 8,500 characters, inside Claude Code's 10,000-character hook limit. Each hook is a short Node script that reads git and writes text files in one folder, under a sandbox that lets it write nowhere else ([SECURITY.md](SECURITY.md); the plugin README's "What it runs, writes and sends").
+[![tests](https://github.com/cptjamestiberiouskirk-pixel/trailmark/actions/workflows/tests.yml/badge.svg)](https://github.com/cptjamestiberiouskirk-pixel/trailmark/actions/workflows/tests.yml)
+
+A per-project memory for Claude Code and Codex. Each repo gets a short handoff note on where the work stands and what to do next, and every new session starts from it.
 
 ![A new session's view: the handoff from the last session, then the commits made since it was written, with the next step one of them may already cover](plugins/trailmark/docs/session-start.png)
 
-Session continuity for Claude Code. Each repo gets one short handoff file that Claude rewrites at milestones (a commit, a merged PR, a subagent's result, before a compaction) and that every new session in the repo starts from. It stays under a size budget, so it doesn't turn into a per-session token tax, and every write is version-checked, so two sessions in one repo can't undo each other's checkpoints.
+## Why
 
-A copy for the ChatGPT desktop app's Codex mode shares the same handoff, so Claude Code and Codex can hand work to each other in one repo.
+A new Claude Code session starts cold. After a `/clear` or a compaction you explain the project again, or Claude rereads the code and sometimes redoes a fix that was already committed. Claude Code's own memory keeps stable facts about a project. Trailmark adds the part that changes from one session to the next: what was just done, what comes next, the decisions behind it and the questions still open.
 
-```text
-[trailmark] handoff 2 h old, ~900 tokens injected, sandbox on
-```
+Claude updates the note at milestones (a commit, a merged PR, a subagent's result, before a compaction), and Trailmark hands it to the next session within a fixed size budget. It checks the note against git first, so a session sees the commits made since the note was written.
+
+## Features
+
+- A handoff in every new session, kept under 8,500 characters so it fits inside Claude Code's 10,000-character hook limit. A cut note says which sections were left out.
+- Commits made since the handoff are listed, with any next step they may already cover.
+- Reminders to checkpoint after commits, PR merges and subagent results, and a git-state snapshot before each compaction.
+- Version-checked writes, so parallel sessions and worktrees can't overwrite each other's notes.
+- One shared note for Claude Code and Codex in the same repo, each entry tagged with the agent that wrote it.
+- Opt-in per repo. Nothing happens in a repo until you set it up there.
+
+Trailmark runs no background model and makes no network requests, and there's no telemetry. Its hooks run under Node's permission model, so they can write only in the repo's memory folder and can't start other programs. [SECURITY.md](SECURITY.md) has the full model and its limits.
 
 ## Install
 
-Get the release with `git clone https://github.com/cptjamestiberiouskirk-pixel/trailmark.git` (or download it from the [releases](https://github.com/cptjamestiberiouskirk-pixel/trailmark/releases)) and put the folder somewhere permanent that only you can write to, then:
+You need Claude Code 2.1.304 or later and Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines). git is recommended. Windows, macOS and Linux are supported, and CI runs the tests on all three.
+
+Straight from GitHub:
+
+```text
+claude plugin marketplace add cptjamestiberiouskirk-pixel/trailmark
+claude plugin install trailmark@trailmark
+```
+
+Or [download a release](https://github.com/cptjamestiberiouskirk-pixel/trailmark/releases), check it against its `.sha256` file, unzip it somewhere permanent that only you can write to, and run the installer. It checks Node, git and Claude Code, and proves the sandbox works on your machine before it installs anything.
 
 | Platform | Command |
 |---|---|
 | macOS, Linux | `./install.sh` |
 | Windows | double-click `install.cmd`, or `powershell.exe -NoProfile -ExecutionPolicy Bypass -File install.ps1` |
 
-Then, in each repo you want covered, start Claude Code and run `/trailmark:memory-setup`. Nothing happens in a repo until you do.
+`--check` (`-Check` on Windows) runs the checks without changing anything.
 
-Claude Code can also install it straight from GitHub with `claude plugin marketplace add cptjamestiberiouskirk-pixel/trailmark`; MANUAL.md, section 3, says what that changes.
+## Quick start
 
-You need Node.js 24.22.1 or later (or 22.23.4, 26.12.1 in those lines) and Claude Code 2.1.304 or later. git is optional. [MANUAL.md](MANUAL.md) covers installing by hand, every option, the Codex copy, the Windows watchdog and troubleshooting.
+1. Open Claude Code in a repo and run `/trailmark:memory-setup`.
+2. Start a new session. Look for a status line like `[trailmark] handoff 2 h old, ~900 tokens injected, sandbox on`.
+3. Work as usual. Run `/trailmark:checkpoint` whenever you want the note brought up to date, and `/trailmark:session-end` before you stop.
 
-## What you get
+## Codex
+
+The `trailmark-codex` copy brings the same handoff to Codex, in the ChatGPT desktop app or the Codex CLI. In a repo you use from both, either agent can pick up where the other stopped. Installing it takes a few steps in the ChatGPT app; see [its README](plugins/trailmark-codex/README.md) or [MANUAL.md](MANUAL.md), section 8.
+
+## Optional: the Windows watchdog
+
+`tools/windows` holds trailmark-watchdog, a separate tool that watches the release folder, and what Claude Code's settings run, for changes and for content that looks malicious. It runs as a scheduled task under your account, needs no admin rights, and never changes anything it watches. Neither plugin installs it. See [MANUAL.md](MANUAL.md), section 10.
+
+## Documentation
 
 | | |
 |---|---|
-| At session start | The handoff, injected as notes from earlier sessions, then the commits made since it was written, with any next step they may already cover. Also a snapshot after a compaction, a note of other sessions active in the repo, and a warning if a second repo shares the same memory folder |
-| After `git commit`, `gh pr merge`, a subagent | The commit or merge is logged and Claude is reminded to checkpoint |
-| `/trailmark:checkpoint` | Rewrites the handoff to a fixed template with evidence labels (CONFIRMED, INFERRED, HYPOTHESIZED) and decision provenance, and archives done items word for word |
-| `/trailmark:session-end` | Recovers what the checkpoints missed from the transcript and asks you to approve the final handoff |
-| `/trailmark:park`, `recall`, `memory-prune` | Park an idea, search and undo, shrink what loads every session |
+| [MANUAL.md](MANUAL.md) | Installing by hand, setup, every setting, Codex, the watchdog, troubleshooting, uninstalling, moving from jb-memory |
+| [docs/how-it-works.md](docs/how-it-works.md) | Each hook in detail, how commits are traced, parallel sessions, the sandbox, exactly what is read and written |
+| [SECURITY.md](SECURITY.md) | The threat model, known limits, and how to report a vulnerability |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Running the tests, keeping the two plugin copies in step, sending changes |
 
-The hooks run under Node's permission model: they can write only in the repo's memory folder and can't start programs. [SECURITY.md](SECURITY.md) has the full model and its limits.
-
-## In this folder
+## Repository layout
 
 | Path | |
 |---|---|
-| `plugins/trailmark/` | The Claude Code plugin ([README](plugins/trailmark/README.md)) |
-| `plugins/trailmark-codex/` | The Codex copy ([README](plugins/trailmark-codex/README.md)) |
-| `tools/windows/` | trailmark-watchdog, which watches this folder and Claude Code's settings for changes, and diagnostic scripts. Both are optional and separate: neither plugin installs or starts them, and the plugin directory gets only the plugin folder |
+| `plugins/trailmark/` | The Claude Code plugin |
+| `plugins/trailmark-codex/` | The Codex copy |
+| `tools/windows/` | trailmark-watchdog and the Windows diagnostic scripts |
+| `tools/install-check.js`, `install.*` | The installers |
 | `.claude-plugin/`, `.agents/plugins/` | The Claude Code and Codex marketplace files |
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Parts are derived from memory-toolkit 1.9.15 by Ilya Gorsky (MIT).
+MIT, see [LICENSE](LICENSE). Trailmark began as a rewritten fork of [memory-toolkit](https://github.com/IlyaGorsky/memory-toolkit) 1.9.15 by Ilya Gorsky, also MIT. It used to be called jb-memory; [MANUAL.md](MANUAL.md), section 15, covers moving from it.

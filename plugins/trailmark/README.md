@@ -1,216 +1,76 @@
 # Trailmark
 
-Trailmark runs no background model and sends nothing over the network. Each hook is a short Node script that reads git and writes text files in one folder, under a sandbox that lets it write nowhere else ("What it runs, writes and sends" below). What it adds at session start stays under 8,500 characters, inside Claude Code's 10,000-character limit for hook output, and when it has to cut the handoff it says which sections it left out ("Size budget").
+Trailmark gives Claude Code a memory for each project. A short handoff note says where the work stands, what to do next, which decisions were made and which questions are still open. Claude updates it at milestones, and every new session starts from it, so you don't have to explain the project again after a `/clear` or a compaction.
 
 ![A new session's view: the handoff from the last session, then the commits made since it was written, with the next step one of them may already cover](docs/session-start.png)
 
-The text in the picture is the SessionStart hook's actual output in a test repo, as Claude receives it at the start of a fresh session or after `/clear`. Without Trailmark, that session starts with nothing about where the work stood.
+That's what a fresh session receives: the handoff, then the commits made since it was written, with the next step one of them may already cover.
 
-Trailmark gives Claude Code a memory for each project. Each repo gets a short handoff note on where the work stands and what to do next, with the decisions behind it and the questions still open. The note is refreshed after commits, PR merges and subagent results and before Claude Code compacts a long session, and every new session starts with it, so you don't have to explain the project again or dig back through old sessions. It stays within a size budget, so it doesn't turn into a per-session token cost, and every write is version-checked, so two sessions working at once can't overwrite each other's notes. Ideas you aren't ready for can be parked, and memory can be pruned before it grows.
+## What it does
 
-You turn it on per repo. If you also use Codex with trailmark-codex in the same repo, both read and write the same note, so either one can pick up where the other stopped.
+- Every new session gets the repo's handoff, kept under 8,500 characters so it fits inside Claude Code's 10,000-character hook limit. When the note runs long, the cut says which sections were left out and where the full file is.
+- The note is checked against git. Commits made since it was written are listed, so Claude doesn't redo finished work.
+- After a commit, a merged PR or a subagent's result, Claude is reminded to update the note. Before a compaction, a snapshot of the repo's git state is saved.
+- Parallel sessions are safe. Every write names the version it started from, so one session can't silently overwrite another's notes.
+- If you also use Codex with trailmark-codex in the same repo, both read and write the same note, and each entry says which agent wrote it.
 
-It's a trimmed, rewritten fork of memory-toolkit 1.9.15 (MIT, Ilya Gorsky). The watcher, workstream routing, session-start and session-continue, reflect, docs-reflect, session-insights, session-restore and the pipeline orchestrator are left out. They can be added back from upstream if a gap shows up.
+## What it doesn't do
 
-## What happens automatically
-
-Once installed at user scope, and only in repos set up with `/trailmark:memory-setup`:
-
-| Event | Hook does |
-|---|---|
-| Session start, `/clear`, after compaction | Injects the handoff (budget-capped) and shows `[trailmark] ...` with an estimated token count where the app displays hook messages. After a compaction it adds that session's own snapshot. At a fresh start it adds another session's snapshot if one from the same folder is newer than the handoff, and names the other sessions active in the repo in the last 3 hours. Logs a `SESSION_START` line with the sandbox state, the node that ran the hook and Claude Code's entry point; `trailmark.js status` shows the latest. On a resume or after a compaction it also logs the commits in this session's folders that no hook logged (see "Commits no hook saw"). After the handoff it lists the commits made on HEAD since the handoff was written (its `Updated:` line records HEAD), the newest 10 with their subjects, and names any next-step item that shares two or more words with one of them, so Claude checks before redoing that work. If the handoff's HEAD is on another branch or isn't in this checkout, it says that instead. The first start records which repo the memory folder serves; when a second repo that still exists maps to the same folder, every start warns |
-| Resumed session | Injects one line with the handoff's age, not the whole file. If another session wrote the handoff since this one last saw it, the line says so and asks for a re-read |
-| `git commit`, including `git -C <path> commit`, run through the Bash or PowerShell tool | Logs the commit to `notes/`, read from the folder it ran in (see below). If this session's last checkpoint is older than 3 minutes and this session got no reminder in the last 20, it asks Claude to consider a checkpoint. Other `git -C` commands also start the hook, which leaves before doing any git work. A command that commits and then fails (`git commit && git push`, the push failing) gets Claude Code's PostToolUseFailure event instead; the same hook runs there and logs the commit, with no reminder. Without a PreToolUse record for that command, only the commits git printed (in the error text Claude Code passes) are logged |
-| `gh pr merge` (Bash or PowerShell tool; a `--help` or `-h` call doesn't count), subagent finished | Same reminder, same throttle |
-| Before a `git commit` or `git -C` command (Bash or PowerShell tool) | Records the folder the command starts in, and the folders its commits go to as read from the text, for the commit hooks. Prints nothing, runs no git |
-| Before compaction | Writes `snapshots/<session id>.md`: branch, HEAD, uncommitted files. No commit subjects. Snapshots older than 7 days are removed. `git status` runs with any filter the repo itself defines switched off; when that can't be done the count reads `not read (<reason>)` |
-
-Writing the handoff stays a model action, through the `trailmark:checkpoint` skill. A hook can remind but can't make Claude write. When the handoff is saved, `write-handoff` sets its `Updated:` line from the clock, from git (branch and HEAD) and from the agent that wrote it (`by Claude Code`, or `by Codex` from trailmark-codex), so those never depend on the model, and moves `[done]` items verbatim to `archive/<date>.md`. An item whose exact text was already archived that day isn't added twice.
-
-### Where a commit ran
-
-A session often commits somewhere other than its own folder: `cd /e/audit2 && git commit ...` from a worktree, or `git -C <path> commit`. Two hooks work together on each git commit command.
-
-The PreToolUse hook (`commit-start`) records the folder the command starts in, in `pending/<tool call ID>.json`, with the folders the command's commits go to as read from its text (at most 0.3 s of reading; other sessions' commit hooks use them, see below). It runs no git and prints nothing. Claude Code runs each Bash command as `... && eval <command> && pwd -P >| <file>`, so the session can follow a `cd`. In the code of Claude Code 2.1.42 and 2.1.306 (2.1.304 was not read), after each Bash command it moves the shell back to the folder the session started in when `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR` is on, or when the command ended outside the session's folders (that start folder and any added with `--add-dir`). Only the second adds `Shell cwd was reset to <folder>` to the output. Hooks are given the folder the session is in when they run, and PostToolUse runs after the tool call returns, so its `cwd` is either where the command ended or the session's start folder. A subagent's Bash calls never move the session at all (2.1.42), so for them it is the folder the command started in. On the PC's Claude Code 2.1.304, after `cd <folder> && git commit` in the Bash tool, PostToolUse got the start folder, for a folder added with `--add-dir` and for the session's own scratch folder alike (logged as END_MISMATCH with `actual=start`, see below). The PowerShell tool's `cwd` followed `Set-Location`. On 10-22 the verify script's cd-then-pwd check (an INFO line) found the shell back in the start folder, and Claude's reply said the cd output had the reset line. If it did, Claude Code counted that `--add-dir` folder as outside the session's folders; the 0.3.6 check reads the line from the transcript instead of taking Claude's word for it. Every reset seen so far was for a folder under `%TEMP%`, which Git Bash shows as `/tmp/...`. Whether that is why has not been settled: the verify script runs the same check for an added folder outside `%TEMP%` too. Only the PreToolUse record says for certain where a command started. Its git calls (finding the memory folder) get one second each, so a hung git holds the command up for seconds at most. Without a record (an older Claude Code, a hook that didn't run or timed out), the end folder counts as the start only when the command never moves the shell's own folder, not even back to where it ends (`git commit && cd /abs/clone`, read from the clone, would end where it began); otherwise a commit whose folder depends on the start is unresolved.
-
-The PostToolUse commit hook then reads the command the way the shell would, far enough to tell which folder each `git commit` in it ran in. It follows `cd`, `pushd` and `popd` (and `Set-Location`, `Push-Location` and `Pop-Location` for the PowerShell tool), `git -C`, subshells and pipelines, `{ }` groups (also right after `then`, `do`, `!` or `time`), `bash -c`, `powershell -Command`, scripts fed to a shell on stdin (`bash <<'EOF'`, `cat <<'EOF' | bash`), script files the same command wrote (`cat > fix.sh <<'EOF'` ... then `bash fix.sh`, `./fix.sh` or `source fix.sh`), quoting and heredocs, and Git Bash paths such as `/e/x` for `E:\x`.
-
-- Shell functions run where they are called, with the words they were called with as `"$1"` and `"$@"` (moved by `shift` and `set --`, and split again on blanks when unquoted). A function defined in a subshell is gone after it, one defined in an `if` branch may or may not be there, `unset -f` removes one, and a function named `cd` or `git` is found before the command unless `command` or `builtin` comes first. `return` ends the function and `exit` (or `exec <command>`) the script, except inside a subshell, a pipeline or the background, where they end only that; one that may not run (`[ -d x ] || return`) leaves either folder.
-- Code from a variable (`eval "$CMD"`, `$CMD` as a command, `iex $cmd`, `& $x` in PowerShell) may `cd`, so the folder is unknown after it. `eval "$(ssh-agent -s)"` and the like are taken as setting variables only.
-- A script file is read again where it runs (`cat > fix.sh`, `echo ... > fix.sh`, `printf`, `tee`, and `>>` to add to one), until another command may change it (`sed -i`, `mv`, `cp`, a `git checkout`); after that, a commit in what it held is unresolved.
-- An unquoted heredoc (`<<EOF`) is expanded first: a `$( )` in it runs, `\$` is a plain `$`, and a body that depends on a variable is not read, so a commit in it is unresolved.
-- For PowerShell, the right side of an assignment runs (`$null = Set-Location E:\x`, `$out = git commit ... 2>&1`), a script block stored in a variable runs when called (`& $sb`, `. $sb`, `$sb.Invoke()`, `Invoke-Command $sb`, or maybe when handed to a cmdlet such as `ForEach-Object $sb`), `Invoke-Command { }` runs here unless a parameter such as `-ComputerName`, `-Session` or `-AsJob` sends it elsewhere (a parameter it doesn't know leaves the folder unknown), `function global:Go` is called as `Go` with `@args`, `Set-Alias go Set-Location` is followed, and `return` and `exit` end a function or the script (a `finally` block still runs). `Start-Job`, `Start-Process` and `ForEach-Object -Parallel` run elsewhere.
-
-A `git commit` that only appears inside a quoted heredoc, a quoted string, a comment or text a command prints is not a commit (`awk` is not such a command: its `system()` runs one). Code that may not run (an `if` branch, a loop body, `test -d x && cd x`, a PowerShell block given to a cmdlet) still counts for the commits in it, but a folder change inside it leaves the folder unknown afterwards.
-
-In each such folder it reads the reflog and logs the entries written by `git commit` while the command ran. The window opens at the earlier of the PreToolUse record's time less a second and the command's `duration_ms` (which Claude Code passes to PostToolUse) counted back from when the hook's process started, less two seconds, but no more than a minute before that (the record can be older than the command when a permission prompt waited in between). The hook starts after the command ends, sometimes more than a second after on a busy Windows PC, so `duration_ms` alone would open the window after the command's first commit. Without a record, it is `duration_ms` back from the hook's start, less five seconds. Without `duration_ms` it takes entries no older than a command can run (11 minutes: Claude Code's 10-minute limit plus one, or `BASH_MAX_TIMEOUT_MS` plus one), at most one per commit in the command, or all of them for a commit in a loop. A pull, checkout, merge or reset moves HEAD too and isn't logged as a commit. Without a reflog (`core.logAllRefUpdates` off) HEAD counts when its commit time is in the window. A commit the same command then rewrote is logged as its rebased copy (`(rebased in the same command)`), left out when the next reflog entry amended it, and otherwise logged with `(not on HEAD after the command)`: reset away, squashed, or left on another branch (`git commit && git checkout -b b HEAD~1 && git commit`). A commit is logged once: the hook checks the SHAs it logged before (the last 200, in the state file) and the COMMIT lines of today's and yesterday's log, so another session committing in between can't make it log the same SHA again.
-
-Another session's commit command running at the same time can commit in the same folder: its PreToolUse record started in the same repo folder (its own top level, so a worktree and the checkout that holds it are apart) and wasn't marked done before this command started. A record of this session's own counts for nothing here: a commit by its own command or subagent is its own either way. Another session's record whose hook never ran (a command denied at the prompt) counts for up to 11 minutes. When such a command ran, git printed this command's commits (`[main 1a2b3c4] fix`, read from the tool's output), and the folder has more new commits in the window than the command has `git commit`s, the extra ones are left out if they are exactly the new ones git didn't print that came after the other command started: its own hook logs them. Otherwise all of them stay, as before: a quiet `git commit -q`, output cut short, or a commit the command text doesn't show (a git alias such as `git ci`, a post-commit hook, a script) is this command's. If a quiet commit of that kind lands while another session commits in the same folder, it can be left out here; the next sweep logs it as found later.
-
-- A commit in the session's own folder is logged as before: `COMMIT <sha> <subject>`.
-- A commit anywhere else: `COMMIT <sha> in="<folder>" <subject>`, with the repo's top-level folder.
-- A commit whose folder can't be known is never logged as another folder's HEAD. It is logged as `COMMIT_UNRESOLVED why=<reason>`, and the reminder still comes: `unknown-folder` (a variable, a substitution, a glob, `cd -` or `cd a || cd b`, a folder change in code that may not have run, a Git Bash mount like `/tmp`, a start folder that isn't known), `other-repo` (`--git-dir`, `--work-tree`, `GIT_DIR` set on the command or earlier in it), `unrecognized` (`git commit` in a form it doesn't follow, such as `cmd /c`, `python -c` or a background job), `missing-folder`, `no-repo`, `git-timeout`, `too-many-folders` (more than 4 in one command), `too-many-commits` (more than 30 in one folder), `too-long` (the command took over 1.5 seconds to read).
-
-The launcher also compares the folder the command ends in, as read, with the PostToolUse `cwd`. When they differ it logs `END_MISMATCH tool=<bash|powershell> parsed="<folder>" actual="<folder>"`, with `actual=start` when the PostToolUse `cwd` is the folder the command started in and `actual=home` when it is the folder the session started in. It changes nothing; it counts how often the reading of a command, or the assumption that Claude Code moves the session, is wrong. It needs a PreToolUse record and an end folder the reading knows (`git commit && cd x` leaves it unknown, since the `cd` may not run).
-
-### Commits no hook saw
-
-A commit made by a script the command didn't write, by a git command the hooks' `if` filter doesn't match, or while a hook didn't run, leaves no COMMIT line. At `write-handoff` with `--session`, and when a session resumes or compacts, the launcher reads the reflog of each folder the session used: the folder it started in, the one it is in, and the folders its logged commits went to (up to six). Entries written by `git commit` since that folder's last sweep (or the session's start, at most a day back) and before the second the sweep started, that are still on a branch or tag and weren't amended away, and that no COMMIT line or state entry has, are logged as `COMMIT <sha> [in="<folder>"] <subject> (found later)`. `write-handoff` says how many. Each folder keeps its own start in the session's record (`swept`), so a folder that couldn't be read (gone for a while, slow, or past the time budget) is read from where it was when it is back, up to a day. 0.3.2 and 0.3.3 already recorded each session's start, so the first checkpoint or resume after updating reaches back to the session's start, at most a day: commits in its folders from that day that no hook logged (0.3.2 missed the ones in other folders) are logged then.
-
-Someone else working in the same folder (by hand, or a tool) is not told apart from the session, so "found later" means found in its folders, not proved to be its own. A folder that has a memory folder of its own (another clone set up for Trailmark) is swept past the commits logged there and the commit commands still running there: those belong to its sessions. That memory folder is found by Claude Code's usual project-folder name only; one that Trailmark finds only by searching other transcripts isn't looked for here (the search has no time limit), so that clone's commits get no such exclusion. Another session's commit command that may still be running is left alone: the sweep stops a second before the start of the earliest PreToolUse record younger than 11 minutes whose PostToolUse hook hasn't logged it, and the next sweep starts there. Each commit hook (PostToolUse, or PostToolUseFailure for a command that failed) marks its command done when it finishes (`pending/<tool call ID>.done`), whether it logged anything or not. The sweeping session's own records don't hold it back: a commit by its own command, or by its subagent running in parallel, is its own either way. Another session's command whose hook never ran (denied at the permission prompt, stopped with Esc, a hook that timed out) holds the sweep back until its 11 minutes pass.
-
-When the session's last command left it in another repo it may use (a folder added with `--add-dir` or `additionalDirectories`), the hooks find the memory folder from where the session started, the first `cwd` in its transcript.
-
-The session's record keeps the folder of its last logged commit. `write-handoff` takes the `Updated:` line's branch and HEAD from there, so a session whose work went to another clone shows that clone's, not its own worktree's. The line names the folder whenever it isn't the main checkout: `Updated: <date> <time> | branch <b> | HEAD <h> | in <folder> | session <id>`. A session in the main checkout gets the same line as before, with no folder.
-
-What it still reads wrong: a commit that something else made in that folder while the command ran (another session committing in the same clone at the same moment) is logged as this session's when git's output doesn't settle it (see above), and a `cd` to a folder that doesn't exist is taken as done (`cd sub || true` too), so commits after it are reported as `missing-folder`. A script file the command didn't write (`bash ./release.sh`) is not read, so a commit only inside it is not logged; the hook's `if` filter only sees the command text anyway. Sourcing such a file (`source .venv/Scripts/activate`) is taken as leaving the folder alone. A function defined inside a pipeline element (`f() { ...; } | cat`) is taken as defined afterwards. `"$1"` outside a function is unknown, not empty.
-
-## Several sessions at once
-
-Every session in a repo, and every worktree of it, shares one memory folder and one handoff. Two sessions checkpointing from different starting points used to mean the second write silently replaced the first. Now:
-
-- `handoff` prints a version (the first 12 hex digits of the file's SHA-256) and `write-handoff` must name the version it was based on with `--base=<version>`. If another session wrote in between, the write is refused with exit code 3. The refusal lists what the other session added and removed, and prints the current handoff with its version, so Claude can merge and write again. The checkpoint and session-end skills say how. `--force` skips the check and is meant for use by hand.
-- Every read-modify-write of a shared file (the handoff, the state file, rotate, undo, park, archive-file's edit of MEMORY.md) runs under a lock file, `.jbmem.lock`. Commands hold it for milliseconds. A lock is broken only when its holder is gone: the process ID in it is no longer running on this machine and the lock is over 5 seconds old, or the lock is over 60 seconds old. A command that can't get the lock in 10 seconds (2 for a hook) gives up without writing. A file that has to be read before it is rewritten (the state file, the day's archive, the handoff) stops the command when it can't be read, instead of being replaced by a copy missing what couldn't be read.
-- Files are written to a temp file with a random name, created exclusively, then renamed into place, so a link planted at a predictable name is never written through. The day's notes file and the copy of a broken state file are checked the same way. Setup creates the marker and the starting handoff only if they don't exist yet.
-- On Windows, a rename or delete refused because another program has the file open (an antivirus scan, a sync client) is retried for up to 2 seconds.
-- Skills pass the session ID Claude Code substitutes for `${CLAUDE_SESSION_ID}`, and hooks take it from their payload. It keys the per-session state: when the session started, its last checkpoint, its reminder throttle and the transcript path Claude Code reported. So `transcript --session=<id>` reads this session's own transcript instead of the newest one in the folder, and `--since=checkpoint` means since this session's last checkpoint, because another session's checkpoint didn't save this one's work.
-- `undo-handoff` works only for the session that wrote the current version, and only while `handoff.prev.md` is still the version that write replaced. Undoing anyone else's write would throw their work away, and restoring a version another session undid would bring back text it rejected. Without a session ID it needs `--force`, and so does undoing a checkpoint made before a `/clear` (which starts a new session ID). The version it replaces goes to `archive/handoff-history/` first.
-- The `Updated:` line, log lines in `notes/` and `status` name the session that acted, by the first 8 characters of its ID.
-
-Nothing here decides who should write. Every session can checkpoint, or one lead session can own the handoff while the others park ideas or leave notes. The version check keeps either way safe.
-
-## Sandbox
-
-Every hook and skill command enters through `scripts/trailmark.js`. The launcher only reads: it finds the repo's memory folder and collects the git facts the hooks need. It then runs the real script under Node's permission model with these grants:
-
-| Grant | Scope |
-|---|---|
-| Write | the repo's memory folder only |
-| Read | the plugin folder and the memory folder (plus Claude Code's projects folder for `transcript`) |
-| Child processes, workers, native addons | none |
-
-The sandboxed script gets the launcher's environment without `NODE_OPTIONS` or any other `NODE_*` variable, which could otherwise carry permission flags that undo these grants, and without inherited `JBMEM_*` variables, which could choose the memory folder. Its subfolders (`snapshots/`, `archive/`, `parked/`) must be real folders, not links, since the permission model follows a link out of a granted folder.
-
-Node describes the permission model as a seat belt that stops trusted code from touching the wrong files, not as protection against malicious code. `trailmark.js --sandbox-check` proves it on the current machine. A refusal during a session shows as a `[trailmark] sandbox refused ...` message. `JBMEM_SANDBOX=off` turns it off; for every session, put it in the `env` block of `~/.claude/settings.json` (`%USERPROFILE%\.claude\settings.json` on Windows), where trailmark-watchdog sees it. A repo's own `.claude/settings.json` can set it too, through its `env` block, so whenever the sandbox is off the session-start message says so as a WARNING. Since 0.3.8, `"sandbox": false` in `.jbmem.json` is ignored, with a warning at session start: Claude Code may write in its own memory folder, so a session steered by text it read (a web page, a file in a repo) could otherwise switch the sandbox off for every later session.
-
-Use a Node release that has the October 2026 security fixes (24.22.1, 22.23.4, 26.12.1 or later; see https://nodejs.org/en/blog/vulnerability/october-2026-security-releases). Two of the permission-model fixes matter here: CVE-2026-58043 (July) could over-grant access across path-prefix boundaries, and CVE-2026-106073 (October) let `fs.realpathSync` get past the permission model. The sandbox check tests one look-alike prefix case and passes on older releases too, so it also compares `node --version` with that list and prints a WARN line when Node is older. Session start does the same: an older Node gets a WARNING in the start message, and the checker flags a session whose latest start ran on one. The permission model also follows a symbolic link out of a granted folder, which the check doesn't test.
-
-`--from=<file>` is read by the launcher before the sandbox starts, so it must name one file inside the memory folder. Anything else, a second `--from`, or a file with another hard link is refused, and the file is read through the same handle that was checked. After a save, only the skills' drop files (`incoming-handoff*.md`, `incoming-park*.md`) are removed; any other file named with `--from` stays. A memory folder set outside Claude Code's projects folder (`autoMemoryDirectory`) gets no grant on its parent folder: setup creates it before the sandbox starts.
-
-## Skills
-
-At session start the launcher also looks in Claude Code's plugin cache (`<config>/plugins/cache/<marketplace>/<plugin>/<version>`) for other copies of Trailmark: a folder named `trailmark` or `jb-memory` (the name before 0.5.0), or one holding `scripts/trailmark.js` or the old `scripts/jbm.js`, other than the running copy and the Trailmark that Claude Code lists as installed in `plugins/installed_plugins.json`. An installed copy under the old name is named too, since it runs every hook next to Trailmark. It names each one in the start message, so you can remove it, and tells Claude never to run it. A session once found an old cached copy by searching the disk and wrote the handoff with it, skipping the version check.
-
-Call a skill by its full name: `/trailmark:checkpoint`, and `trailmark:checkpoint` for the Skill tool. Claude Code's built-in `/rewind` has the alias `checkpoint`, and the Skill tool refuses that name as a built-in command (seen 2026-10-20; in the code of Claude Code 2.1.306 and 2.1.309 the alias list is `checkpoint` and `undo`). There the Skill tool takes a command whose name matches exactly before any alias, so the full name reaches Trailmark's skill, and a bare name goes to the first command with that alias. A typed `/checkpoint` most likely opens `/rewind`; that has not been tested. The hook reminders name the full skill name, and say what to do if it won't load.
-
-| Skill | Use |
-|---|---|
-| `trailmark:checkpoint` | Rewrite the handoff in place at a milestone, then archive `[done]` items verbatim |
-| `trailmark:session-end` | Recover anything since the last checkpoint from the transcript, approve the final handoff, size check |
-| `trailmark:park` | Save one idea for later in `parked/<slug>.md` |
-| `trailmark:memory-prune` | Shrink what loads every session: archive, dedupe, promote to path-scoped `.claude/rules` |
-| `trailmark:recall` | Search and read memory, measure the budget, undo the last checkpoint |
-| `trailmark:memory-setup` | Opt a repo in, and prove the hook fires on each surface |
-
-## Size budget
-
-Files on disk cost nothing until something reads them. Two things load every session: Claude Code's own MEMORY.md (first 200 lines or 25 KB) and the SessionStart injection (Claude Code cuts hook output over 10,000 characters to a 2,000-character preview). `trailmark.js budget` measures both against these defaults, which you can override in `.jbmem.json`:
-
-| Budget | Default |
-|---|---|
-| handoff | 120 lines, 7,000 chars (~1,750 tokens) |
-| SessionStart injection | 8,500 chars |
-| MEMORY.md | 150 lines, 20 KB |
-
-Each budget in `.jbmem.json` must be a number. One outside its allowed range is clamped (the injection to at most 9,500 characters), and anything else falls back to the default.
-
-The whole injection, the commit list and any warnings included, stays inside the injection budget. When the handoff has to give way, the cut ends with a line saying how much was shown, which sections were left out (the rest of the one it stopped in, then up to five more by heading) and the full file's path, so Claude knows to read it.
+Trailmark runs no background model and makes no network requests, and there's no telemetry. Each hook is a short Node script that reads git and writes plain text files in one folder. It runs under Node's permission model, so it can't write anywhere else or start other programs. Nothing is written inside your repo.
 
 ## Install
 
-The release folder's `install.ps1` (Windows) or `install.sh` (macOS and Linux) checks Node, git and Claude Code, runs the sandbox check, then adds the marketplace and installs the plugin. `MANUAL.md` there covers each step by hand, setup per repo, the Codex copy, the Windows watchdog and troubleshooting.
-
-The hooks need a Claude Code whose command hooks take `args` and `if`. 2.1.304 does (the version these tests ran on). 2.1.42 doesn't: it drops both fields, so each hook runs a bare `node` that fails on the payload, and nothing is logged.
-
-By hand, from the release folder:
+You need Claude Code 2.1.304 or later and Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines). git is recommended.
 
 ```text
-claude plugin marketplace add <release folder>
+claude plugin marketplace add cptjamestiberiouskirk-pixel/trailmark
 claude plugin install trailmark@trailmark
 ```
 
-The default scope is user, which covers the terminal, the desktop app's local sessions and VS Code, since they read the same settings. Then, in each repo you want covered, run `/trailmark:memory-setup` and open a new session: the `[trailmark]` status line ends with `sandbox on` when the seat belt is active.
+You can also [download a release](https://github.com/cptjamestiberiouskirk-pixel/trailmark/releases) and run its installer (`install.sh` on macOS and Linux, `install.cmd` on Windows), which checks your Node version and proves the sandbox works on your machine before it installs anything.
 
-On Windows, keep `node` from being found in a repo folder. Every hook starts `node` by name, and cmd.exe and Node's own child_process look in the working folder before PATH, so a `node.exe` (or, through cmd, a `node.cmd` or `node.bat`) committed to a repo could run in place of Node at every hook. One user setting turns that lookup off for cmd.exe and for the programs that honor it:
+## Set up a repo
 
-```powershell
-[Environment]::SetEnvironmentVariable('NoDefaultCurrentDirectoryInExePath', '1', 'User')
-```
-
-It applies to programs started after it is set, so restart Claude Code (and the desktop app) afterwards. `tools/windows/test-node-lookup.ps1` shows which lookups use the working folder on a given PC. Trailmark runs git by full path anyway (lib/gitbin.js), and at session start it warns if the Node running it lives inside the session's folder or repo. macOS and Linux shells don't search the working folder unless PATH holds `.` or an empty entry, and the launcher warns about that case the same way.
-
-Claude Code loads a plugin from a local marketplace folder in place, so an edit there takes effect at the next session start or after `/reload-plugins`. That also means anything that can write to that folder can change the hook code, so keep it somewhere only you write to.
-
-## What it runs, writes and sends
-
-All of this happens only in repos set up with `/trailmark:memory-setup`. In any other repo each hook exits before it does anything.
-
-| Hook | Runs | Writes, in the memory folder |
-|---|---|---|
-| SessionStart | git: branch, top-level folder, HEAD's history since the handoff, commits in this session's folders | one log line, the state file |
-| PreToolUse (Bash and PowerShell, `git commit` and `git -C`) | nothing | `pending/`: where the command starts |
-| PostToolUse and PostToolUseFailure (the same commands, and `gh pr merge`) | git: the commits the command made | log lines, the state file |
-| PostToolUse (Agent, Task) | nothing | the reminder time in the state file |
-| PreCompact | git: branch, HEAD, status | `snapshots/<session>.md`, one log line |
-
-Every hook goes through `scripts/trailmark.js`, which only reads. It runs git by full path, without a shell, with timeouts, and with every repo setting that could start a program switched off (`lib/gitbin.js` lists them). The git subcommands it uses are `rev-parse`, `branch`, `log` (also over the reflog), `rev-list`, `merge-base`, `status`, `ls-files`, `check-attr` and `config --show-scope`. Then it starts the script that writes, under Node's permission model: that script can write only in the repo's memory folder, and can't start programs.
-
-It writes only in the memory folder listed in "Where files live": nothing in the repo, nothing in Claude Code's settings, no CLAUDE.md, no shell profile. The skills write the handoff, parked ideas and the archive in the same folder; memory-prune edits CLAUDE.md only when you ask it to.
-
-Besides the repo, which it reads through git, it reads the memory folder; Claude Code's `settings.json` (for `autoMemoryDirectory`) and the first lines of transcripts in its projects folder, to find the memory folder; `installed_plugins.json` and the plugin cache, to warn about other Trailmark copies; and the session's own transcript when the checkpoint skill asks for it.
-
-It sends nothing. No script opens a network connection (a test checks that none loads Node's network modules), there is no telemetry, and no model is called outside the session you're in.
-
-The daily log in `notes/` holds events only: session starts (with the sandbox state and which Node ran), commits (short SHA and subject line), PR merges (flag names only), compactions, and lines you ask for with `note`. It keeps no prompt or reply text. A day's file is deleted 90 days after its date, when a new day's log starts; `"notesKeepDays"` in `.jbmem.json` sets another number of days, and `"notes": false` turns the log off.
-
-The plugin works from its own folder alone: the hooks need only `node` on PATH, and the installers in the release add checks around the install, nothing the hooks rely on.
-
-## Where files live
-
-In Claude Code's auto-memory folder for the repo (`~/.claude/projects/<project>/memory/`). Every worktree of the repo shares it.
+Trailmark does nothing until you turn it on for a repo. Open Claude Code in the repo and run:
 
 ```text
-.jbmem.json        opt-in marker and budgets
-handoff.md         the state register (injected)
-handoff.prev.md    previous version (undo-handoff)
-.jbmem-state.json  commits logged (last 200), last writer, per-session records (14 days),
-                   the repo root this folder serves
-.jbmem.lock        present only while a command is changing shared files
-snapshots/         one compaction snapshot per session (7 days)
-precompact.md      snapshot from 0.2.x, before there was a session ID
-archive/           verbatim archived items and files (never injected)
-archive/handoff-history/  copy of the handoff before each overwrite (last 20)
-parked/            parked ideas (only the count is injected)
-notes/             daily log: session starts, commits, merges, compactions (90 days)
-pending/           where each recent git commit command started (6 hours)
+/trailmark:memory-setup
 ```
 
-## Differences from upstream
+Then start a new session. A status line starting `[trailmark]` and ending with `sandbox on` means it's working.
 
-- Milestone checkpoints instead of an end-of-session-only handoff. The failure mode is staleness between syncs, not a missing end event.
-- Hard size budgets with truncation, instead of injecting the whole handoff.
-- No background watcher. The same extraction runs on demand from the transcript, in the main session, with the user reviewing it.
-- Opt-in marker. Upstream wrote notes into any repo that had an auto-memory folder.
-- Windows path resolution fixed, plus worktree-aware resolution matching Claude Code's per-repo memory.
-- No `jq`, `python3` or `/tmp`. Content reaches the CLI on stdin, or from a file with `--from=<path>` in PowerShell sessions, where piping into a command needs manual approval every time.
-- git runs without a shell, and with timeouts. It runs by full path, found on absolute PATH entries only: on Windows, Node would otherwise look for `git.exe` in the repo folder first, so a repo could ship its own. Every call has `--no-optional-locks`, so a hook's `git status` never takes `.git/index.lock` while another session commits.
-- Since the commit hook runs git in folders named in command text, every git call is hardened against the config of the repo it runs in (`lib/gitbin.js` lists each setting and why): no fsmonitor, no hooks, no bare repo found by searching, no transport of any kind (so a partial clone's lazy fetch can't run the repo's `ext::` command, `uploadpack`, `sshCommand` or credential helper), no signature program, no git started in submodules, no pager or color. `GIT_DIR` and the other repo-location variables are dropped. The PreCompact hook's `git status` would run a clean or process filter when a tracked file's timestamps changed, so it first lists the filters tracked files use (`git ls-files -z | git check-attr --stdin filter`) and where each one's settings come from (`git config --show-scope`). A filter with any setting in the repo's own config is switched off for the call (`-c filter.<name>.clean=` and the same for `smudge` and `process`, `required=false`), and the snapshot says how many tracked files use one, since they can then show as modified when they aren't. One set only in the user's global or system config keeps running, and so does Git LFS set up in the repo's own config with exactly what `git lfs install --local` writes. Git LFS also runs extension programs named in config (`lfs.extension.<name>.clean`), so while LFS runs, such a setting in the repo's own config skips `git status`. A filter name that isn't plain letters, digits, `.`, `_` and `-`, more than 32 filters, or a failed listing skips it too: the snapshot says `not read (lfs-extension)`, `odd-filter-name`, `many-filters`, `filter-check`, `git-error` or `git-timeout`. What is left: a filter program the user installed (global or system config) runs as usual and reads the repo's config as it chooses; git-lfs itself is one. The listing reads every tracked file's attributes once more, which adds time on a large repo (about 0.2 s for 60,000 files on Linux).
-- Injected state is framed as notes from earlier sessions, not user instructions. The frame lines carry a random marker at each session start, and lines inside that look like frame or plugin lines are indented (judged after invisible characters, with look-alike dashes and brackets, and after every kind of line break becomes a plain one), so saved text can't close the frame early, and tag-like text (`<name>`, `</name>`) gets a backslash after the `<`, so it can't pose as markup. The whole injection is cut to fit Claude Code's 10,000-character limit whatever the budgets say. The compaction snapshot carries no commit subjects and is labeled as repo data, and branch names are flattened to one word (spaces of every kind, invisible and blank-looking characters become `_`).
+## Day to day
 
-## Tests
+Most of it happens on its own. These are the skills you call:
 
-```text
-node --test tests/trailmark.test.js
-node --test tests/handoff-checks.test.js
-node scripts/trailmark.js --sandbox-check
-```
+| Skill | When to use it |
+|---|---|
+| `/trailmark:checkpoint` | Bring the handoff up to date. Finished items move to an archive word for word |
+| `/trailmark:session-end` | Before you stop. It recovers anything the checkpoints missed and asks you to approve the final note |
+| `/trailmark:park` | Save an idea for later without cluttering the handoff |
+| `/trailmark:recall` | Search memory, read archived items, check the size budget, undo the last checkpoint |
+| `/trailmark:memory-prune` | Shrink what loads every session |
+| `/trailmark:memory-setup` | Turn Trailmark on for a repo, or check that its hooks fire |
+
+Type the full name. Claude Code's own `/rewind` also answers to `checkpoint`, so `/checkpoint` alone opens that instead.
+
+## Your data
+
+Everything lives in Claude Code's own memory folder for the repo, under `~/.claude/projects/`, shared by all of the repo's worktrees:
+
+- `handoff.md` is the note itself, with the previous version kept for undo and a history of the last 20.
+- `archive/` and `parked/` hold finished items and parked ideas, which are never loaded unless you ask.
+- `notes/` is a daily log of events: session starts, commits (short SHA and subject), merges and compactions. It keeps no prompt or reply text, each day's file is deleted after 90 days, and `"notes": false` in `.jbmem.json` turns it off.
+
+To stop using Trailmark in a repo, delete `.jbmem.json` from its memory folder. To remove it entirely, run `claude plugin uninstall trailmark@trailmark`; your notes stay where they are.
+
+## Learn more
+
+- [Manual](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/MANUAL.md): installing by hand, every setting, the Codex copy, the optional Windows watchdog, troubleshooting
+- [How it works](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/docs/how-it-works.md): each hook, how commits are traced, parallel sessions, the sandbox, exactly what is read and written
+- [Security](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/SECURITY.md): the threat model, its limits, and how to report a problem
+- [Changelog](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/CHANGELOG.md)
+
+## License
+
+MIT. Trailmark began as a rewritten fork of [memory-toolkit](https://github.com/IlyaGorsky/memory-toolkit) 1.9.15 by Ilya Gorsky, also MIT.

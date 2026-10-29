@@ -58,7 +58,7 @@ Not changed in this release, noted by the review: when looking for other Trailma
 
 Node's permission model follows a symbolic link out of a granted folder. Trailmark checks its own subfolders and the files it reads, but a link swapped in at the exact moment between that check and the write would still be followed. That needs a process already running as you.
 
-In Codex, checkpoints need write access outside the workspace. Approving each write keeps that to the launcher. Making the memory folder a writable root lets every command the agent runs write there, past the version check (plugin README, step 3).
+In Codex, checkpoints need write access outside the workspace. Approving each write keeps that to the launcher. Making the memory folder a writable root lets every command the agent runs write there, past the version check (the trailmark-codex README, Install, step 3).
 
 ## trailmark-watchdog
 

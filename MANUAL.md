@@ -287,7 +287,7 @@ or `install.ps1 -Watchdog`, or double-click `tools\windows\install-trailmark-wat
 
 Always accept with the installed copy, as above: the known-good list records the hash of the copy that accepted it, and a scan by a different copy is itself reported.
 
-The known-good list also records the folder's layout: `root` for this release (the folder is the marketplace), `nested` for an older private setup with a `jb-memory-marketplace` subfolder. Accepting never switches it on its own, so planting a manifest can't move the watch. If you really did reorganize the folder, accept with `-SetLayout root` or `-SetLayout nested`.
+The known-good list also records the folder's layout: `root` for this release (the folder is the marketplace), `nested` for an older setup with a `jb-memory-marketplace` subfolder. Accepting never switches it on its own, so planting a manifest can't move the watch. If you really did reorganize the folder, accept with `-SetLayout root` or `-SetLayout nested`.
 
 A file over 64 MB is checked by its first and last 8 MB, size and time, so one huge file can't make every scan run out of time; adding one is HIGH. If a scan starts and never finishes, the next one says so in a notification.
 
@@ -319,7 +319,7 @@ All live in `tools\windows` and are run with `powershell.exe -NoProfile -Executi
 | `test-node-lookup.ps1` | Its own throwaway folders only | No (Part 2 needs you to start a session) | Check whether a `node` in the working folder can run in place of Node (section 9) |
 | `test-trailmark-sessions.ps1` | A throwaway repo, deleted after | Two, or none with `-CliOnly` | Prove two sessions can't undo each other's checkpoints |
 | `test-trailmark-roundtrip.ps1` | A throwaway repo, deleted after | Four | Prove a checkpoint written in one session reaches the next |
-| `verify-trailmark-hooks.ps1` | A throwaway repo, deleted after | Several | Check every mid-session hook end to end on your PC |
+| `verify-trailmark-hooks.ps1` | A throwaway repo, deleted after | Several | Check every mid-session hook end to end on your machine |
 | `test-trailmark-watchdog.ps1` | A throwaway folder under `%TEMP%`, deleted after | No | Check trailmark-watchdog against real Windows features; it shows one real notification |
 
 The test scripts that call the model use `claude -p`, which uses your Claude Code account. The throwaway repos live in the temp folder, outside the folder trailmark-watchdog watches.
@@ -376,14 +376,5 @@ Trailmark was called jb-memory up to 0.4.5. The memory folders, handoffs and `.j
 3. Type the new skill names: `/trailmark:checkpoint`, `/trailmark:session-end` and so on. A handoff is only text, so one that still mentions a `jb-memory:` skill name changes nothing; edit it when it suits you.
 4. Codex: uninstall jb-memory-codex in the ChatGPT app, remove its marketplace (`codex plugin marketplace remove jb-memory-codex`), then add this release's (section 8) and trust the new hooks. The skills are now `tm-checkpoint`, `tm-recall` and so on. While a `jb-memory-codex` folder is still in Codex's plugin cache, each chat start warns about it.
 5. Windows watchdog: run `install-trailmark-watchdog.ps1` from the new `tools\windows`. It removes the old `jb-watchdog` tasks and installed copy first, then records the new folder. The old log and known-good list stay in `%LOCALAPPDATA%\jb-watchdog`; delete that folder once you no longer need them.
-
-### From an earlier private marketplace
-
-If Trailmark was installed from an earlier private marketplace (for example `trailmark@jb-local`), the installer refuses to add a second copy. To move:
-
-1. `claude plugin uninstall trailmark@<old marketplace>` and, if nothing else uses it, `claude plugin marketplace remove <old marketplace>`.
-2. Run the installer from the new release folder.
-3. Your repos' memory folders, handoffs and settings carry over unchanged: they live in Claude Code's projects folder, not in the plugin.
-4. If trailmark-watchdog watched the old folder, run `install-trailmark-watchdog.ps1` from the new release's `tools\windows`. It records the new folder and its layout.
 
 Handoffs written before 0.4.0 may carry a name in place of `user` in their decision tags. The skills read both.
