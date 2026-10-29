@@ -48,7 +48,7 @@ Every command here runs Trailmark through its launcher, written below as `<launc
 
    Each saved write prints the new version. When you write again in the same turn (over budget, or after a merge), use the newest version printed. Never add `--force`: it skips the check and is for the user to use by hand.
 
-   Exit code 1 with "another Trailmark command is using the memory folder" (or "could not create the lock file") means the lock was busy for over 10 seconds. Nothing was written. Wait a few seconds and run the same command again. If it fails that way twice, stop and show the user the message: it names what holds the lock.
+   Exit code 1 with "another trailmark command is using the memory folder" (or "could not create the lock file") means the lock was busy for over 10 seconds. Nothing was written. Wait a few seconds and run the same command again. If it fails that way twice, stop and show the user the message: it names what holds the lock.
 
    Exit code 2 means the handoff is over budget. It was saved, with its `[done]` items already archived. Tighten it in the same turn: mark more items `[done]`, move detail into a topic file or the repo and point at it, shorten wording. Then write again.
 

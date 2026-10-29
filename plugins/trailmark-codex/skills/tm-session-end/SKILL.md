@@ -44,7 +44,7 @@ Every command here runs Trailmark through its launcher, written below as `<launc
 
    It archives the `[done]` items as it saves. Once it is saved (exit code 0 or 2), run `node "<launcher>" budget` as a separate command.
 
-   On exit code 2 (over budget), tighten it and write again with the version it printed before finishing. On exit code 1 saying another Trailmark command is using the memory folder, wait a few seconds and run it again; if it fails that way twice, stop and show the user the message.
+   On exit code 2 (over budget), tighten it and write again with the version it printed before finishing. On exit code 1 saying another trailmark command is using the memory folder, wait a few seconds and run it again; if it fails that way twice, stop and show the user the message.
 
    Exit code 3 means another session wrote the handoff while the user was reviewing. Nothing was written. Merge as the tm-checkpoint skill's step 4 describes, starting from the current handoff the refusal prints. If the other session's changes touch only lines the user didn't review, write the merge without asking again and say in one line what came in from the other session. If they change or remove something the user just approved, show those lines and ask before writing.
 

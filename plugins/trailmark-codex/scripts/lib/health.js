@@ -267,7 +267,7 @@ function nodeInside(execPath, folders, platform = process.platform) {
     if (typeof f !== 'string' || !f) continue;
     const ds = [norm(f), real(f)].filter(Boolean);
     if (bins.some(b => ds.some(d => under(b, d)))) {
-      return `the Node running trailmark (${execPath.length > 200 ? '...' + execPath.slice(-197) : execPath}) is inside this session's folder or repo, so a node program there ran in place of the installed one. Remove it, and set NoDefaultCurrentDirectoryInExePath=1 (see the README)`;
+      return `the Node running trailmark (${execPath.length > 200 ? '...' + execPath.slice(-197) : execPath}) is inside this session's folder or repo, so a node program there ran in place of the installed one. Remove it, and set NoDefaultCurrentDirectoryInExePath=1 (MANUAL.md, section 9)`;
     }
   }
   return '';

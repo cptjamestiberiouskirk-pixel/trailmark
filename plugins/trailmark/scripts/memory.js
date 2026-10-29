@@ -349,6 +349,6 @@ switch (cmd) {
   }
 
   default:
-    console.log('Usage: node memory.js <dir|init|status|budget|handoff|write-handoff|undo-handoff|rotate|note|park|list|search|prune-report|transcript|archive-file>');
+    console.log('Usage: node trailmark.js <dir|init|status|budget|handoff|write-handoff|undo-handoff|rotate|note|park|list|search|prune-report|transcript|archive-file>');
     process.exit(cmd ? 1 : 0);
 }

@@ -33,9 +33,10 @@ Version 0.5.0 (Codex copy 0.3.0, trailmark-watchdog 1.7.0). MIT licensed.
 | `.agents/plugins/marketplace.json` | The Codex marketplace, named `trailmark-codex` |
 | `plugins/trailmark-codex/` | The same plugin adapted to Codex, sharing each repo's handoff with Claude Code |
 | `tools/windows/` | trailmark-watchdog, its installer and test, and the diagnostic scripts |
-| `README.md`, `MANUAL.md`, `SECURITY.md`, `CHANGELOG.md`, `LICENSE` | Documentation |
+| `README.md`, `MANUAL.md`, `SECURITY.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `LICENSE` | Documentation |
+| `docs/how-it-works.md` | The technical reference |
 
-Each plugin has its own README with the internals (how commits are found in command text, the lock, the size budget). This manual doesn't repeat those.
+`docs/how-it-works.md` has the internals (how commits are found in command text, the lock, the size budget). This manual doesn't repeat those.
 
 ## 2. Requirements
 
@@ -45,8 +46,8 @@ Each plugin has its own README with the internals (how commits are found in comm
 | Claude Code | 2.1.304 or later tested | Hooks use `args` and `if`, which 2.1.42 ignores. Versions between those two are untested |
 | git | Any current release | Optional. Without it nothing breaks, but no commits are logged and the handoff's `Updated:` line has no branch or HEAD |
 | Windows | Windows 10 or 11, Windows PowerShell 5.1 (built in) | PowerShell 7 works for the installer and the scripts. trailmark-watchdog's scheduled scans run under 5.1 |
-| macOS, Linux | bash | The plugin and installer are tested on Linux. macOS is expected to work the same way, untested |
-| Codex copy | ChatGPT desktop app with Codex mode, Codex CLI for the marketplace command | Observed working on Windows. macOS untested |
+| macOS, Linux | bash | The plugin's tests run in CI on Linux, macOS and Windows. The installer is tested on Linux |
+| Codex copy | ChatGPT desktop app with Codex mode, Codex CLI for the marketplace command | Tested with the desktop app on Windows. macOS untested |
 
 ## 3. Install
 
@@ -115,7 +116,7 @@ Claude Code then installs a copy into its plugin cache instead of reading a fold
 Trailmark does nothing in a repo until it is set up there. In each repo you want covered:
 
 1. Start Claude Code at the repo's top folder and run `/trailmark:memory-setup`.
-2. It checks Node, runs the sandbox check, finds Claude Code's memory folder for the repo (`~/.claude/projects/<key>/memory`), asks whether the repo is public (that turns on extra checks before anything is promoted into committed files), and creates `.jbmem.json`, an empty `handoff.md` and the folders it uses.
+2. It checks Node, runs the sandbox check, finds Claude Code's memory folder for the repo (`~/.claude/projects/<key>/memory`), asks whether the repo is public (that turns on extra checks before anything is promoted into committed files), and creates `.jbmem.json`, a starting `handoff.md` and the folders it uses.
 3. Start a new session (or run `/clear`). A status line starting `[trailmark]` should appear and end with `sandbox on`. Check the terminal and the desktop app separately: a working terminal says nothing about the desktop app.
 
 To stop using Trailmark in a repo, delete `.jbmem.json` from its memory folder. The hooks go quiet and the files stay where they are.
@@ -158,7 +159,7 @@ The checkpoint skill writes the handoff to a fixed template:
 
 ```text
 # Handoff: <repo>
-Updated: <time> | branch <branch> | HEAD <sha7>
+Updated: <time> | branch <branch> | HEAD <sha7> | session <id> | by <agent>
 
 ## Bootstrap
 <one line a fresh session can act on first>
@@ -205,7 +206,7 @@ Keep the evidence labels unless you have a reason to drop them. They are what le
 |---|---|---|---|
 | `budgets.handoffChars` | 7000 | 500 to 100000 | Handoff size limit in characters |
 | `budgets.handoffLines` | 120 | 10 to 5000 | Handoff size limit in lines |
-| `budgets.injectChars` | 8500 | 2000 to 9500 | Most the session-start injection may hold (Claude Code cuts hook output over 10,000) |
+| `budgets.injectChars` | 8500 | 2000 to 9500 (8500 in the Codex copy) | Most the session-start injection may hold (Claude Code cuts hook output over 10,000; Codex moves output past about 9,000 to a file) |
 | `budgets.memoryMdLines` | 150 | 10 to 1000 | Warning level for Claude Code's own MEMORY.md |
 | `budgets.memoryMdBytes` | 20000 | 1000 to 200000 | Same, in bytes |
 | `hints.minMinutesBetween` | 20 | 0 to 1440 | Least time between checkpoint reminders |
@@ -258,7 +259,7 @@ Every hook starts `node` by name. On Windows, cmd.exe and Node's own child_proce
 
 `install.ps1 -SetNoCwdLookup` does the same. It applies to programs started afterwards, so restart Claude Code, the desktop app and the ChatGPT app. To undo it, set the value to `$null` the same way.
 
-It was CONFIRMED on a Windows 11 PC that Claude Code in the terminal and in the desktop app then run the installed Node. `tools\windows\test-node-lookup.ps1` shows which lookups use the working folder on your PC. Independently, session start warns if the Node running Trailmark sits in the session's folder or repo, and Trailmark runs git by full path.
+On Windows 11, Claude Code in the terminal and in the desktop app then runs the installed Node (tested). `tools\windows\test-node-lookup.ps1` shows which lookups use the working folder on your PC. Independently, session start warns if the Node running Trailmark sits in the session's folder or repo, and Trailmark runs git by full path.
 
 macOS and Linux shells don't search the current folder unless PATH holds `.` or an empty entry; the installer warns about both.
 
@@ -309,7 +310,7 @@ Updating the release folder (section 12) shows as a set of HIGH changes. That is
 
 ## 11. Diagnostic scripts (Windows)
 
-All live in `tools\windows` and are run with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <script>`. Each writes a `.log` next to itself, which trailmark-watchdog ignores. The read-only ones take `-Repo <path>` and default to the current folder.
+All live in `tools\windows` and are run with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <script>`. Each writes a `.log` next to itself, which trailmark-watchdog ignores. The read-only ones take `-Repo <path>` and default to the current folder; `trace-handoff-writes.ps1` also needs `-Session <id>`.
 
 | Script | Changes anything | Model calls | Use it to |
 |---|---|---|---|
@@ -329,7 +330,7 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 1. Replace the release folder's contents with the new release (keep the same path).
 2. In Claude Code, run `/reload-plugins` or start new sessions. Nothing needs reinstalling: the plugin is read in place.
 3. If trailmark-watchdog is installed, check the changes it reports against `CHANGELOG.md`, then accept. If the new release has a new `trailmark-watchdog.ps1`, run `install-trailmark-watchdog.ps1` again so the scheduled copy is the new one, then accept with the installed copy.
-4. Codex: restart the ChatGPT app and trust the hooks again if they changed (0.2.0 changed them).
+4. Codex: restart the ChatGPT app and trust the hooks again if they changed (0.3.0 changed them).
 
 ## 13. Troubleshooting
 
@@ -343,7 +344,7 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 | `/checkpoint` opens the rewind menu | Claude Code's `/rewind` has that alias | Use `/trailmark:checkpoint` |
 | A checkpoint write is refused with exit code 3 | Another session wrote the handoff first | Nothing: the skill merges and writes again. Three refusals in a row means two sessions are checkpointing at the same moment |
 | Exit code 2 | Over budget | The skill tightens the text and writes again |
-| "another Trailmark command is using the memory folder" | The lock was busy for over 10 seconds | Wait and retry; the message names what holds it |
+| "another trailmark command is using the memory folder" | The lock was busy for over 10 seconds | Wait and retry; the message names what holds it |
 | Warning that the memory folder was first used for another repo | Two repo paths that differ only in punctuation map to one folder name (`C:\a-b` and `C:\a\b` both give `C--a-b`), so they share one handoff | Rename or move one repo so the paths differ in letters or digits. Once the other path no longer holds a repo, the next session start takes the record over and the warning stops |
 | A list of commits since the handoff, or a note that its HEAD is on another branch | Work was committed after the last checkpoint, or the branch changed | Nothing to fix: it is there so Claude checks the next steps against what was committed before redoing anything. A checkpoint records the new HEAD |
 | Commits aren't logged | git not on PATH; the commit ran through a tool other than Bash or PowerShell; a hook didn't fire | `check-trailmark-checkpoints.ps1` (Windows) shows what each session ran next to what was logged |

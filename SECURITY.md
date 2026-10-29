@@ -68,7 +68,7 @@ trailmark-watchdog (Windows, `tools/windows`) records a known-good list of the r
 
 | Tool | Changes |
 |---|---|
-| `install.sh`, `install.ps1` | What `claude plugin marketplace add` and `claude plugin install` write to Claude Code's user settings; the same for `codex plugin marketplace add` with `--codex` / `-Codex`. With `-SetNoCwdLookup`, one user environment variable. No downloads, no deletes. `--uninstall` / `-Uninstall` removes the plugin and the marketplace from Claude Code's settings and leaves memory folders alone |
+| `install.sh`, `install.ps1` | What `claude plugin marketplace add` and `claude plugin install` write to Claude Code's user settings; the same for `codex plugin marketplace add` with `--codex` / `-Codex`. With `-SetNoCwdLookup`, one user environment variable. No downloads, no deletes. `--uninstall` / `-Uninstall` removes the plugin and the marketplace from Claude Code's settings, and the trailmark-codex marketplace from Codex when the codex command is there, and leaves memory folders alone |
 | `install-trailmark-watchdog.ps1` | Copies the watchdog to `%LOCALAPPDATA%\trailmark-watchdog` and adds two scheduled tasks as you (no admin). `-Uninstall` removes both tasks and the copied script. It also saves what it prints to `install-trailmark-watchdog.log` next to itself |
 | Diagnostic scripts | The read-only ones change nothing. The test scripts create throwaway repos in the temp folder and their own projects folders, and delete only folders they marked as theirs |
 

@@ -1,10 +1,10 @@
 # trailmark-codex
 
-Trailmark for Codex, in the ChatGPT desktop app or the Codex CLI. Each repo gets a short handoff note on where the work stands and what to do next, with the decisions behind it and the questions still open. The note is refreshed after commits and PR merges and before Codex compacts a long chat, and every new chat starts with it, so you don't have to explain the project again or dig back through old chats.
+Trailmark for Codex. It is tested with the ChatGPT desktop app on Windows, and Codex runs a plugin's hooks only when it was installed in the app. Each repo gets a short handoff note on where the work stands and what to do next, with the decisions behind it and the questions still open. The note is refreshed after commits and PR merges and before Codex compacts a long chat, and every new chat starts with it, so you don't have to explain the project again or dig back through old chats.
 
 You turn it on per repo. If you also use Claude Code with Trailmark in the same repo, both read and write the same note, so either agent can pick up where the other stopped. Every write is version-checked, so two chats, or a chat and a Claude Code session, can't overwrite each other's notes.
 
-It runs no background model and makes no network requests. Each hook is a short Node script that reads git and writes text files in the repo's memory folder, under Node's permission model, so it can't write anywhere else or start programs. The one other file it writes is a small log of hook payload shapes in the plugin's own data folder ("Checking how the hooks ran" below). What it adds at the start of a chat stays under 8,500 characters, below the point where Codex moves hook output to a file.
+It runs no background model and makes no network requests. Each hook starts a small launcher that only reads, running git with hardened settings; the part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. The one other file it writes is a small log of hook payload shapes in the plugin's own data folder ("Checking how the hooks ran" below). What it adds at the start of a chat stays under 8,500 characters, below the point where Codex moves hook output to a file.
 
 The handoff, its budget, the commit log, parking, pruning and the sandbox work as [docs/how-it-works.md](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/docs/how-it-works.md) describes for the Claude Code plugin. This file covers what differs for Codex, and [MANUAL.md](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/MANUAL.md), section 8, has the full install walk-through.
 
@@ -94,7 +94,7 @@ Get-ChildItem "$env:USERPROFILE\.codex" -Recurse -Filter payload-shapes.log -Err
 
 `JBMEM_SHAPES=off` turns it off.
 
-Since 0.1.4 each line also has `resp=`, how a tool result is built (its length, first character, which known markers it holds such as an `exit_code` field, and its JSON keys), and `transcript=` names the first two folders under your home the transcript path points into (for example `~/.codex/sessions`), and whether it has the `\\?\` prefix. Neither quotes the result or the path in full.
+Each line also has `resp=`, how a tool result is built (its length, first character, which known markers it holds such as an `exit_code` field, and its JSON keys), and `transcript=` names the first two folders under your home the transcript path points into (for example `~/.codex/sessions`), and whether it has the `\\?\` prefix. Neither quotes the result or the path in full.
 
 To see one tool result in full, create an empty file named `dump-next-tool-result` in that same folder. The result of the next commit or PR merge command in a repo set up for Trailmark is written to `tool-result-dump.txt` there (the first 3,000 characters of the command and of its result, which can hold anything the command printed), and the request file is removed. Until such a command runs, the request stays armed. The dump, and the log, are never written through a link or into a file with other hard links. Delete the dump once you've read it.
 
@@ -102,10 +102,10 @@ To see one tool result in full, create an empty file named `dump-next-tool-resul
 
 - The desktop app's Codex mode runs the plugin's hooks: SessionStart (sources startup, resume, fork and compact), PreToolUse, PostToolUse and PreCompact all fired, run by the installed Node with the sandbox on. That the `compact` start's text then reached the agent was not checked separately.
 - The agent's commands run in PowerShell 7 (`pwsh.exe -Command ...`); the shell tool is named `Bash` in the hooks, with `tool_input.command` a string.
-- `tool_response` is only what the command printed, with no exit code (seen with a capture, 0.1.4). The transcript records each command as a `CommandExecution` item under the hook's `tool_use_id`, with `exit_code` and `status`, just before the hook runs; since 0.1.5 the hook reads the exit code from there (a few short waits if the line isn't written yet). When it can't, a `gh pr merge` counts only if gh printed that it merged the pull request.
+- `tool_response` is only what the command printed, with no exit code (seen with a capture). The transcript records each command as a `CommandExecution` item under the hook's `tool_use_id`, with `exit_code` and `status`, just before the hook runs; the hook reads the exit code from there (a few short waits if the line isn't written yet). When it can't, a `gh pr merge` counts only if gh printed that it merged the pull request.
 - The commit was logged, the PostToolUse reminder reached the agent (it checkpointed unasked), and the checkpoint skill wrote the shared handoff.
-- Some transcript paths come with the `\\?\` long-path prefix; 0.1.3 removes it before the folder check.
-- The rollouts record messages as `item_completed` events (`UserMessage`, `AgentMessage`); 0.1.3 reads those.
+- Some transcript paths come with the `\\?\` long-path prefix; the hook removes it before the folder check.
+- The rollouts record messages as `item_completed` events (`UserMessage`, `AgentMessage`); the hook reads those.
 - The app starts short `fork` sessions next to a chat; each gets the handoff and logs a session start. They do no harm; what they are for is not known.
 - `CODEX_THREAD_ID` is not set in the hooks' environment; the skills take the session ID from the session-start note.
 

@@ -21,7 +21,7 @@ Claude updates the note at milestones (a commit, a merged PR, a subagent's resul
 - One shared note for Claude Code and Codex in the same repo, each entry tagged with the agent that wrote it.
 - Opt-in per repo. Nothing happens in a repo until you set it up there.
 
-Trailmark runs no background model and makes no network requests, and there's no telemetry. Its hooks run under Node's permission model, so they can write only in the repo's memory folder and can't start other programs. [SECURITY.md](SECURITY.md) has the full model and its limits.
+Trailmark runs no background model and makes no network requests, and there's no telemetry. Each hook starts a small launcher that only reads: it runs git with hardened settings to look up commits and status. The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. [SECURITY.md](SECURITY.md) has the full model and its limits.
 
 ## Install
 
@@ -51,7 +51,7 @@ Or [download a release](https://github.com/cptjamestiberiouskirk-pixel/trailmark
 
 ## Codex
 
-The `trailmark-codex` copy brings the same handoff to Codex, in the ChatGPT desktop app or the Codex CLI. In a repo you use from both, either agent can pick up where the other stopped. Installing it takes a few steps in the ChatGPT app; see [its README](plugins/trailmark-codex/README.md) or [MANUAL.md](MANUAL.md), section 8.
+The `trailmark-codex` copy brings the same handoff to Codex. It is tested with the ChatGPT desktop app on Windows; Codex runs a plugin's hooks only when it was installed there. In a repo you use from both, either agent can pick up where the other stopped. Installing it takes a few steps in the ChatGPT app; see [its README](plugins/trailmark-codex/README.md) or [MANUAL.md](MANUAL.md), section 8.
 
 ## Optional: the Windows watchdog
 
@@ -66,6 +66,8 @@ The `trailmark-codex` copy brings the same handoff to Codex, in the ChatGPT desk
 | [SECURITY.md](SECURITY.md) | The threat model, known limits, and how to report a vulnerability |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Running the tests, keeping the two plugin copies in step, sending changes |
+
+Questions and bug reports go to [GitHub issues](https://github.com/cptjamestiberiouskirk-pixel/trailmark/issues). Security problems go through the private route in [SECURITY.md](SECURITY.md).
 
 ## Repository layout
 

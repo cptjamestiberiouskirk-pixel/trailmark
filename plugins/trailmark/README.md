@@ -16,7 +16,7 @@ That's what a fresh session receives: the handoff, then the commits made since i
 
 ## What it doesn't do
 
-Trailmark runs no background model and makes no network requests, and there's no telemetry. Each hook is a short Node script that reads git and writes plain text files in one folder. It runs under Node's permission model, so it can't write anywhere else or start other programs. Nothing is written inside your repo.
+Trailmark runs no background model and makes no network requests, and there's no telemetry. Each hook starts a small launcher that only reads: it runs git with hardened settings to look up commits and status. The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. Nothing is written inside your repo, unless you approve moving a stable rule into `.claude/rules` or CLAUDE.md during `/trailmark:memory-prune`.
 
 ## Install
 
@@ -62,7 +62,7 @@ Everything lives in Claude Code's own memory folder for the repo, under `~/.clau
 - `archive/` and `parked/` hold finished items and parked ideas, which are never loaded unless you ask.
 - `notes/` is a daily log of events: session starts, commits (short SHA and subject), merges and compactions. It keeps no prompt or reply text, each day's file is deleted after 90 days, and `"notes": false` in `.jbmem.json` turns it off.
 
-To stop using Trailmark in a repo, delete `.jbmem.json` from its memory folder. To remove it entirely, run `claude plugin uninstall trailmark@trailmark`; your notes stay where they are.
+To stop using Trailmark in a repo, delete `.jbmem.json` from its memory folder. To remove it entirely, run `claude plugin uninstall trailmark@trailmark` and `claude plugin marketplace remove trailmark`; your notes stay where they are.
 
 ## Learn more
 
@@ -70,6 +70,7 @@ To stop using Trailmark in a repo, delete `.jbmem.json` from its memory folder. 
 - [How it works](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/docs/how-it-works.md): each hook, how commits are traced, parallel sessions, the sandbox, exactly what is read and written
 - [Security](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/SECURITY.md): the threat model, its limits, and how to report a problem
 - [Changelog](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/CHANGELOG.md)
+- [Issues](https://github.com/cptjamestiberiouskirk-pixel/trailmark/issues): questions and bug reports
 
 ## License
 
