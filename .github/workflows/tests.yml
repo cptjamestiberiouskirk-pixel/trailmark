@@ -37,9 +37,13 @@ jobs:
           done
           [ -z "$bad" ]
       - name: Sandbox check
+        shell: bash
         run: |
-          node plugins/trailmark/scripts/trailmark.js --sandbox-check
-          node plugins/trailmark-codex/scripts/trailmark.js --sandbox-check
+          for c in trailmark trailmark-codex; do
+            out=$(node plugins/$c/scripts/trailmark.js --sandbox-check) || { echo "$out"; exit 1; }
+            echo "$out"
+            if grep -q 'WARN' <<<"$out"; then echo "::error::$c sandbox check warned on $(node --version)"; exit 1; fi
+          done
       - name: PowerShell scripts parse (Windows PowerShell 5.1 and PowerShell 7)
         if: runner.os == 'Windows'
         shell: pwsh

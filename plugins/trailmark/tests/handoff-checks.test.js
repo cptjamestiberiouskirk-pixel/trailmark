@@ -336,6 +336,41 @@ test('git pointers: odd spellings of a network path are still caught', () => {
   assert.strictEqual(farGitConfig(ok), '');
 });
 
+test('git pointers: config is read as git reads it, and alternates are followed', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far4-');
+  fs.writeFileSync(path.join(base, 'inc1'), '[core]\n  attributesFile = //evil.invalid/share/attr\n');
+  const cases = {
+    comment: '[include]\n  path = ../../inc1 ; a comment\n',
+    hash: '[include]\n  path = "../../inc1" # a comment\n',
+    bracket: '[includeIf "onbranch:x]"] path = ../../inc1\n',
+  };
+  for (const [name, text] of Object.entries(cases)) {
+    const r = path.join(base, name); repoAt(r);
+    fs.appendFileSync(path.join(r, '.git', 'config'), text);
+    assert.strictEqual(farGitConfig(r), 'network-config', name);
+  }
+  const o = path.join(base, 'o'); repoAt(o);
+  fs.writeFileSync(path.join(o, '.git', 'objects', 'info', 'alternates'), '//evil.invalid/objects\n');
+  const chain = path.join(base, 'chain'); repoAt(chain);
+  fs.writeFileSync(path.join(chain, '.git', 'objects', 'info', 'alternates'), '../../../o/.git/objects\n');
+  assert.strictEqual(farGitConfig(chain), 'network-config', 'chained alternates');
+  const oct = path.join(base, 'oct'); repoAt(oct);
+  fs.writeFileSync(path.join(oct, '.git', 'objects', 'info', 'alternates'), '"\\057\\057evil.invalid/objects"\n');
+  assert.strictEqual(farGitConfig(oct), 'network-config', 'octal-quoted alternates');
+  const tilde = path.join(base, 'tilde'); repoAt(tilde);
+  fs.appendFileSync(path.join(tilde, '.git', 'config'), '[include]\n  path = ~someone/x.cfg\n');
+  assert.strictEqual(farGitConfig(tilde), 'unreadable-config');
+  const sub = path.join(base, 'sub'); repoAt(sub);
+  const mod = path.join(sub, '.git', 'modules', 'm'); fs.mkdirSync(mod, { recursive: true });
+  assert.strictEqual(farGitConfig(mod), 'inside-gitdir');
+  const ok = path.join(base, 'ok'); repoAt(ok);
+  fs.writeFileSync(path.join(base, 'fine.cfg'), '[core]\n  attributesFile = ~/attrs ; local\n');
+  fs.appendFileSync(path.join(ok, '.git', 'config'), '[include]\n  path = ../../fine.cfg ; local\n');
+  fs.writeFileSync(path.join(ok, '.git', 'objects', 'info', 'alternates'), '# none\n../../o2/objects\n');
+  assert.strictEqual(farGitConfig(ok), '');
+});
+
 test('git pointers: a linked config is not trusted', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far3-');

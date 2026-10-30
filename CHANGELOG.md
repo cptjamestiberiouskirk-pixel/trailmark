@@ -13,11 +13,11 @@ jb-memory is now Trailmark, ahead of its first public release. Everything in 0.4
 - MANUAL.md, section 15, has the steps for moving from jb-memory.
 - Documentation rewritten for public release: the README is a landing page, the plugin README (the plugin directory's listing) covers what it does, installing and everyday use, the technical reference moved to `docs/how-it-works.md`, and CONTRIBUTING.md is new.
 - New tests for the old-name checks.
-- The check that keeps git out of folders whose `.git` points at a network share now reads config values the way git does: quotes dropped, escapes undone and continued lines joined. Before, `path = ""//server/x`, a value split across two lines, `/\\server\\x`, and a `gitdir:` spelled `\/server/r` or `/\server\r` got past it. A `.git/config`, `commondir` or `alternates` file that is a link or can't be read now also keeps git out, and a section header on the same line as its setting is read.
+- The check that keeps git out of folders whose `.git` points at a network share now reads config values the way git does: quotes dropped, escapes undone and continued lines joined. Before, `path = ""//server/x`, a value split across two lines, `/\\server\\x`, and a `gitdir:` spelled `\/server/r` or `/\server\r` got past it. A `.git/config`, `commondir` or `alternates` file that is a link or can't be read now also keeps git out, and a section header on the same line as its setting is read. Config files are now parsed by git itself (`git config --file`, includes off), since a comment after an include path, or a `]` inside a quoted `includeIf` condition, could still hide an included file from a hand-written parser. Alternates are followed five deep as git follows them, including C-quoted lines, and git is never run from a folder inside a `.git`.
 - Session start no longer treats a transcript as Claude Code's own just because its parent folder is named `projects`; the folder must be Claude Code's projects folder, as the Codex copy already required.
 - Tool ids from hook input must be strings before they are checked.
 - `install.ps1` now warns about a drive-relative PATH entry such as `\tools`; the check compared against two backslashes and never matched.
-- CI adds Node 26, checks `SHA256SUMS`, parses `install.sh`, and fails when a file the two plugin copies share word for word drifts apart. Issue and pull request templates are new.
+- CI adds Node 26, checks `SHA256SUMS`, parses `install.sh`, and fails when a file the two plugin copies share word for word drifts apart. CI also fails if the sandbox check warns that Node is older than the security floor. Issue and pull request templates are new. The Codex manifests name the homepage and repository.
 
 Older entries below keep the names of their time.
 

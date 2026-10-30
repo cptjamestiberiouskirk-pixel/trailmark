@@ -44,6 +44,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const GIT_GLOBAL = [
   '--no-pager', '--no-optional-locks',
@@ -154,10 +155,17 @@ function gitEnv(base = process.env) {
 // include.path and includeIf paths, core.attributesFile and the other
 // settings that name a file, and objects/info/alternates. git follows them
 // whatever -c settings it gets, and on Windows reaching a share sends it your
-// sign-in hash. So before git runs in a folder, the .git above it is read as
-// text, and a network path in any of those places (\\server, //server, or an
-// NT path such as \??\UNC\server) keeps git out of that folder. Included
-// config files that are local are read the same way, five deep.
+// sign-in hash. So before git runs in a folder, the .git above it is checked,
+// and a network path in any of those places (\\server, //server, or an NT
+// path such as \??\UNC\server) keeps git out of that folder.
+//
+// Config files are read by git itself (git config --file, includes off), so
+// quoting, comments, continued lines and subsections are taken the way git
+// takes them, and included local files are checked the same way, five deep.
+// That git runs from this script's folder with discovery stopped above it, so
+// it never looks at the repo being checked. Alternates are followed five deep
+// too, as git follows them. A folder inside a .git is never used: git may
+// take it for a repo of its own (a submodule's or worktree's gitdir).
 const NET_START = /^[\\/]{2}|^[\\/]\?\?[\\/]/;
 const farCache = new Map();
 // A value as git might read it: quotes dropped and escapes undone. Both the
@@ -177,28 +185,66 @@ function readSmall(file, max) {
   if (!st.isFile() || st.size > max) return UNSAFE;
   try { return fs.readFileSync(file, 'utf8'); } catch { return UNSAFE; }
 }
-// Logical config lines: a line ending in a backslash goes on to the next.
-function configLines(text) {
-  return text.replace(/\\\r?\n/g, '').split(/\r?\n/);
+// [key, value] pairs of one config file as git reads it, includes not
+// followed; null when the file is missing, UNSAFE when git can't read it.
+function configEntries(file) {
+  const st = readSmall(file, 512 * 1024);
+  if (st === null || st === UNSAFE) return st;
+  const bin = gitPath(__dirname);
+  if (!bin) return UNSAFE;
+  try {
+    const out = execFileSync(bin, [...GIT_GLOBAL, 'config', '--file', file, '--no-includes', '--null', '--list'], {
+      cwd: __dirname, env: { ...gitEnv(), GIT_CEILING_DIRECTORIES: path.dirname(__dirname) },
+      encoding: 'utf8', timeout: 3000, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+    });
+    return out.split('\0').filter(Boolean).map(r => {
+      const i = r.indexOf('\n');
+      return i < 0 ? [r, ''] : [r.slice(0, i), r.slice(i + 1)];
+    });
+  } catch { return UNSAFE; }
 }
 function farConfig(file, depth, seen) {
   if (depth > 5 || seen.has(file)) return '';
   seen.add(file);
-  const text = readSmall(file, 512 * 1024);
-  if (text === null) return '';
-  if (text === UNSAFE) return 'unreadable-config';
-  for (let line of configLines(text)) {
-    line = line.replace(/^\s*\[[^\]]*\]/, '');
-    const eq = line.indexOf('=');
-    if (eq < 0) continue;
-    const value = line.slice(eq + 1);
+  const entries = configEntries(file);
+  if (entries === null) return '';
+  if (entries === UNSAFE) return 'unreadable-config';
+  for (const [key, value] of entries) {
     if (netText(value)) return 'network-config';
-    if (/^\s*path\s*$/i.test(line.slice(0, eq))) {
-      let p = value.replace(/"/g, '').replace(/\\\\/g, '\\').trim();
-      if (p.startsWith('~/')) p = path.join(os.homedir(), p.slice(2));
-      const why = farConfig(path.resolve(path.dirname(file), p), depth + 1, seen);
-      if (why) return why;
-    }
+    if (!/^include\.path$|^includeif\..*\.path$/i.test(key)) continue;
+    let p = value.trim();
+    if (p === '~' || p.startsWith('~/')) p = path.join(os.homedir(), p.slice(2));
+    else if (p.startsWith('~')) return 'unreadable-config';
+    const why = farConfig(path.resolve(path.dirname(file), p), depth + 1, seen);
+    if (why) return why;
+  }
+  return '';
+}
+// An alternates line as git reads it: a line starting with a quote is
+// C-quoted (\\, \", \t and the like, \ooo octal).
+function altLine(line) {
+  const t = line.trim();
+  if (!t.startsWith('"')) return t;
+  const m = /^"((?:[^"\\]|\\.)*)"/.exec(t);
+  const body = m ? m[1] : t.slice(1);
+  const map = { a: '\x07', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v' };
+  return body.replace(/\\([0-7]{3}|.)/g, (_, c) => c.length === 3 ? String.fromCharCode(parseInt(c, 8)) : (map[c] || c));
+}
+// The alternates of one objects folder and theirs, five deep as git goes.
+function farAlternates(objects, depth, seen) {
+  if (depth > 5 || seen.has(objects)) return '';
+  seen.add(objects);
+  const alt = readSmall(path.join(objects, 'info', 'alternates'), 64 * 1024);
+  if (alt === null) return '';
+  if (alt === UNSAFE) return 'unreadable-config';
+  for (const raw of alt.split(/\r?\n/)) {
+    if (!raw.trim() || raw.trim().startsWith('#')) continue;
+    const line = altLine(raw);
+    if (netText(raw) || netText(line)) return 'network-config';
+    const next = path.resolve(objects, line);
+    if (NET_START.test(next)) return 'network-config';
+    const why = farAlternates(next, depth + 1, seen);
+    if (why) return why;
   }
   return '';
 }
@@ -237,9 +283,8 @@ function farGit(gitEntry) {
       const why = farConfig(path.join(d, f), 0, new Set());
       if (why) return why;
     }
-    const alt = readSmall(path.join(d, 'objects', 'info', 'alternates'), 64 * 1024);
-    if (alt === UNSAFE) return 'unreadable-config';
-    if (alt !== null && alt.split(/\r?\n/).some(netText)) return 'network-config';
+    const why = farAlternates(path.join(d, 'objects'), 0, new Set());
+    if (why) return why;
   }
   return '';
 }
@@ -249,8 +294,9 @@ function farGitConfig(cwd) {
   const key = path.resolve(String(cwd || '.'));
   if (farCache.has(key)) return farCache.get(key);
   let why = '';
+  if (key.split(/[\\/]+/).some(c => c.toLowerCase() === '.git')) why = 'inside-gitdir';
   let d = key;
-  for (let i = 0; i < 64; i++) {
+  for (let i = 0; !why && i < 64; i++) {
     const g = path.join(d, '.git');
     let found = false;
     try { fs.lstatSync(g); found = true; } catch { found = false; }
