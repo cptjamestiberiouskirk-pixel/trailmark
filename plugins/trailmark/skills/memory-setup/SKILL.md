@@ -1,6 +1,6 @@
 ---
 name: memory-setup
-description: Set up Trailmark for the current repo, which is opt-in per repo, or check that its hooks work. Use on /memory-setup, or when the user asks to enable, set up, check or troubleshoot Trailmark or the session handoff in this project.
+description: Set up Trailmark for the current repo, which is opt-in per repo, or check that its hooks work. Use on /trailmark:memory-setup, or when the user asks to enable, set up, check or troubleshoot Trailmark or the session handoff in this project.
 ---
 
 # Memory setup

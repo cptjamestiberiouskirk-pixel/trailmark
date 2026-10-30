@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: ['22', '24']
+        node: ['22', '24', '26']
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -24,6 +24,18 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: ${{ matrix.node }}
+      # Once per run: the checksums match, install.sh parses, and the files the
+      # two plugin copies share word for word haven't drifted apart.
+      - name: Repository checks
+        if: runner.os == 'Linux' && matrix.node == '24'
+        shell: bash
+        run: |
+          sha256sum --quiet -c SHA256SUMS
+          bash -n install.sh
+          for f in LICENSE scripts/hook-milestone.js scripts/hook-precompact.js scripts/lib/commands.js scripts/lib/gitbin.js scripts/lib/gitfacts.js scripts/lib/health.js scripts/lib/hookio.js tests/handoff-checks.test.js; do
+            cmp plugins/trailmark/$f plugins/trailmark-codex/$f || { echo "::error file=plugins/trailmark-codex/$f::differs from plugins/trailmark/$f"; bad=1; }
+          done
+          [ -z "$bad" ]
       - name: Sandbox check
         run: |
           node plugins/trailmark/scripts/trailmark.js --sandbox-check

@@ -13,6 +13,11 @@ jb-memory is now Trailmark, ahead of its first public release. Everything in 0.4
 - MANUAL.md, section 15, has the steps for moving from jb-memory.
 - Documentation rewritten for public release: the README is a landing page, the plugin README (the plugin directory's listing) covers what it does, installing and everyday use, the technical reference moved to `docs/how-it-works.md`, and CONTRIBUTING.md is new.
 - New tests for the old-name checks.
+- The check that keeps git out of folders whose `.git` points at a network share now reads config values the way git does: quotes dropped, escapes undone and continued lines joined. Before, `path = ""//server/x`, a value split across two lines, `/\\server\\x`, and a `gitdir:` spelled `\/server/r` or `/\server\r` got past it. A `.git/config`, `commondir` or `alternates` file that is a link or can't be read now also keeps git out, and a section header on the same line as its setting is read.
+- Session start no longer treats a transcript as Claude Code's own just because its parent folder is named `projects`; the folder must be Claude Code's projects folder, as the Codex copy already required.
+- Tool ids from hook input must be strings before they are checked.
+- `install.ps1` now warns about a drive-relative PATH entry such as `\tools`; the check compared against two backslashes and never matched.
+- CI adds Node 26, checks `SHA256SUMS`, parses `install.sh`, and fails when a file the two plugin copies share word for word drifts apart. Issue and pull request templates are new.
 
 Older entries below keep the names of their time.
 
@@ -31,12 +36,12 @@ Ahead of listing in Anthropic's plugin directory: the handoff is checked against
 - The session-start warning line no longer ends some warnings with two periods.
 - The smallest allowed `injectChars` is now 2,000 (it was 1,000): below that, the parts that are never cut, such as launcher warnings and the Codex copy's startup note, may not fit. When the whole doesn't fit, the handoff gives way first, then the optional lines go in a fixed order; the commit list shrinks to one line, and warnings are shortened, never dropped.
 
-Fixed before release, from an independent review of this change:
+Also fixed in this release:
 
 - The recorded repo root comes from the state file, which a session can write. A network path there is never resolved or compared, since even that would reach the server from outside the sandbox; the warning says the path wasn't looked up. Both paths in the warning, and the one `dir` prints, have tag-like text escaped.
 - The handoff's short SHA is resolved among objects only, so a branch or tag named like it can't stand in for the commit.
 
-Fixed before release, from a second independent review of the whole release:
+Further fixes in this release:
 
 - Folder names from the state file (the commit sweep's record) and from command text (the end-folder check) were compared by resolving them, outside the sandbox, before any network check. A network path is now compared by name only, wherever a comparison happens. NT object paths (`\\??\\UNC\\server`) count as network paths too.
 - A repo's own files could lead git to a share: a `.git` file's `gitdir`, `include.path`, settings that name a file, `objects/info/alternates`. Before git runs in a folder, the `.git` above it is read as text (included local config files too, five deep), and git stays out of a folder where any of them names a network path.
@@ -88,7 +93,7 @@ First public release: one folder that is both the Claude Code marketplace (`jb-m
 - Diagnostic scripts find the plugin in either layout and default `-Repo` to the current folder.
 - Documentation: README, MANUAL, SECURITY. Machine-specific paths and notes removed from the plugin READMEs and comments.
 
-Security fixes from an independent review of this release, before publishing:
+Security fixes in this release:
 
 - The launcher starts its sandboxed script without `NODE_OPTIONS` or any other `NODE_*` variable. Before, `NODE_OPTIONS=--permission --allow-fs-write=* ...` in the environment (which a repo's settings can set) undid the sandbox while the status still said `sandbox on`.
 - Inherited `JBMEM_DIR` and the launcher's other internal variables are dropped, and `CLAUDE_CODE_PROJECT_DIR_NAME` must be one folder name. Either could otherwise choose the memory folder, and with it the sandbox's write grant.

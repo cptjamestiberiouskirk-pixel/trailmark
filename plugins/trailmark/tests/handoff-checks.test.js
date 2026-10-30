@@ -309,6 +309,43 @@ test('git pointers: a .git that leads to a network path keeps git out of the fol
   assert.match(gf.gitFacts(ok, ['head']).head, /^[0-9a-f]{7,}$/);
 });
 
+test('git pointers: odd spellings of a network path are still caught', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far2-');
+  const cfg = {
+    quoted: '[include]\n  path = ""//evil.invalid/share/x\n',
+    split: '[include]\n  path = /\\\n/evil.invalid/share/x\n',
+    mixed: '[core]\n  attributesFile = /\\\\evil.invalid\\\\a\n',
+    inline: '[include] path = //evil.invalid/x\n',
+  };
+  for (const [name, text] of Object.entries(cfg)) {
+    const r = path.join(base, name); repoAt(r);
+    fs.appendFileSync(path.join(r, '.git', 'config'), text);
+    assert.strictEqual(farGitConfig(r), 'network-config', name);
+  }
+  for (const [name, text] of Object.entries({ slashes: 'gitdir: \\/evil.invalid/share/r\n', back: 'gitdir: /\\evil.invalid\\share\\r\n' })) {
+    const r = path.join(base, name); fs.mkdirSync(r);
+    fs.writeFileSync(path.join(r, '.git'), text);
+    assert.strictEqual(farGitConfig(r), 'network-gitdir', name);
+  }
+  const big = path.join(base, 'big'); repoAt(big);
+  fs.rmSync(path.join(big, '.git', 'config')); fs.mkdirSync(path.join(big, '.git', 'config'));
+  assert.strictEqual(farGitConfig(big), 'unreadable-config');
+  const ok = path.join(base, 'ok'); repoAt(ok);
+  fs.appendFileSync(path.join(ok, '.git', 'config'), '[core]\n  attributesFile = "~/attrs"\n');
+  assert.strictEqual(farGitConfig(ok), '');
+});
+
+test('git pointers: a linked config is not trusted', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far3-');
+  const r = path.join(base, 'r'); repoAt(r);
+  const real = path.join(base, 'elsewhere.cfg');
+  fs.renameSync(path.join(r, '.git', 'config'), real);
+  fs.symlinkSync(real, path.join(r, '.git', 'config'));
+  assert.strictEqual(farGitConfig(r), 'unreadable-config');
+});
+
 test('links: the launcher and hooks never read through a link in the memory folder', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
   const s = sandbox();
   s.write('# H\n- real state\n');

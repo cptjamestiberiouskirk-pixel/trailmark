@@ -1071,7 +1071,7 @@ const PENDING_KEEP_MS = 6 * 3600 * 1000;
 // folder). Records are created exclusively and never written through a
 // link; old ones are removed here.
 function recordCommitStart(dir, toolUseId, rec, now = Date.now()) {
-  if (!TOOL_ID_RE.test(String(toolUseId))) return false;
+  if (typeof toolUseId !== 'string' || !TOOL_ID_RE.test(toolUseId)) return false;
   const pdir = path.join(dir, PENDING);
   fs.mkdirSync(pdir, { recursive: true });
   const st = fs.lstatSync(pdir);
@@ -1091,7 +1091,7 @@ function recordCommitStart(dir, toolUseId, rec, now = Date.now()) {
 // Read by the launcher before the PostToolUse hook: the record for this tool
 // call, checked field by field, or null.
 function readCommitStart(dir, toolUseId, session = '', now = Date.now()) {
-  if (!TOOL_ID_RE.test(String(toolUseId))) return null;
+  if (typeof toolUseId !== 'string' || !TOOL_ID_RE.test(toolUseId)) return null;
   const f = path.join(dir, PENDING, `${toolUseId}.json`);
   let rec;
   try {
@@ -1137,7 +1137,7 @@ function concurrentCommitStarts(dir, toolUseId, session, since, windowMs, now = 
 // (after anything it logged), as pending/<tool call ID>.done next to the
 // record. Never through a link: the file is created exclusively.
 function markCommitDone(dir, toolUseId) {
-  if (!TOOL_ID_RE.test(String(toolUseId))) return false;
+  if (typeof toolUseId !== 'string' || !TOOL_ID_RE.test(toolUseId)) return false;
   const pdir = path.join(dir, PENDING);
   try {
     const st = fs.lstatSync(pdir);

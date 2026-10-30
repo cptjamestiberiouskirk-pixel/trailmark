@@ -116,7 +116,7 @@ if ($cv -match '(\d+)\.(\d+)\.(\d+)') {
 }
 foreach ($p in ([string]$env:PATH).Split([IO.Path]::PathSeparator)) {
   $t = $p.Trim().Trim('"')
-  if ($t -eq '' -or -not [IO.Path]::IsPathRooted($t) -or $t -match '^[A-Za-z]:[^\\/]' -or ($t -match '^[\\/][^\\/]' -and [IO.Path]::DirectorySeparatorChar -eq '\\')) { Warn ('PATH holds an empty or relative entry ("' + $t + '"), which is looked up from the current folder. Remove it: every hook starts node by name.'); break }
+  if ($t -eq '' -or -not [IO.Path]::IsPathRooted($t) -or $t -match '^[A-Za-z]:[^\\/]' -or ($t -match '^[\\/][^\\/]' -and [IO.Path]::DirectorySeparatorChar -eq '\')) { Warn ('PATH holds an empty or relative entry ("' + $t + '"), which is looked up from the current folder. Remove it: every hook starts node by name.'); break }
 }
 
 Step 'Check this folder'

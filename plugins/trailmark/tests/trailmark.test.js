@@ -2180,7 +2180,7 @@ test('0.3.3 hardening: the PreCompact status runs no fsmonitor, hook or submodul
 test('0.3.3 parser: where each commit ran, for Bash, Git Bash on Windows and PowerShell', () => {
   const { commitSites } = require('../scripts/lib/commands');
   const L = (cmd, extra = {}) => commitSites(cmd, { platform: 'linux', cwd: '/r/wt', home: '/h', ...extra });
-  const W = (cmd, shell = 'bash') => commitSites(cmd, { platform: 'win32', cwd: 'E:\\Code\\repo\\.claude\\worktrees\\wa', home: 'C:\\Users\\willi', shell });
+  const W = (cmd, shell = 'bash') => commitSites(cmd, { platform: 'win32', cwd: 'E:\\Code\\repo\\.claude\\worktrees\\wa', home: 'C:\\Users\\ann', shell });
   const sites = r => r.sites;
   // Bash.
   assert.deepStrictEqual(sites(L('git commit -m x')), ['/r/wt']);
@@ -2234,7 +2234,7 @@ test('0.3.3 parser: where each commit ran, for Bash, Git Bash on Windows and Pow
   assert.deepStrictEqual(sites(P('Push-Location E:\\a; git commit -m x; Pop-Location; git commit -m y')), ['E:\\a', 'E:\\Code\\repo\\.claude\\worktrees\\wa']);
   assert.deepStrictEqual(P('if (Test-Path E:\\q) { cd E:\\q }; git commit -m y').unresolved, ['unknown-folder'], 'a location set in a block that may not run is unknown after it');
   assert.deepStrictEqual(sites(P('& { cd E:\\q }; git commit -m y')), ['E:\\q'], 'a block run with & does run');
-  assert.deepStrictEqual(sites(P('cd ~\\src; git commit -m a; cd $HOME; git commit -m b; cd \\top; git commit -m c')), ['C:\\Users\\willi\\src', 'C:\\Users\\willi', 'C:\\top']);
+  assert.deepStrictEqual(sites(P('cd ~\\src; git commit -m a; cd $HOME; git commit -m b; cd \\top; git commit -m c')), ['C:\\Users\\ann\\src', 'C:\\Users\\ann', 'C:\\top']);
   assert.deepStrictEqual(sites(P('cd -LiteralPath "E:\\x [1]"; git commit -m y')), ['E:\\x [1]']);
   assert.deepStrictEqual(sites(P('Set-Location E:\\q -WhatIf; git commit -m y')), ['E:\\Code\\repo\\.claude\\worktrees\\wa']);
   for (const none of ["@'\ngit commit -m x\n'@ | Out-File a.txt", "'git commit -m x'", '<# git commit #> git status', 'Write-Host "git commit"']) {
@@ -3355,7 +3355,7 @@ test('0.3.8 node location: a Node inside the session folder or repo is named; el
   assert.strictEqual(H.nodeInside('C:\\Repo\\tools\\node.exe', ['C:\\Repo'], 'win32'), '', 'a subfolder is not where the lookup looks');
   assert.strictEqual(H.nodeInside('C:\\Program Files\\nodejs\\node.exe', ['C:\\'], 'win32'), '', 'a drive root as the folder flags only a node at the root');
   assert.match(H.nodeInside('C:\\node.exe', ['C:\\'], 'win32'), /inside/);
-  assert.strictEqual(H.nodeInside('C:\\Program Files\\nodejs\\node.exe', ['C:\\Repo', 'C:\\Users\\willi\\repo'], 'win32'), '');
+  assert.strictEqual(H.nodeInside('C:\\Program Files\\nodejs\\node.exe', ['C:\\Repo', 'C:\\Users\\ann\\repo'], 'win32'), '');
   assert.strictEqual(H.nodeInside('C:\\Repo2\\node.exe', ['C:\\Repo'], 'win32'), '', 'a look-alike prefix is not inside');
   assert.match(H.nodeInside('/r/x/node', ['/r/x'], 'linux'), /inside/);
   assert.strictEqual(H.nodeInside('/r/x/node', ['/R/X'], 'linux'), '', 'case counts on Linux');

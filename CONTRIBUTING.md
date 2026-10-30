@@ -14,7 +14,7 @@ node plugins/trailmark/scripts/trailmark.js --sandbox-check
 
 The tests create throwaway repos in the temp folder and never touch your own Claude Code settings. A few tests need a shell script to stand in for git, which Windows can't run; they skip themselves there and say why.
 
-CI (`.github/workflows/tests.yml`) runs all of this on Linux, macOS and Windows with Node 22 and 24. On Windows it also parses every PowerShell script with Windows PowerShell 5.1 and PowerShell 7, and runs the watchdog's own test.
+CI (`.github/workflows/tests.yml`) runs all of this on Linux, macOS and Windows with Node 22, 24 and 26. On Windows it also parses every PowerShell script with Windows PowerShell 5.1 and PowerShell 7, and runs the watchdog's own test. Once per run it checks `SHA256SUMS`, parses `install.sh`, and fails if a file the two plugin copies share word for word differs between them.
 
 The scripts in `tools/windows` that call the model (`test-trailmark-roundtrip.ps1`, `test-trailmark-sessions.ps1`, `verify-trailmark-hooks.ps1`) check the hooks end to end with a real Claude Code. They use `claude -p` and your own account, so they aren't part of CI. MANUAL.md, section 11, lists every script and what it changes.
 

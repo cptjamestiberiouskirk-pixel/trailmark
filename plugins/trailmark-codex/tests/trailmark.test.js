@@ -2065,7 +2065,7 @@ test('0.3.3 hardening: the PreCompact status runs no fsmonitor, hook or submodul
 test('0.3.3 parser: where each commit ran, for Bash, Git Bash on Windows and PowerShell', () => {
   const { commitSites } = require('../scripts/lib/commands');
   const L = (cmd, extra = {}) => commitSites(cmd, { platform: 'linux', cwd: '/r/wt', home: '/h', ...extra });
-  const W = (cmd, shell = 'bash') => commitSites(cmd, { platform: 'win32', cwd: 'E:\\Code\\repo\\.claude\\worktrees\\wa', home: 'C:\\Users\\willi', shell });
+  const W = (cmd, shell = 'bash') => commitSites(cmd, { platform: 'win32', cwd: 'E:\\Code\\repo\\.claude\\worktrees\\wa', home: 'C:\\Users\\ann', shell });
   const sites = r => r.sites;
   // Bash.
   assert.deepStrictEqual(sites(L('git commit -m x')), ['/r/wt']);
@@ -2119,7 +2119,7 @@ test('0.3.3 parser: where each commit ran, for Bash, Git Bash on Windows and Pow
   assert.deepStrictEqual(sites(P('Push-Location E:\\a; git commit -m x; Pop-Location; git commit -m y')), ['E:\\a', 'E:\\Code\\repo\\.claude\\worktrees\\wa']);
   assert.deepStrictEqual(P('if (Test-Path E:\\q) { cd E:\\q }; git commit -m y').unresolved, ['unknown-folder'], 'a location set in a block that may not run is unknown after it');
   assert.deepStrictEqual(sites(P('& { cd E:\\q }; git commit -m y')), ['E:\\q'], 'a block run with & does run');
-  assert.deepStrictEqual(sites(P('cd ~\\src; git commit -m a; cd $HOME; git commit -m b; cd \\top; git commit -m c')), ['C:\\Users\\willi\\src', 'C:\\Users\\willi', 'C:\\top']);
+  assert.deepStrictEqual(sites(P('cd ~\\src; git commit -m a; cd $HOME; git commit -m b; cd \\top; git commit -m c')), ['C:\\Users\\ann\\src', 'C:\\Users\\ann', 'C:\\top']);
   assert.deepStrictEqual(sites(P('cd -LiteralPath "E:\\x [1]"; git commit -m y')), ['E:\\x [1]']);
   assert.deepStrictEqual(sites(P('Set-Location E:\\q -WhatIf; git commit -m y')), ['E:\\Code\\repo\\.claude\\worktrees\\wa']);
   for (const none of ["@'\ngit commit -m x\n'@ | Out-File a.txt", "'git commit -m x'", '<# git commit #> git status', 'Write-Host "git commit"']) {
@@ -3458,7 +3458,7 @@ test('codex 0.1.3: the desktop app\'s JSON results give the exit code; text in t
 
 test('codex 0.1.3: a transcript path with the \\\\?\\ prefix is the same folder; item_completed messages are read', () => {
   const T = require(path.join(ROOT, 'scripts', 'lib', 'transcript'));
-  assert.strictEqual(T.plainPath('\\\\?\\C:\\Users\\willi\\.codex\\sessions\\a.jsonl'), 'C:\\Users\\willi\\.codex\\sessions\\a.jsonl');
+  assert.strictEqual(T.plainPath('\\\\?\\C:\\Users\\ann\\.codex\\sessions\\a.jsonl'), 'C:\\Users\\ann\\.codex\\sessions\\a.jsonl');
   assert.strictEqual(T.plainPath('\\\\?\\UNC\\srv\\share\\a.jsonl'), '\\\\srv\\share\\a.jsonl');
   assert.strictEqual(T.plainPath('/home/x/a.jsonl'), '/home/x/a.jsonl');
   const s = sandbox();

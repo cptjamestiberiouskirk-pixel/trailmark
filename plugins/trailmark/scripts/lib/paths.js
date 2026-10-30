@@ -177,7 +177,9 @@ function findMemoryDir(ctx = {}) {
 
   if (ctx.transcriptPath && !/^(\\\\|\/\/)/.test(String(ctx.transcriptPath)) && samePath(cwd, root, platform)) {
     const projectDir = path.dirname(ctx.transcriptPath);
-    if (path.basename(path.dirname(projectDir)) === 'projects') {
+    // Only a transcript in Claude Code's own projects folder names the
+    // memory folder; any other path falls through to the lookups below.
+    if (samePath(path.dirname(projectDir), projectsRoot(), platform)) {
       return out(path.join(projectDir, 'memory'), 'transcript', root);
     }
   }

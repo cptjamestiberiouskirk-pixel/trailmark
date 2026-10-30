@@ -158,33 +158,54 @@ function gitEnv(base = process.env) {
 // text, and a network path in any of those places (\\server, //server, or an
 // NT path such as \??\UNC\server) keeps git out of that folder. Included
 // config files that are local are read the same way, five deep.
-const NET_TEXT = /^\s*["']?(?:\\\\|\/\/|[\\/]\?\?[\\/])/;
+const NET_START = /^[\\/]{2}|^[\\/]\?\?[\\/]/;
 const farCache = new Map();
+// A value as git might read it: quotes dropped and escapes undone. Both the
+// raw and the decoded spelling are checked, so neither can hide a share.
+function netText(s) {
+  const raw = String(s).replace(/"/g, '').trim();
+  const dec = raw.replace(/\\\\/g, '\\').trim();
+  return NET_START.test(raw) || NET_START.test(dec);
+}
+// null when the file is missing; UNSAFE when it is there but can't be read
+// as a plain small file (a link, a folder, too big, no access), since git
+// would still follow it.
+const UNSAFE = Symbol('unsafe');
 function readSmall(file, max) {
-  try {
-    const st = fs.lstatSync(file);
-    if (!st.isFile() || st.size > max) return null;
-    return fs.readFileSync(file, 'utf8');
-  } catch { return null; }
+  let st;
+  try { st = fs.lstatSync(file); } catch (e) { return e && e.code === 'ENOENT' || e && e.code === 'ENOTDIR' ? null : UNSAFE; }
+  if (!st.isFile() || st.size > max) return UNSAFE;
+  try { return fs.readFileSync(file, 'utf8'); } catch { return UNSAFE; }
+}
+// Logical config lines: a line ending in a backslash goes on to the next.
+function configLines(text) {
+  return text.replace(/\\\r?\n/g, '').split(/\r?\n/);
 }
 function farConfig(file, depth, seen) {
   if (depth > 5 || seen.has(file)) return '';
   seen.add(file);
   const text = readSmall(file, 512 * 1024);
   if (text === null) return '';
-  for (const line of text.split(/\r?\n/)) {
+  if (text === UNSAFE) return 'unreadable-config';
+  for (let line of configLines(text)) {
+    line = line.replace(/^\s*\[[^\]]*\]/, '');
     const eq = line.indexOf('=');
     if (eq < 0) continue;
     const value = line.slice(eq + 1);
-    if (NET_TEXT.test(value)) return 'network-config';
+    if (netText(value)) return 'network-config';
     if (/^\s*path\s*$/i.test(line.slice(0, eq))) {
-      let p = value.trim().replace(/^"(.*)"$/, '$1');
+      let p = value.replace(/"/g, '').replace(/\\\\/g, '\\').trim();
       if (p.startsWith('~/')) p = path.join(os.homedir(), p.slice(2));
       const why = farConfig(path.resolve(path.dirname(file), p), depth + 1, seen);
       if (why) return why;
     }
   }
   return '';
+}
+function gitdirAt(base, t) {
+  if (netText(t)) return null;
+  const r = path.resolve(base, t.trim());
+  return NET_START.test(r) ? null : r;
 }
 function farGit(gitEntry) {
   let st;
@@ -193,20 +214,23 @@ function farGit(gitEntry) {
   if (st.isSymbolicLink()) {
     let t = '';
     try { t = fs.readlinkSync(gitEntry); } catch { return 'network-gitdir'; }
-    if (NET_TEXT.test(t)) return 'network-gitdir';
-    gitdir = path.resolve(path.dirname(gitEntry), t);
+    gitdir = gitdirAt(path.dirname(gitEntry), t);
+    if (!gitdir) return 'network-gitdir';
   } else if (st.isFile()) {
     const t = readSmall(gitEntry, 4096);
+    if (t === UNSAFE) return 'unreadable-config';
     const m = t === null ? null : /^gitdir:\s*(.+?)\s*$/m.exec(t);
     if (!m) return '';
-    if (NET_TEXT.test(m[1])) return 'network-gitdir';
-    gitdir = path.resolve(path.dirname(gitEntry), m[1]);
+    gitdir = gitdirAt(path.dirname(gitEntry), m[1]);
+    if (!gitdir) return 'network-gitdir';
   }
   const dirs = [gitdir];
   const common = readSmall(path.join(gitdir, 'commondir'), 4096);
+  if (common === UNSAFE) return 'unreadable-config';
   if (common !== null && common.trim()) {
-    if (NET_TEXT.test(common)) return 'network-gitdir';
-    dirs.push(path.resolve(gitdir, common.trim()));
+    const c = gitdirAt(gitdir, common);
+    if (!c) return 'network-gitdir';
+    dirs.push(c);
   }
   for (const d of dirs) {
     for (const f of ['config', 'config.worktree']) {
@@ -214,7 +238,8 @@ function farGit(gitEntry) {
       if (why) return why;
     }
     const alt = readSmall(path.join(d, 'objects', 'info', 'alternates'), 64 * 1024);
-    if (alt !== null && alt.split(/\r?\n/).some(l => NET_TEXT.test(l))) return 'network-config';
+    if (alt === UNSAFE) return 'unreadable-config';
+    if (alt !== null && alt.split(/\r?\n/).some(netText)) return 'network-config';
   }
   return '';
 }
