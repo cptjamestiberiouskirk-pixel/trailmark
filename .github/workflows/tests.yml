@@ -24,6 +24,8 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: ${{ matrix.node }}
+          # Runner images can hold an older Node than the security floor.
+          check-latest: true
       # Once per run: the checksums match, install.sh parses, and the files the
       # two plugin copies share word for word haven't drifted apart.
       - name: Repository checks
