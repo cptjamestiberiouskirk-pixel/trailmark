@@ -46,6 +46,12 @@ param(
   [switch]$AllowOldNode,
   [switch]$Repoint
 )
+# Windows PowerShell 5.1 started from PowerShell 7 inherits its PSModulePath,
+# finds PowerShell 7's copies of its own modules first, and then fails to load
+# Get-Acl, ConvertFrom-Json and the like. PowerShell 7's entries are dropped.
+if ($PSVersionTable.PSVersion.Major -lt 6 -and $env:PSModulePath) {
+  $env:PSModulePath = (@($env:PSModulePath -split ';' | Where-Object { $_ -and $_ -notmatch '(^|\\)PowerShell\\' }) -join ';')
+}
 
 $ErrorActionPreference = 'Continue'
 # UTF-8 both ways with node and claude, so paths outside ASCII survive.
@@ -133,9 +139,19 @@ $parentMask = [int64](0x40 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x1000000
 $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $okOwners = @($me, 'S-1-5-32-544', 'S-1-5-18', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
 $okWriters = @($okOwners) + @('S-1-3-0')
+# The owner and access rules of a file or folder: Get-Acl, or .NET directly
+# when Get-Acl can't load (Windows PowerShell 5.1 only; the result is the same).
+function Read-Acl([string]$Item) {
+  $first = ''
+  try { $a = Get-Acl -LiteralPath $Item -ErrorAction Stop; return @{ Owner = $a.Owner; Access = @($a.Access) } } catch { $first = $_.Exception.Message }
+  try {
+    if ([IO.Directory]::Exists($Item)) { $s = [IO.Directory]::GetAccessControl($Item) } else { $s = [IO.File]::GetAccessControl($Item) }
+    return @{ Owner = $s.GetOwner([Security.Principal.NTAccount]).Value; Access = @($s.GetAccessRules($true, $true, [Security.Principal.NTAccount])) }
+  } catch { throw ($first + '; ' + $_.Exception.Message) }
+}
 function Get-Bad([string]$Item, [bool]$ParentOnly) {
   $out = @()
-  try { $acl = Get-Acl -LiteralPath $Item } catch { return @('could not read the permissions of ' + $Item) }
+  try { $acl = Read-Acl $Item } catch { return @('could not read the permissions of ' + $Item + ' (' + $_.Exception.Message + ')') }
   if ($true) {
     $own = ''
     try { $own = (New-Object Security.Principal.NTAccount $acl.Owner).Translate([Security.Principal.SecurityIdentifier]).Value } catch { $own = '' }

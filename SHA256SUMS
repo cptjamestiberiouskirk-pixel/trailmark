@@ -7,7 +7,7 @@ f81f737038bd2de241a3a63161e5921405dd786a885f2325ec1c7928b1405c05  ./.github/ISSU
 2a8cd05372f0ae35b43633c00630c5c4f54e250811830e65d5ac813c1c32ad01  ./.github/tap-annotate.js
 c5782355ff8007431db51ee92169e85a6f6636913156ec7d740dc8ab8edb4fb1  ./.github/workflows/tests.yml
 0c4783ef9495551da26bd242a0cace9f7ad39e46bf1d5af8f51aeb8f338a9112  ./.gitignore
-a637a18f83496b882d16bb1616f3d36902c4588ee0f4b75c4853c6b77a8c5f4c  ./CHANGELOG.md
+45e896de44107b2911d5d95d81a85448b931857f33634c46b2fd85402d8a3c0b  ./CHANGELOG.md
 eae03a9ae7f7e2d68c0627fcde8a85dbb09e80919ef5b79d8647cc0409591f87  ./CONTRIBUTING.md
 772e299d3c90af1ed7d29ae543057c27beff24f013eb42b03fe969b5ee7ab493  ./LICENSE
 0c1978e71cb52e6e9574c8f0e724f89288e984d04a95764dc94b2c3717f0b136  ./MANUAL.md
@@ -15,7 +15,7 @@ ddab1509f6ba96a68531fd04e4762c9ef035fb4a81ead24fe2d177580182450b  ./README.md
 f89b70a8073efd793f68c25df8bf1ce1ae1fe809e588c4ee113e2905bf94658c  ./SECURITY.md
 f66d9472cb42a3b011013bf843df210b17cd0149cf39dbfaabd256ab4fad275f  ./docs/how-it-works.md
 66b914c96454a684a758a35b7c55aeb7cfb855511cbdab5af84536a57e9f2e20  ./install.cmd
-d39f2653f8d72fda58206afcda72df01187c213bfdc5db33724d143809951a1a  ./install.ps1
+fbdff94bb4691f63bc0ebfa30a1b9db22f224adf2596ec1ed21daf1398fa1e7c  ./install.ps1
 31be1f9ef9e5a1e0a7ec8f465fbe9ed2b2eea6e27d8abc8bfb1d70b459876b0f  ./install.sh
 55be34db7d609a2f704b44174b72451664752a5ea3e08b669e8861758d343cea  ./migrate-from-jb-memory.cmd
 b308dee9729736d1bcc4c7e7aa3f1a1c8f08805e6128bf1a59d65133b11f6d69  ./plugins/trailmark-codex/.codex-plugin/plugin.json
@@ -75,16 +75,16 @@ a5fcf1a7e5f87f186cafa20e5fc348b52c973af723abeb56c9369957822b2a9d  ./plugins/trai
 a1ad9071d799d78eb350818d74651cceb5f44be852169b5e1da0be5ff850ce15  ./plugins/trailmark/tests/handoff-checks.test.js
 114e06088e669aca90942936820bbc81b0560c071689b8909a1b284d8592644a  ./plugins/trailmark/tests/trailmark.test.js
 06aeeee7f6fc6d37f86a5a9fd0de6d4a7d13f80a10104c65c29b47a305c85142  ./tools/install-check.js
-f7a0a35cb1cd929f07700c5d737e05db14af82dcfc4660fa45e7925d40e4eca6  ./tools/migrate-from-jb-memory.js
+d406dd97064e51e6d6151984a6746e47a84489b55f2354d358fa90db819ef19e  ./tools/migrate-from-jb-memory.js
 ecc32e629aeb6d301e7469d9bb6ff333c240aa68102466935533b1727c3cfbd8  ./tools/migrate-from-jb-memory.ps1
 b0b8853cdb828897903f65adb9222279a52aa0fc0a7ce91c76bba0239f962e8b  ./tools/windows/check-trailmark-checkpoints.ps1
 3670d51903fd0ba80a5d90b058d3df8c35f33d3772db716c003106a01ec32bcc  ./tools/windows/inspect-last-checkpoint.ps1
 76e9d604743cfda864b992b5a2b09a694a74739312de678b937c56702fb36f4e  ./tools/windows/install-trailmark-watchdog.cmd
-dfdfaca98faae734d2ac8ed849b88e0fa0f38201308369c5bf60fea1a2af50ee  ./tools/windows/install-trailmark-watchdog.ps1
+c0071288e45bbf79328aa63427f999d3f2f494a9635c9421d58fc7fc4835e772  ./tools/windows/install-trailmark-watchdog.ps1
 f07ed429e0e07759a130f67a9237924fbb794f366154d45d397ab1d03c5c86dc  ./tools/windows/test-node-lookup.ps1
 97932062f8abd97809e33ad9e8a800bccf7797a22539650017ea198cbc4aabc2  ./tools/windows/test-trailmark-roundtrip.ps1
 dd3df676b23c6d4dea8cc48999cebf499ef5fc7c427d427fce0e63cfceaa557b  ./tools/windows/test-trailmark-sessions.ps1
 f8cf632accd753582ec3749e5040495c1342350c3b0705fbac1c97d78af348a3  ./tools/windows/test-trailmark-watchdog.ps1
 7bf510baf680bd67f572b95bd60dc60168a449485aad21727c8d0eb09e8f7dc5  ./tools/windows/trace-handoff-writes.ps1
-73853aedff3fedfc08ad3a43e847851cd62ab9cb3e7fe45ad748ef14e53ecaa2  ./tools/windows/trailmark-watchdog.ps1
+0e3bb2e6c392816c695dd9154b8ee64f697a350b68e33b5977cd008f52ec4594  ./tools/windows/trailmark-watchdog.ps1
 38be99f23032103dde70e8a2fd13f43690b7f0256f9f6711fae34462e8c69161  ./tools/windows/verify-trailmark-hooks.ps1

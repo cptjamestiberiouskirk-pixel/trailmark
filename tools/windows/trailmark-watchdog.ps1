@@ -85,6 +85,12 @@ param(
   [ValidateSet('', 'root', 'nested')]
   [string]$SetLayout = ''
 )
+# Windows PowerShell 5.1 started from PowerShell 7 inherits its PSModulePath,
+# finds PowerShell 7's copies of its own modules first, and then fails to load
+# Get-Acl, ConvertFrom-Json and the like. PowerShell 7's entries are dropped.
+if ($PSVersionTable.PSVersion.Major -lt 6 -and $env:PSModulePath) {
+  $env:PSModulePath = (@($env:PSModulePath -split ';' | Where-Object { $_ -and $_ -notmatch '(^|\\)PowerShell\\' }) -join ';')
+}
 
 $ErrorActionPreference = 'Stop'
 $WatchdogVersion = '1.7.0'

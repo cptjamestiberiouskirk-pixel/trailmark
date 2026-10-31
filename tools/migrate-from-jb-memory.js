@@ -152,7 +152,7 @@ function findProgram(name) {
   return '';
 }
 
-function run(prog, args, { cwd, inherit = false, timeout = 120000 } = {}) {
+function run(prog, args, { cwd, inherit = false, timeout = 120000, env = process.env } = {}) {
   for (const a of args) if (typeof a !== 'string' || /[\0\r\n]/.test(a)) throw new Error(`refusing an unusual argument: ${JSON.stringify(a)}`);
   let file = prog;
   let argv = args;
@@ -167,7 +167,7 @@ function run(prog, args, { cwd, inherit = false, timeout = 120000 } = {}) {
   }
   const r = spawnSync(file, argv, {
     cwd: cwd || os.homedir(), encoding: 'utf8', timeout, windowsHide: true, windowsVerbatimArguments: verbatim,
-    stdio: inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'], env: process.env,
+    stdio: inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'], env,
   });
   return { code: r.status === null ? -1 : r.status, out: r.stdout || '', err: r.stderr || '', error: r.error };
 }
@@ -625,7 +625,11 @@ function main() {
       let r;
       if (WIN) {
         const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-        r = run(ps, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(HERE, 'install.ps1'), ...o.flags], { cwd: HERE, inherit: true, timeout: 30 * 60000 });
+        // Without PowerShell 7's PSModulePath: Windows PowerShell 5.1 started
+        // with it can't load its own Get-Acl and the like (install.ps1 also
+        // drops those entries itself).
+        const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toLowerCase() !== 'psmodulepath'));
+        r = run(ps, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(HERE, 'install.ps1'), ...o.flags], { cwd: HERE, inherit: true, timeout: 30 * 60000, env });
       } else {
         r = run('/bin/bash', [path.join(HERE, 'install.sh'), ...o.flags], { cwd: HERE, inherit: true, timeout: 30 * 60000 });
       }
