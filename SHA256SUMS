@@ -9,7 +9,7 @@ c5782355ff8007431db51ee92169e85a6f6636913156ec7d740dc8ab8edb4fb1  ./.github/work
 0c4783ef9495551da26bd242a0cace9f7ad39e46bf1d5af8f51aeb8f338a9112  ./.gitignore
 ae73dea952155ccf151888bd94df9d67fb5380cb413a58376321e2beb5c29ed6  ./CHANGELOG.md
 eae03a9ae7f7e2d68c0627fcde8a85dbb09e80919ef5b79d8647cc0409591f87  ./CONTRIBUTING.md
-772e299d3c90af1ed7d29ae543057c27beff24f013eb42b03fe969b5ee7ab493  ./LICENSE
+2d172f3f7cebcf8c0ffd6db4720e86ce14fd91a6b152e07dc6102eb3c2f6ffc4  ./LICENSE
 09f98324040ea0089bedb1d14ea209b1c0d6ace7dfcc1c8768a595f10ca67833  ./MANUAL.md
 ddab1509f6ba96a68531fd04e4762c9ef035fb4a81ead24fe2d177580182450b  ./README.md
 f89b70a8073efd793f68c25df8bf1ce1ae1fe809e588c4ee113e2905bf94658c  ./SECURITY.md
@@ -19,7 +19,7 @@ fbdff94bb4691f63bc0ebfa30a1b9db22f224adf2596ec1ed21daf1398fa1e7c  ./install.ps1
 31be1f9ef9e5a1e0a7ec8f465fbe9ed2b2eea6e27d8abc8bfb1d70b459876b0f  ./install.sh
 55be34db7d609a2f704b44174b72451664752a5ea3e08b669e8861758d343cea  ./migrate-from-jb-memory.cmd
 1d50900277d320e6303f36cfb4bdde89a1c55f02d61dd2b0e930a7c38d111eb9  ./plugins/trailmark-codex/.codex-plugin/plugin.json
-772e299d3c90af1ed7d29ae543057c27beff24f013eb42b03fe969b5ee7ab493  ./plugins/trailmark-codex/LICENSE
+2d172f3f7cebcf8c0ffd6db4720e86ce14fd91a6b152e07dc6102eb3c2f6ffc4  ./plugins/trailmark-codex/LICENSE
 d446451a0e446074dcd2c20752264071e948133a9b8a5150259653f97cb28760  ./plugins/trailmark-codex/README.md
 846670429ebebc278f20a05d3a26838af6031455e9457e9eccc72d028d43ec0f  ./plugins/trailmark-codex/hooks/hooks.json
 1d50900277d320e6303f36cfb4bdde89a1c55f02d61dd2b0e930a7c38d111eb9  ./plugins/trailmark-codex/plugin.json
@@ -48,7 +48,7 @@ d8a9069fff051d5b6b5d681cfb3a9454a8918848b537ec64c850fe5c663b60ee  ./plugins/trai
 c60b450be23df0b887387a6d6fa0f61fe6ea23c48b57427164a558e467dba4d5  ./plugins/trailmark-codex/tests/trailmark.test.js
 5a897a1cd17f861f2059168075657abbb4af95f8b0c0fe515c211d244021d854  ./plugins/trailmark/.claude-plugin/icon.png
 8f75eb6a3f77a1ca12684eddcfdeb0d5bdeacacd6e83e1e2bc6a2ebaea1544c3  ./plugins/trailmark/.claude-plugin/plugin.json
-772e299d3c90af1ed7d29ae543057c27beff24f013eb42b03fe969b5ee7ab493  ./plugins/trailmark/LICENSE
+2d172f3f7cebcf8c0ffd6db4720e86ce14fd91a6b152e07dc6102eb3c2f6ffc4  ./plugins/trailmark/LICENSE
 20f7a517e91ef9a3cd2605237bb249deeec36aaf52c35e2617ec0398fd613b2f  ./plugins/trailmark/README.md
 eef454a2985dca988a9dc4c51ef6a96e9ec0ff349a66347d1835d182fe3ee8c0  ./plugins/trailmark/docs/session-start.png
 99faae2c5e94e75d0bb0c18f2d7bbf07dfce0eaaf3e6f047b964611069bb8df1  ./plugins/trailmark/hooks/hooks.json
