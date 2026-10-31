@@ -31,6 +31,10 @@
 //      and the cache copy and says to uninstall it there; run this again
 //      afterwards. Then it removes the jb-memory-codex marketplace with
 //      `codex plugin marketplace remove` and moves old cache copies to the backup.
+//      If the plugin is installed but its marketplace is already gone, the app
+//      can't show it, so the old marketplace is added back from the old
+//      release folder (next to this one, the old Claude Code marketplace, or
+//      --old-release) for you to uninstall it there.
 //   6. Runs this release's installer (install.ps1 on Windows, install.sh
 //      elsewhere), with -Codex/--codex when Codex is in use and, on Windows,
 //      -Watchdog when the old watchdog was installed. The installer makes its
@@ -41,7 +45,8 @@
 // It never touches memory folders, handoffs, .jbmem.json or any repo file,
 // except the .claude/settings.json or settings.local.json of a repo where
 // jb-memory was installed at project or local scope: `claude plugin uninstall`
-// edits those (--keep-project-scopes leaves them). Cache copies are moved to
+// edits those (--keep-project-scopes leaves them), and Codex's config.toml
+// with --clean-codex-trust only. Cache copies are moved to
 // the backup folder, with a log of every step, and stay there until you
 // delete them; the only things it removes are folders left empty by that move
 // and the empty folder it makes for a repo that moved. It downloads nothing.
@@ -64,6 +69,14 @@
 //   --scan <folder>        also look under <folder> (six levels down) for repos
 //                          whose .claude/settings*.json still turn jb-memory
 //                          on, such as a repo that moved; reported, not edited
+//   --old-release <folder> the old jb-memory release folder, for when Codex
+//                          still has jb-memory-codex installed but its
+//                          marketplace is gone (see step 5); found on its
+//                          own when it sits next to this folder
+//   --clean-codex-trust    also remove the hook-trust records Codex keeps for
+//                          jb-memory-codex in config.toml after it is
+//                          uninstalled ([hooks.state."jb-memory-codex@..."]),
+//                          with a backup of config.toml first
 //   --backup-dir <folder>  where cache copies and the log go
 //   --set-no-cwd-lookup, --allow-old-node, --repoint
 //                          passed on to the installer (see MANUAL.md, section 3)
@@ -89,7 +102,7 @@ const SAFE = /^[\w.+@-]{1,128}$/;
 function parseArgs(argv) {
   const o = {
     dryRun: false, yes: false, claude: true, codex: true, install: true, projectScopes: true,
-    cache: true, watchdog: 'auto', backupDir: '', pass: [], help: false, scan: [],
+    cache: true, watchdog: 'auto', backupDir: '', pass: [], help: false, scan: [], oldRelease: '', cleanTrust: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -103,6 +116,8 @@ function parseArgs(argv) {
       case '--keep-cache': o.cache = false; break;
       case '--watchdog': o.watchdog = 'yes'; break;
       case '--no-watchdog': o.watchdog = 'no'; break;
+      case '--old-release': o.oldRelease = argv[++i] || ''; if (!o.oldRelease) throw new Error('--old-release needs a folder'); break;
+      case '--clean-codex-trust': o.cleanTrust = true; break;
       case '--scan': o.scan.push(argv[++i] || ''); if (!o.scan[o.scan.length - 1]) throw new Error('--scan needs a folder'); break;
       case '--backup-dir': o.backupDir = argv[++i] || ''; if (!o.backupDir) throw new Error('--backup-dir needs a folder'); break;
       case '--set-no-cwd-lookup': case '--allow-old-node': case '--repoint': o.pass.push(a); break;
@@ -285,6 +300,39 @@ function scanRepos(root, { maxDepth = 6, maxDirs = 20000 } = {}) {
 
 // ---------- survey: Codex
 
+const TRUST_RE = /^\s*\[\s*hooks\s*\.\s*state\s*\.\s*"jb-memory-codex@/i;
+function cmpVersion(a, b) {
+  const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0);
+  return 0;
+}
+
+// config.toml without the [hooks.state."jb-memory-codex@..."] tables and the
+// lines under them, each table running to the next line that starts with '['.
+// Blank lines stay. Returns { text, removed }.
+function withoutTrust(text) {
+  const nl = text.includes('\r\n') ? '\r\n' : '\n';
+  const keep = [];
+  let removed = 0;
+  let skip = false;
+  for (const l of text.split(/\r?\n/)) {
+    if (/^\s*\[/.test(l)) skip = TRUST_RE.test(l);
+    if (skip && l.trim() !== '') removed++; else keep.push(l);
+  }
+  return { text: keep.join(nl), removed };
+}
+
+// An old release folder whose Codex marketplace provides jb-memory-codex under
+// the marketplace name Codex has it installed from ('' when none is found).
+function oldCodexRelease(folders, mkt) {
+  for (const f of folders) {
+    if (!f || NET.test(f) || !isDir(f)) continue;
+    const man = readJson(path.join(f, '.agents', 'plugins', 'marketplace.json'));
+    if (man && man.name === mkt && Array.isArray(man.plugins) && man.plugins.some(q => q && String(q.name).toLowerCase() === OLD_CODEX)) return path.resolve(f);
+  }
+  return '';
+}
+
 function codexHome() { return process.env.CODEX_HOME || path.join(os.homedir(), '.codex'); }
 
 function surveyCodex(codex) {
@@ -341,6 +389,11 @@ function surveyCodex(codex) {
       if (pl.isDirectory() && pl.name.toLowerCase() === OLD_CODEX) s.cache.push(path.join(cache, mk.name, pl.name));
     }
   }
+  // Hook-trust records Codex keeps per plugin; they can outlive it.
+  s.trust = cfgText.split(/\r?\n/).filter(l => TRUST_RE.test(l)).length;
+  // trailmark-codex as installed: the newest version folder in the cache.
+  s.tmInstalled = /^\s*\[\s*plugins\s*\.\s*"trailmark-codex@/im.test(cfgText);
+  s.tmVersion = listDir(path.join(cache, 'trailmark-codex', 'trailmark-codex')).filter(d => d.isDirectory() && /^\d+\.\d+\.\d+$/.test(d.name)).map(d => d.name).sort(cmpVersion).pop() || '';
   return s;
 }
 
@@ -455,11 +508,16 @@ function main() {
 
   step('Look');
   if (process.env.CLAUDECODE === '1' && !o.dryRun) fail('this is running inside a Claude Code session. Run it from a terminal of its own: uninstalling the plugin pulls hooks out from under this session.');
+  if ((process.env.CODEX_SANDBOX || process.env.CODEX_SANDBOX_NETWORK_DISABLED) && !o.dryRun) fail('this is running inside a Codex session. Run it from a terminal of its own, with the ChatGPT app closed.');
   const man = readJson(path.join(HERE, '.claude-plugin', 'marketplace.json'));
   if (!man || man.name !== 'trailmark' || !fs.existsSync(path.join(HERE, 'plugins', 'trailmark', '.claude-plugin', 'plugin.json'))) fail(`${HERE} isn't a Trailmark release folder (no trailmark marketplace.json).`);
   const claude = o.claude || o.install ? findProgram('claude') : '';
   const codex = o.codex ? findProgram('codex') : '';
   if (o.claude && !claude) fail('the claude command isn\'t on PATH. Install Claude Code 2.1.304 or later first, or run with --codex-only.');
+  // Claude Code loads the plugin from this folder in place, so it has to stay.
+  if (/[\\/](?:downloads|onedrive[^\\/]*)[\\/]/i.test(HERE + path.sep) || samePath(path.dirname(HERE), os.tmpdir()) || HERE.toLowerCase().startsWith(path.resolve(os.tmpdir()).toLowerCase() + path.sep)) {
+    warn(`${HERE} looks like a download, synced or temporary folder. Claude Code runs the plugin from here, so moving or deleting it later breaks the install; MANUAL.md, section 3, suggests ~/tools/trailmark.`);
+  }
   info(`claude: ${claude || '(not used)'}`);
   info(`codex:  ${codex || (o.codex ? 'not on PATH' : '(not used)')}`);
 
@@ -482,6 +540,27 @@ function main() {
     for (const d of x.cache) info(`old copy in Codex's plugin cache: ${d}`);
     if (x.used && codex && !x.listOk) warn('codex plugin marketplace list failed, so old Codex marketplaces could not be listed');
     if (x.used && !codex && x.oldMarketplaces.length) warn('the codex command isn\'t on PATH, so the old Codex marketplace can\'t be removed from here');
+    if (x.trust) info(`hook-trust records left for jb-memory-codex in config.toml: ${x.trust}`);
+    if (x.tmInstalled) info(`trailmark-codex installed${x.tmVersion ? ', version ' + x.tmVersion : ''}`);
+    // Installed with no marketplace: the app can't show it, so it can't be
+    // uninstalled there until its marketplace is added back.
+    x.orphan = x.installed.length && !x.oldMarketplaces.length;
+    if (x.orphan) {
+      const mkt = (x.installed[0].split('@')[1] || OLD_CODEX).replace(/\s.*$/, '');
+      const sibs = listDir(path.dirname(HERE)).filter(d => d.isDirectory() && /^jb-memory/i.test(d.name)).map(d => path.join(path.dirname(HERE), d.name));
+      x.orphanMkt = mkt;
+      x.orphanFrom = oldCodexRelease([o.oldRelease, ...(c ? c.oldMarketplaces.map(m => m.path) : []), ...sibs], mkt);
+      warn(`jb-memory-codex is installed but its marketplace ${mkt} is gone, so the ChatGPT app can't show it to uninstall`);
+      if (x.orphanFrom) info(`old release with that marketplace: ${x.orphanFrom}`);
+      else later(`Codex has jb-memory-codex installed, but its marketplace (${mkt}) is gone, so the ChatGPT app can't show it to uninstall. Run this again with --old-release <your old jb-memory release folder> to add that marketplace back, or add it yourself: codex plugin marketplace add <that folder>. Then uninstall jb-memory-codex in the app and run this again.`);
+    }
+    if (!x.installed.length && x.trust && !o.cleanTrust) info('those records do nothing now; --clean-codex-trust removes them');
+    const relCodex = readJson(path.join(HERE, 'plugins', 'trailmark-codex', '.codex-plugin', 'plugin.json'));
+    if (x.tmInstalled && x.tmVersion && relCodex && relCodex.version && cmpVersion(x.tmVersion, relCodex.version) < 0) later(`Codex has trailmark-codex ${x.tmVersion} installed; this release is ${relCodex.version}. In the ChatGPT app: restart it, open Plugins, then Marketplace, then Trailmark for Codex, and choose Upgrade (or reinstall), then trust its hooks again if asked.`);
+  }
+  if (c) {
+    const tmk = c.marketplaces.find(m => m.name === 'trailmark');
+    if (tmk && tmk.path && !samePath(tmk.path, HERE) && !o.pass.includes('--repoint')) warn(`the trailmark marketplace points at ${tmk.path}; the installer stops unless you run this with --repoint, which points it here`);
   }
   if (wd.tasks.length) info(`old watchdog tasks: ${wd.tasks.join(', ')}`);
   for (const root of o.scan) {
@@ -509,6 +588,8 @@ function main() {
     if (x.installed.length) for (const m of x.oldMarketplaces) plan.push(`keep the Codex marketplace ${m.name} until jb-memory-codex is uninstalled in the ChatGPT app`);
     else for (const m of x.oldMarketplaces) plan.push(`remove the Codex marketplace ${m.name}`);
     if (o.cache && !x.installed.length) for (const d of x.cache) plan.push(`move ${d} to the backup folder`);
+    if (x.orphan && x.orphanFrom && codex) plan.push(`add the old Codex marketplace back from ${x.orphanFrom}, so the ChatGPT app shows jb-memory-codex for you to uninstall`);
+    if (o.cleanTrust && !x.installed.length && x.trust) plan.push(`remove ${x.trust} hook-trust records for jb-memory-codex from config.toml (backed up first)`);
   }
   const useCodex = !!(x && x.used && codex);
   // The old watchdog is running only while its tasks exist; its folder stays
@@ -528,7 +609,7 @@ function main() {
       if (WIN) flags.push({ '--set-no-cwd-lookup': '-SetNoCwdLookup', '--allow-old-node': '-AllowOldNode', '--repoint': '-Repoint' }[p]);
       else if (p !== '--set-no-cwd-lookup') flags.push(p);
     }
-    if (!o.claude) plan.push(`add the trailmark-codex marketplace (codex plugin marketplace add ${HERE})`);
+    if (!o.claude) { if (!(x && x.trailmarkMarketplace)) plan.push(`add the trailmark-codex marketplace (codex plugin marketplace add ${HERE})`); }
     else plan.push(`run ${WIN ? 'install.ps1' : 'install.sh'}${flags.length ? ' ' + flags.join(' ') : ''}`);
     o.flags = flags;
   }
@@ -600,6 +681,13 @@ function main() {
   // ---------- Codex
   if (x && x.used) {
     step('Codex: remove jb-memory-codex');
+    if (x.orphan) {
+      if (x.orphanFrom && codex) {
+        const r = run(codex, ['plugin', 'marketplace', 'add', x.orphanFrom]);
+        if (r.code === 0) ok(`added the old Codex marketplace back from ${x.orphanFrom}`);
+        else warn(`codex plugin marketplace add ${x.orphanFrom} failed: ${(r.err || r.out).trim().split('\n')[0] || 'exit ' + r.code}`);
+      }
+    }
     if (!codex && x.oldMarketplaces.length) later(`Remove the old Codex marketplace: codex plugin marketplace remove ${x.oldMarketplaces[0].name} (the codex command wasn't on PATH here).`);
     for (const m of codex && !x.installed.length ? x.oldMarketplaces : []) {
       if (!SAFE.test(m.name)) { warn(`skipped a marketplace with an unusual name: ${JSON.stringify(m.name)}`); continue; }
@@ -608,7 +696,7 @@ function main() {
       else if (/not found|no marketplace|unknown/i.test(r.err + r.out)) ok(`the Codex marketplace ${m.name} was already gone`);
       else warn(`codex plugin marketplace remove ${m.name} failed: ${(r.err || r.out).trim().split('\n')[0] || 'exit ' + r.code}`);
     }
-    if (!x.oldMarketplaces.length) ok('no old Codex marketplace');
+    if (!x.oldMarketplaces.length && !x.orphan) ok('no old Codex marketplace');
     else if (x.installed.length) info(`kept the Codex marketplace ${x.oldMarketplaces.map(m => m.name).join(', ')}: the ChatGPT app shows jb-memory-codex, and so lets you uninstall it, only through it`);
     x.installed = surveyCodex(codex).installed;
     if (x.installed.length) {
@@ -619,6 +707,22 @@ function main() {
         try { ok(`moved ${d}\n          to ${moveAside(d, backup, 'codex-cache')}`); moved++; } catch (e) { warn(`could not move ${d}: ${e.message}`); }
       }
       if (!x.cache.length) ok('no old copies in Codex\'s plugin cache');
+    }
+    if (!x.installed.length && x.trust) {
+      if (!o.cleanTrust) { /* said in Look */ }
+      else if (runningPrograms().codex) later('Quit the ChatGPT app, then run this again with --clean-codex-trust: the app may write config.toml while it runs.');
+      else {
+        const cfg = path.join(x.home, 'config.toml');
+        const before = readText(cfg);
+        const w = before === null ? { removed: 0 } : withoutTrust(before);
+        if (w.removed) {
+          const bak = path.join(backup, 'codex-config.toml');
+          fs.mkdirSync(backup, { recursive: true });
+          fs.writeFileSync(bak, before);
+          fs.writeFileSync(cfg, w.text);
+          ok(`removed ${w.removed} lines of jb-memory-codex hook-trust records from config.toml (backup: ${bak})`);
+        }
+      }
     }
   }
 
