@@ -296,7 +296,9 @@ function surveyCodex(codex) {
   }
   // The exact shape Codex uses isn't documented, so any other mention of the
   // old plugin's name counts as installed too: its cache then stays put.
-  const mentions = cfgText.split(/\r?\n/).filter(l => /jb-memory-codex/i.test(l) && !/^\s*\[\s*marketplaces/i.test(l) && !/^\s*#/.test(l));
+  // Marketplace entries and hook-trust records ([hooks.state."<plugin>:..."],
+  // which can outlive the plugin) don't mean it is installed.
+  const mentions = cfgText.split(/\r?\n/).filter(l => /jb-memory-codex/i.test(l) && !/^\s*\[\s*(?:marketplaces|hooks\s*\.\s*state)\b/i.test(l) && !/^\s*#/.test(l));
   if (!s.installed.length && mentions.length) s.installed.push(`${OLD_CODEX} (named in config.toml)`);
   for (const m of cfgText.matchAll(/^\s*\[\s*marketplaces\s*\.\s*"?([\w.+-]+)"?\s*\]/gm)) {
     if (/^jb-memory/i.test(m[1])) s.oldMarketplaces.push({ name: m[1], from: 'config.toml' });
@@ -505,7 +507,9 @@ function main() {
     if (o.cache && !x.installed.length) for (const d of x.cache) plan.push(`move ${d} to the backup folder`);
   }
   const useCodex = !!(x && x.used && codex);
-  const watchdog = WIN && (o.watchdog === 'yes' || (o.watchdog === 'auto' && (wd.tasks.length > 0 || !!wd.folder)));
+  // The old watchdog is running only while its tasks exist; its folder stays
+  // behind on purpose, with the old log, once the new watchdog replaced it.
+  const watchdog = WIN && (o.watchdog === 'yes' || (o.watchdog === 'auto' && wd.tasks.length > 0));
   const current = c && c.trailmark.find(p => p.id === 'trailmark@trailmark' && p.scope === 'user' && p.enabled && p.folder && samePath(p.folder, path.join(HERE, 'plugins', 'trailmark')));
   const codexCurrent = !useCodex || (x && x.trailmarkMarketplace);
   if (o.install && current && codexCurrent && !c.plugins.length && !watchdog) {
