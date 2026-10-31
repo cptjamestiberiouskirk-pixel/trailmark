@@ -431,6 +431,44 @@ test('git pointers: links on the way to a gitdir, config or include', { skip: WI
   assert.strictEqual(localPath(path.join(base, 'alias', 'x')), path.join(ok, 'x'), 'a local link is followed');
 });
 
+test('git pointers: whitespace git keeps, and links deep in the gitdir (loop round 1)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { farGitConfig, localPath } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far7-');
+  const sp = path.join(base, 'sp'); repoAt(sp);
+  fs.writeFileSync(path.join(sp, '.git', '  inc'), '[core]\n  attributesFile = //evil.invalid/share/a\n');
+  fs.appendFileSync(path.join(sp, '.git', 'config'), '[include]\n  path = "  inc"\n');
+  assert.strictEqual(farGitConfig(sp), 'odd-config-path', 'include path with leading spaces');
+  const gf = path.join(base, 'gf'); fs.mkdirSync(gf);
+  fs.writeFileSync(path.join(gf, '.git'), 'gitdir:  gd\n');
+  assert.notStrictEqual(farGitConfig(gf), '', '.git file with two spaces after gitdir:');
+  for (const rel of ['logs/HEAD', 'info/attributes', 'objects/info/commit-graph', 'sharedindex.' + 'a'.repeat(40)]) {
+    const r = path.join(base, 'deep-' + rel.replace(/\W/g, '_')); repoAt(r);
+    const at = path.join(r, '.git', rel);
+    fs.mkdirSync(path.dirname(at), { recursive: true });
+    try { fs.rmSync(at, { force: true }); } catch { /* none */ }
+    fs.symlinkSync('//evil.invalid/share/x', at);
+    assert.strictEqual(farGitConfig(r), 'linked-gitdir', rel);
+  }
+  const real = path.join(base, 'realdir'); fs.mkdirSync(path.join(real, 'inner'), { recursive: true });
+  fs.symlinkSync(path.join(real, 'inner'), path.join(base, 'lnk'));
+  assert.strictEqual(localPath(path.join(base, 'lnk') + '/../x'), path.join(real, 'x'), "'..' after a link goes up from where it led");
+});
+
+test('git status: a folder of tracked files that links to a share stops status', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-wt-');
+  const r = path.join(base, 'r'); repoAt(r);
+  fs.mkdirSync(path.join(r, 'sub')); fs.writeFileSync(path.join(r, 'sub', 'f'), 'x');
+  execFileSync('git', ['add', 'sub/f'], { cwd: r });
+  fs.rmSync(path.join(r, 'sub'), { recursive: true });
+  fs.symlinkSync('//evil.invalid/share/sub', path.join(r, 'sub'));
+  assert.strictEqual(gitFacts(r, ['status']).statusSkipped, 'linked-folder');
+  const ok = path.join(base, 'ok'); repoAt(ok);
+  fs.mkdirSync(path.join(ok, 'd1', 'd2'), { recursive: true }); fs.writeFileSync(path.join(ok, 'd1', 'd2', 'f'), 'x');
+  execFileSync('git', ['add', 'd1/d2/f'], { cwd: ok });
+  assert.strictEqual(gitFacts(ok, ['status']).statusSkipped, undefined);
+});
+
 test('git status: submodule folders are checked first, untracked repos are not looked into', () => {
   const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = realTemp('jbmem-sub-');

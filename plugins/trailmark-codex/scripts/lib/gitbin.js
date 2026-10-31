@@ -177,8 +177,8 @@ function gitEnv(base = process.env) {
 //   or worktree's own repo), whatever its Windows spelling (GIT~1, ".git.").
 // - On Windows a drive-relative path (C:x) or a root-relative one (\x) in a
 //   pointer is refused: git and this check would resolve it differently.
-// Not covered: a link planted in place of a single loose object file, or
-// among a repo's refs past the first 20,000 entries.
+// Not covered: a link planted in place of a single loose object file, or in
+// a gitdir past its first 20,000 entries.
 const NET_START = /^[\\/]{2}|^[\\/]\?\?[\\/]/;
 const WIN = process.platform === 'win32';
 const farCache = new Map();
@@ -200,23 +200,42 @@ const UNSAFE = Symbol('unsafe');
 // p with every link on the way read and replaced by its target, one part at
 // a time from the root; null when a link leads to a network path or the
 // links loop. Parts that don't exist are kept as they are.
+// a + sep + b without normalizing (b absolute: b), so '..' is taken where it
+// stands. On Windows paths are normalized as text first, as Windows does.
+function rawJoin(a, b) {
+  if (path.isAbsolute(b)) return WIN ? path.resolve(b) : b;
+  if (WIN) return path.resolve(a, b);
+  return /[\\/]$/.test(a) ? a + b : a + path.sep + b;
+}
+// The pointer text git uses, refused (null) when it starts or ends with
+// whitespace or holds a line break: git keeps such characters, and this
+// check would otherwise look at a different file than git opens.
+function exactPointer(t) {
+  const v = String(t).replace(/[\r\n]+$/, '');
+  return /^\s|\s$|[\r\n]/.test(v) ? null : v;
+}
 function localPath(p) {
-  let cur = path.resolve(p);
+  let cur = WIN ? path.resolve(String(p)) : String(p);
+  if (!WIN && !cur.startsWith('/')) cur = rawJoin(process.cwd(), cur);
   if (NET_START.test(cur)) return null;
   for (let hops = 0; hops < 40; hops++) {
     const root = path.parse(cur).root;
-    const parts = cur.slice(root.length).split(/[\\/]+/).filter(Boolean);
+    const parts = cur.slice(root.length).split(/[\\/]+/).filter(x => x && x !== '.');
     let at = root;
     let relinked = false;
     for (let i = 0; i < parts.length; i++) {
+      // '..' after a link goes up from where the link led, as the kernel does.
+      if (parts[i] === '..') { at = path.dirname(at); continue; }
       const next = path.join(at, parts[i]);
       let st;
-      try { st = fs.lstatSync(next); } catch { return path.join(at, ...parts.slice(i)); }
+      try { st = fs.lstatSync(next); } catch { return path.resolve(at, ...parts.slice(i)); }
       if (st.isSymbolicLink()) {
         let t;
         try { t = fs.readlinkSync(next); } catch { return null; }
         if (netText(t) || oddRelative(t)) return null;
-        cur = path.resolve(at, t, ...parts.slice(i + 1));
+        const rest = parts.slice(i + 1).join(path.sep);
+        cur = rawJoin(at, t);
+        if (rest) cur = rawJoin(cur, rest);
         if (NET_START.test(cur)) return null;
         relinked = true;
         break;
@@ -270,11 +289,11 @@ function farConfig(file, depth, st) {
   for (const [key, value] of entries) {
     if (netText(value)) return 'network-config';
     if (!/^include\.path$|^includeif\..*\.path$/i.test(key)) continue;
-    let p = value.trim();
-    if (oddRelative(p)) return 'odd-config-path';
+    let p = exactPointer(value);
+    if (p === null || oddRelative(p)) return 'odd-config-path';
     if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) p = path.join(os.homedir(), p.slice(2));
     else if (p.startsWith('~')) return 'odd-config-path';
-    const why = farConfig(path.resolve(path.dirname(real), p), depth + 1, st);
+    const why = farConfig(rawJoin(path.dirname(real), p), depth + 1, st);
     if (why) return why;
   }
   return '';
@@ -299,12 +318,14 @@ function farAlternates(objects, depth, seen) {
   const alt = readSmall(path.join(real, 'info', 'alternates'), 64 * 1024);
   if (alt === null) return '';
   if (alt === UNSAFE) return 'unreadable-config';
-  for (const raw of alt.split(/\r?\n/)) {
+  for (const raw0 of alt.split('\n')) {
+    const raw = raw0.replace(/\r$/, '');
     if (!raw.trim() || raw.trim().startsWith('#')) continue;
+    if (/^\s|\s$/.test(raw)) return 'odd-config-path';
     const line = altLine(raw);
     if (netText(raw) || netText(line)) return 'network-config';
     if (oddRelative(line)) return 'odd-config-path';
-    const why = farAlternates(path.resolve(real, line), depth + 1, seen);
+    const why = farAlternates(rawJoin(real, line), depth + 1, seen);
     if (why) return why;
   }
   return '';
@@ -312,29 +333,29 @@ function farAlternates(objects, depth, seen) {
 // A pointer read from a file (gitdir:, commondir), resolved locally; null
 // when it is, or leads through a link to, a network path or is ambiguous.
 function gitdirAt(base, t) {
-  if (netText(t) || oddRelative(t)) return null;
-  return localPath(path.resolve(base, t.trim()));
+  const v = exactPointer(t);
+  if (v === null || !v || netText(v) || oddRelative(v)) return null;
+  return localPath(rawJoin(base, v));
 }
-// The gitdir's own entries git reads; none may be a link.
-const GITDIR_ENTRIES = ['HEAD', 'config', 'config.worktree', 'commondir', 'objects', 'refs', 'packed-refs', 'logs', 'index', 'info', 'modules', 'worktrees', 'shallow', 'hooks', 'FETCH_HEAD', 'ORIG_HEAD', 'MERGE_HEAD'];
+// No link anywhere in a gitdir: git reads its logs, info, packs, the split
+// index and more. Loose object files (objects/xx/...) aren't walked, as
+// there can be very many; past 20,000 entries the rest isn't looked at, so a
+// big repo isn't kept out.
 function linkedEntries(gitdir) {
-  const isLink = p => { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } };
-  for (const e of GITDIR_ENTRIES) if (isLink(path.join(gitdir, e))) return true;
-  // refs, and the first level of objects and objects/pack, walked for links.
-  // Past 20,000 entries the rest isn't looked at: a big repo's unpacked refs
-  // shouldn't keep git out.
   let budget = 20000;
-  const walk = (d, depth) => {
+  const walk = (d, rel, depth) => {
     let list;
     try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return false; }
     for (const x of list) {
       if (--budget < 0) return false;
       if (x.isSymbolicLink()) return true;
-      if (x.isDirectory() && depth > 0 && walk(path.join(d, x.name), depth - 1)) return true;
+      if (!x.isDirectory() || depth > 16) continue;
+      if (/(^|\/)objects$/.test(rel) && /^[0-9a-f]{2}$/i.test(x.name)) continue;
+      if (walk(path.join(d, x.name), rel ? rel + '/' + x.name : x.name, depth + 1)) return true;
     }
     return false;
   };
-  return walk(path.join(gitdir, 'refs'), 10) || walk(path.join(gitdir, 'objects'), 0) || walk(path.join(gitdir, 'objects', 'pack'), 0);
+  return walk(gitdir, '', 0);
 }
 function farGit(gitEntry) {
   let st;
@@ -344,15 +365,16 @@ function farGit(gitEntry) {
   if (st.isFile()) {
     const t = readSmall(gitEntry, 4096);
     if (t === UNSAFE) return 'unreadable-config';
-    const m = t === null ? null : /^gitdir:\s*(.+?)\s*$/m.exec(t);
-    if (!m) return '';
-    gitdir = gitdirAt(path.dirname(gitEntry), m[1]);
+    // git: the file must start with "gitdir: "; the rest, less trailing line
+    // breaks, is the path.
+    if (t === null || !t.startsWith('gitdir: ')) return '';
+    gitdir = gitdirAt(path.dirname(gitEntry), t.slice(8));
     if (!gitdir) return 'network-gitdir';
   } else if (!st.isDirectory()) return '';
   const dirs = [gitdir];
   const common = readSmall(path.join(gitdir, 'commondir'), 4096);
   if (common === UNSAFE) return 'unreadable-config';
-  if (common !== null && common.trim()) {
+  if (common !== null && common.replace(/[\r\n]+$/, '')) {
     const c = gitdirAt(gitdir, common);
     if (!c) return 'network-gitdir';
     dirs.push(c);
@@ -387,16 +409,25 @@ function farGitConfig(cwd) {
   const real = why ? '' : localPath(key);
   if (!why && !real) why = 'network-folder';
   if (!why && real.slice(path.parse(real).root.length).split(/[\\/]+/).some(isGitPart)) why = 'inside-gitdir';
-  let d = real;
-  for (let i = 0; !why; i++) {
-    if (i > 512) { why = 'deep-folder'; break; }
-    const g = path.join(d, '.git');
-    let found = false;
-    try { fs.lstatSync(g); found = true; } catch { found = false; }
-    if (found) why = farGit(g);
-    const up = path.dirname(d);
-    if (up === d) break;
-    d = up;
+  // The folders above both the path as given and its real path: git may
+  // search either (on Windows it may keep the path as given).
+  const seenDirs = new Set();
+  for (const start of why ? [] : [real, key]) {
+    let d = start;
+    for (let i = 0; !why; i++) {
+      if (i > 512) { why = 'deep-folder'; break; }
+      const k = WIN ? d.toLowerCase() : d;
+      if (!seenDirs.has(k)) {
+        seenDirs.add(k);
+        const g = path.join(d, '.git');
+        let found = false;
+        try { fs.lstatSync(g); found = true; } catch { found = false; }
+        if (found) why = farGit(g);
+      }
+      const up = path.dirname(d);
+      if (up === d) break;
+      d = up;
+    }
   }
   if (farCache.size > 64) farCache.clear();
   farCache.set(key, why);

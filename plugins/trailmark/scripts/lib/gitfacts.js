@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { oneLine, displayPath, inside } = require('./store');
-const { farGitConfig, farNested, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
+const { farGitConfig, farNested, localPath, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
 // and Windows caps a variable at 32,767 characters (Linux at 128 KB), so only
@@ -74,14 +74,15 @@ function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
     // git status may run a clean or process filter that the repo's own
     // attributes and config name. Those filters are switched off for the
     // call; without the list of their names, status isn't read at all.
-    const off = filterOverrides(r, cwd);
-    // git status also looks into every submodule folder while it refreshes
-    // the index, and into untracked folders that are repos of their own. So
-    // untracked files aren't listed, and each submodule's .git is checked
-    // like the repo's own first.
-    const subs = off.why ? '' : farSubmodules(r, cwd);
+    // git status (and the attribute lookup below) also looks into every
+    // submodule folder, into untracked folders that are repos of their own,
+    // and through the folders that hold tracked files. So untracked files
+    // aren't listed, and before anything runs each submodule's .git is
+    // checked like the repo's own, and no folder of tracked files may be a
+    // link to a network path.
+    const subs = farWorktree(r, cwd);
+    const off = subs ? { why: subs } : filterOverrides(r, cwd);
     if (off.why) f.statusSkipped = off.why;
-    else if (subs) f.statusSkipped = subs;
     else {
       if (off.offFiles) f.statusFiltersOff = off.offFiles;
       const st = r.run(cwd, [...off.args, 'status', '--porcelain=v1', '--untracked-files=no', '--ignore-submodules=dirty']);
@@ -106,18 +107,34 @@ function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
 // as the repo's own .git, else why status shouldn't run. ls-files --stage only
 // reads the index; it doesn't look into the folders.
 const MAX_SUBMODULES = 200;
-function farSubmodules(r, cwd) {
+const MAX_TREE_FOLDERS = 20000;
+function farWorktree(r, cwd) {
   const top = topLevel(r, cwd);
   if (!top.ok) return top.why === 'timeout' ? 'git-timeout' : 'git-error';
   const ls = r.run(cwd, ['ls-files', '--stage', '-z', '--full-name']);
   if (!ls.ok) return ls.why === 'timeout' ? 'git-timeout' : 'git-error';
   let n = 0;
+  const folders = new Set();
   for (const e of ls.out.split('\0')) {
+    const rel = e.slice(e.indexOf('\t') + 1);
+    if (!rel || e.indexOf('\t') < 0) continue;
+    if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes('..')) return 'odd-path';
+    // Every folder on the way to the file (past MAX_TREE_FOLDERS the rest
+    // isn't looked at, so a very large repo still gets a snapshot).
+    const parts = rel.split('/');
+    for (let i = 1; i < parts.length && folders.size < MAX_TREE_FOLDERS; i++) folders.add(parts.slice(0, i).join('/'));
     if (!e.startsWith('160000 ')) continue;
     if (++n > MAX_SUBMODULES) return 'many-submodules';
-    const rel = e.slice(e.indexOf('\t') + 1);
-    if (!rel || path.isAbsolute(rel) || rel.split(/[\\/]/).includes('..')) return 'submodule-pointer';
     if (farNested(path.join(top.top, rel))) return 'submodule-pointer';
+  }
+  for (const rel of folders) {
+    let st;
+    try { st = fs.lstatSync(path.join(top.top, rel)); } catch { continue; }
+    if (!st.isSymbolicLink()) continue;
+    let t = '';
+    try { t = fs.readlinkSync(path.join(top.top, rel)); } catch { return 'linked-folder'; }
+    if (/^[\\/]{2}|^[\\/]\?\?[\\/]|^%\(prefix\)/i.test(t.replace(/"/g, '').trim())) return 'linked-folder';
+    if (!localPath(path.join(top.top, rel))) return 'linked-folder';
   }
   return '';
 }
