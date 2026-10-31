@@ -60,12 +60,22 @@ fail() { printf '  FAIL  %s\n' "$1"; exit 1; }
 if [ "$UNINSTALL" = 1 ]; then
   step 'Uninstall'
   command -v claude >/dev/null 2>&1 || fail 'claude is not on PATH.'
-  claude plugin uninstall "$PLUGIN@$MKT" || warn "claude plugin uninstall $PLUGIN@$MKT did not succeed (it may not be installed)."
-  claude plugin marketplace remove "$MKT" || warn "claude plugin marketplace remove $MKT did not succeed (it may not be configured)."
+  # Exit 2 when a step failed for a reason other than "already gone".
+  RC=0
+  if OUT="$(claude plugin uninstall "$PLUGIN@$MKT" --json 2>&1)"; then ok "uninstalled $PLUGIN@$MKT"
+  elif printf '%s' "$OUT" | grep -Eq '"failureCode"[[:space:]]*:[[:space:]]*"not_installed"'; then ok "$PLUGIN@$MKT was not installed"
+  else warn "claude plugin uninstall $PLUGIN@$MKT failed: $OUT"; RC=2; fi
+  if OUT="$(claude plugin marketplace remove "$MKT" --json 2>&1)"; then ok "removed the marketplace $MKT"
+  elif printf '%s' "$OUT" | grep -Eq '"failureCode"[[:space:]]*:[[:space:]]*"not_configured"'; then ok "the marketplace $MKT was not configured"
+  else warn "claude plugin marketplace remove $MKT failed: $OUT"; RC=2; fi
   # The ChatGPT app lists an installed plugin only through its marketplace,
   # so the marketplace stays until trailmark-codex is uninstalled there.
+  # A config.toml that is there but can't be read keeps it too.
   CODEX_CFG="${CODEX_HOME:-$HOME/.codex}/config.toml"
-  if [ -f "$CODEX_CFG" ] && grep -Eq '^[[:space:]]*\[[[:space:]]*plugins[[:space:]]*\.[[:space:]]*"trailmark-codex@' "$CODEX_CFG"; then
+  if [ -e "$CODEX_CFG" ] && ! [ -r "$CODEX_CFG" ]; then
+    warn "$CODEX_CFG can't be read, so the trailmark-codex marketplace was kept: if trailmark-codex is installed, the ChatGPT app shows it only through that marketplace."
+    RC=2
+  elif [ -f "$CODEX_CFG" ] && grep -Eq '^[[:space:]]*\[[[:space:]]*plugins[[:space:]]*\.[[:space:]]*"trailmark-codex@' "$CODEX_CFG"; then
     warn 'trailmark-codex is still installed in the ChatGPT app. Uninstall it there first (Plugins), then run this again to remove its marketplace: the app shows it only through that marketplace.'
   elif command -v codex >/dev/null 2>&1; then
     codex plugin marketplace remove trailmark-codex >/dev/null 2>&1 && ok 'removed the trailmark-codex marketplace from Codex'
@@ -73,7 +83,7 @@ if [ "$UNINSTALL" = 1 ]; then
   echo
   echo 'Done. The memory folders (~/.claude/projects/<repo>/memory) were kept; each repo'"'"'s'
   echo 'handoff and logs stay there. Delete .jbmem.json in one to stop using it.'
-  exit 0
+  exit "$RC"
 fi
 
 step 'Check the tools'
@@ -107,19 +117,29 @@ WW="$(find "$HERE" \( -type d -o -type f \) -perm -0002 ! -type l -print -quit 2
 [ -z "$WW" ] || fail "other users can write to $WW. Claude Code runs the hooks from this folder, so fix that first (chmod -R go-w \"$HERE\")."
 # Group write is fine only for a group that is yours alone (a user private
 # group named after you). A shared group such as staff or users is not.
-GW="$(find "$HERE" \( -type d -o -type f \) -perm -0020 ! -type l ! -group "$(id -un)" -print -quit 2>/dev/null)"
+# Where no group is named after you (macOS: staff), any group write counts:
+# find can't test against a group that doesn't exist, and would match nothing.
+ME="$(id -un)"
+if find "$HERE" -maxdepth 0 -group "$ME" >/dev/null 2>&1; then
+  OWNGRP_NOT="! -group $ME"
+  case "$ME" in *[!A-Za-z0-9._-]*) OWNGRP_NOT='' ;; esac
+else
+  OWNGRP_NOT=''
+fi
+# shellcheck disable=SC2086
+GW="$(find "$HERE" \( -type d -o -type f \) -perm -0020 ! -type l $OWNGRP_NOT -print -quit 2>/dev/null)"
 [ -z "$GW" ] || fail "members of a shared group can write to $GW. Claude Code runs the hooks from this folder, so fix that first (chmod -R go-w \"$HERE\")."
 # The release ships no links, and a link could point at something others can write.
 LK="$(find "$HERE" -type l -print -quit 2>/dev/null)"
 [ -z "$LK" ] || fail "$LK is a link. The release has none; replace it with the real file or folder."
 # The folders above it count too: whoever can write to a parent, or owns it,
 # can replace this folder. A sticky folder (such as /tmp) stops that for others.
-ME="$(id -un)"
 P="$(dirname "$HERE")"
 while [ -n "$P" ]; do
   if [ -z "$(find "$P" -maxdepth 0 -perm -1000 2>/dev/null)" ]; then
     if [ -n "$(find "$P" -maxdepth 0 -perm -0002 2>/dev/null)" ]; then fail "other users can write to $P, which holds this folder. Move the release under your home folder."; fi
-    if [ -n "$(find "$P" -maxdepth 0 -perm -0020 ! -group "$ME" 2>/dev/null)" ]; then fail "members of a shared group can write to $P, which holds this folder. Move the release under your home folder."; fi
+    # shellcheck disable=SC2086
+    if [ -n "$(find "$P" -maxdepth 0 -perm -0020 $OWNGRP_NOT 2>/dev/null)" ]; then fail "members of a shared group can write to $P, which holds this folder. Move the release under your home folder."; fi
   fi
   if [ -z "$(find "$P" -maxdepth 0 \( -user "$ME" -o -user 0 \) 2>/dev/null)" ]; then fail "$P, which holds this folder, belongs to another user. Move the release under your home folder."; fi
   [ "$P" = "/" ] && break

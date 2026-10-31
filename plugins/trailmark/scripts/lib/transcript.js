@@ -66,16 +66,22 @@ function findTranscriptForSession(cwd, session, recorded, platform = process.pla
   const root = path.resolve(projectsRoot());
   const fold = p => (platform === 'win32' ? p.toLowerCase() : p);
   const underRoot = p => fold(p).startsWith(fold(root) + path.sep);
-  // A plain file reached without a link that leaves the projects folder: the
-  // recorded path is data from the state file, and a link there could lead
-  // anywhere, a network path included.
+  // A plain file, reached through no link to a network path: the recorded
+  // path is data from the state file. Each link from the projects folder down
+  // is read as text, before anything is looked up through it; that works
+  // under the sandbox too, which can't look above its grants. A local link (a
+  // project folder kept elsewhere) is fine. localPath then checks the whole
+  // path where it can.
   const isFile = p => {
     try {
+      let at = root;
+      for (const part of path.relative(root, p).split(path.sep).slice(0, -1)) {
+        at = path.join(at, part);
+        if (fs.lstatSync(at).isSymbolicLink() && /^[\\/]{2}|^[\\/]\?\?[\\/]|^%\(prefix\)/i.test(fs.readlinkSync(at).replace(/"/g, '').trim())) return false;
+      }
       if (!fs.lstatSync(p).isFile()) return false;
       const { localPath } = require('./gitbin');
-      const real = localPath(p);
-      const realRoot = localPath(root) || root;
-      return !!real && fold(real).startsWith(fold(realRoot) + path.sep);
+      return !!localPath(p);
     } catch { return false; }
   };
   if (typeof recorded === 'string' && recorded) {

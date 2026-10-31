@@ -63,6 +63,10 @@ if ($PSVersionTable.PSVersion.Major -lt 6 -and $env:PSModulePath) {
   $env:PSModulePath = $tmPsPaths -join ';'
 }
 
+# cmd.exe, which runs the claude and codex .cmd shims, would otherwise look
+# for node.exe in the current folder (a repo) before PATH. For this run only.
+$env:NoDefaultCurrentDirectoryInExePath = '1'
+
 $ErrorActionPreference = 'Continue'
 # UTF-8 both ways with node and claude, so paths outside ASCII survive.
 $OutputEncoding = New-Object System.Text.UTF8Encoding $false
@@ -96,16 +100,30 @@ function NodeCheck([string]$What, [string]$In) {
 if ($Uninstall) {
   Step 'Uninstall'
   if (-not (Have 'claude')) { Fail 'claude is not on PATH.' }
-  & claude plugin uninstall "$plugin@$mkt"
-  if ($LASTEXITCODE -ne 0) { Warn "claude plugin uninstall $plugin@$mkt did not succeed (it may not be installed)." }
-  & claude plugin marketplace remove $mkt
-  if ($LASTEXITCODE -ne 0) { Warn "claude plugin marketplace remove $mkt did not succeed (it may not be configured)." }
+  # Exit 2 when a step failed for a reason other than "already gone".
+  $rc = 0
+  $o = Run 'claude' @('plugin', 'uninstall', "$plugin@$mkt", '--json')
+  if ($LASTEXITCODE -eq 0) { Ok "uninstalled $plugin@$mkt" }
+  elseif ($o -match '"failureCode"\s*:\s*"not_installed"') { Ok "$plugin@$mkt was not installed" }
+  else { Warn "claude plugin uninstall $plugin@$mkt failed: $o"; $rc = 2 }
+  $o = Run 'claude' @('plugin', 'marketplace', 'remove', $mkt, '--json')
+  if ($LASTEXITCODE -eq 0) { Ok "removed the marketplace $mkt" }
+  elseif ($o -match '"failureCode"\s*:\s*"not_configured"') { Ok "the marketplace $mkt was not configured" }
+  else { Warn "claude plugin marketplace remove $mkt failed: $o"; $rc = 2 }
   # The ChatGPT app lists an installed plugin only through its marketplace,
   # so the marketplace stays until trailmark-codex is uninstalled there.
+  # A config.toml that is there but can't be read keeps it too.
   $codexHome = $(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' })
+  $codexCfgPath = Join-Path $codexHome 'config.toml'
   $codexCfg = ''
-  try { $codexCfg = [IO.File]::ReadAllText((Join-Path $codexHome 'config.toml')) } catch { $codexCfg = '' }
-  if ($codexCfg -match '(?m)^\s*\[\s*plugins\s*\.\s*"trailmark-codex@') {
+  $cfgUnread = $false
+  if ([IO.File]::Exists($codexCfgPath)) {
+    try { $codexCfg = [IO.File]::ReadAllText($codexCfgPath) } catch { $cfgUnread = $true }
+  }
+  if ($cfgUnread) {
+    Warn "$codexCfgPath can't be read, so the trailmark-codex marketplace was kept: if trailmark-codex is installed, the ChatGPT app shows it only through that marketplace."
+    $rc = 2
+  } elseif ($codexCfg -match '(?m)^\s*\[\s*plugins\s*\.\s*"trailmark-codex@') {
     Warn 'trailmark-codex is still installed in the ChatGPT app. Uninstall it there first (Plugins), then run this again to remove its marketplace: the app shows it only through that marketplace.'
   } elseif (Have 'codex') {
     $null = Run 'codex' @('plugin', 'marketplace', 'remove', 'trailmark-codex')
@@ -115,7 +133,7 @@ if ($Uninstall) {
   Write-Host 'Done. The memory folders (%USERPROFILE%\.claude\projects\<repo>\memory) were kept.'
   Write-Host 'trailmark-watchdog, if installed, stays: remove it with'
   Write-Host ('  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $here 'tools\windows\install-trailmark-watchdog.ps1') + '" -Uninstall')
-  exit 0
+  exit $rc
 }
 
 Step 'Check the tools'

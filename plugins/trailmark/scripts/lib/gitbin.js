@@ -278,9 +278,11 @@ function readSmall(file, max) {
 function configEntries(file) {
   const st = readSmall(file, 8 * 1024 * 1024);
   if (st === null || st === UNSAFE) return st;
-  // No backslash, no '//', no %( and no include: no value in it can name a
-  // network path or another file, so git isn't started for it.
-  if (!/[\\]|\/\/|%\(|include/i.test(st)) return [];
+  // No backslash, no quote, no '//', no %( and no include: no value in it
+  // can name a network path or another file, so git isn't started for it.
+  // (Quotes and backslashes are what git's value parser joins or decodes:
+  // /""/server/share reads as //server/share.)
+  if (!/[\\"]|\/\/|%\(|include/i.test(st)) return [];
   const bin = gitPath(__dirname);
   if (!bin) return UNSAFE;
   try {
@@ -294,6 +296,7 @@ function configEntries(file) {
     });
   } catch { return UNSAFE; }
 }
+const REMOTE_ADDRESS = /^remote\..+\.(?:url|pushurl)$|^url\..+\.(?:insteadof|pushinsteadof)$/i;
 const MAX_INCLUDE_DEPTH = 10;
 const MAX_CONFIG_FILES = 50;
 // st: { seen, files } shared by one whole check.
@@ -310,6 +313,10 @@ function farConfig(file, depth, st) {
   if (entries === null) return '';
   if (entries === UNSAFE) return 'unreadable-config';
   for (const [key, value] of entries) {
+    // A remote's address is used only to fetch and push, and every transport
+    // is off in the calls made here (GIT_ALLOW_PROTOCOL, protocol.*.allow,
+    // GIT_NO_LAZY_FETCH), so a remote on a share doesn't keep git out.
+    if (REMOTE_ADDRESS.test(key)) continue;
     if (netText(value)) return 'network-config';
     if (!/^include\.path$|^includeif\..*\.path$/i.test(key)) continue;
     let p = exactPointer(value);
@@ -367,31 +374,37 @@ function gitdirAt(base, t) {
 // run (core.hooksPath is set). Loose object files (objects/xx/...) aren't
 // walked, as there can be very many; past 20,000 entries the rest isn't
 // looked at, so a big repo isn't kept out.
+// '' when nothing in the gitdir is a link to a network path, else the reason.
+// Folders deeper than MAX_GITDIR_DEPTH aren't walked, so a gitdir that has
+// one is refused rather than passed.
+const MAX_GITDIR_DEPTH = 24;
 function linkedEntries(gitdir) {
   let budget = 20000;
   const seen = new Set();
   const walk = (d, rel, depth) => {
     let list;
-    try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return false; }
+    try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return ''; }
     for (const x of list) {
-      if (--budget < 0) return false;
+      if (--budget < 0) return '';
       if (!rel && x.name === 'hooks') continue;
       let sub = path.join(d, x.name);
       let isDir = x.isDirectory();
       if (x.isSymbolicLink()) {
         const real = localPath(sub);
-        if (!real) return true;
+        if (!real) return 'linked-gitdir';
         try { isDir = fs.statSync(real).isDirectory(); } catch { isDir = false; }
         sub = real;
       }
-      if (!isDir || depth > 16) continue;
+      if (!isDir) continue;
       if (/(^|\/)objects$/.test(rel) && /^[0-9a-f]{2}$/i.test(x.name)) continue;
+      if (depth >= MAX_GITDIR_DEPTH) return 'deep-gitdir';
       const k = WIN ? sub.toLowerCase() : sub;
       if (seen.has(k)) continue;
       seen.add(k);
-      if (walk(sub, rel ? rel + '/' + x.name : x.name, depth + 1)) return true;
+      const why = walk(sub, rel ? rel + '/' + x.name : x.name, depth + 1);
+      if (why) return why;
     }
-    return false;
+    return '';
   };
   return walk(gitdir, '', 0);
 }
@@ -400,7 +413,10 @@ function linkedEntries(gitdir) {
 function validGitdir(gitdir, common) {
   const base = common || gitdir;
   let head = '';
-  try { head = fs.readFileSync(path.join(gitdir, 'HEAD'), 'utf8').slice(0, 200); } catch { return false; }
+  // readSmall: a FIFO or a huge file as HEAD would hang or stall the read.
+  const t = readSmall(path.join(gitdir, 'HEAD'), 4096);
+  if (t === null || t === UNSAFE) return false;
+  head = t.slice(0, 200);
   if (!/^ref: refs\/|^[0-9a-f]{40}|^[0-9a-f]{64}/.test(head)) return false;
   try { return fs.statSync(path.join(base, 'objects')).isDirectory() && fs.statSync(path.join(base, 'refs')).isDirectory(); } catch { return false; }
 }
@@ -434,7 +450,8 @@ function farGit(gitEntry, out = {}) {
   out.common = dirs[1] || '';
   const cst = { seen: new Set(), files: 0 };
   for (const d of dirs) {
-    if (linkedEntries(d)) return 'linked-gitdir';
+    const linked = linkedEntries(d);
+    if (linked) return linked;
     for (const f of ['config', 'config.worktree']) {
       const why = farConfig(path.join(d, f), 0, cst);
       if (why) return why;
@@ -535,4 +552,7 @@ function localRepoRoot(cwd) {
   });
 }
 
-module.exports = { farGitConfig, farNested, localPath, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };
+// localPath with the share that `base` is on allowed (a session working on a
+// share may name folders on it).
+function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
+module.exports = { farGitConfig, farNested, localPath, localPathFrom, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };

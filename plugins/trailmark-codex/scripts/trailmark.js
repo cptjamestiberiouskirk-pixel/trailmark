@@ -46,7 +46,7 @@ const { findMemoryDir, projectsRoot, samePath, repoRoot, configDir } = require('
 const { oldCodexCopies, nodeAdvice, otherCopies, nodeInside } = require('./lib/health');
 const S = require('./lib/store');
 const { commitsSince, gitFacts, commitFacts, fitCommitFacts, sweepCommits, sameFolder, windowMs, farNetwork } = require('./lib/gitfacts');
-const { localPath } = require('./lib/gitbin');
+const { localPath, localPathFrom } = require('./lib/gitbin');
 // When the launcher started: a hook's sandboxed script gets what is left of
 // the host's hook timeout, not a fixed time on top of the launcher's own work.
 const T0 = Date.now();
@@ -222,15 +222,19 @@ function sessionHome(payload) {
   if (typeof tp !== 'string' || !tp.endsWith('.jsonl')) return '';
   const f = path.resolve(tp);
   if (!S.inside(path.resolve(projectsRoot()), f)) return '';
+  // Never through a link to a share, nor out of the projects folder by one.
+  const real = localPath(f);
+  const realRoot = localPath(path.resolve(projectsRoot()));
+  if (!real || !realRoot || !S.inside(realRoot, real)) return '';
   let fd;
   try {
-    fd = fs.openSync(f, 'r');
+    fd = fs.openSync(real, 'r');
     const buf = Buffer.alloc(64 * 1024);
     const n = fs.readSync(fd, buf, 0, buf.length, 0);
     const m = /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(buf.slice(0, n).toString('utf8'));
     if (!m) return '';
     const c = JSON.parse('"' + m[1] + '"');
-    return typeof c === 'string' && path.isAbsolute(c) && fs.statSync(c).isDirectory() ? c : '';
+    return typeof c === 'string' && path.isAbsolute(c) && localPathFrom(c, c) && fs.statSync(c).isDirectory() ? c : '';
   } catch {
     return '';
   } finally {
@@ -679,8 +683,10 @@ function rootSeen(loc, cwd) {
   if (!r) return { recorded: '' };
   // A network path is never looked up, not even to compare it: resolving it
   // would reach the server, outside the sandbox.
-  if (farNetwork(r, cwd) || !localPath(r)) return { recorded: r, same: false, network: true };
+  // Same by name first: a session on a share compares its own root without
+  // looking it up. Then the session's own share may be looked up, no other.
   if (sameFolder(r, loc.root)) return { recorded: r, same: true };
+  if (farNetwork(r, cwd) || !localPathFrom(cwd, r)) return { recorded: r, same: false, network: true };
   let exists = false;
   try { exists = fs.lstatSync(path.join(r, '.git')) !== null; } catch { exists = false; }
   return { recorded: r, same: false, exists };
@@ -737,7 +743,7 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   const dirs = [];
   // The folders come from the state file, which a session can write: a
   // network one outside the session's folder is never touched.
-  const add = (d) => { if (typeof d === 'string' && d.length < 4096 && path.isAbsolute(d) && !farNetwork(d, homeCwd) && localPath(d) && !dirs.some(x => sameFolder(x, d))) dirs.push(d); };
+  const add = (d) => { if (typeof d === 'string' && d.length < 4096 && path.isAbsolute(d) && !farNetwork(d, homeCwd) && localPathFrom(homeCwd, d) && !dirs.some(x => sameFolder(x, d))) dirs.push(d); };
   add(rec.home); add(homeCwd);
   for (const d of Array.isArray(rec.commitDirs) ? rec.commitDirs : []) add(d);
   add(rec.commitDir);
@@ -763,7 +769,7 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   if (!items.length || left < 1000) return undefined;
   // rec.home comes from the state file, which a session can write: it is
   // used only when it is a local path (git runs there).
-  const recHome = typeof rec.home === 'string' && rec.home && path.isAbsolute(rec.home) && !farNetwork(rec.home, homeCwd) && localPath(rec.home) ? rec.home : homeCwd;
+  const recHome = typeof rec.home === 'string' && rec.home && path.isAbsolute(rec.home) && !farNetwork(rec.home, homeCwd) && localPathFrom(homeCwd, rec.home) ? rec.home : homeCwd;
   return sweepCommits(items, { homeCwd: recHome, budgetMs: Math.min(left, 3000), now });
 }
 
@@ -913,7 +919,7 @@ function handoffFacts(loc, cwd, session) {
   try {
     const rec = session ? S.sessionRecord(loc.dir, session) : null;
     const d = rec && typeof rec.commitDir === 'string' ? rec.commitDir : '';
-    if (d && path.isAbsolute(d) && !farNetwork(d, cwd) && localPath(d) && fs.statSync(d).isDirectory()) target = d;
+    if (d && path.isAbsolute(d) && !farNetwork(d, cwd) && localPathFrom(cwd, d) && fs.statSync(d).isDirectory()) target = d;
   } catch { /* the session's own folder */ }
   let f = gitFacts(target, ['branch', 'head', 'toplevel']);
   if (!f.head && target !== cwd) { target = cwd; f = gitFacts(cwd, ['branch', 'head', 'toplevel']); }

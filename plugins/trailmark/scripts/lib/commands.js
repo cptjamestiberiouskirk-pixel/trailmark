@@ -165,6 +165,7 @@ function gitSite(args, dir, ctx, { otherRepo = false, inLoop = false, resolve })
   const out = ctx.out;
   let i = 0;
   let unknown = dir === null;
+  let hops = 0;
   while (i < args.length) {
     const a = args[i];
     const v = a.v;
@@ -173,7 +174,9 @@ function gitSite(args, dir, ctx, { otherRepo = false, inLoop = false, resolve })
       const p = args[i + 1];
       if (!p) return;
       if (p.dyn || p.glob) unknown = true;
-      else if (!unknown) { dir = resolve(dir, p.v); if (dir === null) unknown = true; }
+      // A long chain of -C (each one longer to resolve than the last) is
+      // taken as an unknown folder rather than worked out.
+      else if (!unknown) { dir = ++hops > 64 ? null : resolve(dir, p.v); if (dir === null || dir.length > 4096) unknown = true; }
       i += 2; continue;
     }
     if (v === '-c' || v === '--config-env' || v === '--namespace' || v === '--super-prefix' || v === '--attr-source' || v === '--list-cmds') { i += 2; continue; }

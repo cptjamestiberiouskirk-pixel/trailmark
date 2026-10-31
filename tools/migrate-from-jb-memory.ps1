@@ -5,6 +5,20 @@
 #   .\migrate-from-jb-memory.ps1 --dry-run
 # See migrate-from-jb-memory.js for what it does.
 
+# Windows PowerShell 5.1 started from PowerShell 7 inherits its PSModulePath,
+# finds PowerShell 7's copies of its own modules first, and then fails to load
+# Get-Acl, ConvertFrom-Json and the like. PowerShell 7's entries are dropped.
+if ($PSVersionTable.PSVersion.Major -lt 6 -and $env:PSModulePath) {
+  # PowerShell 7's folders, wherever it was installed from (installer, Store,
+  # Scoop), are dropped, and Windows PowerShell's own modules come first.
+  # Built with language features only: cmdlets from those modules can't load yet.
+  $tmPsPaths = [System.Collections.Generic.List[string]]::new()
+  foreach ($e in (@("$PSHOME\Modules") + @($env:PSModulePath -split ';'))) {
+    if ($e -and $e -notmatch '(^|\\)PowerShell\\|\\WindowsApps\\Microsoft\.PowerShell|\\pwsh\\' -and -not $tmPsPaths.Contains($e)) { $tmPsPaths.Add($e) }
+  }
+  $env:PSModulePath = $tmPsPaths -join ';'
+}
+
 $ErrorActionPreference = 'Stop'
 $here = (Get-Location).ProviderPath.TrimEnd('\')
 $node = Get-Command node.exe -CommandType Application -All -ErrorAction SilentlyContinue |

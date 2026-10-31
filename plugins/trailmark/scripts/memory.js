@@ -63,13 +63,22 @@ function fail(msg, code = 1) {
 // Reading the file here covers running memory.js directly.
 function readStdin() {
   if (typeof flags.from === 'string' && process.env.JBMEM_LAUNCHED !== '1') {
-    try { return fs.readFileSync(path.resolve(flags.from), 'utf8'); } catch (e) { fail(`could not read ${flags.from}: ${e.code || e.message}`); }
+    try { return endMarkerFree(fs.readFileSync(path.resolve(flags.from), 'utf8')); } catch (e) { fail(`could not read ${flags.from}: ${e.code || e.message}`); }
   }
   // tty.isatty, not process.stdin.isTTY: touching process.stdin makes fd 0
   // non-blocking and the read below can then fail with EAGAIN (see trailmark.js).
   if (require('tty').isatty(0)) fail('pipe the content on stdin (heredoc), or pass --from=<file in the memory folder>, for example: node trailmark.js write-handoff <<\'JBMEM_EOF_<session id>\' ... JBMEM_EOF_<session id>');
-  try { return fs.readFileSync(0, 'utf8'); } catch (e) { fail(`could not read stdin: ${e.message}`); }
-  return '';
+  let t = '';
+  try { t = fs.readFileSync(0, 'utf8'); } catch (e) { fail(`could not read stdin: ${e.message}`); }
+  return endMarkerFree(t);
+}
+// The skills pass text in a heredoc that ends at a line JBMEM_EOF_<session>.
+// A line starting that way in the text would end it early when the text is
+// copied forward, and what follows would run as shell commands; such text
+// is refused.
+function endMarkerFree(t) {
+  if (/^JBMEM_EOF/m.test(t)) fail('a line of the text starts with JBMEM_EOF, the end marker the skills use for the heredoc; indent or reword that line. Nothing was written.');
+  return t;
 }
 
 // The skill passes the ID Claude Code substitutes for ${CLAUDE_SESSION_ID}. If
@@ -160,6 +169,8 @@ switch (cmd) {
     if (loc.method === 'formula-unverified' && !flags.force) {
       fail(`could not confirm Claude Code's memory folder for ${loc.root}. Start one Claude Code session at the repo root, then retry (or pass --force to use ${dir}).`);
     }
+    const linked = S.linkedFiles(dir);
+    if (linked.length) fail(`${linked.join(', ')} in ${dir} ${linked.length > 1 ? 'are links' : 'is a link'}. Trailmark never reads through links, so ${linked.length > 1 ? 'they count' : 'it counts'} as missing. Replace each with a plain file (a copy of what it points to), then run this again.`);
     const created = S.init(dir, { publicRepo: !!flags.public, repoName, repoRoot: loc.root });
     console.log(created.length ? `Set up ${dir}\n  created: ${created.join(', ')}` : `Already set up: ${dir}`);
     break;
@@ -168,6 +179,8 @@ switch (cmd) {
   case 'status': {
     const cfg = S.loadConfig(dir);
     console.log(`trailmark for ${repoName}: ${S.isEnabled(dir) ? 'set up' : 'NOT set up'} (${dir})`);
+    const linked = S.linkedFiles(dir);
+    if (linked.length) console.log(`  ${linked.join(', ')} ${linked.length > 1 ? 'are links' : 'is a link'}: Trailmark never reads through links, so ${linked.length > 1 ? 'they count' : 'it counts'} as missing. Replace each with a plain file.`);
     if (S.isEnabled(dir)) {
       const ho = S.measureHandoff(dir, cfg);
       const f = path.join(dir, S.HANDOFF);
@@ -197,7 +210,9 @@ switch (cmd) {
     // One read: the version printed is the version of exactly the text printed.
     const t = S.readText(path.join(dir, S.HANDOFF));
     console.log(versionLine(S.versionOf(t)));
-    console.log(t === null ? 'NO_HANDOFF' : t);
+    // A line that starts like the skills' heredoc end marker is shown
+    // indented, so copying the handoff forward can't end the heredoc early.
+    console.log(t === null ? 'NO_HANDOFF' : t.replace(/^JBMEM_EOF/gm, '  JBMEM_EOF'));
     break;
   }
 
@@ -278,7 +293,7 @@ switch (cmd) {
       ? S.topicFiles(dir).map(r => ({ name: r, description: S.splitFrontmatter(S.readText(path.join(dir, r)) || '').data.description || '', mtime: S.plainStat(path.join(dir, r)).mtime }))
       : S.listDir(dir, what === 'history' ? S.HISTORY.split(path.sep).join('/') : what);
     if (!rows.length) console.log(`(no ${what})`);
-    for (const r of rows) console.log(`${S.localDate(r.mtime)}  ${r.name}  -- ${r.description}`);
+    for (const r of rows) console.log(`${S.localDate(r.mtime)}  ${S.shownName(r.name)}  -- ${r.description}`);
     break;
   }
 
@@ -295,11 +310,11 @@ switch (cmd) {
     printBudget(r.measure);
     console.log('\nPrune candidates:');
     const show = (label, list, fmt) => console.log(`  ${label}: ${list.length ? '' : 'none'}${list.length ? '\n' + list.map(x => '    ' + fmt(x)).join('\n') : ''}`);
-    show('dead MEMORY.md links', r.deadLinks, x => x);
-    show('topic files not in MEMORY.md', r.orphans, x => x);
-    show(`stale topic files (> ${S.loadConfig(dir).staleDays} days)`, r.stale, x => `${x.file} (${x.days} days)`);
-    show('duplicate descriptions', r.duplicates, x => x.join(', '));
-    show('old parked ideas', r.oldParked, x => `${x.file} (${x.days} days)`);
+    show('dead MEMORY.md links', r.deadLinks, x => S.shownName(x));
+    show('topic files not in MEMORY.md', r.orphans, x => S.shownName(x));
+    show(`stale topic files (> ${S.loadConfig(dir).staleDays} days)`, r.stale, x => `${S.shownName(x.file)} (${x.days} days)`);
+    show('duplicate descriptions', r.duplicates, x => x.map(S.shownName).join(', '));
+    show('old parked ideas', r.oldParked, x => `${S.shownName(x.file)} (${x.days} days)`);
     if (r.handoff.doneItems) console.log(`  handoff: ${r.handoff.doneItems} [done] item(s) to rotate`);
     break;
   }

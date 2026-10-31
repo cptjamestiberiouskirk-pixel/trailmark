@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { oneLine, displayPath, inside } = require('./store');
-const { farGitConfig, farNested, localPath, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
+const { farGitConfig, farNested, localPath, localPathFrom, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
 // and Windows caps a variable at 32,767 characters (Linux at 128 KB), so only
@@ -83,12 +83,16 @@ function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
     // aren't listed, and before anything runs each submodule's .git is
     // checked like the repo's own, and no folder of tracked files may be a
     // link to a network path.
-    const subs = farWorktree(r, cwd);
-    const off = subs ? { why: subs } : filterOverrides(r, cwd);
+    // status covers the whole worktree, not only the folder it runs in, and
+    // ls-files and check-attr list only what is under the folder they run
+    // in. So all of them run at the top level, which must be cwd or above it.
+    const top = statusTop(r, cwd);
+    const subs = top.why || farWorktree(r, top.top);
+    const off = subs ? { why: subs } : filterOverrides(r, top.top);
     if (off.why) f.statusSkipped = off.why;
     else {
       if (off.offFiles) f.statusFiltersOff = off.offFiles;
-      const st = r.run(cwd, [...off.args, 'status', '--porcelain=v1', '--untracked-files=no', '--ignore-submodules=dirty']);
+      const st = r.run(top.top, [...off.args, 'status', '--porcelain=v1', '--untracked-files=no', '--ignore-submodules=dirty']);
       if (st.ok) {
         const all = st.out.trim().split('\n').filter(Boolean);
         f.statusCount = all.length;
@@ -109,7 +113,8 @@ function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
 // '' when every submodule (gitlink) folder in the index passes the same check
 // as the repo's own .git, else why status shouldn't run. ls-files --stage only
 // reads the index; it doesn't look into the folders.
-const MAX_SUBMODULES = 200;
+// The time check below is what bounds the run; this only caps a huge index.
+const MAX_SUBMODULES = 2000;
 const MAX_TREE_FOLDERS = 20000;
 function farWorktree(r, cwd) {
   const top = topLevel(r, cwd);
@@ -138,7 +143,7 @@ function farWorktree(r, cwd) {
     let t = '';
     try { t = fs.readlinkSync(path.join(top.top, rel)); } catch { return 'linked-folder'; }
     if (/^[\\/]{2}|^[\\/]\?\?[\\/]|^%\(prefix\)/i.test(t.replace(/"/g, '').trim())) return 'linked-folder';
-    if (!localPath(path.join(top.top, rel))) return 'linked-folder';
+    if (!localPathFrom(top.top, path.join(top.top, rel))) return 'linked-folder';
   }
   return '';
 }
@@ -278,6 +283,20 @@ function sameFolder(a, b) {
   return folderKey(a) === folderKey(b) || folderKey(realOr(a)) === folderKey(realOr(b));
 }
 
+// The top level that git status would cover from cwd: { top }, or { why }
+// when git can't say or names a folder that isn't cwd or above it
+// (core.worktree in the repo's config can point anywhere).
+function statusTop(r, cwd) {
+  const t = r.run(cwd, ['rev-parse', '--show-toplevel']);
+  if (!t.ok) return { why: t.why === 'timeout' ? 'git-timeout' : 'git-error' };
+  const top = t.out.split(/\r?\n/)[0].trim();
+  if (!top || top.length > 400) return { why: 'outside-worktree' };
+  const a = folderKey(realOr(top));
+  const b = folderKey(realOr(cwd));
+  if (a !== b && !inside(a, b) && !sameFolder(top, cwd) && !inside(folderKey(top), folderKey(cwd))) return { why: 'outside-worktree' };
+  return { top: path.resolve(top) };
+}
+
 // git's top level for `dir`, used only when dir really is in it. core.worktree
 // in a repo's config can make git print any path at all.
 function topLevel(r, dir) {
@@ -380,11 +399,15 @@ function commitFacts(found, cwd, { budgetMs = 5000, now = Date.now(), window = w
   let side = null; // the git calls for those, on a budget of their own
   for (const g of groups) {
     if (farNetwork(g.dir, homeCwd || cwd)) { out.unresolved.push({ why: 'network-folder', dir: displayPath(g.dir) }); continue; }
+    // A folder from command text may be a link to a share: not even a stat
+    // through it.
+    if (!localPathFrom(homeCwd || cwd, g.dir)) { out.unresolved.push({ why: 'network-folder', dir: displayPath(g.dir) }); continue; }
     let isDir = false;
     try { isDir = fs.statSync(g.dir).isDirectory(); } catch { isDir = false; }
     if (!isDir) { out.unresolved.push({ why: 'missing-folder', dir: displayPath(g.dir) }); continue; }
     const t = topLevel(r, g.dir);
-    if (!t.ok) { out.unresolved.push({ why: t.why === 'timeout' ? 'git-timeout' : 'no-repo', dir: displayPath(g.dir) }); continue; }
+    // A why other than these is the reason git was kept out of the folder.
+    if (!t.ok) { out.unresolved.push({ why: t.why === 'timeout' ? 'git-timeout' : t.why === 'error' || t.why === 'no-git' ? 'no-repo' : 'git-kept-out', dir: displayPath(g.dir) }); continue; }
     const many = timed || g.loop;
     const want = many ? MAX_PER_FOLDER : Math.min(g.n, MAX_PER_FOLDER);
     const lg = r.run(g.dir, ['log', '-g', `-n${many ? 120 : 4 * want + 8}`, '--date=unix', '--no-show-signature', '--no-color', '--format=%H%x1f%h%x1f%gd%x1f%gs%x1f%s']);

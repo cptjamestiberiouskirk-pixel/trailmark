@@ -86,12 +86,25 @@ const estTokens = chars => Math.ceil(chars / 4);
 const O_READ = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0) | (fs.constants.O_NOFOLLOW || 0);
 const MEMORY_SUBS = new Set(['notes', 'snapshots', 'archive', 'handoff-history', 'parked', 'pending', 'files']);
 function notPlain(file) { const e = new Error(`${file} is a link or not a plain file`); e.code = 'ENOTFILE'; return e; }
+// The memory subfolders on the way to p (notes/, archive/handoff-history/
+// and the like), each checked before anything looks inside: a folder that is
+// a link, or not a folder, throws. A missing one has nothing to follow.
+function plainSubs(p) {
+  for (let q = p, i = 0; i < 3 && MEMORY_SUBS.has(path.basename(q)); q = path.dirname(q), i++) {
+    let st;
+    try { st = fs.lstatSync(q); } catch (e) { if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) continue; throw e; }
+    if (st.isSymbolicLink() || !st.isDirectory()) { const e = new Error(`${q} is a link or not a folder`); e.code = 'ENOENT'; throw e; }
+  }
+}
+// readdirSync of a memory subfolder, never through a link on the way.
+function readDirPlain(d, opts) {
+  plainSubs(d);
+  return opts ? fs.readdirSync(d, opts) : fs.readdirSync(d);
+}
 function readPlain(file) {
+  try { plainSubs(path.dirname(file)); } catch { throw notPlain(file); }
   const l = fs.lstatSync(file, { bigint: true });
   if (l.isSymbolicLink() || !l.isFile()) throw notPlain(file);
-  for (let p = path.dirname(file), i = 0; i < 2 && MEMORY_SUBS.has(path.basename(p)); p = path.dirname(p), i++) {
-    if (fs.lstatSync(p).isSymbolicLink()) throw notPlain(file);
-  }
   const fd = fs.openSync(file, O_READ);
   try {
     const st = fs.fstatSync(fd, { bigint: true });
@@ -259,7 +272,8 @@ function tryBreakLock(file) {
   // reported, since what it holds isn't ours to delete.
   try {
     const l = fs.lstatSync(file);
-    if (l.isSymbolicLink()) { fs.unlinkSync(file); return true; }
+    // A FIFO, socket or device can't be one of ours either: removed the same way.
+    if (l.isSymbolicLink() || !(l.isFile() || l.isDirectory())) { fs.unlinkSync(file); return true; }
     if (l.isDirectory()) { const e = new Error(`${LOCK} in the memory folder is a folder, not a lock file; remove it and run the command again`); e.code = 'JBMEM_LOCKED'; throw e; }
   } catch (e) { if (e && e.code === 'JBMEM_LOCKED') throw e; }
   const info = lockInfo(file);
@@ -269,7 +283,17 @@ function tryBreakLock(file) {
   try { bfd = fs.openSync(brk, 'wx'); } catch {
     // Someone else is breaking it. A break file older than 30 s is left over
     // from a crash in the few lines below.
-    try { if (Math.abs(Date.now() - plainStat(brk).mtimeMs) > LOCK_UNLABELED_MS) fs.unlinkSync(brk); } catch { /* gone */ }
+    // Anything there that isn't a plain file isn't ours: a link or FIFO is
+    // removed, an empty folder too, and a folder with things in it reported.
+    let b = null;
+    try { b = fs.lstatSync(brk); } catch { /* gone */ }
+    if (b && b.isDirectory()) {
+      try { fs.rmdirSync(brk); } catch {
+        const e = new Error(`${LOCK}.break in the memory folder is a folder with things in it, not ours; remove it and run the command again`); e.code = 'JBMEM_LOCKED'; throw e;
+      }
+      return false;
+    }
+    try { if (b && (!b.isFile() || Math.abs(Date.now() - b.mtimeMs) > LOCK_UNLABELED_MS)) fs.unlinkSync(brk); } catch { /* gone */ }
     return false;
   }
   try {
@@ -374,9 +398,15 @@ function displayPath(p, platform = process.platform) {
 // anything not a plain file or folder) counts as missing. The sandbox's
 // permission model follows links, so every stat here goes through this.
 function plainStat(p) {
+  plainSubs(path.dirname(p));
   const st = fs.lstatSync(p);
   if (st.isSymbolicLink() || !(st.isFile() || st.isDirectory())) { const e = new Error(`not a plain file: ${p}`); e.code = 'ENOENT'; throw e; }
   return st;
+}
+// The memory folder's own files that are links (a dotfile manager such as
+// stow links them): never read through, so they count as missing.
+function linkedFiles(dir) {
+  return [MARKER, HANDOFF, STATE, 'MEMORY.md'].filter(f => { try { return fs.lstatSync(path.join(dir, f)).isSymbolicLink(); } catch { return false; } });
 }
 function plainExists(p) {
   try { plainStat(p); return true; } catch { return false; }
@@ -634,7 +664,7 @@ function keepHistory(dir, text) {
       name = `handoff-${stamp}~${crypto.randomBytes(3).toString('hex')}.md`;
     }
   }
-  const all = fs.readdirSync(hdir).filter(f => /^handoff-.*\.md$/.test(f)).sort();
+  const all = readDirPlain(hdir).filter(f => /^handoff-.*\.md$/.test(f)).sort();
   for (const f of all.slice(0, Math.max(0, all.length - HISTORY_KEEP))) unlinkPlain(path.join(hdir, f));
 }
 
@@ -825,7 +855,7 @@ function findVersionText(dir, version) {
   if (prev !== null && versionOf(prev) === version) return prev;
   const hdir = path.join(dir, HISTORY);
   let files = [];
-  try { files = fs.readdirSync(hdir).filter(f => /^handoff-.*\.md$/.test(f)).sort().reverse(); } catch { return null; }
+  try { files = readDirPlain(hdir).filter(f => /^handoff-.*\.md$/.test(f)).sort().reverse(); } catch { return null; }
   for (const f of files) {
     const t = readText(path.join(hdir, f));
     if (t !== null && versionOf(t) === version) return t;
@@ -969,7 +999,7 @@ function pruneNotes(dir, keepDays, now = new Date()) {
   const oldest = localDate(cutoff);
   let gone = 0;
   let files = [];
-  try { files = fs.readdirSync(safeDir(dir, 'notes')); } catch { return 0; }
+  try { files = readDirPlain(safeDir(dir, 'notes')); } catch { return 0; }
   for (const f of files) {
     const m = /^(\d{4}-\d{2}-\d{2})\.md$/.exec(f);
     if (!m || m[1] >= oldest) continue;
@@ -1096,12 +1126,11 @@ const PENDING_KEEP_MS = 6 * 3600 * 1000;
 // link; old ones are removed here.
 function recordCommitStart(dir, toolUseId, rec, now = Date.now()) {
   if (typeof toolUseId !== 'string' || !TOOL_ID_RE.test(toolUseId)) return false;
-  const pdir = path.join(dir, PENDING);
-  fs.mkdirSync(pdir, { recursive: true });
+  const pdir = safeDir(dir, PENDING);
   const st = fs.lstatSync(pdir);
   if (st.isSymbolicLink() || !st.isDirectory()) throw new Error(`${pdir} is a link or not a folder; nothing was recorded`);
   let names = [];
-  try { names = fs.readdirSync(pdir).slice(0, 500); } catch { names = []; }
+  try { names = readDirPlain(pdir).slice(0, 500); } catch { names = []; }
   for (const n of names) {
     const f = path.join(pdir, n);
     try { const s = fs.lstatSync(f); if (s.isFile() && now - s.mtimeMs > PENDING_KEEP_MS) fs.unlinkSync(f); } catch { /* best effort */ }
@@ -1144,7 +1173,7 @@ function concurrentCommitStarts(dir, toolUseId, session, since, windowMs, now = 
   const sid = cleanSession(session);
   if (!sid) return [];
   let names = [];
-  try { names = fs.readdirSync(pdir).slice(0, 2000); } catch { return []; }
+  try { names = readDirPlain(pdir).slice(0, 2000); } catch { return []; }
   const out = [];
   for (const { id, rec } of liveRecords(dir, names, new Set([toolUseId]), windowMs, now)) {
     if (!rec.session || rec.session === sid) continue;
@@ -1187,7 +1216,7 @@ function markCommitDone(dir, toolUseId) {
 function openCommitStart(dir, state, windowMs, now = Date.now(), session = '') {
   const done = new Set(isPlainObject(state) && Array.isArray(state.recentTools) ? state.recentTools.filter(x => typeof x === 'string') : []);
   let names = [];
-  try { names = fs.readdirSync(path.join(dir, PENDING)).slice(0, 2000); } catch { return Infinity; }
+  try { names = readDirPlain(path.join(dir, PENDING)).slice(0, 2000); } catch { return Infinity; }
   for (const n of names) { const d = /^([A-Za-z0-9_-]{1,128})\.done$/.exec(n); if (d) done.add(d[1]); }
   let earliest = Infinity;
   const sid = cleanSession(session);
@@ -1239,7 +1268,7 @@ function park(dir, slug, content, { replace = false } = {}) {
 // Newest log line whose event is `event` (e.g. SESSION_START), as "YYYY-MM-DD HH:MM EVENT ...".
 function lastNote(dir, event) {
   let files;
-  try { files = fs.readdirSync(path.join(dir, 'notes')).filter(f => /^\d{4}-\d{2}-\d{2}\.md$/.test(f)).sort().reverse(); } catch { return null; }
+  try { files = readDirPlain(path.join(dir, 'notes')).filter(f => /^\d{4}-\d{2}-\d{2}\.md$/.test(f)).sort().reverse(); } catch { return null; }
   for (const f of files) {
     const lines = (readText(path.join(dir, 'notes', f)) || '').split('\n').reverse();
     for (const l of lines) {
@@ -1253,7 +1282,7 @@ function lastNote(dir, event) {
 function listDir(dir, sub) {
   const d = path.join(dir, sub);
   let names;
-  try { names = fs.readdirSync(d).filter(f => f.endsWith('.md')).sort(); } catch { return []; }
+  try { names = readDirPlain(d).filter(f => f.endsWith('.md')).sort(); } catch { return []; }
   // A link or anything else that isn't a plain file is left out.
   return names.flatMap(f => {
     const p = path.join(d, f);
@@ -1268,7 +1297,7 @@ function listDir(dir, sub) {
 function walkMd(dir, rel = '') {
   const out = [];
   let entries;
-  try { entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true }); } catch { return out; }
+  try { entries = readDirPlain(path.join(dir, rel), { withFileTypes: true }); } catch { return out; }
   for (const e of entries) {
     if (e.name.startsWith('.')) continue;
     const r = rel ? `${rel}/${e.name}` : e.name;
@@ -1389,8 +1418,16 @@ function pruneReport(dir) {
 // handoff.md. The real path is checked too, which also catches a Windows
 // short name (HANDOF~1.MD) or a link.
 const RESERVED_LC = new Set([...RESERVED].map(n => n.toLowerCase()));
+// A file name with characters a shell treats specially. The skills put names
+// into commands in single quotes, so such a name is shown quoted and marked,
+// and archive-file refuses it: move that file by hand.
+const SHELL_ODD = /['"`$\\!;&|<>(){}*?\r\n\t]|^-/;
+function shownName(n) {
+  return SHELL_ODD.test(String(n).split('/').pop()) ? `${JSON.stringify(String(n))} (unusual characters: move it by hand, not with archive-file)` : n;
+}
 function archiveFile(dir, rel) {
   const bad = () => new Error('archive-file takes a topic .md file inside the memory dir');
+  if (SHELL_ODD.test(path.basename(String(rel)))) throw new Error('archive-file refuses a name with characters a shell treats specially; move that file into archive/files by hand');
   const src = path.resolve(dir, rel);
   const base = path.basename(src);
   if (!inside(dir, src) || !/\.md$/i.test(src) || RESERVED_LC.has(base.toLowerCase())) throw bad();
@@ -1492,7 +1529,7 @@ function writeSnapshot(dir, session, body, now = Date.now()) {
   } catch { /* best effort */ }
   try {
     const sdir = safeDir(dir, SNAPSHOTS);
-    for (const f of fs.readdirSync(sdir)) {
+    for (const f of readDirPlain(sdir)) {
       const p = path.join(sdir, f);
       if (/\.md$/.test(f) && now - fs.lstatSync(p).mtimeMs > SNAPSHOT_KEEP_MS) unlinkPlain(p);
     }
@@ -1512,7 +1549,7 @@ function listSnapshots(dir) {
   };
   try {
     // Only names that are session ids: the name goes into the frame's label.
-    for (const f of fs.readdirSync(path.join(dir, SNAPSHOTS))) if (/\.md$/.test(f) && cleanSession(f.replace(/\.md$/, ''))) add(path.join(dir, SNAPSHOTS, f), f.replace(/\.md$/, ''));
+    for (const f of readDirPlain(path.join(dir, SNAPSHOTS))) if (/\.md$/.test(f) && cleanSession(f.replace(/\.md$/, ''))) add(path.join(dir, SNAPSHOTS, f), f.replace(/\.md$/, ''));
   } catch { /* none yet */ }
   const legacy = path.join(dir, PRECOMPACT);
   if (plainExists(legacy)) add(legacy, '');
@@ -1541,9 +1578,12 @@ const FRAME_LIKE = /^[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:[-\p{Pd}\u221
 // before a letter) or an invisible character in it, starts with a role or
 // block word (<systemprompt>, <developer>), or has a letter outside ASCII in
 // it (a look-alike such as a Cyrillic s).
-const TAG_LIKE = /[<＜﹤](?=[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*\/[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*[\p{L}_]|[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:[\p{L}_][\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:[-_.\p{Cf}\p{Default_Ignorable_Code_Point}]|:(?=\p{L}))[\p{L}\p{N}_.:\p{Cf}\p{Default_Ignorable_Code_Point}-]*|(?:system|user|assistant|human|tool|function|developer|instructions?|context|documents?|example|reminder|message|prompt)[\p{L}\p{N}_]*|[\p{L}\p{N}_]*(?:(?![\x00-\x7f])\p{L})[\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}]*)[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*[\s>＞\/])/giu;
+const TAG_LIKE = /[<＜﹤](?=[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*\/[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*[\p{L}_]|[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:[\p{L}_][\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:[-_.\p{Cf}\p{Default_Ignorable_Code_Point}]|:(?=\p{L}))[\p{L}\p{N}_.:\p{Cf}\p{Default_Ignorable_Code_Point}-]*|(?:system|user|assistant|human|tool|function|developer|instructions?|context|documents?|example|reminder|message|prompt)[\p{L}\p{N}_]*|[\p{L}\p{N}_]*(?:(?![\x00-\x7f])\p{L})[\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}]*)[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:[\s>＞\/]|$))/giu;
+// A line that is the skills' heredoc end marker would end the heredoc when a
+// later checkpoint copies the handoff forward; indented, it can't.
+const HEREDOC_END = /^JBMEM_EOF/;
 function framed(text) {
-  return text.replace(LINE_BREAKS, '\n').split('\n').map(l => (FRAME_LIKE.test(l) ? '  ' + l : l).replace(TAG_LIKE, m => m + '\\')).join('\n');
+  return text.replace(LINE_BREAKS, '\n').split('\n').map(l => (FRAME_LIKE.test(l) || HEREDOC_END.test(l) ? '  ' + l : l).replace(TAG_LIKE, m => m + '\\')).join('\n');
 }
 
 // Tag-like text escaped as in framed(), for one line placed outside a frame.
@@ -1805,7 +1845,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   return { text, summary: `handoff ${age} old, ~${estTokens(text.length)} tokens injected${cut ? ', TRUNCATED' : ''}${ho.overChars || ho.overLines ? ', over budget' : ''}` };
 }
 
-module.exports = { plainStat, plainExists,
+module.exports = { plainStat, plainExists, shownName, linkedFiles,
   checkRepoRoot, escapeTags, readPlain, handoffStamp, checkSinceFacts, coveredSteps, pruneNotes, AGENT,
   MARKER, HANDOFF, HANDOFF_PREV, PRECOMPACT, SNAPSHOTS, LOCK, PENDING, DEFAULTS, HISTORY, CHECKPOINT_SKILL, SKILL_RULE,
   cleanSession, shortSession, versionOf, withLock, updateState, sessionRecord, otherSessions, lastWriterOf,

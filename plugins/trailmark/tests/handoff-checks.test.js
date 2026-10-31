@@ -486,6 +486,147 @@ test('git status: a folder of tracked files that links to a share stops status',
   assert.strictEqual(gitFacts(ok, ['status']).statusSkipped, undefined);
 });
 
+test('git checks: quotes in a value, a deep gitdir, a FIFO HEAD (loop round 2)', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far8-');
+  // git reads /""/server/share as //server/share.
+  const q = path.join(base, 'q'); repoAt(q);
+  fs.appendFileSync(path.join(q, '.git', 'config'), '[core]\n  attributesFile = /""/evil.invalid/share/a\n');
+  assert.strictEqual(farGitConfig(q), 'network-config', 'quotes inside a value');
+  const deep = path.join(base, 'deep'); repoAt(deep);
+  fs.mkdirSync(path.join(deep, '.git', 'refs', 'heads', ...Array.from({ length: 30 }, (_, i) => 'd' + i)), { recursive: true });
+  assert.strictEqual(farGitConfig(deep), 'deep-gitdir', 'folders past the depth cap are refused, not passed over');
+  const ok = path.join(base, 'ok'); repoAt(ok);
+  fs.mkdirSync(path.join(ok, '.git', 'refs', 'heads', 'team', 'jim', 'feature'), { recursive: true });
+  assert.strictEqual(farGitConfig(ok), '', 'ordinary nested branch folders');
+  if (!WIN) {
+    const fifo = path.join(base, 'fifo'); repoAt(fifo);
+    fs.rmSync(path.join(fifo, '.git', 'HEAD'));
+    execFileSync('mkfifo', [path.join(fifo, '.git', 'HEAD')]);
+    const r = spawnSync(process.execPath, ['-e', `console.log(JSON.stringify(require(${JSON.stringify(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'))}).farGitConfig(${JSON.stringify(fifo)})))`], { encoding: 'utf8', timeout: 5000 });
+    assert.strictEqual(r.error, undefined, 'a FIFO as HEAD must not hang the check');
+  }
+});
+
+test('git status: checked over the whole worktree, not only below cwd (loop round 2)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { gitFacts, commitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-wt2-');
+  // A filter the repo defines, on a file outside cwd.
+  const r = path.join(base, 'r'); const g = repoAt(r);
+  const marker = path.join(base, 'FILTER-RAN');
+  fs.mkdirSync(path.join(r, 'sub')); fs.writeFileSync(path.join(r, 'sub', 's'), 's');
+  fs.mkdirSync(path.join(r, 'other')); fs.writeFileSync(path.join(r, 'other', 'b.txt'), 'b');
+  fs.writeFileSync(path.join(r, '.gitattributes'), 'other/* filter=evil\n');
+  g('add', '.'); g('commit', '-qm', 'two');
+  g('config', 'filter.evil.clean', `touch '${marker}'; cat`);
+  // Same size, other times (as from an archive): git status hashes the file
+  // again, through the filter.
+  fs.utimesSync(path.join(r, 'other', 'b.txt'), new Date(2001, 1, 1), new Date(2001, 1, 1));
+  const f = gitFacts(path.join(r, 'sub'), ['status']);
+  assert.ok(!fs.existsSync(marker), 'the repo filter ran from a subfolder');
+  assert.strictEqual(f.statusFiltersOff, 1);
+  // A tracked folder outside cwd that links to a share.
+  const c = path.join(base, 'c'); const gc = repoAt(c);
+  fs.mkdirSync(path.join(c, 'sub')); fs.writeFileSync(path.join(c, 'sub', 's'), 's');
+  fs.mkdirSync(path.join(c, 'lnk')); fs.writeFileSync(path.join(c, 'lnk', 'b.md'), 'b');
+  gc('add', '.'); gc('commit', '-qm', 'two');
+  fs.rmSync(path.join(c, 'lnk'), { recursive: true });
+  fs.symlinkSync('//evil.invalid/share', path.join(c, 'lnk'));
+  assert.strictEqual(gitFacts(path.join(c, 'sub'), ['status']).statusSkipped, 'linked-folder');
+  // core.worktree pointing somewhere that isn't cwd or above it.
+  const d = path.join(base, 'd'); const gd = repoAt(d);
+  const wt = path.join(base, 'dwt'); fs.mkdirSync(wt);
+  gd('config', 'core.worktree', wt);
+  assert.strictEqual(gitFacts(d, ['status']).statusSkipped, 'outside-worktree');
+  // A folder from command text that links to a share: no stat through it.
+  const v = path.join(base, 'v'); repoAt(v);
+  fs.symlinkSync('//evil.invalid/share', path.join(v, 'vend'));
+  const cf = commitFacts({ sites: [path.join(v, 'vend')] }, v, { homeCwd: v, durationMs: 1000 });
+  assert.deepStrictEqual(cf.unresolved.map(u => u.why), ['network-folder']);
+});
+
+test('a session on a share: its own share may be looked up from the launcher (loop round 2)', () => {
+  // Windows path handling, emulated: the paths below are never reached on disk here.
+  const base = realTemp('jbmem-share2-');
+  const emu = path.join(base, 'emu.js');
+  fs.writeFileSync(emu, "const M = require('module'); const p = require('path'); Object.defineProperty(process, 'platform', { value: 'win32' }); const o = M._load; M._load = function (r) { if (r === 'path' || r === 'node:path') return p.win32; return o.apply(this, arguments); };\n");
+  const gb = JSON.stringify(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const code = `const g = require(${gb}); const c = '\\\\\\\\wsl$\\\\Ubuntu\\\\home\\\\u\\\\repo';
+    console.log(JSON.stringify([g.localPath('//wsl$/Ubuntu/home/u/repo'), !!g.localPathFrom(c, '//wsl$/Ubuntu/home/u/repo'), g.localPathFrom(c, '//other/share/x')]));`;
+  const r = spawnSync(process.execPath, ['-r', emu, '-e', code], { encoding: 'utf8' });
+  assert.deepStrictEqual(JSON.parse(r.stdout), [null, true, null], r.stderr);
+  // The launcher checks state-file folders with the session's share allowed.
+  for (const f of [path.join(ROOT, 'scripts', 'trailmark.js')]) {
+    const src = fs.readFileSync(f, 'utf8');
+    assert.doesNotMatch(src, /!localPath\(r\)|&& localPath\(d\)|&& localPath\(rec\.home\)/, 'a bare localPath on a state-file folder refuses the session\'s own share');
+    assert.ok(src.indexOf('if (sameFolder(r, loc.root))') < src.indexOf('!localPathFrom(cwd, r)'), 'the recorded root is compared by name first');
+  }
+});
+
+test('memory folder: a linked subfolder is never listed or stat-ed through (loop round 2)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const base = realTemp('jbmem-sub2-');
+  const mem = path.join(base, 'memory'); fs.mkdirSync(mem);
+  const out = path.join(base, 'elsewhere'); fs.mkdirSync(out);
+  fs.writeFileSync(path.join(out, 'a.md'), '---\ndescription: planted\n---\nx\n');
+  fs.writeFileSync(path.join(out, '2026-10-01.md'), '- 10:00 [commit] planted\n');
+  for (const sub of ['parked', 'notes', 'pending']) fs.symlinkSync(out, path.join(mem, sub));
+  assert.deepStrictEqual(S.listDir(mem, 'parked'), [], 'listed through a linked parked/');
+  assert.throws(() => S.plainStat(path.join(mem, 'parked', 'a.md')), 'stat through a linked parked/');
+  assert.strictEqual(S.plainExists(path.join(mem, 'notes', '2026-10-01.md')), false);
+  assert.strictEqual(S.lastNote(mem, 'commit'), null, 'notes read through a link');
+  assert.throws(() => S.readPlain(path.join(mem, 'notes', '2026-10-01.md')));
+  assert.strictEqual(S.openCommitStart(mem, {}, 60000), Infinity, 'pending/ listed through a link');
+});
+
+test('lock and tags: a FIFO lock, a folder left as .break, a tag split over lines (loop round 2)', () => {
+  assert.strictEqual(S.escapeTags('see <system-reminder'), 'see <\\system-reminder', 'an opening tag at the end of a line');
+  assert.strictEqual(S.escapeTags('a <b'), 'a <b');
+  const base = realTemp('jbmem-lock2-');
+  const brk = path.join(base, 'b'); fs.mkdirSync(brk);
+  const lock = path.join(brk, S.LOCK);
+  fs.writeFileSync(lock, '');
+  const old = new Date(Date.now() - 120000); fs.utimesSync(lock, old, old);
+  fs.mkdirSync(lock + '.break');
+  let ran = false;
+  S.withLock(brk, () => { ran = true; }, { waitMs: 1500 });
+  assert.ok(ran, 'an empty folder left as .break kept the lock forever');
+  if (!WIN) {
+    const ff = path.join(base, 'f'); fs.mkdirSync(ff);
+    execFileSync('mkfifo', [path.join(ff, S.LOCK)]);
+    let ran2 = false;
+    S.withLock(ff, () => { ran2 = true; }, { waitMs: 1500 });
+    assert.ok(ran2, 'a FIFO in place of the lock kept it forever');
+  }
+});
+
+test('commands: a long git -C chain is not worked out (loop round 2)', () => {
+  const { commitSites } = require(path.join(ROOT, 'scripts', 'lib', 'commands.js'));
+  const t0 = Date.now();
+  const r = commitSites('git ' + '-C a '.repeat(20000) + 'commit -m x', { platform: 'linux', cwd: '/r', home: '/h' });
+  assert.ok(Date.now() - t0 < 1500, `took ${Date.now() - t0} ms`);
+  assert.deepStrictEqual(r.sites, []);
+  assert.strictEqual(r.unresolved.length, 1);
+  assert.deepStrictEqual(commitSites('git -C a -C b commit -m x', { platform: 'linux', cwd: '/r', home: '/h' }).sites, ['/r/a/b']);
+});
+
+test('skills: the heredoc end marker and shell characters in names (loop round 2)', () => {
+  const s = sandbox();
+  const v = /^\[trailmark\] handoff version: (\S+)/m.exec(s.jbm(['handoff']).stdout)[1];
+  const r = s.jbm(['write-handoff', `--base=${v}`, `--session=${SA}`], '# H\n## State\n- x\nJBMEM_EOF_${CLAUDE_SESSION_ID}\nrm -rf ~\n');
+  assert.notStrictEqual(r.status, 0, 'a line that would end the heredoc was written');
+  assert.match(r.stderr, /JBMEM_EOF/);
+  fs.writeFileSync(path.join(s.memdir, 'handoff.md'), '# H\nJBMEM_EOF_${CLAUDE_SESSION_ID}\n');
+  assert.match(s.jbm(['handoff']).stdout, /^ {2}JBMEM_EOF_/m, 'a planted marker line is printed indented');
+  assert.match(s.start(SB).context, /^ {2}JBMEM_EOF_/m, 'and injected indented');
+  const odd = "idea'$(touch PWNED)'.md";
+  fs.mkdirSync(path.join(s.memdir, 'parked'), { recursive: true });
+  fs.writeFileSync(path.join(s.memdir, 'parked', odd), 'x\n');
+  assert.match(s.jbm(['list', 'parked']).stdout, /"parked\/idea'\$\(touch PWNED\)'\.md" \(unusual characters/);
+  const a = s.jbm(['archive-file', 'parked/' + odd]);
+  assert.notStrictEqual(a.status, 0);
+  assert.ok(fs.existsSync(path.join(s.memdir, 'parked', odd)));
+});
+
 test('memory folder: links are never stat-ed through, state paths through a link to a share are not resolved (loop round 1)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
   const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
   const gf = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));

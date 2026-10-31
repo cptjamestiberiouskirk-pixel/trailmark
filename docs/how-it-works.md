@@ -39,7 +39,7 @@ Another session's commit command running at the same time can commit in the same
 
 - A commit in the session's own folder is logged as before: `COMMIT <sha> <subject>`.
 - A commit anywhere else: `COMMIT <sha> in="<folder>" <subject>`, with the repo's top-level folder.
-- A commit whose folder can't be known is never logged as another folder's HEAD. It is logged as `COMMIT_UNRESOLVED why=<reason>`, and the reminder still comes: `unknown-folder` (a variable, a substitution, a glob, `cd -` or `cd a || cd b`, a folder change in code that may not have run, a Git Bash mount like `/tmp`, a start folder that isn't known), `other-repo` (`--git-dir`, `--work-tree`, `GIT_DIR` set on the command or earlier in it), `unrecognized` (`git commit` in a form it doesn't follow, such as `cmd /c`, `python -c` or a background job), `missing-folder`, `no-repo`, `git-timeout`, `too-many-folders` (more than 4 in one command), `too-many-commits` (more than 30 in one folder), `too-long` (the command took over 1.5 seconds to read).
+- A commit whose folder can't be known is never logged as another folder's HEAD. It is logged as `COMMIT_UNRESOLVED why=<reason>`, and the reminder still comes: `unknown-folder` (a variable, a substitution, a glob, `cd -` or `cd a || cd b`, a folder change in code that may not have run, a Git Bash mount like `/tmp`, a start folder that isn't known), `other-repo` (`--git-dir`, `--work-tree`, `GIT_DIR` set on the command or earlier in it), `unrecognized` (`git commit` in a form it doesn't follow, such as `cmd /c`, `python -c` or a background job), `missing-folder`, `network-folder` (a folder on a network path, or a link to one, other than the session's own share), `no-repo`, `git-kept-out` (git is kept out of that repo: SECURITY.md, "Known limits"), `git-timeout`, `too-many-folders` (more than 4 in one command), `too-many-commits` (more than 30 in one folder), `too-long` (the command took over 1.5 seconds to read).
 
 The launcher also compares the folder the command ends in, as read, with the PostToolUse `cwd`. When they differ it logs `END_MISMATCH tool=<bash|powershell> parsed="<folder>" actual="<folder>"`, with `actual=start` when the PostToolUse `cwd` is the folder the command started in and `actual=home` when it is the folder the session started in. It changes nothing; it counts how often the reading of a command, or the assumption that Claude Code moves the session, is wrong. It needs a PreToolUse record and an end folder the reading knows (`git commit && cd x` leaves it unknown, since the `cd` may not run).
 
@@ -57,7 +57,7 @@ What it still reads wrong: a commit that something else made in that folder whil
 
 ## Several sessions at once
 
-Every session in a repo, and every worktree of it, shares one memory folder and one handoff. Two sessions checkpointing from different starting points used to mean the second write silently replaced the first. Now:
+Every session in a repo, and every worktree of it, shares one memory folder and one handoff (worktrees of a bare repo each have their own, since there is no main checkout to share through). Two sessions checkpointing from different starting points used to mean the second write silently replaced the first. Now:
 
 - `handoff` prints a version (the first 12 hex digits of the file's SHA-256) and `write-handoff` must name the version it was based on with `--base=<version>`. If another session wrote in between, the write is refused with exit code 3. The refusal lists what the other session added and removed, and prints the current handoff with its version, so Claude can merge and write again. The checkpoint and session-end skills say how. `--force` skips the check and is meant for use by hand.
 - Every read-modify-write of a shared file (the handoff, the state file, rotate, undo, park, archive-file's edit of MEMORY.md) runs under a lock file, `.jbmem.lock`. Commands hold it for milliseconds. A lock is broken only when its holder is gone: the process ID in it is no longer running on this machine and the lock is over 5 seconds old, or the lock is over 60 seconds old. A command that can't get the lock in 10 seconds (2 for a hook) gives up without writing. A file that has to be read before it is rewritten (the state file, the day's archive, the handoff) stops the command when it can't be read, instead of being replaced by a copy missing what couldn't be read.
@@ -135,7 +135,7 @@ The plugin works from its own folder alone: the hooks need only `node` on PATH, 
 
 ## Where files live
 
-In Claude Code's auto-memory folder for the repo (`~/.claude/projects/<project>/memory/`). Every worktree of the repo shares it.
+In Claude Code's auto-memory folder for the repo (`~/.claude/projects/<project>/memory/`). Every worktree of the repo shares it, except the worktrees of a bare repo, which each have their own.
 
 ```text
 .jbmem.json        opt-in marker and budgets

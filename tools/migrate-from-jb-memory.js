@@ -17,11 +17,16 @@
 //      settings that still run jbm.js, the Codex marketplace and plugin
 //      jb-memory-codex, old Codex cache copies, the old jb-watchdog tasks on
 //      Windows, and how many memory folders Trailmark set up.
-//   2. Shows the plan and asks before changing anything (--yes skips asking).
+//   2. Runs the installer's own checks (--preflight), so nothing is removed
+//      when it would refuse. Shows the plan and asks before changing anything
+//      (--yes skips asking).
 //   3. Claude Code: uninstalls each jb-memory install with `claude plugin
-//      uninstall`, scope by scope (project and local ones from their repo's
-//      folder), then removes the old marketplace with `claude plugin
-//      marketplace remove`, unless another installed plugin still comes from it.
+//      uninstall`, project and local scopes first (from their repo's folder),
+//      user scope last. If one of those can't be removed, or is kept with
+//      --keep-project-scopes, jb-memory stays at user scope too and the
+//      installer is skipped, so you still have a plugin. Then removes the old
+//      marketplace with `claude plugin marketplace remove`, unless another
+//      installed plugin still comes from it or it offers other plugins too.
 //   4. Moves the old copies out of Claude Code's plugin cache into a backup
 //      folder. Claude Code leaves them there after an uninstall, and both
 //      Trailmark and the watchdog warn about them, since a cached copy can run.
@@ -384,7 +389,9 @@ function codexHome() { return process.env.CODEX_HOME || path.join(os.homedir(), 
 
 function surveyCodex(codex) {
   const s = { home: codexHome(), used: false, marketplaces: [], oldMarketplaces: [], installed: [], cache: [], listOk: false, trailmarkMarketplace: false };
-  s.used = !!codex || isDir(s.home);
+  // Codex counts as used when its home folder exists; the CLI on PATH alone
+  // doesn't, or every run would ask to install trailmark-codex.
+  s.used = isDir(s.home);
   const cfgRaw = readFollow(path.join(s.home, 'config.toml'));
   // Can't read it: whether jb-memory-codex is installed is unknown, so every
   // Codex step is left alone.
@@ -400,6 +407,16 @@ function surveyCodex(codex) {
   for (const m of cfgText.matchAll(/^\s*\[\s*marketplaces\s*\.\s*"?([\w.+-]+)"?\s*\]/gm)) {
     if (m[1].toLowerCase() === OLD_CODEX) s.oldMarketplaces.push({ name: m[1], from: 'config.toml' });
   }
+  // One entry per name: config.toml's [marketplaces.<name>] table names it
+  // without a folder, and the CLI's list adds the folder and whether it is
+  // stale (it now holds something other than jb-memory-codex, such as this
+  // release unpacked over the old folder).
+  const addOld = (name, root, provides) => {
+    const stale = !provides && !!root && !!readJson(path.join(root, '.agents', 'plugins', 'marketplace.json'));
+    const had = s.oldMarketplaces.find(o => o.name === name);
+    if (had) { if (root && !had.path) { had.path = root; had.stale = stale; } return; }
+    s.oldMarketplaces.push({ name, path: root, stale });
+  };
   if (codex) {
     const l = run(codex, ['plugin', 'marketplace', 'list', '--json']);
     const j = l.code === 0 ? jsonOf(l.out) : undefined;
@@ -416,7 +433,7 @@ function surveyCodex(codex) {
           provides = !!(man && Array.isArray(man.plugins) && man.plugins.some(q => q && String(q.name).toLowerCase() === OLD_CODEX));
         }
         if (name === 'trailmark-codex') s.trailmarkMarketplace = true;
-        if ((provides || name.toLowerCase() === OLD_CODEX) && !s.oldMarketplaces.some(o => o.name === name)) s.oldMarketplaces.push({ name, path: p, stale: !provides && !!p && !!readJson(path.join(p, '.agents', 'plugins', 'marketplace.json')) });
+        if (provides || name.toLowerCase() === OLD_CODEX) addOld(name, p, provides);
       }
     } else {
       // Codex without --json prints a table: MARKETPLACE and ROOT columns.
@@ -433,7 +450,7 @@ function surveyCodex(codex) {
             const man = readJson(path.join(root, '.agents', 'plugins', 'marketplace.json'));
             provides = !!(man && Array.isArray(man.plugins) && man.plugins.some(q => q && String(q.name).toLowerCase() === OLD_CODEX));
           }
-          if ((provides || name.toLowerCase() === OLD_CODEX) && !s.oldMarketplaces.some(o => o.name === name)) s.oldMarketplaces.push({ name, path: root, stale: !provides && !!root && !!readJson(path.join(root, '.agents', 'plugins', 'marketplace.json')) });
+          if (provides || name.toLowerCase() === OLD_CODEX) addOld(name, root, provides);
         }
       }
     }
@@ -523,6 +540,11 @@ function moveAside(src, backup, label) {
   return dest;
 }
 
+// A project or local install this script can remove: a usable id and scope,
+// and an absolute local folder (one that is gone is made again for it).
+function usableScope(p) {
+  return SAFE.test(p.id) && /^(project|local)$/.test(p.scope) && !!p.projectPath && path.isAbsolute(p.projectPath) && !NET.test(p.projectPath);
+}
 function uninstallClaude(claude, p, o) {
   const args = ['plugin', 'uninstall', p.id, '--scope', p.scope, '--json'];
   if (!SAFE.test(p.id) || !/^(user|project|local)$/.test(p.scope)) { warn(`skipped an install with an unusual id or scope: ${JSON.stringify(p)}`); return false; }
@@ -664,8 +686,25 @@ function main() {
 
   // ---------- plan
   const plan = [];
+  // jb-memory installs at project or local scope that this run won't remove:
+  // kept on purpose, or recorded for a folder that can't be used. The
+  // installer refuses while jb-memory is installed anywhere, so then the
+  // user-scope jb-memory stays too, rather than leaving no plugin at all.
+  const stays = c ? c.plugins.filter(p => p.scope !== 'user' && (!o.projectScopes || !usableScope(p))) : [];
+  o.keepUser = !!(o.install && o.claude && stays.length && c.plugins.some(p => p.scope === 'user'));
+  if (o.install && c && stays.length) {
+    info(`jb-memory stays at ${stays.map(p => `${p.scope} scope${p.projectPath ? ' in ' + p.projectPath : ''}`).join(', ')}${o.projectScopes ? '' : ' (--keep-project-scopes)'}, and the installer refuses while it is installed anywhere, so the installer is skipped${o.keepUser ? ' and jb-memory is kept at user scope too, so you still have a plugin' : ''}`);
+    later(o.projectScopes
+      ? 'Remove jb-memory from the scopes above by hand (the warnings say how), then run this again.'
+      : 'Install Trailmark once jb-memory is gone from every scope: run this again without --keep-project-scopes, or run the installer yourself.');
+    o.install = false;
+  }
+  // jb-memory (or Trailmark) turned off at user scope: the installer turns
+  // Trailmark on, so the run says how to turn it off again.
+  const wasOff = !!(c && ((c.plugins.some(p => p.scope === 'user') && c.plugins.filter(p => p.scope === 'user').every(p => !p.enabled)) ||
+    c.trailmark.some(p => p.id === 'trailmark@trailmark' && p.scope === 'user' && !p.enabled)));
   if (c) {
-    for (const p of c.plugins) if (p.scope === 'user' || o.projectScopes) plan.push(`uninstall ${p.id} (${p.scope}${p.projectPath ? ', ' + p.projectPath : ''})`);
+    for (const p of c.plugins) if ((p.scope === 'user' && !o.keepUser) || (p.scope !== 'user' && o.projectScopes)) plan.push(`uninstall ${p.id} (${p.scope}${p.projectPath ? ', ' + p.projectPath : ''})`);
     for (const m of c.oldMarketplaces) plan.push(`remove the Claude Code marketplace ${m.name}`);
     if (o.cache) for (const d of c.cache) plan.push(`move ${d} to the backup folder`);
   }
@@ -682,18 +721,13 @@ function main() {
   const useCodex = !!(x && x.used && codex);
   // The old watchdog is running only while its tasks exist; its folder stays
   // behind on purpose, with the old log, once the new watchdog replaced it.
-  const watchdog = WIN && (o.watchdog === 'yes' || (o.watchdog === 'auto' && wd.tasks.length > 0));
+  // Only install.ps1 installs it, and only a Claude Code run starts that.
+  const watchdog = WIN && o.claude && (o.watchdog === 'yes' || (o.watchdog === 'auto' && wd.tasks.length > 0));
   const codexCurrentEarly = () => !useCodex || (x && x.trailmarkMarketplace);
   const current = c && c.trailmark.find(p => p.id === 'trailmark@trailmark' && p.scope === 'user' && p.enabled && p.folder && samePath(p.folder, path.join(HERE, 'plugins', 'trailmark')));
   const codexCurrent = !useCodex || (x && x.trailmarkMarketplace);
   if (o.install && current && codexCurrent && !c.plugins.length && !watchdog) {
     info('Trailmark from this folder is already installed and on, so the installer is skipped');
-    o.install = false;
-  }
-  // The installer refuses while jb-memory is installed at any scope.
-  if (o.install && c && !o.projectScopes && c.plugins.some(p => p.scope !== 'user')) {
-    info('jb-memory stays at project or local scope (--keep-project-scopes), and the installer refuses while it is installed anywhere, so it is skipped');
-    later('Install Trailmark once jb-memory is gone from every scope: run this again without --keep-project-scopes, or run the installer yourself.');
     o.install = false;
   }
   if (o.install && o.claude && !(current && codexCurrentEarly() && !c.plugins.length && !watchdog)) {
@@ -759,10 +793,23 @@ function main() {
   // ---------- Claude Code
   if (c) {
     step('Claude Code: remove jb-memory');
-    for (const p of c.plugins) uninstallClaude(claude, p, o);
+    // Project and local scopes first, user scope last: if one of those can't
+    // be removed, the installer can't run, and jb-memory then stays at user
+    // scope so there is still a plugin.
+    for (const p of c.plugins) if (p.scope !== 'user') uninstallClaude(claude, p, o);
+    if (o.install && !o.keepUser && c.plugins.some(p => p.scope !== 'user') && c.plugins.some(p => p.scope === 'user')) {
+      const stuck = surveyClaude(claude).plugins.filter(p => p.scope !== 'user');
+      if (stuck.length) {
+        warn(`jb-memory is still installed at ${stuck.map(p => `${p.scope} scope${p.projectPath ? ' in ' + p.projectPath : ''}`).join(', ')}, so the installer can't run; jb-memory is kept at user scope, so you still have a plugin`);
+        later('Remove jb-memory from the scopes above by hand (the warnings say how), then run this again.');
+        o.keepUser = true;
+        o.install = false;
+      }
+    }
+    if (!o.keepUser) for (const p of c.plugins) if (p.scope === 'user') uninstallClaude(claude, p, o);
     // Uninstall left nothing at any scope? Then the marketplaces and cache can go.
     const after = surveyClaude(claude);
-    const left = after.plugins.filter(p => o.projectScopes || p.scope === 'user');
+    const left = after.plugins.filter(p => (o.projectScopes && p.scope !== 'user') || (p.scope === 'user' && !o.keepUser));
     if (left.length) {
       warn(`still installed: ${left.map(p => `${p.id} (${p.scope})`).join(', ')}`);
       for (const p of left) later(`Uninstall ${p.id} by hand${p.projectPath ? ` from ${p.projectPath}` : ''}: claude plugin uninstall ${p.id} --scope ${p.scope}${p.projectPath ? ' (run it in that folder)' : ''}. Then run this again.`);
@@ -786,7 +833,10 @@ function main() {
       const r = run(claude, ['plugin', 'marketplace', 'remove', m.name, '--json']);
       const j = lastJsonLine(r.out);
       if (r.code === 0 || (j && j.failureCode === 'not_configured')) ok(`removed the marketplace ${m.name}`);
-      else warn(`claude plugin marketplace remove ${m.name} failed: ${(j && j.message) || r.err.trim().split('\n')[0] || 'exit ' + r.code}`);
+      else {
+        warn(`claude plugin marketplace remove ${m.name} failed: ${(j && j.message) || r.err.trim().split('\n')[0] || 'exit ' + r.code}`);
+        later(`Remove the old marketplace by hand: claude plugin marketplace remove ${m.name}`);
+      }
     }
     if (o.cache) {
       if (after.plugins.length && !o.projectScopes) info('old cache copies kept: jb-memory is still installed at project or local scope (--keep-project-scopes)');
@@ -805,6 +855,9 @@ function main() {
   // ---------- Codex
   if (x && x.used) {
     step('Codex: remove jb-memory-codex');
+    // A Codex step that throws (a path the shell can't be given safely, say)
+    // must not stop the run before Trailmark is installed below.
+    try {
     if (x.orphan) {
       if (x.orphanFrom && codex && !oldCodexRelease([x.orphanFrom], x.orphanMkt)) {
         later(`The old release at ${x.orphanFrom} is gone now. Run this again with --old-release <a copy of your old jb-memory release>, then uninstall jb-memory-codex in the ChatGPT app.`);
@@ -867,6 +920,10 @@ function main() {
         }
       }
     }
+    } catch (e) {
+      warn(`a Codex step stopped: ${e.message}`);
+      later('The Codex steps stopped early (the warning above says why). Fix that, then run this again; Claude Code steps already done are skipped.');
+    }
   }
 
   // ---------- install
@@ -887,6 +944,7 @@ function main() {
       if (r.code === 0) ok('the installer finished');
       else if (r.code === 3) { ok('the installer finished; trailmark-watchdog was not installed (its message is above)'); later(`trailmark-watchdog wasn't installed. When you're ready: powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(HERE, 'tools', 'windows', 'install-trailmark-watchdog.ps1')}"`); }
       else { warn(`the installer stopped (exit ${r.code}); its message is above`); installed = false; }
+      if (installed && wasOff) later('jb-memory was turned off at user scope, and Trailmark is installed turned on. To turn it off as well: claude plugin disable trailmark@trailmark --scope user');
     }
   }
 

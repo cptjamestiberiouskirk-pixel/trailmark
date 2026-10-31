@@ -56,7 +56,7 @@ Type the full name. Claude Code's own `/rewind` also answers to `checkpoint`, so
 
 ## Your data
 
-Everything lives in Claude Code's own memory folder for the repo, under `~/.claude/projects/`, shared by all of the repo's worktrees:
+Everything lives in Claude Code's own memory folder for the repo, under `~/.claude/projects/`, shared by all of the repo's worktrees (the worktrees of a bare repo each get their own):
 
 - `handoff.md` is the note itself, with the previous version kept for undo and a history of the last 20.
 - `archive/` and `parked/` hold finished items and parked ideas, which are never loaded unless you ask.
