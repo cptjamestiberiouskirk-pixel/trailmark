@@ -11,12 +11,35 @@
 const fs = require('fs');
 const path = require('path');
 const { candidateKeys, projectsRoot, samePath } = require('./paths');
+const { openPlain, plainMtime } = require('./plainfile');
+
+// A link on the way from root down to p (root itself not counted) whose
+// target names a network path. Read as text, before anything is looked up
+// through it; that works under the sandbox too, which can't look above its
+// grants.
+function netLinkBelow(root, p) {
+  const rel = path.relative(root, p);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return !require('./gitbin').localPath(p);
+  let at = root;
+  for (const part of path.relative(root, p).split(path.sep).filter(Boolean)) {
+    at = path.join(at, part);
+    let st;
+    try { st = fs.lstatSync(at); } catch { return false; }
+    if (!st.isSymbolicLink()) continue;
+    let t = '';
+    try { t = fs.readlinkSync(at); } catch { return true; }
+    if (/^[\\/]{2}|^[\\/]\?\?[\\/]|^%\(prefix\)/i.test(t.replace(/"/g, '').trim())) return true;
+  }
+  return false;
+}
 
 function newestJsonl(dir) {
+  if (netLinkBelow(projectsRoot(), dir)) return null;
   try {
     return fs.readdirSync(dir)
       .filter(f => f.endsWith('.jsonl'))
-      .map(f => ({ p: path.join(dir, f), t: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .map(f => ({ p: path.join(dir, f), t: plainMtime(path.join(dir, f)) }))
+      .filter(x => Number.isFinite(x.t))
       .sort((a, b) => b.t - a.t)[0] || null;
   } catch { return null; }
 }
@@ -26,7 +49,7 @@ function newestJsonl(dir) {
 function readHead(file, n) {
   let fd;
   try {
-    fd = fs.openSync(file, 'r');
+    fd = openPlain(file);
     const buf = Buffer.alloc(n);
     const len = fs.readSync(fd, buf, 0, n, 0);
     return buf.toString('utf8', 0, len);
@@ -120,15 +143,16 @@ function findCodexTranscript(session, recorded, platform = process.platform) {
   if (!session) return null;
   const fold = p => (platform === 'win32' ? p.toLowerCase() : p);
   const roots = codexRoots().map(r => path.resolve(r));
-  const isFile = p => { try { return fs.statSync(p).isFile(); } catch { return false; } };
+  const { localPath } = require('./gitbin');
+  const isFile = p => { try { return fs.lstatSync(p).isFile(); } catch { return false; } };
   // Inside the session folders by name and by real path, so a link there
-  // can't lead somewhere else.
-  const realRoots = roots.map(r => { try { return fs.realpathSync.native(r); } catch { return r; } });
+  // can't lead somewhere else. Resolved a part at a time with links read as
+  // text, so one to a network path is never followed.
+  const realRoots = roots.map(r => localPath(r) || r);
   const inRoots = p => {
     if (!roots.some(r => fold(p).startsWith(fold(r) + path.sep))) return false;
-    let real;
-    try { real = fs.realpathSync.native(p); } catch { return false; }
-    return realRoots.some(r => fold(real).startsWith(fold(r) + path.sep));
+    const real = localPath(p);
+    return !!real && realRoots.some(r => fold(real).startsWith(fold(r) + path.sep));
   };
   if (typeof recorded === 'string' && recorded) {
     const p = path.resolve(plainPath(recorded));
@@ -256,7 +280,7 @@ function codexEntry(o, hasEvents) {
 // A line longer than maxLine is skipped unread: at that size it is tool
 // output, never a message worth quoting.
 function forEachLine(file, fn, { chunk = 1 << 20, maxLine = 32 << 20 } = {}) {
-  const fd = fs.openSync(file, 'r');
+  const fd = openPlain(file);
   try {
     const buf = Buffer.alloc(chunk);
     let parts = [];

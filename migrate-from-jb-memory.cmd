@@ -9,5 +9,8 @@ rem Started from PowerShell 7, Windows PowerShell would inherit its module
 rem path and fail to load its own modules; cleared, it uses its default.
 set "PSModulePath="
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\migrate-from-jb-memory.ps1" %*
+rem Its exit code, kept past the pause.
+set "rc=%ERRORLEVEL%"
 echo.
 pause
+exit /b %rc%

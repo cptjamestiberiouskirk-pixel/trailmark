@@ -111,7 +111,8 @@ function transcriptCwds(projectDir) {
   try {
     files = fs.readdirSync(projectDir)
       .filter(f => f.endsWith('.jsonl'))
-      .map(f => ({ f, t: fs.statSync(path.join(projectDir, f)).mtimeMs }))
+      .map(f => ({ f, t: require('./plainfile').plainMtime(path.join(projectDir, f)) }))
+      .filter(x => Number.isFinite(x.t))
       .sort((a, b) => b.t - a.t)
       .slice(0, 2);
   } catch {
@@ -120,7 +121,8 @@ function transcriptCwds(projectDir) {
   for (const { f } of files) {
     let fd;
     try {
-      fd = fs.openSync(path.join(projectDir, f), 'r');
+      // Never through a link, never a FIFO: this runs in the launcher.
+      fd = require('./plainfile').openPlain(path.join(projectDir, f));
       const buf = Buffer.alloc(64 * 1024);
       const n = fs.readSync(fd, buf, 0, buf.length, 0);
       for (const line of buf.slice(0, n).toString('utf8').split('\n')) {

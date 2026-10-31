@@ -36,7 +36,7 @@ jobs:
           bash -n install.sh
           node --check tools/migrate-from-jb-memory.js
           node tools/migrate-from-jb-memory.js --help > /dev/null
-          for f in LICENSE scripts/hook-milestone.js scripts/hook-precompact.js scripts/lib/commands.js scripts/lib/gitbin.js scripts/lib/gitfacts.js scripts/lib/health.js scripts/lib/hookio.js tests/handoff-checks.test.js; do
+          for f in LICENSE scripts/hook-milestone.js scripts/hook-precompact.js scripts/lib/commands.js scripts/lib/gitbin.js scripts/lib/gitfacts.js scripts/lib/health.js scripts/lib/hookio.js scripts/lib/plainfile.js tests/handoff-checks.test.js; do
             cmp plugins/trailmark/$f plugins/trailmark-codex/$f || { echo "::error file=plugins/trailmark-codex/$f::differs from plugins/trailmark/$f"; bad=1; }
           done
           [ -z "$bad" ]

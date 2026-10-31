@@ -58,7 +58,7 @@ Every command here runs Trailmark from the path shown, `${CLAUDE_PLUGIN_ROOT}/sc
    JBMEM_EOF_${CLAUDE_SESSION_ID}
    ```
 
-   The end marker carries this session's ID, so a line in the text can't end the heredoc early. If the text itself contains that marker line, save it with the Write tool and use `--from` as described next, in Bash too.
+   The end marker carries this session's ID, so a line in the text can't end the heredoc early. A line that starts with `JBMEM_EOF` is refused, whichever way the text is passed: indent that line by two spaces and run the command again.
 
    Use the Bash tool for this when you have it. PowerShell won't pipe text into a command without manual approval, so with PowerShell only: take the memory folder from the first line of `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" dir`, save the note with the Write tool as `incoming-park-${CLAUDE_SESSION_ID}.md` in that folder, then run `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" park --slug=<slug> --from="<memory folder>/incoming-park-${CLAUDE_SESSION_ID}.md"`. The session ID in the name keeps two sessions parking at once from overwriting each other's file. If the command shows a placeholder in braces where the ID belongs, name the file `incoming-park.md`. The file is removed once the idea is parked. Write each command with the full trailmark.js path as shown, not through a variable such as `$j`, so PowerShell can check the whole command before it runs.
 

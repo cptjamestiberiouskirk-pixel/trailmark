@@ -290,7 +290,7 @@ function statusTop(r, cwd) {
   const t = r.run(cwd, ['rev-parse', '--show-toplevel']);
   if (!t.ok) return { why: t.why === 'timeout' ? 'git-timeout' : 'git-error' };
   const top = t.out.split(/\r?\n/)[0].trim();
-  if (!top || top.length > 400) return { why: 'outside-worktree' };
+  if (!top || top.length > 4096) return { why: 'outside-worktree' };
   const a = folderKey(realOr(top));
   const b = folderKey(realOr(cwd));
   if (a !== b && !inside(a, b) && !sameFolder(top, cwd) && !inside(folderKey(top), folderKey(cwd))) return { why: 'outside-worktree' };
@@ -540,7 +540,9 @@ function sweepCommits(folders, { homeCwd, budgetMs = 3000, now = Date.now() } = 
     if (!item || typeof item.dir !== 'string' || !Number.isFinite(item.since)) continue;
     if (out.read.length >= MAX_SWEEP_FOLDERS || r.left() < 800) break;
     const dir = item.dir;
-    if (farNetwork(dir, homeCwd)) continue;
+    // The launcher passes only folders it checked; checked here too, so no
+    // caller can have a link to a share stat-ed.
+    if (farNetwork(dir, homeCwd) || !localPathFrom(homeCwd || dir, dir)) continue;
     const lo = Math.floor(item.since / 1000) * 1000;
     const hi = Number.isFinite(item.until) ? Math.min(item.until, nowSec) : nowSec;
     let isDir = false;

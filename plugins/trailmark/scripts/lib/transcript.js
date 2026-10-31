@@ -11,12 +11,35 @@
 const fs = require('fs');
 const path = require('path');
 const { candidateKeys, projectsRoot, samePath } = require('./paths');
+const { openPlain, plainMtime } = require('./plainfile');
+
+// A link on the way from root down to p (root itself not counted) whose
+// target names a network path. Read as text, before anything is looked up
+// through it; that works under the sandbox too, which can't look above its
+// grants.
+function netLinkBelow(root, p) {
+  const rel = path.relative(root, p);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return !require('./gitbin').localPath(p);
+  let at = root;
+  for (const part of path.relative(root, p).split(path.sep).filter(Boolean)) {
+    at = path.join(at, part);
+    let st;
+    try { st = fs.lstatSync(at); } catch { return false; }
+    if (!st.isSymbolicLink()) continue;
+    let t = '';
+    try { t = fs.readlinkSync(at); } catch { return true; }
+    if (/^[\\/]{2}|^[\\/]\?\?[\\/]|^%\(prefix\)/i.test(t.replace(/"/g, '').trim())) return true;
+  }
+  return false;
+}
 
 function newestJsonl(dir) {
+  if (netLinkBelow(projectsRoot(), dir)) return null;
   try {
     return fs.readdirSync(dir)
       .filter(f => f.endsWith('.jsonl'))
-      .map(f => ({ p: path.join(dir, f), t: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .map(f => ({ p: path.join(dir, f), t: plainMtime(path.join(dir, f)) }))
+      .filter(x => Number.isFinite(x.t))
       .sort((a, b) => b.t - a.t)[0] || null;
   } catch { return null; }
 }
@@ -26,7 +49,7 @@ function newestJsonl(dir) {
 function readHead(file, n) {
   let fd;
   try {
-    fd = fs.openSync(file, 'r');
+    fd = openPlain(file);
     const buf = Buffer.alloc(n);
     const len = fs.readSync(fd, buf, 0, n, 0);
     return buf.toString('utf8', 0, len);
@@ -74,11 +97,7 @@ function findTranscriptForSession(cwd, session, recorded, platform = process.pla
   // path where it can.
   const isFile = p => {
     try {
-      let at = root;
-      for (const part of path.relative(root, p).split(path.sep).slice(0, -1)) {
-        at = path.join(at, part);
-        if (fs.lstatSync(at).isSymbolicLink() && /^[\\/]{2}|^[\\/]\?\?[\\/]|^%\(prefix\)/i.test(fs.readlinkSync(at).replace(/"/g, '').trim())) return false;
-      }
+      if (netLinkBelow(root, path.dirname(p))) return false;
       if (!fs.lstatSync(p).isFile()) return false;
       const { localPath } = require('./gitbin');
       return !!localPath(p);
@@ -173,7 +192,7 @@ function stripWrappers(text) {
 // A line longer than maxLine is skipped unread: at that size it is tool
 // output, never a message worth quoting.
 function forEachLine(file, fn, { chunk = 1 << 20, maxLine = 32 << 20 } = {}) {
-  const fd = fs.openSync(file, 'r');
+  const fd = openPlain(file);
   try {
     const buf = Buffer.alloc(chunk);
     let parts = [];

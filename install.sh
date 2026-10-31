@@ -77,8 +77,11 @@ if [ "$UNINSTALL" = 1 ]; then
     RC=2
   elif [ -f "$CODEX_CFG" ] && grep -Eq '^[[:space:]]*\[[[:space:]]*plugins[[:space:]]*\.[[:space:]]*"trailmark-codex@' "$CODEX_CFG"; then
     warn 'trailmark-codex is still installed in the ChatGPT app. Uninstall it there first (Plugins), then run this again to remove its marketplace: the app shows it only through that marketplace.'
+    RC=2
   elif command -v codex >/dev/null 2>&1; then
-    codex plugin marketplace remove trailmark-codex >/dev/null 2>&1 && ok 'removed the trailmark-codex marketplace from Codex'
+    if OUT="$(codex plugin marketplace remove trailmark-codex 2>&1)"; then ok 'removed the trailmark-codex marketplace from Codex'
+    elif printf '%s' "$OUT" | grep -Eqi 'not configured|not found|no such marketplace'; then ok 'the trailmark-codex marketplace was not added in Codex'
+    else warn "codex plugin marketplace remove trailmark-codex failed: $OUT"; RC=2; fi
   fi
   echo
   echo 'Done. The memory folders (~/.claude/projects/<repo>/memory) were kept; each repo'"'"'s'
@@ -88,6 +91,12 @@ fi
 
 step 'Check the tools'
 command -v node >/dev/null 2>&1 || fail 'node is not on PATH. Install the Node.js LTS (24.22.1 or later), open a new terminal and run this again.'
+# Before node runs at all: with "." or an empty entry in PATH, the node found
+# could be one in the current folder (a repo).
+case "$(command -v node)" in
+  /*) ;;
+  *) fail "node is found as $(command -v node), through a PATH entry that isn't an absolute folder (\".\" or empty). Remove that entry from PATH, then run this again." ;;
+esac
 NODEV="$(node -p 'process.version' 2>/dev/null)" || fail 'node did not run.'
 CHECK_JS="$HERE/tools/install-check.js"
 ADVICE="$(node "$CHECK_JS" node-advice 2>/dev/null)" || fail 'could not run tools/install-check.js; is this the release folder?'
@@ -99,6 +108,10 @@ case "$(command -v node)" in
 esac
 if command -v git >/dev/null 2>&1; then ok "$(git --version)"; else warn 'git is not on PATH. trailmark works, but logs no commits and shows no branch until it is.'; fi
 command -v claude >/dev/null 2>&1 || fail 'claude is not on PATH. Install Claude Code first.'
+case "$(command -v claude)" in
+  /*) ;;
+  *) fail "claude is found as $(command -v claude), through a PATH entry that isn't an absolute folder. Remove that entry from PATH, then run this again." ;;
+esac
 CV="$(claude --version 2>/dev/null | head -n1)"
 ok "claude $CV"
 node -e '
@@ -123,6 +136,11 @@ ME="$(id -un)"
 if find "$HERE" -maxdepth 0 -group "$ME" >/dev/null 2>&1; then
   OWNGRP_NOT="! -group $ME"
   case "$ME" in *[!A-Za-z0-9._-]*) OWNGRP_NOT='' ;; esac
+  # A group named after you that lists other members isn't yours alone.
+  if command -v getent >/dev/null 2>&1; then
+    MEMBERS="$(getent group "$ME" | cut -d: -f4)"
+    case ",$MEMBERS," in ",,"|",$ME,") ;; *) OWNGRP_NOT='' ;; esac
+  fi
 else
   OWNGRP_NOT=''
 fi
@@ -167,10 +185,14 @@ if [ -n "$WHERE" ] && [ "$WHERE" != "$HERE" ]; then
 fi
 ok 'no other Trailmark or jb-memory install'
 
+# Read-only, so part of the checks: the migration runs them before it
+# removes anything.
+claude plugin validate "$HERE" >/dev/null || fail "claude plugin validate failed; run it by hand to see why: claude plugin validate \"$HERE\""
+ok 'claude plugin validate passes'
+
 if [ "$CHECK" = 1 ]; then echo; echo 'Checks done: nothing was changed.'; exit 0; fi
 
 step 'Install for Claude Code'
-claude plugin validate "$HERE" >/dev/null || fail "claude plugin validate failed; run it by hand to see why: claude plugin validate \"$HERE\""
 claude plugin marketplace add "$HERE" || fail 'claude plugin marketplace add failed.'
 claude plugin install "$PLUGIN@$MKT" || fail 'claude plugin install failed.'
 

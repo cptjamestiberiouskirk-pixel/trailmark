@@ -219,13 +219,13 @@ function sessionHome(payload) {
   if (typeof tp !== 'string' || !tp.endsWith('.jsonl')) return '';
   const f = path.resolve(tp);
   if (!S.inside(path.resolve(projectsRoot()), f)) return '';
-  // Never through a link to a share, nor out of the projects folder by one.
+  // Never through a link to a share. A local link (a project folder kept on
+  // another disk) is fine, as in the transcript lookup.
   const real = localPath(f);
-  const realRoot = localPath(path.resolve(projectsRoot()));
-  if (!real || !realRoot || !S.inside(realRoot, real)) return '';
+  if (!real) return '';
   let fd;
   try {
-    fd = fs.openSync(real, 'r');
+    fd = require('./lib/plainfile').openPlain(real); // never a FIFO
     const buf = Buffer.alloc(64 * 1024);
     const n = fs.readSync(fd, buf, 0, buf.length, 0);
     const m = /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(buf.slice(0, n).toString('utf8'));

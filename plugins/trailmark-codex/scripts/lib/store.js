@@ -96,6 +96,18 @@ function plainSubs(p) {
     if (st.isSymbolicLink() || !st.isDirectory()) { const e = new Error(`${q} is a link or not a folder`); e.code = 'ENOENT'; throw e; }
   }
 }
+// Every folder between dir and dir/rel is a real folder, not a link: for a
+// path read from MEMORY.md, which may name any subfolder.
+function plainUnder(dir, rel) {
+  const parts = String(rel).split(/[\\/]+/).filter(Boolean);
+  let at = dir;
+  for (const part of parts.slice(0, -1)) {
+    if (part === '..') return false;
+    at = path.join(at, part);
+    try { const st = fs.lstatSync(at); if (st.isSymbolicLink() || !st.isDirectory()) return false; } catch { return false; }
+  }
+  return true;
+}
 // readdirSync of a memory subfolder, never through a link on the way.
 function readDirPlain(d, opts) {
   plainSubs(d);
@@ -1392,7 +1404,8 @@ function pruneReport(dir) {
   const staleMs = cfg.staleDays * 86400000;
   const memText = readText(path.join(dir, 'MEMORY.md')) || '';
   const links = memoryIndexLinks(memText);
-  const deadLinks = links.filter(l => !plainExists(path.join(dir, l)));
+  // A link that leads through a linked folder counts as dead: it isn't read.
+  const deadLinks = links.filter(l => !plainUnder(dir, l) || !plainExists(path.join(dir, l)));
   const topics = topicFiles(dir);
   const orphans = topics.filter(t => !links.includes(t));
   const stale = [];
@@ -1421,17 +1434,21 @@ const RESERVED_LC = new Set([...RESERVED].map(n => n.toLowerCase()));
 // A file name with characters a shell treats specially. The skills put names
 // into commands in single quotes, so such a name is shown quoted and marked,
 // and archive-file refuses it: move that file by hand.
-const SHELL_ODD = /['"`$\\!;&|<>(){}*?\r\n\t]|^-/;
+// The skills put names in single quotes, where only a quote can end the
+// string: ' and, in PowerShell, the typographic single quotes. Control
+// characters, and a name or folder starting with a dash (read as an option),
+// are refused too. The whole path is checked, folders included.
+const SHELL_ODD = /['\u2018-\u201b\u0000-\u001f\u007f-\u009f]|(?:^|\/)[-\u2013\u2014\u2015]/;
 function shownName(n) {
-  return SHELL_ODD.test(String(n).split('/').pop()) ? `${JSON.stringify(String(n))} (unusual characters: move it by hand, not with archive-file)` : n;
+  return SHELL_ODD.test(String(n)) ? `${JSON.stringify(String(n))} (unusual characters: move it by hand, not with archive-file)` : n;
 }
 function archiveFile(dir, rel) {
   const bad = () => new Error('archive-file takes a topic .md file inside the memory dir');
-  if (SHELL_ODD.test(path.basename(String(rel)))) throw new Error('archive-file refuses a name with characters a shell treats specially; move that file into archive/files by hand');
+  if (SHELL_ODD.test(String(rel).replace(/\\/g, '/'))) throw new Error('archive-file refuses a name with characters a shell treats specially; move that file into archive/files by hand');
   const src = path.resolve(dir, rel);
   const base = path.basename(src);
   if (!inside(dir, src) || !/\.md$/i.test(src) || RESERVED_LC.has(base.toLowerCase())) throw bad();
-  if (!plainExists(src)) throw new Error(`not found: ${rel}`);
+  if (!plainUnder(dir, path.relative(dir, src)) || !plainExists(src)) throw new Error(`not found: ${rel}`);
   let real;
   try { real = fs.realpathSync.native(src); } catch { throw bad(); }
   let realDir = dir;
@@ -1573,22 +1590,25 @@ const LINE_BREAKS = /\r\n|[\r\u000b\u000c\u0085\u2028\u2029]/g;
 // whose name has a dash or underscore or is a role or block word
 // (<system-reminder>, <user>, <instructions>). Code such as Array<string>,
 // i<n or <https://...> is left alone.
-const FRAME_LIKE = /^[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:[-\p{Pd}\u2212\u02d7\u2043\u2500-\u257f\u23af\u2e3a\u2e3b\ufe58\ufe63\uff0d]{2}|[[\uff3b<\uff1c\u2039\u2329\u27e8\u3008\u300a\u3010\u3014\u3016\u3018\u301a\u2770-\u2775\ufe64])/u;
+const FRAME_LIKE = /^[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*(?:[-\p{Pd}\u2212\u02d7\u2043\u2500-\u257f\u23af\u2e3a\u2e3b\ufe58\ufe63\uff0d]{2}|[[\uff3b<\uff1c\u2039\u2329\u27e8\u3008\u300a\u3010\u3014\u3016\u3018\u301a\u2770-\u2775\ufe64])/u;
 // An opening tag is escaped when its name has a separator (- _ . or a colon
 // before a letter) or an invisible character in it, starts with a role or
 // block word (<systemprompt>, <developer>), or has a letter outside ASCII in
 // it (a look-alike such as a Cyrillic s).
-const TAG_LIKE = /[<＜﹤](?=[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*\/[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*[\p{L}_]|[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:[\p{L}_][\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:[-_.\p{Cf}\p{Default_Ignorable_Code_Point}]|:(?=\p{L}))[\p{L}\p{N}_.:\p{Cf}\p{Default_Ignorable_Code_Point}-]*|(?:system|user|assistant|human|tool|function|developer|instructions?|context|documents?|example|reminder|message|prompt)[\p{L}\p{N}_]*|[\p{L}\p{N}_]*(?:(?![\x00-\x7f])\p{L})[\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}]*)[\s\p{Cf}\p{Default_Ignorable_Code_Point}]*(?:[\s>＞\/]|$))/giu;
+const TAG_LIKE = /[<＜﹤](?=[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*\/?[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*$|[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*\/[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*[\p{L}_]|[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*(?:[\p{L}_][\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*(?:[-_.\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]|:(?=\p{L}))[\p{L}\p{N}_.:\p{Cf}\p{Default_Ignorable_Code_Point}\u2800-]*|(?:system|user|assistant|human|tool|function|developer|instructions?|context|documents?|example|reminder|message|prompt)[\p{L}\p{N}_]*|[\p{L}\p{N}_]*(?:(?![\x00-\x7f])\p{L})[\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*)[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*(?:[\s>＞\/]|$))/giu;
 // A line that is the skills' heredoc end marker would end the heredoc when a
 // later checkpoint copies the handoff forward; indented, it can't.
 const HEREDOC_END = /^JBMEM_EOF/;
+// Control characters (tab kept) are dropped first: inside a tag name they
+// would hide it from the patterns below.
+const CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
 function framed(text) {
-  return text.replace(LINE_BREAKS, '\n').split('\n').map(l => (FRAME_LIKE.test(l) || HEREDOC_END.test(l) ? '  ' + l : l).replace(TAG_LIKE, m => m + '\\')).join('\n');
+  return text.replace(LINE_BREAKS, '\n').replace(CONTROLS, '').split('\n').map(l => (FRAME_LIKE.test(l) || HEREDOC_END.test(l) ? '  ' + l : l).replace(TAG_LIKE, m => m + '\\')).join('\n');
 }
 
 // Tag-like text escaped as in framed(), for one line placed outside a frame.
 function escapeTags(t) {
-  return String(t).replace(TAG_LIKE, m => m + '\\');
+  return String(t).replace(CONTROLS, '').replace(TAG_LIKE, m => m + '\\');
 }
 
 function frameMarker() {

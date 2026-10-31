@@ -296,7 +296,7 @@ function configEntries(file) {
     });
   } catch { return UNSAFE; }
 }
-const REMOTE_ADDRESS = /^remote\..+\.(?:url|pushurl)$|^url\..+\.(?:insteadof|pushinsteadof)$/i;
+const REMOTE_ADDRESS = /^remote\..+\.(?:url|pushurl)$|^url\..+\.(?:insteadof|pushinsteadof)$|^submodule\..+\.url$/i;
 const MAX_INCLUDE_DEPTH = 10;
 const MAX_CONFIG_FILES = 50;
 // st: { seen, files } shared by one whole check.
@@ -375,9 +375,10 @@ function gitdirAt(base, t) {
 // walked, as there can be very many; past 20,000 entries the rest isn't
 // looked at, so a big repo isn't kept out.
 // '' when nothing in the gitdir is a link to a network path, else the reason.
-// Folders deeper than MAX_GITDIR_DEPTH aren't walked, so a gitdir that has
-// one is refused rather than passed.
-const MAX_GITDIR_DEPTH = 24;
+// Folders deeper than MAX_GITDIR_DEPTH (far past nested submodules with deep
+// branch names) aren't walked, so a gitdir that has one is refused rather
+// than passed.
+const MAX_GITDIR_DEPTH = 64;
 function linkedEntries(gitdir) {
   let budget = 20000;
   const seen = new Set();

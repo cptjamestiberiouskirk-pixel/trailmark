@@ -222,13 +222,13 @@ function sessionHome(payload) {
   if (typeof tp !== 'string' || !tp.endsWith('.jsonl')) return '';
   const f = path.resolve(tp);
   if (!S.inside(path.resolve(projectsRoot()), f)) return '';
-  // Never through a link to a share, nor out of the projects folder by one.
+  // Never through a link to a share. A local link (a project folder kept on
+  // another disk) is fine, as in the transcript lookup.
   const real = localPath(f);
-  const realRoot = localPath(path.resolve(projectsRoot()));
-  if (!real || !realRoot || !S.inside(realRoot, real)) return '';
+  if (!real) return '';
   let fd;
   try {
-    fd = fs.openSync(real, 'r');
+    fd = require('./lib/plainfile').openPlain(real); // never a FIFO
     const buf = Buffer.alloc(64 * 1024);
     const n = fs.readSync(fd, buf, 0, buf.length, 0);
     const m = /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(buf.slice(0, n).toString('utf8'));
@@ -334,16 +334,18 @@ function exitFromTranscript(tp, id) {
   // By name first: nothing outside Codex's session folders, and nothing on a
   // network path, is resolved or opened at all.
   if (NET_PATH.test(file) || !T.codexRoots().some(r => fold(file).startsWith(fold(path.resolve(r)) + path.sep))) return null;
-  let real;
-  try { real = fs.realpathSync.native(file); } catch { return null; }
-  const roots = T.codexRoots().map(r => { try { return fs.realpathSync.native(r); } catch { return path.resolve(r); } });
+  // Resolved one part at a time, a link read as text: one that leads to a
+  // network path stops here, before anything is looked up through it.
+  const real = localPath(file);
+  if (!real) return null;
+  const roots = T.codexRoots().map(r => localPath(path.resolve(r)) || path.resolve(r));
   if (!roots.some(r => fold(real).startsWith(fold(r) + path.sep))) return null;
-  try { if (!fs.statSync(real).isFile()) return null; } catch { return null; }
+  try { if (!fs.lstatSync(real).isFile()) return null; } catch { return null; }
   const needle = `"id":"${id}"`;
   const scan = () => {
     let fd;
     try {
-      fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
+      fd = require('./lib/plainfile').openPlain(real);
       if (!fs.fstatSync(fd).isFile()) return null;
       const size = fs.fstatSync(fd).size;
       const len = Math.min(size, 2 * 1024 * 1024);

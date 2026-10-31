@@ -125,9 +125,12 @@ if ($Uninstall) {
     $rc = 2
   } elseif ($codexCfg -match '(?m)^\s*\[\s*plugins\s*\.\s*"trailmark-codex@') {
     Warn 'trailmark-codex is still installed in the ChatGPT app. Uninstall it there first (Plugins), then run this again to remove its marketplace: the app shows it only through that marketplace.'
+    $rc = 2
   } elseif (Have 'codex') {
-    $null = Run 'codex' @('plugin', 'marketplace', 'remove', 'trailmark-codex')
+    $o = Run 'codex' @('plugin', 'marketplace', 'remove', 'trailmark-codex')
     if ($LASTEXITCODE -eq 0) { Ok 'removed the trailmark-codex marketplace from Codex' }
+    elseif ($o -match 'not configured|not found|no such marketplace') { Ok 'the trailmark-codex marketplace was not added in Codex' }
+    else { Warn "codex plugin marketplace remove trailmark-codex failed: $o"; $rc = 2 }
   }
   Write-Host ''
   Write-Host 'Done. The memory folders (%USERPROFILE%\.claude\projects\<repo>\memory) were kept.'
@@ -267,11 +270,15 @@ if ($where -and -not ($where.TrimEnd('\') -ieq $here) -and -not ($where.TrimEnd(
 }
 Ok 'no other Trailmark or jb-memory install'
 
+# Read-only, so part of the checks: the migration runs them before it
+# removes anything.
+$null = Run 'claude' @('plugin', 'validate', $here)
+if ($LASTEXITCODE -ne 0) { Fail ('claude plugin validate failed; run it by hand to see why: claude plugin validate "' + $here + '"') }
+Ok 'claude plugin validate passes'
+
 if ($Check -or $Preflight) { Write-Host ''; Write-Host 'Checks done: nothing was changed.'; exit 0 }
 
 Step 'Install for Claude Code'
-$null = Run 'claude' @('plugin', 'validate', $here)
-if ($LASTEXITCODE -ne 0) { Fail ('claude plugin validate failed; run it by hand to see why: claude plugin validate "' + $here + '"') }
 & claude plugin marketplace add $here
 if ($LASTEXITCODE -ne 0) { Fail 'claude plugin marketplace add failed.' }
 & claude plugin install "$plugin@$mkt"

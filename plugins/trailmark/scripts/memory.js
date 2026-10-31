@@ -77,7 +77,7 @@ function readStdin() {
 // copied forward, and what follows would run as shell commands; such text
 // is refused.
 function endMarkerFree(t) {
-  if (/^JBMEM_EOF/m.test(t)) fail('a line of the text starts with JBMEM_EOF, the end marker the skills use for the heredoc; indent or reword that line. Nothing was written.');
+  if (/^JBMEM_EOF/m.test(t)) fail('a line of the text starts with JBMEM_EOF, the end marker of the heredoc Claude Code\'s skills pass text in; indent that line by two spaces and run the command again. Nothing was written.');
   return t;
 }
 
@@ -125,7 +125,8 @@ function conflict(e) {
     for (const l of d.added) out.push(`+ ${l}`);
   }
   out.push(`--- CURRENT HANDOFF (version ${e.current}) ---`);
-  out.push(e.currentText === null || e.currentText === undefined ? 'NO_HANDOFF' : e.currentText.replace(/\n$/, ''));
+  // A line like the skills' heredoc end marker is indented, as in `handoff`.
+  out.push(e.currentText === null || e.currentText === undefined ? 'NO_HANDOFF' : e.currentText.replace(/\n$/, '').replace(/^JBMEM_EOF/gm, '  JBMEM_EOF'));
   out.push('--- END CURRENT HANDOFF ---');
   out.push(versionLine(e.current, 'write the merged handoff'));
   console.log(out.join('\n'));
@@ -169,7 +170,8 @@ switch (cmd) {
     if (loc.method === 'formula-unverified' && !flags.force) {
       fail(`could not confirm Claude Code's memory folder for ${loc.root}. Start one Claude Code session at the repo root, then retry (or pass --force to use ${dir}).`);
     }
-    const linked = S.linkedFiles(dir);
+    // MEMORY.md is Claude Code's own index: a link there is only noted by status.
+    const linked = S.linkedFiles(dir).filter(f => f !== 'MEMORY.md');
     if (linked.length) fail(`${linked.join(', ')} in ${dir} ${linked.length > 1 ? 'are links' : 'is a link'}. Trailmark never reads through links, so ${linked.length > 1 ? 'they count' : 'it counts'} as missing. Replace each with a plain file (a copy of what it points to), then run this again.`);
     const created = S.init(dir, { publicRepo: !!flags.public, repoName, repoRoot: loc.root });
     console.log(created.length ? `Set up ${dir}\n  created: ${created.join(', ')}` : `Already set up: ${dir}`);
@@ -180,7 +182,7 @@ switch (cmd) {
     const cfg = S.loadConfig(dir);
     console.log(`trailmark for ${repoName}: ${S.isEnabled(dir) ? 'set up' : 'NOT set up'} (${dir})`);
     const linked = S.linkedFiles(dir);
-    if (linked.length) console.log(`  ${linked.join(', ')} ${linked.length > 1 ? 'are links' : 'is a link'}: Trailmark never reads through links, so ${linked.length > 1 ? 'they count' : 'it counts'} as missing. Replace each with a plain file.`);
+    if (linked.length) console.log(`  ${linked.join(', ')} ${linked.length > 1 ? 'are links' : 'is a link'}: Trailmark never reads through links, so ${linked.length > 1 ? 'they count' : 'it counts'} as missing. Replace ${linked.length > 1 ? 'each' : 'it'} with a plain file.`);
     if (S.isEnabled(dir)) {
       const ho = S.measureHandoff(dir, cfg);
       const f = path.join(dir, S.HANDOFF);

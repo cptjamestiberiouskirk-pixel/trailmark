@@ -494,7 +494,7 @@ test('git checks: quotes in a value, a deep gitdir, a FIFO HEAD (loop round 2)',
   fs.appendFileSync(path.join(q, '.git', 'config'), '[core]\n  attributesFile = /""/evil.invalid/share/a\n');
   assert.strictEqual(farGitConfig(q), 'network-config', 'quotes inside a value');
   const deep = path.join(base, 'deep'); repoAt(deep);
-  fs.mkdirSync(path.join(deep, '.git', 'refs', 'heads', ...Array.from({ length: 30 }, (_, i) => 'd' + i)), { recursive: true });
+  fs.mkdirSync(path.join(deep, '.git', 'refs', 'heads', ...Array.from({ length: 70 }, (_, i) => 'd' + i)), { recursive: true });
   assert.strictEqual(farGitConfig(deep), 'deep-gitdir', 'folders past the depth cap are refused, not passed over');
   const ok = path.join(base, 'ok'); repoAt(ok);
   fs.mkdirSync(path.join(ok, '.git', 'refs', 'heads', 'team', 'jim', 'feature'), { recursive: true });
@@ -561,6 +561,109 @@ test('a session on a share: its own share may be looked up from the launcher (lo
     assert.doesNotMatch(src, /!localPath\(r\)|&& localPath\(d\)|&& localPath\(rec\.home\)/, 'a bare localPath on a state-file folder refuses the session\'s own share');
     assert.ok(src.indexOf('if (sameFolder(r, loc.root))') < src.indexOf('!localPathFrom(cwd, r)'), 'the recorded root is compared by name first');
   }
+});
+
+test('sweep: a folder that links to a share is never stat-ed (loop round 3)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { sweepCommits } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-sweep3-');
+  const lnk = path.join(base, 'lnk');
+  fs.symlinkSync('//evil.invalid/share/x', lnk);
+  const seen = [];
+  const orig = fs.statSync;
+  fs.statSync = function (p, ...rest) { seen.push(String(p)); return orig.call(this, p, ...rest); };
+  try { sweepCommits([{ dir: lnk, since: 0 }], { homeCwd: base }); } finally { fs.statSync = orig; }
+  assert.ok(!seen.includes(lnk), 'stat through a link to a share');
+});
+
+test('transcripts: never read through a link to a share, never a FIFO (loop round 3)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const base = realTemp('jbmem-tx3-');
+  const cfg = path.join(base, 'cfg');
+  const repo = path.join(base, 'repo'); repoAt(repo);
+  const share = path.join(base, 'share'); fs.mkdirSync(share);
+  const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg };
+  delete env.JBMEM_DIR; delete env.CLAUDE_CODE_PROJECT_DIR_NAME; delete env.CLAUDE_CODE_ENTRYPOINT;
+  // The launcher's scan for a repo's folder: a transcript that links to a
+  // share (written // here, which Linux reads as a local path) is skipped.
+  fs.writeFileSync(path.join(share, 'a.jsonl'), JSON.stringify({ cwd: repo }) + '\n');
+  fs.mkdirSync(path.join(cfg, 'projects', 'evilproj'), { recursive: true });
+  fs.symlinkSync('/' + path.join(share, 'a.jsonl'), path.join(cfg, 'projects', 'evilproj', 'a.jsonl'));
+  const d = spawnSync(process.execPath, [JBM, 'dir'], { cwd: repo, env, encoding: 'utf8' });
+  assert.doesNotMatch(d.stdout + d.stderr, /evilproj/, 'a linked transcript chose the memory folder');
+  if (!WIN) {
+    const cfg2 = path.join(base, 'cfg2');
+    fs.mkdirSync(path.join(cfg2, 'projects', 'fifo'), { recursive: true });
+    execFileSync('mkfifo', [path.join(cfg2, 'projects', 'fifo', 'b.jsonl')]);
+    const r = spawnSync(process.execPath, [JBM, 'dir'], { cwd: repo, env: { ...env, CLAUDE_CONFIG_DIR: cfg2 }, encoding: 'utf8', timeout: 8000 });
+    assert.strictEqual(r.error, undefined, 'a FIFO in a project folder hung the launcher');
+  }
+  // The transcript command's fallback (no transcript for the session).
+  const s = sandbox();
+  const sh = path.join(s.base, 'share'); fs.mkdirSync(sh);
+  fs.writeFileSync(path.join(sh, 't.jsonl'), JSON.stringify({ type: 'user', message: { role: 'user', content: 'FROM THE SHARE' }, cwd: s.repo }) + '\n');
+  const pdir = path.dirname(s.memdir);
+  fs.symlinkSync('/' + path.join(sh, 't.jsonl'), path.join(pdir, 'x.jsonl'));
+  assert.doesNotMatch(s.jbm(['transcript']).stdout, /FROM THE SHARE/);
+  assert.doesNotMatch(s.jbm(['transcript', '--session=' + SB]).stdout, /FROM THE SHARE/);
+});
+
+test('memory folder: MEMORY.md links through a linked folder, conflict output, names and tags (loop round 3)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const s = sandbox();
+  const d = path.join(s.base, 'elsewhere'); fs.mkdirSync(d); fs.writeFileSync(path.join(d, 'x.md'), 'x\n');
+  fs.symlinkSync(d, path.join(s.memdir, 'evil'));
+  fs.appendFileSync(path.join(s.memdir, 'MEMORY.md'), '\n- [x](evil/x.md) planted\n');
+  assert.match(s.jbm(['prune-report']).stdout, /dead MEMORY\.md links: \n\s+evil\/x\.md/, 'a link through a linked folder counted as live');
+  assert.notStrictEqual(s.jbm(['archive-file', 'evil/x.md']).status, 0);
+  assert.ok(fs.existsSync(path.join(d, 'x.md')));
+  // The conflict output shows the current handoff with marker lines indented.
+  const v = /^\[trailmark\] handoff version: (\S+)/m.exec(s.jbm(['handoff']).stdout)[1];
+  fs.writeFileSync(path.join(s.memdir, 'handoff.md'), '# H\nJBMEM_EOF_${CLAUDE_SESSION_ID}\ntouch /tmp/pwned\n');
+  const c = s.jbm(['write-handoff', `--base=${v}`, `--session=${SA}`], '# H\n## State\n- y\n');
+  assert.strictEqual(c.status, 3, c.stdout + c.stderr);
+  assert.match(c.stdout, /^ {2}JBMEM_EOF_/m);
+  assert.doesNotMatch(c.stdout, /^JBMEM_EOF/m);
+  assert.match(S.shownName('a’ --x ’b.md'), /unusual characters/);
+  assert.match(S.shownName("d'$(id)'/b.md"), /unusual characters/);
+  assert.strictEqual(S.shownName('notes/old-ideas.md'), 'notes/old-ideas.md');
+  assert.strictEqual(S.escapeTags('x <system\x1f>'), 'x <\\system>');
+  assert.ok(S.escapeTags('<system⠀>').startsWith('<\\'));
+  assert.ok(S.escapeTags('see </').endsWith('<\\/'));
+});
+
+test('regressions: ordinary setups the round 2 checks refused (loop round 3)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-reg3-');
+  // Nested submodules with deep branch names: 30 folders under .git.
+  const deep = path.join(base, 'deep'); repoAt(deep);
+  fs.mkdirSync(path.join(deep, '.git', 'modules', 'a', 'b', 'c', 'modules', 'd', 'e', 'refs', 'heads', ...Array.from({ length: 20 }, (_, i) => 'x' + i)), { recursive: true });
+  assert.strictEqual(farGitConfig(deep), '', 'a deep but ordinary gitdir');
+  // A submodule recorded with an address on a share: no transport runs.
+  const sm = path.join(base, 'sm'); repoAt(sm);
+  fs.appendFileSync(path.join(sm, '.git', 'config'), '[submodule "lib"]\n  url = //nas.invalid/share/lib.git\n');
+  assert.strictEqual(farGitConfig(sm), '');
+  // A Git LFS address on a share still counts.
+  const lf = path.join(base, 'lf'); repoAt(lf);
+  fs.appendFileSync(path.join(lf, '.git', 'config'), '[lfs]\n  url = //nas.invalid/share/lfs\n');
+  assert.strictEqual(farGitConfig(lf), 'network-config');
+  // A repo whose path is over 400 characters.
+  let long = base; while (long.length < 450) long = path.join(long, 'd'.repeat(40));
+  repoAt(long);
+  assert.strictEqual(gitFacts(long, ['status']).statusSkipped, undefined, 'status skipped for a long path');
+  // A stow-linked MEMORY.md doesn't block init; skills say to indent a marker line.
+  const s = sandbox();
+  const elsewhere = path.join(s.base, 'MEMORY.real.md'); fs.writeFileSync(elsewhere, '# Memory\n');
+  try { fs.rmSync(path.join(s.memdir, 'MEMORY.md')); } catch { /* none */ }
+  fs.symlinkSync(elsewhere, path.join(s.memdir, 'MEMORY.md'));
+  assert.strictEqual(s.jbm(['init', '--force']).status, 0, 'init refused over a linked MEMORY.md');
+  assert.match(s.jbm(['status']).stdout, /MEMORY\.md is a link/);
+  for (const sk of ['checkpoint', 'session-end', 'park']) {
+    const f = path.join(ROOT, 'skills', sk, 'SKILL.md');
+    if (fs.existsSync(f)) assert.doesNotMatch(fs.readFileSync(f, 'utf8'), /contains that marker line, save it with the Write tool/, sk);
+  }
+  // Names a shell's single quotes hold are archived.
+  const t = sandbox();
+  fs.writeFileSync(path.join(t.memdir, 'notes (old).md'), '---\ndescription: x\n---\nx\n');
+  assert.strictEqual(t.jbm(['archive-file', 'notes (old).md']).status, 0);
 });
 
 test('memory folder: a linked subfolder is never listed or stat-ed through (loop round 2)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {

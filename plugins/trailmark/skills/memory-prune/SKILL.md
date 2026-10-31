@@ -38,6 +38,8 @@ Every command here runs Trailmark from the path shown, `${CLAUDE_PLUGIN_ROOT}/sc
      node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" archive-file '<relative path>'
      ```
 
+     A name that `prune-report` or `list` shows in quotes with "(unusual characters ...)" is refused: don't put it in a command. Tell the user to move that file into `archive/files/` by hand and delete its MEMORY.md line.
+
    - Dead index lines, or tightening MEMORY.md to one line per entry: edit MEMORY.md directly.
    - Handoff over budget: mark finished items `[done]`, write the handoff the checkpoint way. `write-handoff` archives the `[done]` items as it saves.
    - Promote:

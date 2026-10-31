@@ -40,7 +40,7 @@ Every command here runs Trailmark from the path shown, `${CLAUDE_PLUGIN_ROOT}/sc
    JBMEM_EOF_${CLAUDE_SESSION_ID}
    ```
 
-   The end marker carries this session's ID, so a line in the text can't end the heredoc early. If the text itself contains that marker line, save it with the Write tool and use `--from` as described next, in Bash too.
+   The end marker carries this session's ID, so a line in the text can't end the heredoc early. A line that starts with `JBMEM_EOF` is refused, whichever way the text is passed: indent that line by two spaces and run the command again.
 
    It archives the `[done]` items as it saves. Once it is saved (exit code 0 or 2), run `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" budget` as a separate command.
 
