@@ -8,6 +8,9 @@
 //   node install-check.js others           reads `claude plugin list --json` on
 //                                          stdin; prints the ids of trailmark
 //                                          installed from another marketplace
+//   node install-check.js others-new       the same, leaving jb-memory out (the
+//                                          migration removes it after the checks)
+//   node install-check.js real <path>      the real path of a folder
 //   node install-check.js marketplace      reads `claude plugin marketplace list
 //                                          --json` on stdin; prints the real path
 //                                          the trailmark marketplace points at,
@@ -37,6 +40,17 @@ if (cmd === 'node-advice') {
 } else if (cmd === 'others') {
   const ids = readList().map(p => String((p && p.id) || '')).filter(id => /^(?:trailmark|jb-memory)@/i.test(id) && id !== 'trailmark@trailmark'); // jb-memory: the name before 0.5.0
   process.stdout.write(ids.join(' '));
+} else if (cmd === 'others-new') {
+  // For the migration's preflight: jb-memory is about to be removed, so only
+  // another Trailmark install counts.
+  const ids = readList().map(p => String((p && p.id) || '')).filter(id => /^trailmark@/i.test(id) && id !== 'trailmark@trailmark');
+  process.stdout.write(ids.join(' '));
+} else if (cmd === 'real') {
+  // A folder's real path (junctions and subst drives resolved), so it can be
+  // compared with the marketplace's, which is printed the same way.
+  let r = String(process.argv[3] || '');
+  try { r = fs.realpathSync.native(r); } catch { /* as given */ }
+  process.stdout.write(r);
 } else if (cmd === 'marketplace') {
   const m = readList().find(x => x && x.name === 'trailmark');
   if (!m) process.exit(0);
@@ -46,6 +60,6 @@ if (cmd === 'node-advice') {
   try { r = fs.realpathSync.native(p); } catch { /* shown as recorded */ }
   process.stdout.write(r);
 } else {
-  process.stderr.write('usage: node install-check.js node-advice|others|marketplace\n');
+  process.stderr.write('usage: node install-check.js node-advice|others|others-new|marketplace|real <path>\n');
   process.exit(2);
 }

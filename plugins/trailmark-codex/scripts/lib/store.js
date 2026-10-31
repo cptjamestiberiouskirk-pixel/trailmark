@@ -197,7 +197,9 @@ function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0,
 // nothing.
 function testPause() {
   const ms = Number(process.env.JBMEM_TEST_HOLD_MS || 0);
-  if (ms > 0) sleepMs(Math.min(ms, 5000));
+  // Capped: a repo's settings could set it, and a long pause would make a
+  // hook miss its time limit.
+  if (ms > 0) sleepMs(Math.min(ms, 1500));
 }
 
 // The lock file holds "pid <n> host <name> ... token <hex>". Every command
@@ -227,7 +229,7 @@ function pidAlive(pid) {
 function lockInfo(file) {
   let st;
   let text;
-  try { st = fs.statSync(file); text = readPlain(file); } catch { return null; }
+  try { st = plainStat(file); text = readPlain(file); } catch { return null; }
   const pid = /^pid (\d+)/.exec(text);
   const host = / host (\S+)/.exec(text);
   return { text, pid: pid ? Number(pid[1]) : 0, host: host ? host[1] : '', age: Math.abs(Date.now() - st.mtimeMs) };
@@ -252,6 +254,14 @@ function lockBreakable(info) {
 // holder's lock could be the one deleted. A holder 60 s into a millisecond job
 // is already a fault; this is noted rather than handled.
 function tryBreakLock(file) {
+  // A lock is only ever created as a plain file. A link there is not one of
+  // ours and is removed (the link, never what it points to); a folder is
+  // reported, since what it holds isn't ours to delete.
+  try {
+    const l = fs.lstatSync(file);
+    if (l.isSymbolicLink()) { fs.unlinkSync(file); return true; }
+    if (l.isDirectory()) { const e = new Error(`${LOCK} in the memory folder is a folder, not a lock file; remove it and run the command again`); e.code = 'JBMEM_LOCKED'; throw e; }
+  } catch (e) { if (e && e.code === 'JBMEM_LOCKED') throw e; }
   const info = lockInfo(file);
   if (!lockBreakable(info)) return false;
   const brk = `${file}.break`;
@@ -259,7 +269,7 @@ function tryBreakLock(file) {
   try { bfd = fs.openSync(brk, 'wx'); } catch {
     // Someone else is breaking it. A break file older than 30 s is left over
     // from a crash in the few lines below.
-    try { if (Math.abs(Date.now() - fs.statSync(brk).mtimeMs) > LOCK_UNLABELED_MS) fs.unlinkSync(brk); } catch { /* gone */ }
+    try { if (Math.abs(Date.now() - plainStat(brk).mtimeMs) > LOCK_UNLABELED_MS) fs.unlinkSync(brk); } catch { /* gone */ }
     return false;
   }
   try {
@@ -360,12 +370,23 @@ function displayPath(p, platform = process.platform) {
 
 // ---------- config and opt-in ----------
 
+// A memory-folder file or folder's stat, never through a link: a link (or
+// anything not a plain file or folder) counts as missing. The sandbox's
+// permission model follows links, so every stat here goes through this.
+function plainStat(p) {
+  const st = fs.lstatSync(p);
+  if (st.isSymbolicLink() || !(st.isFile() || st.isDirectory())) { const e = new Error(`not a plain file: ${p}`); e.code = 'ENOENT'; throw e; }
+  return st;
+}
+function plainExists(p) {
+  try { plainStat(p); return true; } catch { return false; }
+}
 function isEnabled(dir) {
   // The launcher sets JBMEM_DIR_MISSING when the memory folder didn't exist at
   // start and lies outside the projects folder, where the sandbox gets no grant
   // to look. A folder that doesn't exist isn't set up.
   if (process.env.JBMEM_DIR_MISSING === '1' && process.env.JBMEM_DIR && samePath(dir, process.env.JBMEM_DIR)) return false;
-  return fs.existsSync(path.join(dir, MARKER));
+  return plainExists(path.join(dir, MARKER));
 }
 
 // Allowed range for each number in .jbmem.json. Values print into the
@@ -547,7 +568,7 @@ function init(dir, { publicRepo = false, repoName = 'this repo', repoRoot = '' }
   fs.mkdirSync(dir, { recursive: true });
   for (const sub of ['archive', 'parked', 'notes']) {
     const p = path.join(dir, sub);
-    const had = fs.existsSync(p);
+    const had = plainExists(p);
     safeDir(dir, sub);
     if (!had) created.push(sub + '/');
   }
@@ -1145,7 +1166,7 @@ function markCommitDone(dir, toolUseId) {
   try {
     const st = fs.lstatSync(pdir);
     if (st.isSymbolicLink() || !st.isDirectory()) return false;
-    if (!fs.existsSync(path.join(pdir, `${toolUseId}.json`))) return false;
+    if (!plainExists(path.join(pdir, `${toolUseId}.json`))) return false;
     fs.writeFileSync(path.join(pdir, `${toolUseId}.done`), '', { flag: 'wx' });
     return true;
   } catch (e) {
@@ -1208,7 +1229,7 @@ function park(dir, slug, content, { replace = false } = {}) {
   }
   // Under the lock, so two sessions parking the same slug can't overwrite each other.
   withLock(dir, () => {
-    if (fs.existsSync(file) && !replace) throw new Error(`parked/${slug}.md exists; pass --replace to overwrite`);
+    if (plainExists(file) && !replace) throw new Error(`parked/${slug}.md exists; pass --replace to overwrite`);
     testPause();
     atomicWrite(file, text.endsWith('\n') ? text : text + '\n');
   });
@@ -1233,11 +1254,14 @@ function listDir(dir, sub) {
   const d = path.join(dir, sub);
   let names;
   try { names = fs.readdirSync(d).filter(f => f.endsWith('.md')).sort(); } catch { return []; }
-  return names.map(f => {
+  // A link or anything else that isn't a plain file is left out.
+  return names.flatMap(f => {
     const p = path.join(d, f);
+    let st;
+    try { st = plainStat(p); } catch { return []; }
+    if (!st.isFile()) return [];
     const text = readText(p) || '';
-    const st = fs.statSync(p);
-    return { name: `${sub}/${f}`, description: splitFrontmatter(text).data.description || '', mtime: st.mtime, bytes: st.size };
+    return [{ name: `${sub}/${f}`, description: splitFrontmatter(text).data.description || '', mtime: st.mtime, bytes: st.size }];
   });
 }
 
@@ -1302,7 +1326,7 @@ function measure(dir) {
   const ho = measureHandoff(dir, cfg);
   const inj = buildInjection(dir, { source: 'startup' }).text;
   const topics = topicFiles(dir);
-  const topicBytes = topics.reduce((s, r) => s + (fs.statSync(path.join(dir, r)).size || 0), 0);
+  const topicBytes = topics.reduce((s, r) => { try { return s + (plainStat(path.join(dir, r)).size || 0); } catch { return s; } }, 0);
   const dirBytes = (sub) => listDir(dir, sub).reduce((s, f) => s + f.bytes, 0);
   return {
     loadedEverySession: {
@@ -1339,7 +1363,7 @@ function pruneReport(dir) {
   const staleMs = cfg.staleDays * 86400000;
   const memText = readText(path.join(dir, 'MEMORY.md')) || '';
   const links = memoryIndexLinks(memText);
-  const deadLinks = links.filter(l => !fs.existsSync(path.join(dir, l)));
+  const deadLinks = links.filter(l => !plainExists(path.join(dir, l)));
   const topics = topicFiles(dir);
   const orphans = topics.filter(t => !links.includes(t));
   const stale = [];
@@ -1347,7 +1371,8 @@ function pruneReport(dir) {
   for (const t of topics) {
     const text = readText(path.join(dir, t)) || '';
     const { data } = splitFrontmatter(text);
-    const modified = Date.parse(data.modified || '') || fs.statSync(path.join(dir, t)).mtimeMs;
+    let modified = Date.parse(data.modified || '');
+    if (!modified) { try { modified = plainStat(path.join(dir, t)).mtimeMs; } catch { modified = 0; } }
     if (now - modified > staleMs) stale.push({ file: t, days: Math.floor((now - modified) / 86400000) });
     const d = (data.description || '').toLowerCase();
     if (d) byDesc.set(d, [...(byDesc.get(d) || []), t]);
@@ -1369,7 +1394,7 @@ function archiveFile(dir, rel) {
   const src = path.resolve(dir, rel);
   const base = path.basename(src);
   if (!inside(dir, src) || !/\.md$/i.test(src) || RESERVED_LC.has(base.toLowerCase())) throw bad();
-  if (!fs.existsSync(src)) throw new Error(`not found: ${rel}`);
+  if (!plainExists(src)) throw new Error(`not found: ${rel}`);
   let real;
   try { real = fs.realpathSync.native(src); } catch { throw bad(); }
   let realDir = dir;
@@ -1382,7 +1407,7 @@ function archiveFile(dir, rel) {
 function archiveFileLocked(dir, src, base) {
   const destDir = safeDir(dir, path.join('archive', 'files'));
   let dest = path.join(destDir, base);
-  if (fs.existsSync(dest)) dest = path.join(destDir, base.replace(/\.md$/i, `-${Date.now()}.md`));
+  if (plainExists(dest)) dest = path.join(destDir, base.replace(/\.md$/i, `-${Date.now()}.md`));
   fs.renameSync(src, dest);
   const relPosix = path.relative(dir, src).split(path.sep).join('/');
   const memFile = path.join(dir, 'MEMORY.md');
@@ -1444,7 +1469,7 @@ function checkpointTime(dir, session) {
   const rec = sessionRecord(dir, session);
   if (rec && (rec.lastWrite || rec.start)) return { since: rec.lastWrite || rec.start, basis: rec.lastWrite ? "this session's last checkpoint" : 'this session\'s start (no checkpoint by it yet)' };
   const h = path.join(dir, HANDOFF);
-  return fs.existsSync(h) ? { since: fs.statSync(h).mtimeMs, basis: 'the last handoff write by any session' } : { since: 0, basis: 'session start' };
+  return plainExists(h) ? { since: plainStat(h).mtimeMs, basis: 'the last handoff write by any session' } : { since: 0, basis: 'session start' };
 }
 
 // ---------- compaction snapshots ----------
@@ -1482,14 +1507,15 @@ function listSnapshots(dir) {
   const add = (p, session) => {
     try {
       const worktree = splitFrontmatter(readText(p) || '').data.worktree || '';
-      out.push({ file: p, session, worktree, mtime: fs.statSync(p).mtimeMs });
+      out.push({ file: p, session, worktree, mtime: plainStat(p).mtimeMs });
     } catch { /* removed meanwhile */ }
   };
   try {
-    for (const f of fs.readdirSync(path.join(dir, SNAPSHOTS))) if (/\.md$/.test(f)) add(path.join(dir, SNAPSHOTS, f), f.replace(/\.md$/, ''));
+    // Only names that are session ids: the name goes into the frame's label.
+    for (const f of fs.readdirSync(path.join(dir, SNAPSHOTS))) if (/\.md$/.test(f) && cleanSession(f.replace(/\.md$/, ''))) add(path.join(dir, SNAPSHOTS, f), f.replace(/\.md$/, ''));
   } catch { /* none yet */ }
   const legacy = path.join(dir, PRECOMPACT);
-  if (fs.existsSync(legacy)) add(legacy, '');
+  if (plainExists(legacy)) add(legacy, '');
   return out.sort((a, b) => b.mtime - a.mtime);
 }
 
@@ -1650,13 +1676,13 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   if (raw === null) {
     return withNotes({ text: `[trailmark] No handoff yet for this repo. Run the ${CHECKPOINT_SKILL} skill at the first milestone. ${SKILL_RULE}`, summary: 'no handoff yet' });
   }
-  const age = ageText(now - fs.statSync(handoffFile).mtimeMs);
+  const age = ageText(now - plainStat(handoffFile).mtimeMs);
 
   const sid = cleanSession(session);
   const rec = sessionRecord(dir, sid);
   const st = readState(dir);
   const writer = lastWriterOf(st);
-  const handoffTime = fs.statSync(handoffFile).mtimeMs;
+  const handoffTime = plainStat(handoffFile).mtimeMs;
 
   if (source === 'resume') {
     const seenAt = rec ? Math.max(rec.lastWrite || 0, rec.start || 0, rec.resumed || 0) : 0;
@@ -1779,7 +1805,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   return { text, summary: `handoff ${age} old, ~${estTokens(text.length)} tokens injected${cut ? ', TRUNCATED' : ''}${ho.overChars || ho.overLines ? ', over budget' : ''}` };
 }
 
-module.exports = {
+module.exports = { plainStat, plainExists,
   checkRepoRoot, escapeTags, readPlain, handoffStamp, checkSinceFacts, coveredSteps, pruneNotes, AGENT,
   MARKER, HANDOFF, HANDOFF_PREV, PRECOMPACT, SNAPSHOTS, LOCK, PENDING, DEFAULTS, HISTORY, CHECKPOINT_SKILL, SKILL_RULE,
   cleanSession, shortSession, versionOf, withLock, updateState, sessionRecord, otherSessions, lastWriterOf,

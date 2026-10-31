@@ -44,6 +44,7 @@ const { findMemoryDir, projectsRoot, samePath, repoRoot, configDir } = require('
 const { nodeAdvice, otherCopies, nodeInside } = require('./lib/health');
 const S = require('./lib/store');
 const { commitsSince, gitFacts, commitFacts, fitCommitFacts, sweepCommits, sameFolder, windowMs, farNetwork } = require('./lib/gitfacts');
+const { localPath } = require('./lib/gitbin');
 // When the launcher started: a hook's sandboxed script gets what is left of
 // the host's hook timeout, not a fixed time on top of the launcher's own work.
 const T0 = Date.now();
@@ -74,6 +75,8 @@ function insideFolder(dir, file) {
   // A link to a network path is refused before anything resolves it: that
   // would connect to the server (and on Windows send it your sign-in hash).
   if (/^(\\\\|\/\/)/.test(path.resolve(file))) return false;
+  // Nor a path through a link that leads to one.
+  if (!localPath(file) || !localPath(dir)) return false;
   // A drop file is written by the session's file tool, never as a link, so a
   // link is refused outright (a chain of them could end on a network path).
   try { if (fs.lstatSync(file).isSymbolicLink()) return false; } catch { /* missing: reported when read */ }
@@ -348,7 +351,7 @@ function rootSeen(loc, cwd) {
   if (!r) return { recorded: '' };
   // A network path is never looked up, not even to compare it: resolving it
   // would reach the server, outside the sandbox.
-  if (farNetwork(r, cwd)) return { recorded: r, same: false, network: true };
+  if (farNetwork(r, cwd) || !localPath(r)) return { recorded: r, same: false, network: true };
   if (sameFolder(r, loc.root)) return { recorded: r, same: true };
   let exists = false;
   try { exists = fs.lstatSync(path.join(r, '.git')) !== null; } catch { exists = false; }
@@ -423,7 +426,7 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   const dirs = [];
   // The folders come from the state file, which a session can write: a
   // network one outside the session's folder is never touched.
-  const add = (d) => { if (typeof d === 'string' && d.length < 4096 && path.isAbsolute(d) && !farNetwork(d, homeCwd) && !dirs.some(x => sameFolder(x, d))) dirs.push(d); };
+  const add = (d) => { if (typeof d === 'string' && d.length < 4096 && path.isAbsolute(d) && !farNetwork(d, homeCwd) && localPath(d) && !dirs.some(x => sameFolder(x, d))) dirs.push(d); };
   add(rec.home); add(homeCwd);
   for (const d of Array.isArray(rec.commitDirs) ? rec.commitDirs : []) add(d);
   add(rec.commitDir);
@@ -449,7 +452,7 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   if (!items.length || left < 1000) return undefined;
   // rec.home comes from the state file, which a session can write: it is
   // used only when it is a local path (git runs there).
-  const recHome = typeof rec.home === 'string' && rec.home && path.isAbsolute(rec.home) && !farNetwork(rec.home, homeCwd) ? rec.home : homeCwd;
+  const recHome = typeof rec.home === 'string' && rec.home && path.isAbsolute(rec.home) && !farNetwork(rec.home, homeCwd) && localPath(rec.home) ? rec.home : homeCwd;
   return sweepCommits(items, { homeCwd: recHome, budgetMs: Math.min(left, 3000), now });
 }
 
@@ -587,7 +590,7 @@ function handoffFacts(loc, cwd, session) {
   try {
     const rec = session ? S.sessionRecord(loc.dir, session) : null;
     const d = rec && typeof rec.commitDir === 'string' ? rec.commitDir : '';
-    if (d && path.isAbsolute(d) && !farNetwork(d, cwd) && fs.statSync(d).isDirectory()) target = d;
+    if (d && path.isAbsolute(d) && !farNetwork(d, cwd) && localPath(d) && fs.statSync(d).isDirectory()) target = d;
   } catch { /* the session's own folder */ }
   let f = gitFacts(target, ['branch', 'head', 'toplevel']);
   if (!f.head && target !== cwd) { target = cwd; f = gitFacts(cwd, ['branch', 'head', 'toplevel']); }

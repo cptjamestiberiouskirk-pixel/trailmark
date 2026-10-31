@@ -41,7 +41,7 @@ function runner(budgetMs) {
     const left = Math.min(4000, deadline - Date.now());
     if (r.hung || left < 250) return { ok: false, out: '', why: 'timeout' };
     const far = farGitConfig(cwd);
-    if (far) return { ok: false, out: '', why: far };
+    if (far) { r.refused = r.refused || far; return { ok: false, out: '', why: far }; }
     const bin = gitPath(cwd);
     if (!bin) return { ok: false, out: '', why: 'no-git' };
     try {
@@ -67,6 +67,9 @@ function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
   const r = runner(budgetMs);
   const git = (args) => (wanted.length ? r.run(cwd, args).out.trim() : '');
   const f = {};
+  // git kept out of this folder: no facts, and the reason (a fixed word).
+  const refused = farGitConfig(cwd);
+  if (refused) { f.gitRefused = refused; return f; }
   if (wanted.includes('branch')) f.branch = branchToken(git(['branch', '--no-color', '--show-current']) || 'detached', 80) || 'detached';
   if (wanted.includes('head')) f.head = git(['rev-parse', '--short', 'HEAD']).replace(/[^0-9a-f]/gi, '').slice(0, 12);
   if (wanted.includes('subject')) f.subject = oneLine(git(['log', '-1', '--no-show-signature', '--no-color', '--format=%s']), 100);
@@ -125,7 +128,8 @@ function farWorktree(r, cwd) {
     for (let i = 1; i < parts.length && folders.size < MAX_TREE_FOLDERS; i++) folders.add(parts.slice(0, i).join('/'));
     if (!e.startsWith('160000 ')) continue;
     if (++n > MAX_SUBMODULES) return 'many-submodules';
-    if (farNested(path.join(top.top, rel))) return 'submodule-pointer';
+    if (r.left() < 800) return 'git-timeout';
+    if (farNested(path.join(top.top, rel), top.top)) return 'submodule-pointer';
   }
   for (const rel of folders) {
     let st;
@@ -261,6 +265,9 @@ function folderKey(p) {
 // server. Paths reach here from command text and the state file.
 function realOr(p) {
   if (NET_RE.test(String(p || ''))) return p;
+  // A path from the state file or a payload may lead through a link to a
+  // share: compared by name then, never resolved.
+  if (!localPath(String(p || ''))) return p;
   try { return fs.realpathSync.native(p); } catch { return p; }
 }
 

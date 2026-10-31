@@ -25,8 +25,8 @@
 # no window at all. Some security products flag that launch pattern as
 # suspicious, because malware uses it to hide, which is why it isn't the default.
 #
-# Everything this script prints is also saved to install-trailmark-watchdog.log next
-# to it (the summary in step 2 shows on screen only).
+# Everything this script prints is also saved to install-trailmark-watchdog.log in
+# %LOCALAPPDATA%\trailmark-watchdog (the summary in step 2 shows on screen only).
 #
 # Undo: run this script with -Uninstall. That removes both tasks and the
 # installed script. The log and known-good list stay in
@@ -69,14 +69,16 @@ $ps51     = Join-Path $env:windir 'System32\WindowsPowerShell\v1.0\powershell.ex
 $conhost  = Join-Path $env:windir 'System32\conhost.exe'
 $taskName = 'trailmark-watchdog'
 $remindName = 'trailmark-watchdog-reminder'
-$log      = Join-Path $here 'install-trailmark-watchdog.log'
+# The log goes with the watchdog's own state, not into the release folder.
+$log      = Join-Path $stateDir 'install-trailmark-watchdog.log'
 $scriptDir = $here
-if ($Root) { $here = [IO.Path]::GetFullPath($Root).TrimEnd([char[]]@('\', '/')) }
+if ($Root) { $here = [IO.Path]::GetFullPath($Root).TrimEnd([char[]]@('\', '/')); if ($here -match '^[A-Za-z]:$') { $here += '\' } }
 else {
   $up = Split-Path -Parent (Split-Path -Parent $here)
   if ((Split-Path -Leaf $here) -ieq 'windows' -and (Split-Path -Leaf (Split-Path -Parent $here)) -ieq 'tools' -and (Test-Path -LiteralPath (Join-Path $up '.claude-plugin\marketplace.json') -PathType Leaf)) { $here = $up }
 }
 
+try { [void][IO.Directory]::CreateDirectory($stateDir) } catch { }
 Start-Transcript -Path $log -Force | Out-Null
 
 function Step([string]$t) { Write-Host ''; Write-Host "=== $t" }

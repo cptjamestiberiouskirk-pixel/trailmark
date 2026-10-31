@@ -20,7 +20,7 @@ The scripts in `tools/windows` that call the model (`test-trailmark-roundtrip.ps
 
 ## The two plugin copies
 
-`plugins/trailmark-codex` is a separate copy of the Claude Code plugin's code. What differs is mostly in `scripts/lib/host.js`, the lines in `scripts/trailmark.js` marked "Codex:", `scripts/lib/transcript.js` and the skills. A fix to the shared code needs the same fix in both copies. `tests/handoff-checks.test.js` is the same file in both, and both test suites must pass.
+`plugins/trailmark-codex` is a separate copy of the Claude Code plugin's code. What differs is mostly in `scripts/lib/host.js`, the lines in `scripts/trailmark.js` marked "Codex:", `scripts/lib/transcript.js`, `hooks/hooks.json` and the skills, with smaller differences in `hook-session-start.js`, `hook-commit-start.js`, `paths.js`, `store.js` and `memory.js`. The CI step "Repository checks" lists the files that must stay identical. A fix to the shared code needs the same fix in both copies. `tests/handoff-checks.test.js` is the same file in both, and both test suites must pass.
 
 ## Sending a change
 

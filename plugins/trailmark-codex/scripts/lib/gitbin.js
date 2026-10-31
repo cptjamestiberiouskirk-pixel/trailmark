@@ -181,6 +181,24 @@ function gitEnv(base = process.env) {
 // a gitdir past its first 20,000 entries.
 const NET_START = /^[\\/]{2}|^[\\/]\?\?[\\/]/;
 const WIN = process.platform === 'win32';
+// The network share the session itself works in (\\server\share), while one
+// check runs: git may reach that share, since the user opened the repo there
+// (\\wsl$\..., a company share), but no other. Long forms (\\?\UNC) aren't
+// taken as a share of their own and stay refused.
+let ALLOW_SHARE = '';
+function shareRoot(p) {
+  const m = /^[\\/]{2}(?![?.][\\/])([^\\/]+)[\\/]([^\\/]+)/.exec(String(p));
+  return m ? ('//' + m[1] + '/' + m[2]).toLowerCase() : '';
+}
+function blocked(p) {
+  if (!NET_START.test(p)) return false;
+  return !(ALLOW_SHARE && shareRoot(p) === ALLOW_SHARE);
+}
+function withShare(cwd, fn) {
+  const prev = ALLOW_SHARE;
+  ALLOW_SHARE = NET_START.test(String(cwd || '')) ? shareRoot(cwd) : '';
+  try { return fn(); } finally { ALLOW_SHARE = prev; }
+}
 const farCache = new Map();
 // A value as git might read it: quotes dropped and escapes undone. Both the
 // raw and the decoded spelling are checked, so neither can hide a share.
@@ -188,7 +206,7 @@ function netText(s) {
   const raw = String(s).replace(/"/g, '').trim();
   const dec = raw.replace(/\\\\/g, '\\').trim();
   if (/^%\(prefix\)/i.test(raw)) return true;
-  return NET_START.test(raw) || NET_START.test(dec);
+  return blocked(raw) || blocked(dec);
 }
 // A pointer git and this check may resolve differently on Windows.
 function oddRelative(t) {
@@ -216,8 +234,8 @@ function exactPointer(t) {
 }
 function localPath(p) {
   let cur = WIN ? path.resolve(String(p)) : String(p);
-  if (!WIN && !cur.startsWith('/')) cur = rawJoin(process.cwd(), cur);
-  if (NET_START.test(cur)) return null;
+  if (!WIN && !cur.startsWith('/') && !NET_START.test(cur)) cur = rawJoin(process.cwd(), cur);
+  if (blocked(cur)) return null;
   for (let hops = 0; hops < 40; hops++) {
     const root = path.parse(cur).root;
     const parts = cur.slice(root.length).split(/[\\/]+/).filter(x => x && x !== '.');
@@ -236,7 +254,7 @@ function localPath(p) {
         const rest = parts.slice(i + 1).join(path.sep);
         cur = rawJoin(at, t);
         if (rest) cur = rawJoin(cur, rest);
-        if (NET_START.test(cur)) return null;
+        if (blocked(cur)) return null;
         relinked = true;
         break;
       }
@@ -258,8 +276,11 @@ function readSmall(file, max) {
 // [key, value] pairs of one config file as git reads it, includes not
 // followed; null when the file is missing, UNSAFE when git can't read it.
 function configEntries(file) {
-  const st = readSmall(file, 512 * 1024);
+  const st = readSmall(file, 8 * 1024 * 1024);
   if (st === null || st === UNSAFE) return st;
+  // No backslash, no '//', no %( and no include: no value in it can name a
+  // network path or another file, so git isn't started for it.
+  if (!/[\\]|\/\/|%\(|include/i.test(st)) return [];
   const bin = gitPath(__dirname);
   if (!bin) return UNSAFE;
   try {
@@ -276,6 +297,8 @@ function configEntries(file) {
 const MAX_INCLUDE_DEPTH = 10;
 const MAX_CONFIG_FILES = 50;
 // st: { seen, files } shared by one whole check.
+// file is the path as git builds it (a relative include is taken from the
+// folder of that path, not of where a link led); it is read at its real path.
 function farConfig(file, depth, st) {
   if (depth > MAX_INCLUDE_DEPTH) return 'deep-config';
   const real = localPath(file);
@@ -293,7 +316,7 @@ function farConfig(file, depth, st) {
     if (p === null || oddRelative(p)) return 'odd-config-path';
     if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) p = path.join(os.homedir(), p.slice(2));
     else if (p.startsWith('~')) return 'odd-config-path';
-    const why = farConfig(rawJoin(path.dirname(real), p), depth + 1, st);
+    const why = farConfig(rawJoin(path.dirname(file), p), depth + 1, st);
     if (why) return why;
   }
   return '';
@@ -337,38 +360,66 @@ function gitdirAt(base, t) {
   if (v === null || !v || netText(v) || oddRelative(v)) return null;
   return localPath(rawJoin(base, v));
 }
-// No link anywhere in a gitdir: git reads its logs, info, packs, the split
-// index and more. Loose object files (objects/xx/...) aren't walked, as
-// there can be very many; past 20,000 entries the rest isn't looked at, so a
-// big repo isn't kept out.
+// No link in a gitdir that leads to a network path: git reads its logs,
+// info, packs, the split index and more. A link to a local place is followed
+// and what it leads to is walked too (tools such as git-new-workdir and
+// Android's repo link a gitdir's entries). hooks/ is left out: hooks never
+// run (core.hooksPath is set). Loose object files (objects/xx/...) aren't
+// walked, as there can be very many; past 20,000 entries the rest isn't
+// looked at, so a big repo isn't kept out.
 function linkedEntries(gitdir) {
   let budget = 20000;
+  const seen = new Set();
   const walk = (d, rel, depth) => {
     let list;
     try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return false; }
     for (const x of list) {
       if (--budget < 0) return false;
-      if (x.isSymbolicLink()) return true;
-      if (!x.isDirectory() || depth > 16) continue;
+      if (!rel && x.name === 'hooks') continue;
+      let sub = path.join(d, x.name);
+      let isDir = x.isDirectory();
+      if (x.isSymbolicLink()) {
+        const real = localPath(sub);
+        if (!real) return true;
+        try { isDir = fs.statSync(real).isDirectory(); } catch { isDir = false; }
+        sub = real;
+      }
+      if (!isDir || depth > 16) continue;
       if (/(^|\/)objects$/.test(rel) && /^[0-9a-f]{2}$/i.test(x.name)) continue;
-      if (walk(path.join(d, x.name), rel ? rel + '/' + x.name : x.name, depth + 1)) return true;
+      const k = WIN ? sub.toLowerCase() : sub;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      if (walk(sub, rel ? rel + '/' + x.name : x.name, depth + 1)) return true;
     }
     return false;
   };
   return walk(gitdir, '', 0);
 }
-function farGit(gitEntry) {
+// Is this a gitdir git would accept: HEAD there, objects and refs in it or
+// in its commondir.
+function validGitdir(gitdir, common) {
+  const base = common || gitdir;
+  let head = '';
+  try { head = fs.readFileSync(path.join(gitdir, 'HEAD'), 'utf8').slice(0, 200); } catch { return false; }
+  if (!/^ref: refs\/|^[0-9a-f]{40}|^[0-9a-f]{64}/.test(head)) return false;
+  try { return fs.statSync(path.join(base, 'objects')).isDirectory() && fs.statSync(path.join(base, 'refs')).isDirectory(); } catch { return false; }
+}
+function farGit(gitEntry, out = {}) {
   let st;
   try { st = fs.lstatSync(gitEntry); } catch { return ''; }
   let gitdir = gitEntry;
-  if (st.isSymbolicLink()) return 'linked-gitdir';
+  if (st.isSymbolicLink()) {
+    gitdir = localPath(gitEntry);
+    if (!gitdir) return 'network-gitdir';
+    try { st = fs.statSync(gitdir); } catch { return ''; }
+  }
   if (st.isFile()) {
     const t = readSmall(gitEntry, 4096);
     if (t === UNSAFE) return 'unreadable-config';
     // git: the file must start with "gitdir: "; the rest, less trailing line
     // breaks, is the path.
     if (t === null || !t.startsWith('gitdir: ')) return '';
-    gitdir = gitdirAt(path.dirname(gitEntry), t.slice(8));
+    gitdir = gitdirAt(path.dirname(gitdir), t.slice(8));
     if (!gitdir) return 'network-gitdir';
   } else if (!st.isDirectory()) return '';
   const dirs = [gitdir];
@@ -379,6 +430,8 @@ function farGit(gitEntry) {
     if (!c) return 'network-gitdir';
     dirs.push(c);
   }
+  out.gitdir = gitdir;
+  out.common = dirs[1] || '';
   const cst = { seen: new Set(), files: 0 };
   for (const d of dirs) {
     if (linkedEntries(d)) return 'linked-gitdir';
@@ -400,29 +453,41 @@ function isGitPart(c) {
 // cwd up to the root is checked: git passes over one that isn't a valid
 // repo and goes on looking above it.
 function farGitConfig(cwd) {
+  return withShare(cwd, () => farGitConfigIn(cwd));
+}
+function farGitConfigIn(cwd) {
   const key = path.resolve(String(cwd || '.'));
   if (farCache.has(key)) return farCache.get(key);
   let why = '';
   const root = path.parse(key).root;
-  if (NET_START.test(String(cwd || '')) || NET_START.test(key)) why = 'network-folder';
+  if ((NET_START.test(String(cwd || '')) || NET_START.test(key)) && !ALLOW_SHARE) why = 'network-folder';
   else if (key.slice(root.length).split(/[\\/]+/).some(isGitPart)) why = 'inside-gitdir';
   const real = why ? '' : localPath(key);
   if (!why && !real) why = 'network-folder';
   if (!why && real.slice(path.parse(real).root.length).split(/[\\/]+/).some(isGitPart)) why = 'inside-gitdir';
   // The folders above both the path as given and its real path: git may
   // search either (on Windows it may keep the path as given).
-  const seenDirs = new Set();
+  // folder -> true where git would stop (a repo it accepts), false otherwise.
+  const seenDirs = new Map();
   for (const start of why ? [] : [real, key]) {
     let d = start;
     for (let i = 0; !why; i++) {
       if (i > 512) { why = 'deep-folder'; break; }
       const k = WIN ? d.toLowerCase() : d;
-      if (!seenDirs.has(k)) {
-        seenDirs.add(k);
+      if (seenDirs.has(k)) {
+        if (seenDirs.get(k)) break;
+      } else {
+        seenDirs.set(k, false);
         const g = path.join(d, '.git');
         let found = false;
         try { fs.lstatSync(g); found = true; } catch { found = false; }
-        if (found) why = farGit(g);
+        if (found) {
+          const at = {};
+          why = farGit(g, at);
+          // git stops at the first repo it accepts; past one it doesn't, it
+          // goes on looking, so the check does too.
+          if (!why && at.gitdir && validGitdir(at.gitdir, at.common)) { seenDirs.set(k, true); break; }
+        }
       }
       const up = path.dirname(d);
       if (up === d) break;
@@ -434,10 +499,40 @@ function farGitConfig(cwd) {
   return why;
 }
 // For a submodule's or nested repo's folder (git status looks into them).
-function farNested(dir) {
+function farNested(dir, base) {
+  return withShare(base || dir, () => farNestedIn(dir));
+}
+function farNestedIn(dir) {
   const real = localPath(dir);
   if (!real) return 'network-folder';
   return farGit(path.join(real, '.git'));
 }
 
-module.exports = { farGitConfig, farNested, localPath, findGit, gitPath, gitEnv, GIT_GLOBAL };
+// The main checkout's root found without running git, the way git would:
+// the first repo it accepts from cwd up; for a worktree, the folder holding
+// the shared .git. '' when there is none. Used when git is kept out, so the
+// memory folder is still the one every worktree shares.
+function localRepoRoot(cwd) {
+  return withShare(cwd, () => {
+    let d = localPath(path.resolve(String(cwd || '.')));
+    for (let i = 0; d && i < 512; i++) {
+      const g = path.join(d, '.git');
+      let found = false;
+      try { fs.lstatSync(g); found = true; } catch { found = false; }
+      if (found) {
+        const at = {};
+        farGit(g, at);
+        if (at.gitdir && validGitdir(at.gitdir, at.common)) {
+          if (at.common && path.basename(at.common) === '.git') return path.dirname(at.common);
+          return d;
+        }
+      }
+      const up = path.dirname(d);
+      if (up === d) break;
+      d = up;
+    }
+    return '';
+  });
+}
+
+module.exports = { farGitConfig, farNested, localPath, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };

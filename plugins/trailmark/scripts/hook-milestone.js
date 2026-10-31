@@ -190,7 +190,7 @@ guard(() => {
         mergeDone = true;
       }
       if (afterFailure) return false; // no reminder, so none is counted
-      const lastWrite = rec ? rec.lastWrite : (fs.existsSync(handoff) ? fs.statSync(handoff).mtimeMs : 0);
+      const lastWrite = rec ? rec.lastWrite : (S.plainExists(handoff) ? S.plainStat(handoff).mtimeMs : 0);
       const fresh = lastWrite && now - lastWrite < cfg.hints.freshCheckpointMinutes * 60000;
       const lastHint = rec ? rec.lastHintAt : state.lastHintAt;
       const recent = lastHint && now - lastHint < cfg.hints.minMinutesBetween * 60000;

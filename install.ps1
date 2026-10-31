@@ -34,6 +34,8 @@
 #   .\install.ps1 -Uninstall       uninstall the plugin and remove the
 #                                  marketplace (memory folders are kept)
 #   .\install.ps1 -AllowOldNode    continue on a Node below the security floor
+#   .\install.ps1 -Preflight       -Check for the migration script: jb-memory, which
+#                                  it removes after these checks, doesn't count
 #   .\install.ps1 -Repoint         let an existing trailmark marketplace that
 #                                  points elsewhere point here instead
 
@@ -44,7 +46,8 @@ param(
   [switch]$Check,
   [switch]$Uninstall,
   [switch]$AllowOldNode,
-  [switch]$Repoint
+  [switch]$Repoint,
+  [switch]$Preflight
 )
 # Windows PowerShell 5.1 started from PowerShell 7 inherits its PSModulePath,
 # finds PowerShell 7's copies of its own modules first, and then fails to load
@@ -97,9 +100,16 @@ if ($Uninstall) {
   if ($LASTEXITCODE -ne 0) { Warn "claude plugin uninstall $plugin@$mkt did not succeed (it may not be installed)." }
   & claude plugin marketplace remove $mkt
   if ($LASTEXITCODE -ne 0) { Warn "claude plugin marketplace remove $mkt did not succeed (it may not be configured)." }
-  if (Have 'codex') {
+  # The ChatGPT app lists an installed plugin only through its marketplace,
+  # so the marketplace stays until trailmark-codex is uninstalled there.
+  $codexHome = $(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' })
+  $codexCfg = ''
+  try { $codexCfg = [IO.File]::ReadAllText((Join-Path $codexHome 'config.toml')) } catch { $codexCfg = '' }
+  if ($codexCfg -match '(?m)^\s*\[\s*plugins\s*\.\s*"trailmark-codex@') {
+    Warn 'trailmark-codex is still installed in the ChatGPT app. Uninstall it there first (Plugins), then run this again to remove its marketplace: the app shows it only through that marketplace.'
+  } elseif (Have 'codex') {
     $null = Run 'codex' @('plugin', 'marketplace', 'remove', 'trailmark-codex')
-    if ($LASTEXITCODE -eq 0) { Ok 'removed the trailmark-codex marketplace from Codex (uninstall the plugin in the ChatGPT app too)' }
+    if ($LASTEXITCODE -eq 0) { Ok 'removed the trailmark-codex marketplace from Codex' }
   }
   Write-Host ''
   Write-Host 'Done. The memory folders (%USERPROFILE%\.claude\projects\<repo>\memory) were kept.'
@@ -150,7 +160,7 @@ $okWriters = @($okOwners) + @('S-1-3-0')
 # when Get-Acl can't load (Windows PowerShell 5.1 only; the result is the same).
 function Read-Acl([string]$Item) {
   $first = ''
-  try { $a = Get-Acl -LiteralPath $Item -ErrorAction Stop; return @{ Owner = $a.Owner; Access = @($a.Access) } } catch { $first = $_.Exception.Message }
+  try { $a = Get-Acl -LiteralPath $Item -ErrorAction Stop; return @{ Owner = $a.GetOwner([Security.Principal.SecurityIdentifier]).Value; Access = @($a.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) } } catch { $first = $_.Exception.Message }
   try {
     if ([IO.Directory]::Exists($Item)) { $s = [IO.Directory]::GetAccessControl($Item) } else { $s = [IO.File]::GetAccessControl($Item) }
     return @{ Owner = $s.GetOwner([Security.Principal.SecurityIdentifier]).Value; Access = @($s.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) }
@@ -172,7 +182,7 @@ function Get-Bad([string]$Item, [bool]$ParentOnly) {
     if ($r.AccessControlType -ne 'Allow') { continue }
     if (([int]$r.PropagationFlags -band 2) -ne 0) { continue } # inherit-only: not on this item
     $sid = ''
-    try { $sid = $r.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { continue }
+    try { $sid = $r.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { $out += ($Item + ': an access rule for ' + $r.IdentityReference.Value + ' could not be identified'); continue }
     if ($okWriters -contains $sid) { continue }
     $bits = [int64]([int]$r.FileSystemRights) -band 0xFFFFFFFF
     $mask = $(if ($ParentOnly) { $parentMask } else { $writeMask })
@@ -206,7 +216,7 @@ $nd = [Environment]::GetEnvironmentVariable('NoDefaultCurrentDirectoryInExePath'
 $ndm = [Environment]::GetEnvironmentVariable('NoDefaultCurrentDirectoryInExePath', 'Machine')
 if ($nd) { Ok ('NoDefaultCurrentDirectoryInExePath is set for your user (' + $nd + ')') }
 elseif ($ndm) { Ok ('NoDefaultCurrentDirectoryInExePath is set for this PC (' + $ndm + ')') }
-elseif ($SetNoCwdLookup -and -not $Check) {
+elseif ($SetNoCwdLookup -and -not ($Check -or $Preflight)) {
   [Environment]::SetEnvironmentVariable('NoDefaultCurrentDirectoryInExePath', '1', 'User')
   Ok 'set NoDefaultCurrentDirectoryInExePath=1 for your user. Restart Claude Code and the desktop app so they see it.'
   Write-Host '        To undo: [Environment]::SetEnvironmentVariable(''NoDefaultCurrentDirectoryInExePath'', $null, ''User'')'
@@ -225,20 +235,21 @@ if ($scCode -ne 0 -or $sc -notmatch '(?m)^SANDBOX OK') { Fail 'the sandbox check
 Step 'Check for other copies'
 $list = RunOut 'claude' @('plugin', 'list', '--json')
 if ($LASTEXITCODE -ne 0) { Fail 'claude plugin list --json failed, so other installs could not be checked.' }
-$other = NodeCheck 'others' $list
+$other = NodeCheck $(if ($Preflight) { 'others-new' } else { 'others' }) $list
 if ($null -eq $other) { Fail 'could not read the output of claude plugin list --json.' }
 if ($other) { Fail ('another copy is already installed as ' + $other + ' (jb-memory is Trailmark''s old name). Two copies would each run every hook. Uninstall it first: claude plugin uninstall ' + $other) }
 $mlist = RunOut 'claude' @('plugin', 'marketplace', 'list', '--json')
 if ($LASTEXITCODE -ne 0) { Fail 'claude plugin marketplace list --json failed, so other marketplaces could not be checked.' }
 $where = NodeCheck 'marketplace' $mlist
 if ($null -eq $where) { Fail 'could not read the output of claude plugin marketplace list --json.' }
-if ($where -and -not ($where.TrimEnd('\') -ieq $here)) {
+$hereReal = [string](& node $checkJs real $here)
+if ($where -and -not ($where.TrimEnd('\') -ieq $here) -and -not ($where.TrimEnd('\') -ieq $hereReal.TrimEnd('\'))) {
   if ($Repoint) { Warn ('the trailmark marketplace pointed at ' + $where + '; it will point here (-Repoint).') }
   else { Fail ('a marketplace named trailmark already points at ' + $where + '. Run again with -Repoint to point it here, or install from that folder.') }
 }
 Ok 'no other Trailmark or jb-memory install'
 
-if ($Check) { Write-Host ''; Write-Host 'Checks done (-Check): nothing was changed.'; exit 0 }
+if ($Check -or $Preflight) { Write-Host ''; Write-Host 'Checks done: nothing was changed.'; exit 0 }
 
 Step 'Install for Claude Code'
 $null = Run 'claude' @('plugin', 'validate', $here)
@@ -264,6 +275,7 @@ if ($Watchdog) {
   $wi = Join-Path $here 'tools\windows\install-trailmark-watchdog.ps1'
   $ps51 = Join-Path $env:windir 'System32\WindowsPowerShell\v1.0\powershell.exe'
   & $ps51 -NoProfile -ExecutionPolicy Bypass -File $wi -Root $here
+  if ($LASTEXITCODE -ne 0) { $watchdogFailed = $true; Warn ('trailmark-watchdog was not installed (exit ' + $LASTEXITCODE + '); its messages are above. Trailmark itself is installed.') }
 }
 
 Step 'Done'
@@ -273,4 +285,6 @@ Write-Host '    2. Start a new session and look for the [trailmark] status line;
 Write-Host '       it ends with "sandbox on".'
 Write-Host '  MANUAL.md in this folder covers the rest.'
 Write-Host '  Keep this folder where it is: Claude Code loads the plugin from it.'
+# 3: installed, but the watchdog asked for wasn't.
+if ($watchdogFailed) { exit 3 }
 exit 0

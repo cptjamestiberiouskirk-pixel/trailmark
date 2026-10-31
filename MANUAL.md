@@ -72,7 +72,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tools\
 The installer stops at the first problem and says what to do. In order, it:
 
 1. checks Node against the security floors, and that git and `claude` are on PATH;
-2. refuses a folder, or a folder above it, that anyone but you can write to, replace or own (on Windows, anyone but you, Administrators and SYSTEM), and a release that holds links;
+2. refuses a folder, or a folder above it, that anyone but you can write to, replace or own (on Windows, anyone but you, Administrators, SYSTEM, TrustedInstaller and CREATOR OWNER, compared by SID; a rule or owner that can't be identified is refused too), and a release that holds links;
 3. on Windows, checks `NoDefaultCurrentDirectoryInExePath` (section 9);
 4. runs the sandbox check;
 5. refuses while jb-memory, the name before 0.5.0, is installed at any scope, or if Trailmark is already installed from another marketplace, or if a marketplace named `trailmark` points at another folder, since two copies would each run every hook;
@@ -83,6 +83,7 @@ It downloads nothing and changes no file in the release folder. Options:
 | install.sh | install.ps1 | Effect |
 |---|---|---|
 | `--check` | `-Check` | Run the checks only; change nothing |
+| `--preflight` | `-Preflight` | The same checks, with jb-memory not counted as another copy: the migration script (section 15) runs this before it removes anything |
 | `--codex` | `-Codex` | Also add the Codex marketplace (section 8) |
 | (none) | `-Watchdog` | Also install trailmark-watchdog (section 10) |
 | (none) | `-SetNoCwdLookup` | Set `NoDefaultCurrentDirectoryInExePath=1` for your user |
@@ -122,7 +123,7 @@ Trailmark does nothing in a repo until it is set up there. In each repo you want
 
 To stop using Trailmark in a repo, delete `.jbmem.json` from its memory folder. The hooks go quiet and the files stay where they are.
 
-Every worktree of a repo shares one memory folder, so they share one handoff.
+Every worktree of a repo shares one memory folder, so they share one handoff. Worktrees of a bare repo are the exception: with no main checkout to share through, each has its own.
 
 ## 5. Day to day
 
@@ -350,13 +351,15 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 | A list of commits since the handoff, or a note that its HEAD is on another branch | Work was committed after the last checkpoint, or the branch changed | Nothing to fix: it is there so Claude checks the next steps against what was committed before redoing anything. A checkpoint records the new HEAD |
 | Commits aren't logged | git not on PATH; the commit ran through a tool other than Bash or PowerShell; a hook didn't fire | `check-trailmark-checkpoints.ps1` (Windows) shows what each session ran next to what was logged |
 | The installer says Trailmark is installed as another id | An older install from a different marketplace | Section 15 |
-| The installer refuses the folder's permissions | A broad group can write there | Move the folder under your user profile, or fix the permissions |
+| The installer refuses the folder's permissions | A broad group can write there (a second drive's root often lets Authenticated Users modify it) | Move the folder under your user profile, or fix the permissions |
+| "git is kept out of this repo (...)" at session start, or `not read (git kept out: ...)` in a snapshot | Something in the repo's `.git` leads to a network path, or the check can't be sure it doesn't (SECURITY.md, "Known limits", lists what it looks at) | Find what the reason names (for example a link in `.git` to a network share, or an include more than ten deep) and fix it. The handoff still loads; only commit and branch facts are off |
+| Each worktree of a bare repo has its own handoff | Worktrees share a memory folder through a main checkout's `.git`; a bare repo has none | Nothing to fix; set up each worktree you use |
 | Codex never shows the handoff | Hooks not trusted (they must be trusted again after an update that changes them); the app not restarted; plugin installed from the CLI | Trust the hooks in the app; restart it; install from the app |
 | trailmark-watchdog reports two names that differ only by case | A case-sensitive folder holds both | Remove one; the pair can't be accepted |
 
 ## 14. Uninstall
 
-`./install.sh --uninstall` or `install.ps1 -Uninstall` runs `claude plugin uninstall trailmark@trailmark` and `claude plugin marketplace remove trailmark`, and removes the `trailmark-codex` marketplace from Codex if the CLI is present. Uninstall the Codex plugin in the ChatGPT app as well. trailmark-watchdog stays until you run `install-trailmark-watchdog.ps1 -Uninstall`.
+`./install.sh --uninstall` or `install.ps1 -Uninstall` runs `claude plugin uninstall trailmark@trailmark` and `claude plugin marketplace remove trailmark`. For Codex, uninstall trailmark-codex in the ChatGPT app first: the app shows a plugin only through its marketplace. While Codex's `config.toml` still lists it, the uninstall keeps the `trailmark-codex` marketplace and says so; run it again afterwards to remove that too. trailmark-watchdog stays until you run `install-trailmark-watchdog.ps1 -Uninstall`.
 
 Nothing in your repos or memory folders is deleted. Each repo's handoff, archive and logs stay in `~/.claude/projects/<key>/memory`; delete them by hand if you want them gone. After that you can delete the release folder.
 
@@ -404,6 +407,6 @@ By hand, the same steps are:
 2. Put the new release where you keep it (renaming the folder is optional) and run its installer.
 3. Type the new skill names: `/trailmark:checkpoint`, `/trailmark:session-end` and so on. A handoff is only text, so one that still mentions a `jb-memory:` skill name changes nothing; edit it when it suits you.
 4. Codex: uninstall jb-memory-codex in the ChatGPT app first, then remove its marketplace (`codex plugin marketplace remove jb-memory-codex`), then add this release's (section 8) and trust the new hooks. In that order: once its marketplace is gone, the app no longer lists the plugin, though `config.toml` still has it installed. If that happened, add the old marketplace back for a moment (`codex plugin marketplace add <old release folder>`), uninstall the plugin in the app, and remove the marketplace again. The skills are now `tm-checkpoint`, `tm-recall` and so on. While a `jb-memory-codex` folder is still in Codex's plugin cache, each chat start warns about it.
-5. Windows watchdog: run `install-trailmark-watchdog.ps1` from the new `tools\windows`. It removes the old `jb-watchdog` tasks and installed copy first, then records the new folder. The old log and known-good list stay in `%LOCALAPPDATA%\jb-watchdog`; delete that folder once you no longer need them.
+5. Windows watchdog: run `install-trailmark-watchdog.ps1` from the new `tools\windows`. It records the new folder first and only then removes the old `jb-watchdog` tasks and installed copy, so declining the recording leaves the old watchdog running. The old log and known-good list stay in `%LOCALAPPDATA%\jb-watchdog`; delete that folder once you no longer need them.
 
 Handoffs written before 0.4.0 may carry a name in place of `user` in their decision tags. The skills read both.

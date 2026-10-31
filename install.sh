@@ -28,6 +28,8 @@
 #   ./install.sh --uninstall     uninstall the plugin and remove the
 #                                marketplace (memory folders are kept)
 #   ./install.sh --allow-old-node  continue on a Node below the security floor
+#   ./install.sh --preflight     --check for the migration script: jb-memory,
+#                                which it removes after these checks, doesn't count
 #   ./install.sh --repoint       let an existing trailmark marketplace that
 #                                points elsewhere point here instead
 
@@ -36,7 +38,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd -P)"
 MKT=trailmark
 PLUGIN=trailmark
-CODEX=0; CHECK=0; UNINSTALL=0; OLDNODE=0; REPOINT=0
+CODEX=0; CHECK=0; UNINSTALL=0; OLDNODE=0; REPOINT=0; PREFLIGHT=0
 for a in "$@"; do
   case "$a" in
     --codex) CODEX=1 ;;
@@ -44,6 +46,7 @@ for a in "$@"; do
     --uninstall) UNINSTALL=1 ;;
     --allow-old-node) OLDNODE=1 ;;
     --repoint) REPOINT=1 ;;
+    --preflight) PREFLIGHT=1; CHECK=1 ;;
     -h|--help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $a (see --help)"; exit 2 ;;
   esac
@@ -59,8 +62,13 @@ if [ "$UNINSTALL" = 1 ]; then
   command -v claude >/dev/null 2>&1 || fail 'claude is not on PATH.'
   claude plugin uninstall "$PLUGIN@$MKT" || warn "claude plugin uninstall $PLUGIN@$MKT did not succeed (it may not be installed)."
   claude plugin marketplace remove "$MKT" || warn "claude plugin marketplace remove $MKT did not succeed (it may not be configured)."
-  if command -v codex >/dev/null 2>&1; then
-    codex plugin marketplace remove trailmark-codex >/dev/null 2>&1 && ok 'removed the trailmark-codex marketplace from Codex (uninstall the plugin in the ChatGPT app too)'
+  # The ChatGPT app lists an installed plugin only through its marketplace,
+  # so the marketplace stays until trailmark-codex is uninstalled there.
+  CODEX_CFG="${CODEX_HOME:-$HOME/.codex}/config.toml"
+  if [ -f "$CODEX_CFG" ] && grep -Eq '^[[:space:]]*\[[[:space:]]*plugins[[:space:]]*\.[[:space:]]*"trailmark-codex@' "$CODEX_CFG"; then
+    warn 'trailmark-codex is still installed in the ChatGPT app. Uninstall it there first (Plugins), then run this again to remove its marketplace: the app shows it only through that marketplace.'
+  elif command -v codex >/dev/null 2>&1; then
+    codex plugin marketplace remove trailmark-codex >/dev/null 2>&1 && ok 'removed the trailmark-codex marketplace from Codex'
   fi
   echo
   echo 'Done. The memory folders (~/.claude/projects/<repo>/memory) were kept; each repo'"'"'s'
@@ -128,7 +136,8 @@ printf '%s\n' "$SC" | sed 's/^/  /'
 
 step 'Check for other copies'
 LIST="$(claude plugin list --json 2>/dev/null)" || fail 'claude plugin list --json failed, so other installs could not be checked.'
-OTHER="$(printf '%s' "$LIST" | node "$CHECK_JS" others)" || fail 'could not read the output of claude plugin list --json.'
+OTHERS_MODE=others; [ "$PREFLIGHT" = 1 ] && OTHERS_MODE=others-new
+OTHER="$(printf '%s' "$LIST" | node "$CHECK_JS" "$OTHERS_MODE")" || fail 'could not read the output of claude plugin list --json.'
 [ -z "$OTHER" ] || fail "another copy is already installed as $OTHER (jb-memory is Trailmark's old name). Two copies would each run every hook. Uninstall it first: claude plugin uninstall $OTHER"
 MLIST="$(claude plugin marketplace list --json 2>/dev/null)" || fail 'claude plugin marketplace list --json failed, so other marketplaces could not be checked.'
 WHERE="$(printf '%s' "$MLIST" | node "$CHECK_JS" marketplace)" || fail 'could not read the output of claude plugin marketplace list --json.'
@@ -138,7 +147,7 @@ if [ -n "$WHERE" ] && [ "$WHERE" != "$HERE" ]; then
 fi
 ok 'no other Trailmark or jb-memory install'
 
-if [ "$CHECK" = 1 ]; then echo; echo 'Checks done (--check): nothing was changed.'; exit 0; fi
+if [ "$CHECK" = 1 ]; then echo; echo 'Checks done: nothing was changed.'; exit 0; fi
 
 step 'Install for Claude Code'
 claude plugin validate "$HERE" >/dev/null || fail "claude plugin validate failed; run it by hand to see why: claude plugin validate \"$HERE\""

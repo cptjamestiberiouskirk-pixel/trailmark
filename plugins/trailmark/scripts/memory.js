@@ -171,7 +171,7 @@ switch (cmd) {
     if (S.isEnabled(dir)) {
       const ho = S.measureHandoff(dir, cfg);
       const f = path.join(dir, S.HANDOFF);
-      const age = fs.existsSync(f) ? `${Math.round((Date.now() - fs.statSync(f).mtimeMs) / 60000)} min ago` : 'missing';
+      const age = S.plainExists(f) ? `${Math.round((Date.now() - S.plainStat(f).mtimeMs) / 60000)} min ago` : 'missing';
       console.log(`  handoff: ${ho.lines} lines, updated ${age}; parked: ${S.listDir(dir, 'parked').length}; public repo: ${cfg.publicRepo}`);
       const w = S.lastWriterOf(S.readState(dir));
       if (w) console.log(`  last handoff write: ${writerText(w)}, version ${w.version || 'unknown'}`);
@@ -275,7 +275,7 @@ switch (cmd) {
     const what = args[0] || 'parked';
     if (!['parked', 'archive', 'notes', 'topics', 'history'].includes(what)) fail('list takes parked, archive, notes, topics or history');
     const rows = what === 'topics'
-      ? S.topicFiles(dir).map(r => ({ name: r, description: S.splitFrontmatter(S.readText(path.join(dir, r)) || '').data.description || '', mtime: fs.statSync(path.join(dir, r)).mtime }))
+      ? S.topicFiles(dir).map(r => ({ name: r, description: S.splitFrontmatter(S.readText(path.join(dir, r)) || '').data.description || '', mtime: S.plainStat(path.join(dir, r)).mtime }))
       : S.listDir(dir, what === 'history' ? S.HISTORY.split(path.sep).join('/') : what);
     if (!rows.length) console.log(`(no ${what})`);
     for (const r of rows) console.log(`${S.localDate(r.mtime)}  ${r.name}  -- ${r.description}`);

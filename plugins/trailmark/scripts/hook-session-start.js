@@ -33,6 +33,9 @@ guard(() => {
   // named to Claude too, so it never runs one.
   const health = f.health && typeof f.health === 'object' ? f.health : {};
   const warn = [];
+  // git kept out of this repo (gitbin.js): a fixed word, never repo text.
+  const refused = typeof f.gitRefused === 'string' && /^[a-z][a-z-]{0,23}$/.test(f.gitRefused) ? f.gitRefused : '';
+  if (refused) warn.push(`git is kept out of this repo (${refused}), so commits and the branch aren't read. Something in its .git leads to a network path or can't be checked; SECURITY.md, "Known limits", lists what`);
   const notes = [];
   if (typeof health.node === 'string' && health.node) warn.push(S.oneLine(health.node, 300));
   if (typeof health.nodeHere === 'string' && health.nodeHere) warn.push(S.oneLine(health.nodeHere, 400));

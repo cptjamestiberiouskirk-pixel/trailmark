@@ -28,7 +28,8 @@ guard(() => {
   const status = Array.isArray(f.status) ? f.status : [];
   // Status not read: the repo names a filter whose name couldn't be checked,
   // or git failed (gitfacts.js). A fixed word, never repo text.
-  const skipped = typeof f.statusSkipped === 'string' && /^[a-z][a-z-]{0,23}$/.test(f.statusSkipped) ? f.statusSkipped : '';
+  const refused = typeof f.gitRefused === 'string' && /^[a-z][a-z-]{0,23}$/.test(f.gitRefused) ? f.gitRefused : '';
+  const skipped = refused ? `git kept out: ${refused}` : (typeof f.statusSkipped === 'string' && /^[a-z][a-z-]{0,23}$/.test(f.statusSkipped) ? f.statusSkipped : '');
   // gitfacts passes only the first lines of a long status, plus the full count.
   const count = typeof f.statusCount === 'number' ? f.statusCount : status.length;
   const shown = skipped ? [] : status.slice(0, 20).map(l => '  ' + S.oneLine(l, 120));
@@ -38,8 +39,8 @@ guard(() => {
   const filtersOff = !skipped && Number.isInteger(f.statusFiltersOff) && f.statusFiltersOff > 0 ? f.statusFiltersOff : 0;
 
   const handoff = path.join(dir, S.HANDOFF);
-  const age = fs.existsSync(handoff)
-    ? `${Math.round((now - fs.statSync(handoff).mtimeMs) / 60000)} min`
+  const age = S.plainExists(handoff)
+    ? `${Math.round((now - S.plainStat(handoff).mtimeMs) / 60000)} min`
     : 'no handoff';
 
   const body = [

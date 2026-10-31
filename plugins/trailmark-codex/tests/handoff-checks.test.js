@@ -305,7 +305,9 @@ test('git pointers: a .git that leads to a network path keeps git out of the fol
   assert.strictEqual(farGitConfig(path.join(c, 'deeper', 'still')), 'network-config');
   assert.strictEqual(farGitConfig(d), 'network-config');
   assert.strictEqual(farGitConfig(ok), '');
-  assert.strictEqual(gf.gitFacts(a, ['head']).head, '', 'git ran in a folder whose config points at a share');
+  const fa = gf.gitFacts(a, ['head']);
+  assert.ok(!fa.head, 'git ran in a folder whose config points at a share');
+  assert.strictEqual(fa.gitRefused, 'network-config');
   assert.match(gf.gitFacts(ok, ['head']).head, /^[0-9a-f]{7,}$/);
 });
 
@@ -371,14 +373,24 @@ test('git pointers: config is read as git reads it, and alternates are followed'
   assert.strictEqual(farGitConfig(ok), '');
 });
 
-test('git pointers: a linked config is not trusted', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git pointers: a linked config is followed and checked where it leads', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far3-');
   const r = path.join(base, 'r'); repoAt(r);
   const real = path.join(base, 'elsewhere.cfg');
   fs.renameSync(path.join(r, '.git', 'config'), real);
   fs.symlinkSync(real, path.join(r, '.git', 'config'));
-  assert.strictEqual(farGitConfig(r), 'linked-gitdir');
+  assert.strictEqual(farGitConfig(r), '', 'a link to a local config is fine');
+  const r2 = path.join(base, 'r2'); repoAt(r2);
+  const real2 = path.join(base, 'elsewhere2.cfg');
+  fs.renameSync(path.join(r2, '.git', 'config'), real2);
+  fs.appendFileSync(real2, '[core]\n  attributesFile = //evil.invalid/share/a\n');
+  fs.symlinkSync(real2, path.join(r2, '.git', 'config'));
+  assert.strictEqual(farGitConfig(r2), 'network-config', 'what it leads to is checked');
+  const r3 = path.join(base, 'r3'); repoAt(r3);
+  fs.rmSync(path.join(r3, '.git', 'config'));
+  fs.symlinkSync('//evil.invalid/share/config', path.join(r3, '.git', 'config'));
+  assert.strictEqual(farGitConfig(r3), 'linked-gitdir', 'a link to a share is refused');
 });
 
 test('git pointers: second review cases (prefix, deep includes, decoy .git, many includes, inside .git)', () => {
@@ -404,7 +416,12 @@ test('git pointers: second review cases (prefix, deep includes, decoy .git, many
   fs.mkdirSync(path.join(outer, 'sub', '.git'), { recursive: true });
   assert.strictEqual(farGitConfig(path.join(outer, 'sub')), 'network-config', 'decoy .git under a bad repo');
   assert.strictEqual(farGitConfig(path.join(outer, '.git', 'modules', 'm')), 'inside-gitdir');
-  assert.strictEqual(farGitConfig('//evil.invalid/share/repo'), 'network-folder');
+  // A session working on a share may use it (\\wsl$, a company share), but
+  // a long-form path that isn't a plain \\server\share stays refused.
+  assert.strictEqual(farGitConfig('\\??\\UNC\\evil.invalid\\share'), 'network-folder');
+  const { shareRoot } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  assert.strictEqual(shareRoot('\\\\wsl$\\Ubuntu\\home\\x'), '//wsl$/ubuntu');
+  assert.strictEqual(shareRoot('\\\\?\\UNC\\srv\\s'), '');
 });
 
 test('git pointers: links on the way to a gitdir, config or include', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
@@ -417,7 +434,7 @@ test('git pointers: links on the way to a gitdir, config or include', { skip: WI
   const b = path.join(base, 'b'); repoAt(b);
   fs.renameSync(path.join(b, '.git'), path.join(base, 'b-git'));
   fs.symlinkSync(path.join(base, 'b-git'), path.join(b, '.git'));
-  assert.strictEqual(farGitConfig(b), 'linked-gitdir', '.git that is a link');
+  assert.strictEqual(farGitConfig(b), '', '.git that is a link to a local gitdir is followed');
   const c = path.join(base, 'c'); repoAt(c);
   fs.rmSync(path.join(c, '.git', 'refs', 'heads'), { recursive: true, force: true });
   fs.symlinkSync('//evil.invalid/share/heads', path.join(c, '.git', 'refs', 'heads'));
@@ -467,6 +484,74 @@ test('git status: a folder of tracked files that links to a share stops status',
   fs.mkdirSync(path.join(ok, 'd1', 'd2'), { recursive: true }); fs.writeFileSync(path.join(ok, 'd1', 'd2', 'f'), 'x');
   execFileSync('git', ['add', 'd1/d2/f'], { cwd: ok });
   assert.strictEqual(gitFacts(ok, ['status']).statusSkipped, undefined);
+});
+
+test('memory folder: links are never stat-ed through, state paths through a link to a share are not resolved (loop round 1)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
+  const gf = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-links2-');
+  const dir = path.join(base, 'memory'); fs.mkdirSync(path.join(dir, 'parked'), { recursive: true }); fs.mkdirSync(path.join(dir, 'snapshots'));
+  fs.symlinkSync('//evil.invalid/share/x', path.join(dir, S.MARKER));
+  assert.strictEqual(S.isEnabled(dir), false, 'a linked .jbmem.json does not turn the folder on');
+  fs.writeFileSync(path.join(base, 'real.md'), '# x\n');
+  fs.symlinkSync(path.join(base, 'real.md'), path.join(dir, 'parked', 'linked.md'));
+  fs.writeFileSync(path.join(dir, 'parked', 'plain.md'), '# y\n');
+  const names = S.listDir(dir, 'parked').map(r => r.name || r.file || String(r));
+  assert.ok(!names.some(n => /linked/.test(n)), 'a linked parked file is not listed: ' + names.join(','));
+  fs.writeFileSync(path.join(dir, 'snapshots', 'bad\nname.md'), 'x');
+  assert.ok(!S.listSnapshots(dir).some(x => /\n/.test(x.session)), 'a snapshot name that is not a session id is ignored');
+  fs.symlinkSync('//evil.invalid/share/d', path.join(base, 'lnk'));
+  assert.strictEqual(gf.sameFolder(path.join(base, 'lnk'), path.join(base, 'lnk2')), false);
+  fs.symlinkSync(path.join(base, 'nowhere'), path.join(dir, S.LOCK || '.jbmem.lock'));
+  let ran = false;
+  S.withLock(dir, () => { ran = true; });
+  assert.ok(ran, 'a linked lock file is removed, not waited on');
+});
+
+test('regressions: common setups still work when they should (loop round 1)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { farGitConfig, localRepoRoot } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const P = require(path.join(ROOT, 'scripts', 'lib', 'paths.js'));
+  const base = realTemp('jbmem-reg-');
+  // A linked hooks folder (hooks never run): git still runs.
+  const h = path.join(base, 'h'); repoAt(h);
+  fs.mkdirSync(path.join(base, 'githooks'));
+  fs.rmSync(path.join(h, '.git', 'hooks'), { recursive: true, force: true });
+  fs.symlinkSync(path.join(base, 'githooks'), path.join(h, '.git', 'hooks'));
+  assert.strictEqual(farGitConfig(h), '', 'linked .git/hooks');
+  // A gitdir entry linked to a local place (git-new-workdir style): followed.
+  const nw = path.join(base, 'nw'); repoAt(nw);
+  fs.renameSync(path.join(nw, '.git', 'refs'), path.join(base, 'shared-refs'));
+  fs.symlinkSync(path.join(base, 'shared-refs'), path.join(nw, '.git', 'refs'));
+  assert.strictEqual(farGitConfig(nw), '', 'local link inside the gitdir');
+  // A nested repo inside a repo git would refuse: git uses the inner one only.
+  const outer = path.join(base, 'outer'); repoAt(outer);
+  fs.appendFileSync(path.join(outer, '.git', 'config'), '[core]\n  attributesFile = //evil.invalid/share/a\n');
+  const inner = path.join(outer, 'vendor', 'inner'); repoAt(inner);
+  assert.strictEqual(farGitConfig(inner), '', 'a valid inner repo stops the search');
+  assert.strictEqual(farGitConfig(outer), 'network-config');
+  // A config of a few megabytes (thousands of branches) is read, not refused.
+  const big = path.join(base, 'big'); repoAt(big);
+  let txt = ''; for (let i = 0; i < 9000; i++) txt += `[branch "b${i}"]\n  remote = origin\n  merge = refs/heads/b${i}\n`;
+  fs.appendFileSync(path.join(big, '.git', 'config'), txt);
+  assert.strictEqual(farGitConfig(big), '', 'large config');
+  // Includes are taken from the including file's path, not where a link led.
+  const inc = path.join(base, 'inc'); repoAt(inc);
+  fs.mkdirSync(path.join(base, 'deep'));
+  fs.writeFileSync(path.join(base, 'deep', 'x.inc'), '[include]\n  path = evil.inc\n');
+  fs.symlinkSync(path.join(base, 'deep', 'x.inc'), path.join(inc, 'a.inc'));
+  fs.writeFileSync(path.join(inc, 'evil.inc'), '[core]\n  attributesFile = //evil.invalid/share/a\n');
+  fs.appendFileSync(path.join(inc, '.git', 'config'), '[include]\n  path = ../a.inc\n');
+  assert.strictEqual(farGitConfig(inc), 'network-config', 'relative include through a link');
+  // git kept out: a worktree still finds the main checkout, so the memory folder is shared.
+  const main = path.join(base, 'main'); repoAt(main);
+  execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'x'], { cwd: main });
+  const wt = path.join(base, 'wt');
+  execFileSync('git', ['worktree', 'add', '-q', wt], { cwd: main });
+  fs.appendFileSync(path.join(main, '.git', 'config'), '[core]\n  attributesFile = //evil.invalid/share/a\n');
+  assert.notStrictEqual(farGitConfig(wt), '');
+  assert.strictEqual(localRepoRoot(wt), main);
+  assert.strictEqual(P.repoRoot(wt), main, 'repoRoot without git');
+  assert.strictEqual(P.repoRoot(path.join(main)), main);
 });
 
 test('git status: submodule folders are checked first, untracked repos are not looked into', () => {

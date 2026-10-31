@@ -66,7 +66,18 @@ function findTranscriptForSession(cwd, session, recorded, platform = process.pla
   const root = path.resolve(projectsRoot());
   const fold = p => (platform === 'win32' ? p.toLowerCase() : p);
   const underRoot = p => fold(p).startsWith(fold(root) + path.sep);
-  const isFile = p => { try { return fs.statSync(p).isFile(); } catch { return false; } };
+  // A plain file reached without a link that leaves the projects folder: the
+  // recorded path is data from the state file, and a link there could lead
+  // anywhere, a network path included.
+  const isFile = p => {
+    try {
+      if (!fs.lstatSync(p).isFile()) return false;
+      const { localPath } = require('./gitbin');
+      const real = localPath(p);
+      const realRoot = localPath(root) || root;
+      return !!real && fold(real).startsWith(fold(realRoot) + path.sep);
+    } catch { return false; }
+  };
   if (typeof recorded === 'string' && recorded) {
     const p = path.resolve(recorded);
     // Only a path inside Claude Code's projects folder: the state file is data,

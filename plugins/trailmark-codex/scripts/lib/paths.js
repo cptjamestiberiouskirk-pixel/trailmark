@@ -26,7 +26,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { farGitConfig, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
+const { farGitConfig, localRepoRoot, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
 
 function configDir() {
   return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -78,6 +78,9 @@ function git(cwd, args, timeout = 3000) {
 // timeoutMs: for each git call (3 s unless given).
 function repoRoot(cwd = process.cwd(), timeoutMs = 3000) {
   const t = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 3000;
+  // git kept out (gitbin.js): the root found the way git would, without it,
+  // so a worktree or subfolder still finds the shared memory folder.
+  if (farGitConfig(cwd)) return localRepoRoot(cwd) || path.resolve(cwd);
   try {
     const common = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'], t);
     if (common && path.basename(common) === '.git') return path.dirname(common);
