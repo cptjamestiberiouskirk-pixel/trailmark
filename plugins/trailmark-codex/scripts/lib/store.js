@@ -90,7 +90,10 @@ function notPlain(file) { const e = new Error(`${file} is a link or not a plain 
 // and the like), each checked before anything looks inside: a folder that is
 // a link, or not a folder, throws. A missing one has nothing to follow.
 function plainSubs(p) {
-  for (let q = p, i = 0; i < 3 && MEMORY_SUBS.has(path.basename(q)); q = path.dirname(q), i++) {
+  // Never above the memory folder itself, which may be named like one of its
+  // subfolders (an autoMemoryDirectory such as ~/notes).
+  const top = process.env.JBMEM_DIR ? path.resolve(process.env.JBMEM_DIR) : '';
+  for (let q = p, i = 0; i < 3 && MEMORY_SUBS.has(path.basename(q)) && path.resolve(q) !== top; q = path.dirname(q), i++) {
     let st;
     try { st = fs.lstatSync(q); } catch (e) { if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) continue; throw e; }
     if (st.isSymbolicLink() || !st.isDirectory()) { const e = new Error(`${q} is a link or not a folder`); e.code = 'ENOENT'; throw e; }
@@ -307,7 +310,10 @@ function tryBreakLock(file) {
       try { fs.renameSync(file, aside); } catch { return false; }
       let a = null;
       try { a = fs.lstatSync(aside); } catch { return false; }
-      if (a.isFile()) { try { fs.linkSync(aside, file); } catch { /* a newer lock is there */ } try { fs.unlinkSync(aside); } catch { /* best effort */ } return false; }
+      // A real lock made since the lstat: put back. If that fails (a newer
+      // lock took the name, or the drive has no hard links), the copy is left
+      // as .gone rather than deleted, so no holder's lock is lost by this.
+      if (a.isFile()) { try { fs.linkSync(aside, file); try { fs.unlinkSync(aside); } catch { /* best effort */ } } catch { /* left as .gone */ } return false; }
       try { fs.unlinkSync(aside); } catch { /* best effort */ }
       return true;
     }
@@ -1466,8 +1472,9 @@ function pruneReport(dir) {
   // Not checked: a link through a linked folder, and one that leaves the
   // memory folder ('..' or an absolute path), since neither is followed.
   const outside = l => path.isAbsolute(l) || /^[A-Za-z]:/.test(l) || String(l).split(/[\\/]+/).includes('..');
-  const unchecked = links.filter(l => outside(l) || linkOnWay(dir, l));
-  const deadLinks = links.filter(l => !unchecked.includes(l) && (!plainUnder(dir, l) || !plainExists(path.join(dir, l))));
+  const outsideLinks = links.filter(outside);
+  const unchecked = links.filter(l => !outside(l) && linkOnWay(dir, l));
+  const deadLinks = links.filter(l => !outside(l) && !unchecked.includes(l) && (!plainUnder(dir, l) || !plainExists(path.join(dir, l))));
   const topics = topicFiles(dir);
   const orphans = memoryLinked ? [] : topics.filter(t => !links.includes(t));
   const stale = [];
@@ -1485,7 +1492,7 @@ function pruneReport(dir) {
   const oldParked = listDir(dir, 'parked')
     .filter(p => now - p.mtime.getTime() > staleMs)
     .map(p => ({ file: p.name, days: Math.floor((now - p.mtime.getTime()) / 86400000) }));
-  return { deadLinks, unchecked, memoryLinked, orphans, stale, duplicates, oldParked, handoff: measureHandoff(dir, cfg), measure: measure(dir) };
+  return { deadLinks, unchecked, outsideLinks, memoryLinked, orphans, stale, duplicates, oldParked, handoff: measureHandoff(dir, cfg), measure: measure(dir) };
 }
 
 // Move a topic file into archive/files/ and drop its MEMORY.md index lines.

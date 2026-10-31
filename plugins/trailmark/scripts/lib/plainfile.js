@@ -33,7 +33,7 @@ function plainMtime(file) {
 // The cwd fields of transcript records, in order: each line is parsed as
 // JSON and only a record's own top-level "cwd" counts, never a "cwd" inside
 // a tool call's arguments or a message. A line cut off at the end of the
-// text read is skipped.
+// text read is scanned for its top-level "cwd" instead.
 function recordCwds(text, max = Infinity) {
   const out = [];
   for (let line of String(text).replace(/^\uFEFF/, '').split('\n')) {
@@ -58,12 +58,20 @@ function recordCwds(text, max = Infinity) {
 function topLevelCwd(t) {
   let i = 0;
   const n = t.length;
-  const ws = () => { while (i < n && /\s/.test(t[i])) i++; };
+  // JSON whitespace (and a BOM), by code: this runs per character.
+  const ws = () => { for (let c = t.charCodeAt(i); i < n && (c === 32 || c === 9 || c === 10 || c === 13 || c === 0xfeff); c = t.charCodeAt(++i)); };
   const str = () => {
     const s0 = i;
     i++;
-    while (i < n) { if (t[i] === '\\') { i += 2; continue; } if (t[i] === '"') { i++; return t.slice(s0, i); } i++; }
-    return null;
+    // To the closing quote, escapes stepped over.
+    for (;;) {
+      const q = t.indexOf('"', i);
+      if (q < 0) return null;
+      let bs = 0;
+      for (let k = q - 1; k >= s0 + 1 && t.charCodeAt(k) === 92; k--) bs++;
+      i = q + 1;
+      if (bs % 2 === 0) return t.slice(s0, i);
+    }
   };
   ws();
   if (t[i] !== '{') return undefined;

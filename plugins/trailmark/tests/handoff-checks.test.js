@@ -878,7 +878,8 @@ test('memory folder and transcripts: hard links, record cwd, prune outcomes, set
   const r = S.pruneReport(s.memdir);
   assert.ok(r.deadLinks.includes('topics/old.md'), JSON.stringify(r));
   // A link out of the memory folder isn't followed, so it isn't called dead.
-  assert.deepStrictEqual(r.unchecked, ['../up.md']);
+  assert.deepStrictEqual(r.outsideLinks, ['../up.md']);
+  assert.deepStrictEqual(r.unchecked, []);
   // ~you/ and the null device in settings that name a file.
   const me = require('os').userInfo().username;
   const t = path.join(s.base, 't'); repoAt(t);
@@ -926,7 +927,10 @@ test('git checks: submodule gitdirs in modules/, .gitmodules, alternates from co
   fs.mkdirSync(path.join(md, 'objects'), { recursive: true }); fs.mkdirSync(path.join(md, 'refs'));
   fs.writeFileSync(path.join(md, 'HEAD'), 'ref: refs/heads/main\n');
   fs.writeFileSync(path.join(md, 'commondir'), EVIL + '\n');
-  assert.strictEqual(farGitConfig(a), 'network-gitdir', 'a modules/ gitdir');
+  // Checked before git status (the only call that opens one), not before
+  // every git call: branch, HEAD and commit logging go on.
+  assert.strictEqual(farGitConfig(a), '', 'git may still run in the superproject');
+  assert.strictEqual(gitFacts(a, ['status']).statusSkipped, 'submodule-pointer', 'a modules/ gitdir');
   // .gitmodules as a link, with a submodule in the index.
   const b = withSub('b');
   fs.rmSync(path.join(b, '.gitmodules'));
@@ -967,6 +971,90 @@ test('LFS stores, long transcript lines (loop round 6)', { skip: WIN && 'making 
   assert.deepStrictEqual(recordCwds(rec.slice(0, 65536)), ['/home/me/repo']);
   const tool = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', input: { cwd: EVIL } }], pad: 'x'.repeat(70000) }, cwd: '/r' });
   assert.deepStrictEqual(recordCwds(tool.slice(0, 65536)), [], 'a cwd inside a tool call');
+});
+
+test('git checks: folders git tries as bare repos, tracked files turned folders, module gitdirs git still finds (loop round 7)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-far12-');
+  const EVIL = '//evil.invalid/share/x';
+  // A folder with HEAD and commondir on the way up: git probes it as a gitdir.
+  const r = path.join(base, 'r'); repoAt(r);
+  fs.mkdirSync(path.join(r, 'docs', 'deeper'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'docs', 'HEAD'), 'ref: refs/heads/main\n');
+  fs.writeFileSync(path.join(r, 'docs', 'commondir'), EVIL + '\n');
+  assert.notStrictEqual(farGitConfig(path.join(r, 'docs')), '', 'docs/ as a bare gitdir');
+  assert.notStrictEqual(farGitConfig(path.join(r, 'docs', 'deeper')), '', 'below it');
+  const r2 = path.join(base, 'r2'); repoAt(r2);
+  fs.mkdirSync(path.join(r2, 'docs'));
+  fs.writeFileSync(path.join(r2, 'docs', 'HEAD'), 'ref: refs/heads/main\n');
+  fs.symlinkSync(EVIL, path.join(r2, 'docs', 'objects'));
+  assert.notStrictEqual(farGitConfig(path.join(r2, 'docs')), '', 'docs/objects a link to a share');
+  // A tracked file that is now a folder holding a .git.
+  const v = path.join(base, 'v'); const g = repoAt(v);
+  fs.writeFileSync(path.join(v, 'vendor'), 'x'); g('add', 'vendor'); g('commit', '-qm', 'vendor');
+  fs.rmSync(path.join(v, 'vendor')); fs.mkdirSync(path.join(v, 'vendor'));
+  fs.writeFileSync(path.join(v, 'vendor', '.git'), 'gitdir: ' + EVIL + '\n');
+  assert.strictEqual(gitFacts(v, ['status']).statusSkipped, 'submodule-pointer');
+  // Module gitdirs: a linked one, one with a linked HEAD, a name with a slash.
+  const mods = (name, setup) => {
+    const sp = path.join(base, name); const gg = repoAt(sp);
+    const head = gg('rev-parse', 'HEAD');
+    gg('update-index', '--add', '--cacheinfo', `160000,${head},sub`); gg('commit', '-qm', 'sub');
+    const md = path.join(sp, '.git', 'modules');
+    fs.mkdirSync(md, { recursive: true });
+    setup(md);
+    return gitFacts(sp, ['status']).statusSkipped || '';
+  };
+  const gd = (d, extra = {}) => { fs.mkdirSync(path.join(d, 'objects'), { recursive: true }); fs.mkdirSync(path.join(d, 'refs')); if (!extra.noHead) fs.writeFileSync(path.join(d, 'HEAD'), 'ref: refs/heads/main\n'); fs.writeFileSync(path.join(d, 'commondir'), EVIL + '\n'); };
+  assert.notStrictEqual(mods('m1', md => { const real = path.join(base, 'm1real'); gd(real); fs.symlinkSync(real, path.join(md, 'x')); }), '', 'a linked module gitdir');
+  assert.notStrictEqual(mods('m2', md => { const d = path.join(md, 'x'); gd(d, { noHead: true }); fs.writeFileSync(path.join(d, 'realhead'), 'ref: refs/heads/main\n'); fs.symlinkSync('realhead', path.join(d, 'HEAD')); }), '', 'a module gitdir whose HEAD is a link');
+  assert.notStrictEqual(mods('m3', md => { const a = path.join(md, 'a'); fs.mkdirSync(path.join(a, 'objects'), { recursive: true }); fs.mkdirSync(path.join(a, 'refs')); fs.writeFileSync(path.join(a, 'HEAD'), 'ref: refs/heads/main\n'); gd(path.join(a, 'b')); }), '', 'modules/a/b inside modules/a');
+  // An ordinary superproject with a nested name is fine.
+  assert.strictEqual(mods('m4', md => { for (const n of ['libs/one', 'libs/two']) { const d = path.join(md, n); fs.mkdirSync(path.join(d, 'objects'), { recursive: true }); fs.mkdirSync(path.join(d, 'refs')); fs.writeFileSync(path.join(d, 'HEAD'), 'ref: refs/heads/main\n'); } }), '');
+});
+
+test('scan: only the folder a session started in counts; a memory folder named notes (loop round 7)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const base = realTemp('jbmem-r7-');
+  const cfg = path.join(base, 'cfg');
+  const R = path.join(base, 'R'); repoAt(R); fs.mkdirSync(path.join(R, 'sub'));
+  const P = path.join(base, 'P'); repoAt(P);
+  const pd = path.join(cfg, 'projects', 'other-project'); fs.mkdirSync(path.join(pd, 'memory'), { recursive: true });
+  fs.writeFileSync(path.join(pd, 't.jsonl'), JSON.stringify({ type: 'user', cwd: P }) + '\n' + JSON.stringify({ type: 'user', cwd: R }) + '\n');
+  const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg };
+  delete env.JBMEM_DIR; delete env.CLAUDE_CODE_PROJECT_DIR_NAME; delete env.CLAUDE_CODE_ENTRYPOINT;
+  const d = spawnSync(process.execPath, [JBM, 'dir'], { cwd: path.join(R, 'sub'), env, encoding: 'utf8' });
+  assert.doesNotMatch(d.stdout, /other-project/, "another project's folder chosen by a later record");
+  // A memory folder named like a subfolder (autoMemoryDirectory = .../notes), reached through a link.
+  const realMem = path.join(base, 'realnotes'); fs.mkdirSync(realMem);
+  fs.writeFileSync(path.join(realMem, 'handoff.md'), '# H\nhello\n');
+  fs.symlinkSync(realMem, path.join(base, 'notes'));
+  const prev = process.env.JBMEM_DIR;
+  process.env.JBMEM_DIR = path.join(base, 'notes');
+  try { assert.strictEqual(S.readText(path.join(base, 'notes', 'handoff.md')), '# H\nhello\n'); } finally { if (prev === undefined) delete process.env.JBMEM_DIR; else process.env.JBMEM_DIR = prev; }
+});
+
+test('superprojects: many module gitdirs stay fast, one on a share skips only status (loop round 7)', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-sup7-');
+  const sp = path.join(base, 'sp'); const g = repoAt(sp);
+  const head = g('rev-parse', 'HEAD');
+  for (let i = 0; i < 200; i++) {
+    const d = path.join(sp, '.git', 'modules', 's' + i);
+    fs.mkdirSync(path.join(d, 'objects', 'info'), { recursive: true }); fs.mkdirSync(path.join(d, 'refs'));
+    fs.writeFileSync(path.join(d, 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(d, 'config'), `[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = ../../../s${i}\n`);
+  }
+  g('update-index', '--add', '--cacheinfo', `160000,${head},s0`); g('commit', '-qm', 'sub');
+  const t0 = Date.now();
+  assert.strictEqual(farGitConfig(sp), '');
+  assert.ok(Date.now() - t0 < 2000, `farGitConfig took ${Date.now() - t0} ms`);
+  fs.writeFileSync(path.join(sp, '.git', 'modules', 's7', 'objects', 'info', 'alternates'), '//evil.invalid/share/cache/objects\n');
+  const f = gitFacts(sp, ['branch', 'head', 'status']);
+  assert.strictEqual(f.gitRefused, undefined, 'one module gitdir kept git out of the superproject');
+  assert.ok(f.head, 'HEAD still read');
+  assert.strictEqual(f.statusSkipped, 'submodule-pointer');
 });
 
 test('memory folder: a linked subfolder is never listed or stat-ed through (loop round 2)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {

@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { oneLine, displayPath, inside } = require('./store');
-const { farGitConfig, farNested, farLfsFile, farLfsEntries, localPath, localPathFrom, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
+const { farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
 // and Windows caps a variable at 32,767 characters (Linux at 128 KB), so only
@@ -70,7 +70,12 @@ function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
   // git kept out of this folder: no facts, and the reason (a fixed word).
   const refused = farGitConfig(cwd);
   if (refused) { f.gitRefused = refused; return f; }
-  if (wanted.includes('branch')) f.branch = branchToken(git(['branch', '--no-color', '--show-current']) || 'detached', 80) || 'detached';
+  if (wanted.includes('branch')) {
+    // 'unknown' when git didn't answer (a timeout), 'detached' only when it
+    // said there is no current branch.
+    const b = r.run(cwd, ['branch', '--no-color', '--show-current']);
+    f.branch = b.ok ? branchToken(b.out.trim() || 'detached', 80) || 'detached' : 'unknown';
+  }
   if (wanted.includes('head')) f.head = git(['rev-parse', '--short', 'HEAD']).replace(/[^0-9a-f]/gi, '').slice(0, 12);
   if (wanted.includes('subject')) f.subject = oneLine(git(['log', '-1', '--no-show-signature', '--no-color', '--format=%s']), 100);
   if (wanted.includes('status')) {
@@ -122,6 +127,8 @@ function farWorktree(r, cwd) {
   const ls = r.run(cwd, ['ls-files', '--stage', '-z', '--full-name']);
   if (!ls.ok) return ls.why === 'timeout' ? 'git-timeout' : 'git-error';
   let n = 0;
+  let files = 0;
+  let anyFolder = false;
   const folders = new Set();
   for (const e of ls.out.split('\0')) {
     const rel = e.slice(e.indexOf('\t') + 1);
@@ -131,17 +138,33 @@ function farWorktree(r, cwd) {
     // isn't looked at, so a very large repo still gets a snapshot).
     const parts = rel.split('/');
     for (let i = 1; i < parts.length && folders.size < MAX_TREE_FOLDERS; i++) folders.add(parts.slice(0, i).join('/'));
-    if (!e.startsWith('160000 ')) continue;
+    if (!e.startsWith('160000 ')) {
+      // A tracked file whose path is now a folder: git status looks for a
+      // repo there (as for a submodule), so one there is checked the same way.
+      if (++files % 2000 === 0 && r.left() < 800) return 'git-timeout';
+      let st = null;
+      try { st = fs.lstatSync(path.join(top.top, rel)); } catch { st = null; }
+      if (st && st.isDirectory()) {
+        let g = false;
+        try { fs.lstatSync(path.join(top.top, rel, '.git')); g = true; } catch { g = false; }
+        if (g && farNested(path.join(top.top, rel), top.top)) return 'submodule-pointer';
+        anyFolder = true;
+      }
+      continue;
+    }
     if (++n > MAX_SUBMODULES) return 'many-submodules';
     if (r.left() < 800) return 'git-timeout';
     if (farNested(path.join(top.top, rel), top.top)) return 'submodule-pointer';
   }
-  // With submodules, git status may read .gitmodules for their names: it
-  // must be a plain file (or missing), never a link.
-  if (n) {
+  // With submodules (or a tracked file that is now a folder), git status
+  // may read .gitmodules for names (it must be a plain file or missing) and
+  // open a submodule's gitdir in .git/modules by that name.
+  if (n || anyFolder) {
     let gm = null;
     try { gm = fs.lstatSync(path.join(top.top, '.gitmodules')); } catch { gm = null; }
     if (gm && !gm.isFile()) return 'submodule-pointer';
+    const why = farModules(top.top, () => r.left());
+    if (why) return why === 'git-timeout' ? 'git-timeout' : 'submodule-pointer';
   }
   for (const rel of folders) {
     let st;

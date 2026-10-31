@@ -275,6 +275,23 @@ function readSmall(file, max) {
   if (!st.isFile() || st.size > max) return UNSAFE;
   try { return fs.readFileSync(file, 'utf8'); } catch { return UNSAFE; }
 }
+// A config file with no quotes or backslashes, read the way git does:
+// [section] or [section.sub] headers, key = value, a key alone is true,
+// comments from # or ; on. null when a line doesn't fit that shape.
+function plainConfig(text) {
+  const out = [];
+  let sec = '';
+  for (let line of text.split(/\r?\n/)) {
+    line = line.replace(/[#;].*$/, '').trim();
+    if (!line) continue;
+    let m = /^\[\s*([A-Za-z0-9.-]+)\s*\]$/.exec(line);
+    if (m) { sec = m[1].toLowerCase(); continue; }
+    m = /^([A-Za-z][A-Za-z0-9-]*)\s*(?:=\s*(.*))?$/.exec(line);
+    if (!m || !sec) return null;
+    out.push([`${sec}.${m[1].toLowerCase()}`, m[2] === undefined ? 'true' : m[2].trim()]);
+  }
+  return out;
+}
 // [key, value] pairs of one config file as git reads it, includes not
 // followed; null when the file is missing, UNSAFE when git can't read it.
 function configEntries(file) {
@@ -288,6 +305,10 @@ function configEntries(file) {
   // worktree, lfs.storage and the like) is read too: its value may be a
   // plain name that is a link.
   if (!/[\\"]|\/\/|%\(|include|(?:file|path|dir|storage|template|worktree)\s*=/i.test(st)) return [];
+  // No backslash, quote, '//', %( or include, but a key that names a file
+  // (a submodule's worktree = ../../sub, say): with nothing to decode, the
+  // text is read here without starting git, as git reads such a file.
+  if (!/[\\"]|\/\/|%\(|include/i.test(st)) { const e = plainConfig(st); if (e) return e; }
   const bin = gitPath(__dirname);
   if (!bin) return UNSAFE;
   try {
@@ -528,7 +549,9 @@ function validGitdir(gitdir, common) {
   };
   return usable(path.join(base, 'objects')) && usable(path.join(base, 'refs'));
 }
-function farGit(gitEntry, out = {}) {
+// light: for a submodule gitdir in modules/ (its links were walked with the
+// repo's gitdir); the rest of the checks are the same.
+function farGit(gitEntry, out = {}, { light = false } = {}) {
   let st;
   try { st = fs.lstatSync(gitEntry); } catch { return ''; }
   let gitdir = gitEntry;
@@ -559,7 +582,7 @@ function farGit(gitEntry, out = {}) {
   // Folders a relative path in a setting may be taken from.
   const cst = { seen: new Set(), files: 0, bases: [path.dirname(gitEntry), gitdir, dirs[1] || '', CHECK_CWD], pending: [] };
   for (const d of dirs) {
-    const linked = linkedEntries(d);
+    const linked = light ? '' : linkedEntries(d);
     if (linked) return linked;
     for (const f of ['config', 'config.worktree']) {
       const why = farConfig(path.join(d, f), 0, cst);
@@ -589,33 +612,74 @@ function farGit(gitEntry, out = {}) {
     const why = farAlternates(path.join(d, 'objects'), 0, new Set(), bases.filter(Boolean));
     if (why) return why;
   }
-  // Submodule gitdirs kept in modules/: git status may open one by the name
-  // in .gitmodules (when the submodule's own .git can't be used), so each is
-  // checked like a repo's own.
-  for (const d of dirs) {
-    for (const g of moduleGitdirs(path.join(d, 'modules'))) {
-      const why = farGit(g);
-      if (why) return why;
-    }
-  }
   return '';
+}
+// Submodule gitdirs kept in .git/modules (and the commondir's): git status
+// may open one by the name in .gitmodules when the submodule's own .git can't
+// be used, so before status each is checked like a gitdir (links in them
+// were walked with the repo's own). '' or the reason; left() gives the time
+// left in ms, and the check stops with 'git-timeout' when it runs short.
+function farModules(top, left = () => Infinity) {
+  return withShare(top, () => {
+    const at = {};
+    const g = path.join(top, '.git');
+    let st;
+    try { st = fs.lstatSync(g); } catch { return ''; }
+    if (st.isDirectory()) { at.gitdir = g; } else { farGit(g, at, { light: true }); }
+    if (!at.gitdir) return '';
+    const dirs = [at.gitdir];
+    const common = readSmall(path.join(at.gitdir, 'commondir'), 4096);
+    if (typeof common === 'string' && common.replace(/[\r\n]+$/, '')) { const c2 = gitdirAt(at.gitdir, common); if (!c2) return 'network-gitdir'; dirs.push(c2); }
+    for (const d of dirs) {
+      const mods = moduleGitdirs(path.join(d, 'modules'));
+      if (mods.why) return mods.why;
+      for (const m of mods.list) {
+        if (left() < 800) return 'git-timeout';
+        const why = farGit(m, {}, { light: true });
+        if (why) return why;
+      }
+    }
+    return '';
+  });
 }
 // Folders under modules/ that hold a HEAD (submodule gitdirs), at most 2000.
 // A nested submodule's gitdir is found by farGit on its parent's.
+// { list, why }: why is set when the walk can't be sure it found them all
+// (too many, too deep, a link to a share), and the caller keeps git out.
+const MAX_MODULE_GITDIRS = 2000;
 function moduleGitdirs(root) {
   const out = [];
+  const seen = new Set();
+  let why = '';
   const walk = (d, depth) => {
-    if (out.length >= 2000 || depth > MAX_GITDIR_DEPTH) return;
+    if (why) return;
+    if (out.length >= MAX_MODULE_GITDIRS) { why = 'many-submodules'; return; }
+    if (depth > MAX_GITDIR_DEPTH) { why = 'deep-gitdir'; return; }
+    const k = WIN ? d.toLowerCase() : d;
+    if (seen.has(k)) return;
+    seen.add(k);
     let list;
     try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-    // A gitdir: only its own modules/ is looked into further (farGit
-    // checks the rest). Otherwise every folder, since a submodule name may
-    // hold slashes (modules/libs/foo).
-    if (list.some(x => x.name === 'HEAD' && x.isFile())) { out.push(d); return; }
-    for (const x of list) if (x.isDirectory()) walk(path.join(d, x.name), depth + 1);
+    // A folder with a HEAD (a file or a link, as git accepts either) is a
+    // candidate gitdir; the walk goes on inside it too, since a submodule
+    // named a/b keeps its gitdir in modules/a/b even when modules/a is one.
+    if (list.some(x => x.name === 'HEAD' && (x.isFile() || x.isSymbolicLink()))) out.push(d);
+    for (const x of list) {
+      if (/^(objects|lfs|logs|hooks)$/.test(x.name) && out[out.length - 1] === d) continue;
+      let sub = path.join(d, x.name);
+      let isDir = x.isDirectory();
+      if (x.isSymbolicLink()) {
+        const real = localPath(sub);
+        if (!real) { why = 'linked-gitdir'; return; }
+        try { isDir = fs.statSync(real).isDirectory(); } catch { isDir = false; }
+        sub = real;
+      }
+      if (isDir) walk(sub, depth + 1);
+      if (why) return;
+    }
   };
   walk(root, 0);
-  return out;
+  return { list: out, why };
 }
 // Is this path part .git, in any spelling Windows takes for it?
 function isGitPart(c) {
@@ -656,6 +720,15 @@ function farGitConfigIn(cwd) {
         const g = path.join(d, '.git');
         let found = false;
         try { fs.lstatSync(g); found = true; } catch { found = false; }
+        // git also tries each folder it passes as a gitdir of its own (a
+        // bare repo) before safe.bareRepository refuses it: a folder with a
+        // HEAD in it is checked as one, its commondir and links included.
+        if (!found) {
+          let head = false;
+          try { fs.lstatSync(path.join(d, 'HEAD')); head = true; } catch { head = false; }
+          if (head) why = farGit(d);
+          if (why) break;
+        }
         if (found) {
           const at = {};
           why = farGit(g, at);
@@ -736,4 +809,4 @@ function farLfsEntries(entries, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { farGitConfig, farNested, farLfsFile, farLfsEntries, localPath, localPathFrom, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };
+module.exports = { farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };

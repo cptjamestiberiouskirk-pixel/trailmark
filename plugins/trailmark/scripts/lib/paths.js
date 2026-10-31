@@ -125,7 +125,9 @@ function transcriptCwds(projectDir) {
       fd = require('./plainfile').openPlain(path.join(projectDir, f));
       const buf = Buffer.alloc(64 * 1024);
       const n = fs.readSync(fd, buf, 0, buf.length, 0);
-      found.push(...require('./plainfile').recordCwds(buf.slice(0, n).toString('utf8')));
+      // The folder the session started in only: a later record's cwd is
+      // wherever a command moved it, possibly another project.
+      found.push(...require('./plainfile').recordCwds(buf.slice(0, n).toString('utf8'), 1));
     } catch { /* unreadable */ } finally {
       if (fd !== undefined) try { fs.closeSync(fd); } catch { /* ignore */ }
     }

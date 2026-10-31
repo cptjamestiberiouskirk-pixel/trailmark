@@ -39,5 +39,15 @@ if (-not $node) {
   exit 1
 }
 $script = Join-Path $PSScriptRoot 'migrate-from-jb-memory.js'
-& $node.Source $script @args
+# Windows PowerShell 5.1 passes an argument with spaces and a trailing
+# backslash as "C:\a b\", which node reads as an escaped quote and joins with
+# what follows: the trailing backslash is doubled for it.
+$tmArgs = [System.Collections.Generic.List[string]]::new()
+foreach ($a in $args) {
+  $v = [string]$a
+  if ($PSVersionTable.PSVersion.Major -lt 6 -and $v -match '\s' -and $v.EndsWith('\')) { $v = $v + '\' }
+  $tmArgs.Add($v)
+}
+$tmArr = $tmArgs.ToArray()
+& $node.Source $script @tmArr
 exit $LASTEXITCODE

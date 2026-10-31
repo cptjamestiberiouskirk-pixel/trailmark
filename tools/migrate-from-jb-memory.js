@@ -419,6 +419,10 @@ function withoutTrust(text) {
 function folderArg(a) {
   let v = String(a || '');
   if (WIN && /[^"]"$/.test(v) && !v.slice(0, -1).includes('"')) v = v.slice(0, -1) + '\\';
+  // Still a quote, or what looks like another option inside: the shell
+  // joined arguments (a trailing backslash before a quote), so nothing is
+  // guessed.
+  if (v.includes('"') || / --?[a-z]/.test(v)) throw new Error(`a folder option looks joined with what follows it (${JSON.stringify(v)}); leave out a trailing backslash and run this again`);
   return v;
 }
 function oldClaudeRelease(folders) {
@@ -475,8 +479,13 @@ function codexMayUse(m, cx) {
   if (!(cfg && /^\s*\[\s*plugins\s*\.\s*"jb-memory-codex@/im.test(cfg))) return false;
   // When Codex's own list said where its marketplaces are, only a copy one
   // of them uses is kept.
-  if (cx && cx.listOk && cx.oldMarketplaces.some(cm => cm.path)) {
-    return cx.oldMarketplaces.some(cm => cm.path && !NET.test(cm.path) && (samePath(cm.path, m.path) || path.resolve(cm.path).toLowerCase().startsWith(path.resolve(m.path).toLowerCase() + path.sep)));
+  // (A stale entry, one whose folder no longer offers it, says nothing
+  // about where Codex will find it, so it doesn't count.)
+  const known = cx && cx.listOk ? cx.oldMarketplaces.filter(cm => cm.path && !cm.stale && !NET.test(cm.path)) : [];
+  if (known.length) {
+    const under = (a, b) => samePath(a, b) || path.resolve(a).toLowerCase().startsWith(path.resolve(b).toLowerCase() + path.sep);
+    const real = (q) => { try { return fs.realpathSync.native(q); } catch { return q; } };
+    return known.some(cm => under(cm.path, m.path) || under(real(cm.path), real(m.path)));
   }
   return true;
 }
@@ -899,7 +908,13 @@ function main() {
   step('Plan');
   // Lines that only say what stays aren't work to do.
   const keeps = plan.filter(p => /^keep /.test(p));
-  if (plan.length && keeps.length === plan.length) { for (const p of keeps) info(p.replace(/^keep /, 'keeping ')); plan.length = 0; }
+  if (plan.length && keeps.length === plan.length) {
+    for (const p of keeps) info(p.replace(/^keep /, 'keeping '));
+    plan.length = 0;
+    // What is kept waits on the app: say so, as the Codex step would.
+    if (x && x.used && x.installed.length) later(`In the ChatGPT app, open Plugins and uninstall ${x.installed.join(', ')} (Codex installs and uninstalls plugins only there), quit the app, then run this again: it moves the old copy out of Codex's cache once it is uninstalled.`);
+    if (keeps.some(p => /Claude Code marketplace .* for now/.test(p))) later('Run this again once jb-memory-codex is uninstalled in the ChatGPT app: it then removes the Claude Code marketplace kept for it.');
+  }
   if (!plan.length) {
     ok('nothing to do here');
     if (!o.dryRun && o.scan.length) doScan();
@@ -1099,8 +1114,10 @@ function main() {
         // Back only from a local copy of the old release that still offers
         // jb-memory: the GitHub repo under the old name is Trailmark now, so
         // adding it from there gives a marketplace named trailmark instead.
-        const back = oldClaudeRelease([o.oldRelease, ...(c ? c.oldMarketplaces.map(m => m.path) : []), ...siblingReleases()]);
-        later(`Neither jb-memory nor Trailmark may be installed now. Fix what the installer says, then run it again: ${WIN ? `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(HERE, 'install.ps1')}"` : `"${path.join(HERE, 'install.sh')}"`}${back ? `. To go back to jb-memory meanwhile: claude plugin marketplace add "${back.folder}", then claude plugin install jb-memory@${back.name}` : '. To go back to jb-memory meanwhile, you need a copy of the old jb-memory release folder (its GitHub repo is Trailmark now)'}`);
+        // An old marketplace kept (for Codex) and still listed: install from it.
+        const keptMkt = c && c.oldMarketplaces.find(m => SAFE.test(m.name) && codexMayUse(m, x) && isDirFollow(m.path));
+        const back = keptMkt ? { folder: '', name: keptMkt.name } : oldClaudeRelease([o.oldRelease, ...(c ? c.oldMarketplaces.map(m => m.path) : []), ...siblingReleases()]);
+        later(`Neither jb-memory nor Trailmark may be installed now. Fix what the installer says, then run it again: ${WIN ? `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(HERE, 'install.ps1')}"` : `"${path.join(HERE, 'install.sh')}"`}${back ? (back.folder ? `. To go back to jb-memory meanwhile: claude plugin marketplace add "${back.folder}", then claude plugin install jb-memory@${back.name}` : `. To go back to jb-memory meanwhile: claude plugin install jb-memory@${back.name} (its marketplace is still there)`) : '. To go back to jb-memory meanwhile, you need a copy of the old jb-memory release folder (its GitHub repo is Trailmark now; 0.4.5 is in that repo\'s history)'}`);
       }
       if (installed && wasOff) later(`${c.plugins.some(p => p.scope === 'user' && !p.enabled) ? 'jb-memory' : 'Trailmark'} was turned off at user scope, and the installer turned Trailmark on. To turn it off: claude plugin disable trailmark@trailmark --scope user`);
     }
