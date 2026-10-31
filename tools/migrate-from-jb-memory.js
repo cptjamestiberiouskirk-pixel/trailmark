@@ -25,11 +25,12 @@
 //   4. Moves the old copies out of Claude Code's plugin cache into a backup
 //      folder. Claude Code leaves them there after an uninstall, and both
 //      Trailmark and the watchdog warn about them, since a cached copy can run.
-//   5. Codex: removes the jb-memory-codex marketplace with `codex plugin
-//      marketplace remove`. The plugin itself can only be uninstalled in the
-//      ChatGPT app, so while Codex's config.toml still lists it, this says so
-//      and leaves its cache alone; run this again after uninstalling it there.
-//      Once it is gone from config.toml, old cache copies move to the backup.
+//   5. Codex: the plugin can only be uninstalled in the ChatGPT app, which
+//      lists it only through its marketplace. So while Codex's config.toml
+//      still lists jb-memory-codex as installed, this keeps that marketplace
+//      and the cache copy and says to uninstall it there; run this again
+//      afterwards. Then it removes the jb-memory-codex marketplace with
+//      `codex plugin marketplace remove` and moves old cache copies to the backup.
 //   6. Runs this release's installer (install.ps1 on Windows, install.sh
 //      elsewhere), with -Codex/--codex when Codex is in use and, on Windows,
 //      -Watchdog when the old watchdog was installed. The installer makes its
@@ -503,7 +504,10 @@ function main() {
     if (o.cache) for (const d of c.cache) plan.push(`move ${d} to the backup folder`);
   }
   if (x) {
-    for (const m of x.oldMarketplaces) plan.push(`remove the Codex marketplace ${m.name}`);
+    // The ChatGPT app lists an installed plugin only through its marketplace,
+    // so that marketplace stays until the plugin is uninstalled there.
+    if (x.installed.length) for (const m of x.oldMarketplaces) plan.push(`keep the Codex marketplace ${m.name} until jb-memory-codex is uninstalled in the ChatGPT app`);
+    else for (const m of x.oldMarketplaces) plan.push(`remove the Codex marketplace ${m.name}`);
     if (o.cache && !x.installed.length) for (const d of x.cache) plan.push(`move ${d} to the backup folder`);
   }
   const useCodex = !!(x && x.used && codex);
@@ -597,7 +601,7 @@ function main() {
   if (x && x.used) {
     step('Codex: remove jb-memory-codex');
     if (!codex && x.oldMarketplaces.length) later(`Remove the old Codex marketplace: codex plugin marketplace remove ${x.oldMarketplaces[0].name} (the codex command wasn't on PATH here).`);
-    for (const m of codex ? x.oldMarketplaces : []) {
+    for (const m of codex && !x.installed.length ? x.oldMarketplaces : []) {
       if (!SAFE.test(m.name)) { warn(`skipped a marketplace with an unusual name: ${JSON.stringify(m.name)}`); continue; }
       const r = run(codex, ['plugin', 'marketplace', 'remove', m.name]);
       if (r.code === 0) ok(`removed the Codex marketplace ${m.name}`);
@@ -605,6 +609,7 @@ function main() {
       else warn(`codex plugin marketplace remove ${m.name} failed: ${(r.err || r.out).trim().split('\n')[0] || 'exit ' + r.code}`);
     }
     if (!x.oldMarketplaces.length) ok('no old Codex marketplace');
+    else if (x.installed.length) info(`kept the Codex marketplace ${x.oldMarketplaces.map(m => m.name).join(', ')}: the ChatGPT app shows jb-memory-codex, and so lets you uninstall it, only through it`);
     x.installed = surveyCodex(codex).installed;
     if (x.installed.length) {
       later(`In the ChatGPT app, open Plugins and uninstall ${x.installed.join(', ')} (Codex installs and uninstalls plugins only there), quit the app, then run this again: it moves the old copy out of Codex's cache once it is uninstalled.`);

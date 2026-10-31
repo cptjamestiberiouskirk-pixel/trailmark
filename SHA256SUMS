@@ -10,7 +10,7 @@ c5782355ff8007431db51ee92169e85a6f6636913156ec7d740dc8ab8edb4fb1  ./.github/work
 45e896de44107b2911d5d95d81a85448b931857f33634c46b2fd85402d8a3c0b  ./CHANGELOG.md
 eae03a9ae7f7e2d68c0627fcde8a85dbb09e80919ef5b79d8647cc0409591f87  ./CONTRIBUTING.md
 772e299d3c90af1ed7d29ae543057c27beff24f013eb42b03fe969b5ee7ab493  ./LICENSE
-0c1978e71cb52e6e9574c8f0e724f89288e984d04a95764dc94b2c3717f0b136  ./MANUAL.md
+d9ec838e2283ea29ecb8c10c7210969f059893dcc281bdf0b0c69787bd4644de  ./MANUAL.md
 ddab1509f6ba96a68531fd04e4762c9ef035fb4a81ead24fe2d177580182450b  ./README.md
 f89b70a8073efd793f68c25df8bf1ce1ae1fe809e588c4ee113e2905bf94658c  ./SECURITY.md
 f66d9472cb42a3b011013bf843df210b17cd0149cf39dbfaabd256ab4fad275f  ./docs/how-it-works.md
@@ -75,7 +75,7 @@ a5fcf1a7e5f87f186cafa20e5fc348b52c973af723abeb56c9369957822b2a9d  ./plugins/trai
 a1ad9071d799d78eb350818d74651cceb5f44be852169b5e1da0be5ff850ce15  ./plugins/trailmark/tests/handoff-checks.test.js
 114e06088e669aca90942936820bbc81b0560c071689b8909a1b284d8592644a  ./plugins/trailmark/tests/trailmark.test.js
 06aeeee7f6fc6d37f86a5a9fd0de6d4a7d13f80a10104c65c29b47a305c85142  ./tools/install-check.js
-50d21ac4f3dd237557cd35ce03a260d4cab9e3873ac3252929bd23b58bc1b046  ./tools/migrate-from-jb-memory.js
+b6501e2fbc5850ca039c2904beb28e64ff59a9314e5ca928f08497142a4a0270  ./tools/migrate-from-jb-memory.js
 ecc32e629aeb6d301e7469d9bb6ff333c240aa68102466935533b1727c3cfbd8  ./tools/migrate-from-jb-memory.ps1
 b0b8853cdb828897903f65adb9222279a52aa0fc0a7ce91c76bba0239f962e8b  ./tools/windows/check-trailmark-checkpoints.ps1
 3670d51903fd0ba80a5d90b058d3df8c35f33d3772db716c003106a01ec32bcc  ./tools/windows/inspect-last-checkpoint.ps1
