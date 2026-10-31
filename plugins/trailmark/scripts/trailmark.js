@@ -447,7 +447,10 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   items.sort((a, b) => a.since - b.since);
   const left = deadline - Date.now();
   if (!items.length || left < 1000) return undefined;
-  return sweepCommits(items, { homeCwd: typeof rec.home === 'string' && rec.home ? rec.home : homeCwd, budgetMs: Math.min(left, 3000), now });
+  // rec.home comes from the state file, which a session can write: it is
+  // used only when it is a local path (git runs there).
+  const recHome = typeof rec.home === 'string' && rec.home && path.isAbsolute(rec.home) && !farNetwork(rec.home, homeCwd) ? rec.home : homeCwd;
+  return sweepCommits(items, { homeCwd: recHome, budgetMs: Math.min(left, 3000), now });
 }
 
 // Whether init got --force, read the way memory.js reads its flags: options

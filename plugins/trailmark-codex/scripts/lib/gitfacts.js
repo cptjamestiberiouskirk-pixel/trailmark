@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { oneLine, displayPath, inside } = require('./store');
-const { farGitConfig, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
+const { farGitConfig, farNested, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
 // and Windows caps a variable at 32,767 characters (Linux at 128 KB), so only
@@ -75,10 +75,16 @@ function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
     // attributes and config name. Those filters are switched off for the
     // call; without the list of their names, status isn't read at all.
     const off = filterOverrides(r, cwd);
+    // git status also looks into every submodule folder while it refreshes
+    // the index, and into untracked folders that are repos of their own. So
+    // untracked files aren't listed, and each submodule's .git is checked
+    // like the repo's own first.
+    const subs = off.why ? '' : farSubmodules(r, cwd);
     if (off.why) f.statusSkipped = off.why;
+    else if (subs) f.statusSkipped = subs;
     else {
       if (off.offFiles) f.statusFiltersOff = off.offFiles;
-      const st = r.run(cwd, [...off.args, 'status', '--porcelain=v1', '--untracked-files=normal', '--ignore-submodules=dirty']);
+      const st = r.run(cwd, [...off.args, 'status', '--porcelain=v1', '--untracked-files=no', '--ignore-submodules=dirty']);
       if (st.ok) {
         const all = st.out.trim().split('\n').filter(Boolean);
         f.statusCount = all.length;
@@ -94,6 +100,26 @@ function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
   }
   if (r.hung) f.gitTimedOut = true;
   return f;
+}
+
+// '' when every submodule (gitlink) folder in the index passes the same check
+// as the repo's own .git, else why status shouldn't run. ls-files --stage only
+// reads the index; it doesn't look into the folders.
+const MAX_SUBMODULES = 200;
+function farSubmodules(r, cwd) {
+  const top = topLevel(r, cwd);
+  if (!top.ok) return top.why === 'timeout' ? 'git-timeout' : 'git-error';
+  const ls = r.run(cwd, ['ls-files', '--stage', '-z', '--full-name']);
+  if (!ls.ok) return ls.why === 'timeout' ? 'git-timeout' : 'git-error';
+  let n = 0;
+  for (const e of ls.out.split('\0')) {
+    if (!e.startsWith('160000 ')) continue;
+    if (++n > MAX_SUBMODULES) return 'many-submodules';
+    const rel = e.slice(e.indexOf('\t') + 1);
+    if (!rel || path.isAbsolute(rel) || rel.split(/[\\/]/).includes('..')) return 'submodule-pointer';
+    if (farNested(path.join(top.top, rel))) return 'submodule-pointer';
+  }
+  return '';
 }
 
 // The filters (filter=<name> in .gitattributes, .git/info/attributes or

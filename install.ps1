@@ -50,7 +50,14 @@ param(
 # finds PowerShell 7's copies of its own modules first, and then fails to load
 # Get-Acl, ConvertFrom-Json and the like. PowerShell 7's entries are dropped.
 if ($PSVersionTable.PSVersion.Major -lt 6 -and $env:PSModulePath) {
-  $env:PSModulePath = (@($env:PSModulePath -split ';' | Where-Object { $_ -and $_ -notmatch '(^|\\)PowerShell\\' }) -join ';')
+  # PowerShell 7's folders, wherever it was installed from (installer, Store,
+  # Scoop), are dropped, and Windows PowerShell's own modules come first.
+  # Built with language features only: cmdlets from those modules can't load yet.
+  $tmPsPaths = [System.Collections.Generic.List[string]]::new()
+  foreach ($e in (@("$PSHOME\Modules") + @($env:PSModulePath -split ';'))) {
+    if ($e -and $e -notmatch '(^|\\)PowerShell\\|\\WindowsApps\\Microsoft\.PowerShell|\\pwsh\\' -and -not $tmPsPaths.Contains($e)) { $tmPsPaths.Add($e) }
+  }
+  $env:PSModulePath = $tmPsPaths -join ';'
 }
 
 $ErrorActionPreference = 'Continue'
@@ -146,7 +153,7 @@ function Read-Acl([string]$Item) {
   try { $a = Get-Acl -LiteralPath $Item -ErrorAction Stop; return @{ Owner = $a.Owner; Access = @($a.Access) } } catch { $first = $_.Exception.Message }
   try {
     if ([IO.Directory]::Exists($Item)) { $s = [IO.Directory]::GetAccessControl($Item) } else { $s = [IO.File]::GetAccessControl($Item) }
-    return @{ Owner = $s.GetOwner([Security.Principal.NTAccount]).Value; Access = @($s.GetAccessRules($true, $true, [Security.Principal.NTAccount])) }
+    return @{ Owner = $s.GetOwner([Security.Principal.SecurityIdentifier]).Value; Access = @($s.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) }
   } catch { throw ($first + '; ' + $_.Exception.Message) }
 }
 function Get-Bad([string]$Item, [bool]$ParentOnly) {
@@ -154,8 +161,12 @@ function Get-Bad([string]$Item, [bool]$ParentOnly) {
   try { $acl = Read-Acl $Item } catch { return @('could not read the permissions of ' + $Item + ' (' + $_.Exception.Message + ')') }
   if ($true) {
     $own = ''
-    try { $own = (New-Object Security.Principal.NTAccount $acl.Owner).Translate([Security.Principal.SecurityIdentifier]).Value } catch { $own = '' }
-    if ($own -and $okOwners -notcontains $own) { $out += ($Item + ': owned by ' + $acl.Owner) }
+    # An owner given as a SID is used as it is. One that can't be named or
+    # translated is refused: it can't be shown to be you.
+    if ([string]$acl.Owner -match '^S-1-[0-9-]+$') { $own = [string]$acl.Owner }
+    else { try { $own = (New-Object Security.Principal.NTAccount $acl.Owner).Translate([Security.Principal.SecurityIdentifier]).Value } catch { $own = '' } }
+    if (-not $own) { $out += ($Item + ': its owner (' + $acl.Owner + ') could not be identified') }
+    elseif ($okOwners -notcontains $own) { $out += ($Item + ': owned by ' + $acl.Owner) }
   }
   foreach ($r in $acl.Access) {
     if ($r.AccessControlType -ne 'Allow') { continue }

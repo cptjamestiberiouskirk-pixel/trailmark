@@ -89,7 +89,14 @@ param(
 # finds PowerShell 7's copies of its own modules first, and then fails to load
 # Get-Acl, ConvertFrom-Json and the like. PowerShell 7's entries are dropped.
 if ($PSVersionTable.PSVersion.Major -lt 6 -and $env:PSModulePath) {
-  $env:PSModulePath = (@($env:PSModulePath -split ';' | Where-Object { $_ -and $_ -notmatch '(^|\\)PowerShell\\' }) -join ';')
+  # PowerShell 7's folders, wherever it was installed from (installer, Store,
+  # Scoop), are dropped, and Windows PowerShell's own modules come first.
+  # Built with language features only: cmdlets from those modules can't load yet.
+  $tmPsPaths = [System.Collections.Generic.List[string]]::new()
+  foreach ($e in (@("$PSHOME\Modules") + @($env:PSModulePath -split ';'))) {
+    if ($e -and $e -notmatch '(^|\\)PowerShell\\|\\WindowsApps\\Microsoft\.PowerShell|\\pwsh\\' -and -not $tmPsPaths.Contains($e)) { $tmPsPaths.Add($e) }
+  }
+  $env:PSModulePath = $tmPsPaths -join ';'
 }
 
 $ErrorActionPreference = 'Stop'

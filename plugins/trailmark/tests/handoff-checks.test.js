@@ -360,7 +360,7 @@ test('git pointers: config is read as git reads it, and alternates are followed'
   assert.strictEqual(farGitConfig(oct), 'network-config', 'octal-quoted alternates');
   const tilde = path.join(base, 'tilde'); repoAt(tilde);
   fs.appendFileSync(path.join(tilde, '.git', 'config'), '[include]\n  path = ~someone/x.cfg\n');
-  assert.strictEqual(farGitConfig(tilde), 'unreadable-config');
+  assert.strictEqual(farGitConfig(tilde), 'odd-config-path');
   const sub = path.join(base, 'sub'); repoAt(sub);
   const mod = path.join(sub, '.git', 'modules', 'm'); fs.mkdirSync(mod, { recursive: true });
   assert.strictEqual(farGitConfig(mod), 'inside-gitdir');
@@ -378,7 +378,72 @@ test('git pointers: a linked config is not trusted', { skip: WIN && 'making link
   const real = path.join(base, 'elsewhere.cfg');
   fs.renameSync(path.join(r, '.git', 'config'), real);
   fs.symlinkSync(real, path.join(r, '.git', 'config'));
-  assert.strictEqual(farGitConfig(r), 'unreadable-config');
+  assert.strictEqual(farGitConfig(r), 'linked-gitdir');
+});
+
+test('git pointers: second review cases (prefix, deep includes, decoy .git, many includes, inside .git)', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far5-');
+  const pre = path.join(base, 'pre'); repoAt(pre);
+  fs.appendFileSync(path.join(pre, '.git', 'config'), '[core]\n  attributesFile = %(prefix)///evil.invalid/share/a\n');
+  assert.strictEqual(farGitConfig(pre), 'network-config', '%(prefix)');
+  const deep = path.join(base, 'deep'); repoAt(deep);
+  for (let i = 1; i <= 8; i++) fs.writeFileSync(path.join(base, `inc${i}.cfg`), i < 8 ? `[include]\n  path = inc${i + 1}.cfg\n` : '[core]\n  attributesFile = //evil.invalid/share/a\n');
+  fs.appendFileSync(path.join(deep, '.git', 'config'), '[include]\n  path = ../../inc1.cfg\n');
+  assert.strictEqual(farGitConfig(deep), 'network-config', 'include chain 8 deep');
+  const loop = path.join(base, 'loop'); repoAt(loop);
+  for (let i = 1; i <= 12; i++) fs.writeFileSync(path.join(base, `d${i}.cfg`), `[include]\n  path = d${i + 1}.cfg\n`);
+  fs.appendFileSync(path.join(loop, '.git', 'config'), '[include]\n  path = ../../d1.cfg\n');
+  assert.strictEqual(farGitConfig(loop), 'deep-config', 'past git\'s include depth');
+  const many = path.join(base, 'many'); repoAt(many);
+  for (let i = 0; i < 60; i++) fs.writeFileSync(path.join(base, `m${i}.cfg`), '[x]\n  y = 1\n');
+  fs.appendFileSync(path.join(many, '.git', 'config'), Array.from({ length: 60 }, (_, i) => `[include]\n  path = ../../m${i}.cfg\n`).join(''));
+  assert.strictEqual(farGitConfig(many), 'many-config-files');
+  const outer = path.join(base, 'outer'); repoAt(outer);
+  fs.appendFileSync(path.join(outer, '.git', 'config'), '[core]\n  attributesFile = //evil.invalid/share/a\n');
+  fs.mkdirSync(path.join(outer, 'sub', '.git'), { recursive: true });
+  assert.strictEqual(farGitConfig(path.join(outer, 'sub')), 'network-config', 'decoy .git under a bad repo');
+  assert.strictEqual(farGitConfig(path.join(outer, '.git', 'modules', 'm')), 'inside-gitdir');
+  assert.strictEqual(farGitConfig('//evil.invalid/share/repo'), 'network-folder');
+});
+
+test('git pointers: links on the way to a gitdir, config or include', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { farGitConfig, localPath } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far6-');
+  const a = path.join(base, 'a'); fs.mkdirSync(a);
+  fs.symlinkSync('//evil.invalid/share/r', path.join(base, 'lnk'));
+  fs.writeFileSync(path.join(a, '.git'), 'gitdir: ../lnk/repo/.git\n');
+  assert.strictEqual(farGitConfig(a), 'network-gitdir', 'gitdir through a link to a share');
+  const b = path.join(base, 'b'); repoAt(b);
+  fs.renameSync(path.join(b, '.git'), path.join(base, 'b-git'));
+  fs.symlinkSync(path.join(base, 'b-git'), path.join(b, '.git'));
+  assert.strictEqual(farGitConfig(b), 'linked-gitdir', '.git that is a link');
+  const c = path.join(base, 'c'); repoAt(c);
+  fs.rmSync(path.join(c, '.git', 'refs', 'heads'), { recursive: true, force: true });
+  fs.symlinkSync('//evil.invalid/share/heads', path.join(c, '.git', 'refs', 'heads'));
+  assert.strictEqual(farGitConfig(c), 'linked-gitdir', 'link inside the gitdir');
+  const d = path.join(base, 'd'); repoAt(d);
+  fs.symlinkSync('//evil.invalid/share', path.join(base, 'sh'));
+  fs.appendFileSync(path.join(d, '.git', 'config'), '[include]\n  path = ../../sh/benign.cfg\n');
+  assert.strictEqual(farGitConfig(d), 'network-config', 'include through a linked folder');
+  assert.strictEqual(localPath(path.join(base, 'sh', 'x')), null);
+  const ok = path.join(base, 'real'); fs.mkdirSync(ok); fs.symlinkSync(ok, path.join(base, 'alias'));
+  assert.strictEqual(localPath(path.join(base, 'alias', 'x')), path.join(ok, 'x'), 'a local link is followed');
+});
+
+test('git status: submodule folders are checked first, untracked repos are not looked into', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-sub-');
+  const r = path.join(base, 'r'); repoAt(r);
+  fs.mkdirSync(path.join(r, 'sub'));
+  execFileSync('git', ['update-index', '--add', '--cacheinfo', '160000,' + '1'.repeat(40) + ',sub'], { cwd: r });
+  fs.writeFileSync(path.join(r, 'sub', '.git'), 'gitdir: //evil.invalid/share/evil\n');
+  assert.strictEqual(gitFacts(r, ['status']).statusSkipped, 'submodule-pointer');
+  const u = path.join(base, 'u'); repoAt(u);
+  fs.mkdirSync(path.join(u, 'x')); fs.writeFileSync(path.join(u, 'x', '.git'), 'gitdir: //evil.invalid/share/evil\n');
+  const f = gitFacts(u, ['status']);
+  assert.strictEqual(f.statusSkipped, undefined);
+  assert.ok(!(f.status || []).some(l => /x\//.test(l)), 'untracked folders are not listed');
 });
 
 test('links: the launcher and hooks never read through a link in the memory folder', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {

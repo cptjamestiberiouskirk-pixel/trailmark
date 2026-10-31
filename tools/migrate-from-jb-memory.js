@@ -81,8 +81,9 @@
 //   --set-no-cwd-lookup, --allow-old-node, --repoint
 //                          passed on to the installer (see MANUAL.md, section 3)
 //
-// Exit codes: 0 done; 1 stopped on an error; 2 done here, with steps left for
-// you to do (listed at the end); 3 --dry-run found something to do.
+// Exit codes: 0 done; 1 stopped on an error; 2 done here, with something left
+// for you (listed at the end, or a WARN line above says what wasn't done);
+// 3 --dry-run found something to do.
 
 'use strict';
 
@@ -168,7 +169,10 @@ function findProgram(name) {
   return '';
 }
 
-function run(prog, args, { cwd, inherit = false, timeout = 120000, env = process.env } = {}) {
+// On Windows, cmd.exe (which runs an npm .cmd shim) looks for a bare program
+// name such as node in the current folder first; this variable stops that.
+const BASE_ENV = WIN ? { ...process.env, NoDefaultCurrentDirectoryInExePath: '1' } : process.env;
+function run(prog, args, { cwd, inherit = false, timeout = 120000, env = BASE_ENV } = {}) {
   for (const a of args) if (typeof a !== 'string' || /[\0\r\n]/.test(a)) throw new Error(`refusing an unusual argument: ${JSON.stringify(a)}`);
   let file = prog;
   let argv = args;
@@ -201,10 +205,38 @@ function lastJsonLine(text) {
   return null;
 }
 
+// One line from the terminal, read without touching process.stdin (which
+// would switch it to non-blocking reads). EAGAIN means no input yet.
+function askYes(question) {
+  process.stdout.write(question);
+  const buf = Buffer.alloc(256);
+  const nap = new Int32Array(new SharedArrayBuffer(4));
+  let got = '';
+  const until = Date.now() + 30 * 60000;
+  while (Date.now() < until && !got.includes('\n')) {
+    let n;
+    try { n = fs.readSync(0, buf, 0, buf.length, null); } catch (e) {
+      if (e && e.code === 'EAGAIN') { Atomics.wait(nap, 0, 0, 50); continue; }
+      break;
+    }
+    if (!n) break;
+    got += buf.slice(0, n).toString();
+  }
+  return /^\s*y(es)?\s*$/i.test(got.split(/\r?\n/)[0]);
+}
+
 // ---------- small file helpers
 
 function readText(f, max = 4 * 1024 * 1024) {
   try { const st = fs.lstatSync(f); if (!st.isFile() || st.size > max) return null; return fs.readFileSync(f, 'utf8'); } catch { return null; }
+}
+// A file read through links (Codex's config.toml is often a dotfile link):
+// null when missing, undefined when it is there but can't be read.
+function readFollow(f, max = 4 * 1024 * 1024) {
+  let st;
+  try { st = fs.statSync(f); } catch (e) { return e && (e.code === 'ENOENT' || e.code === 'ENOTDIR') ? null : undefined; }
+  if (!st.isFile() || st.size > max) return undefined;
+  try { return fs.readFileSync(f, 'utf8'); } catch { return undefined; }
 }
 function readJson(f) { const t = readText(f); if (t === null) return undefined; try { return JSON.parse(t.replace(/^\uFEFF/, '')); } catch { return null; } }
 function listDir(d) { try { return fs.readdirSync(d, { withFileTypes: true }); } catch { return []; } }
@@ -253,6 +285,7 @@ function surveyClaude(claude) {
   // Cache copies: <config>/plugins/cache/<marketplace>/jb-memory/<version>,
   // and any cached plugin that still holds the old launcher.
   const cache = path.join(cfg, 'plugins', 'cache');
+  const installedKeys = new Set((s.others || []).concat(s.trailmark).map(p => p.id.toLowerCase()));
   for (const mk of listDir(cache)) {
     if (!mk.isDirectory()) continue;
     for (const pl of listDir(path.join(cache, mk.name))) {
@@ -260,6 +293,8 @@ function surveyClaude(claude) {
       const dir = path.join(cache, mk.name, pl.name);
       const named = pl.name.toLowerCase() === OLD_PLUGIN;
       const holdsOld = !named && listDir(dir).some(v => v.isDirectory() && fs.existsSync(path.join(dir, v.name, 'scripts', 'jbm.js')));
+      // A plugin Claude Code lists as installed stays, whatever it holds.
+      if (holdsOld && installedKeys.has(`${pl.name}@${mk.name}`.toLowerCase())) { s.keptCache = (s.keptCache || []).concat(dir); continue; }
       if (named || holdsOld) s.cache.push(dir);
     }
   }
@@ -290,7 +325,7 @@ function scanRepos(root, { maxDepth = 6, maxDirs = 20000 } = {}) {
     for (const f of ['settings.json', 'settings.local.json']) {
       const t = readText(path.join(d, '.claude', f), 1024 * 1024);
       if (!t) continue;
-      try { const j = JSON.parse(t.replace(/^\uFEFF/, '')); if (j && j.enabledPlugins && Object.keys(j.enabledPlugins).some(k => k.split('@')[0].toLowerCase() === OLD_PLUGIN)) found.push(path.join(d, '.claude', f)); } catch { /* not JSON */ }
+      try { const j = JSON.parse(t.replace(/^\uFEFF/, '')); if (j && j.enabledPlugins && Object.entries(j.enabledPlugins).some(([k, v]) => v === true && k.split('@')[0].toLowerCase() === OLD_PLUGIN)) found.push(path.join(d, '.claude', f)); } catch { /* not JSON */ }
     }
     for (const e of listDir(d)) if (e.isDirectory() && !skip.has(e.name)) walk(path.join(d, e.name), depth + 1);
   };
@@ -310,16 +345,28 @@ function cmpVersion(a, b) {
 // config.toml without the [hooks.state."jb-memory-codex@..."] tables and the
 // lines under them, each table running to the next line that starts with '['.
 // Blank lines stay. Returns { text, removed }.
+// Inside such a table only single-line `key = value` lines are removed;
+// comments and blank lines stay with whatever follows. Anything else there
+// (a multi-line string or array) means the file isn't the shape expected, and
+// nothing is removed: { unsafe: true }.
+const SCALAR_LINE = /^\s*[\w.-]+\s*=\s*(?:"(?:[^"\\]|\\.)*"|'[^']*'|true|false|[-+]?[\d._]+(?:[eE][-+]?\d+)?|\[[^\[\]]*\]|\{[^{}]*\})\s*(?:#.*)?$/;
 function withoutTrust(text) {
   const nl = text.includes('\r\n') ? '\r\n' : '\n';
   const keep = [];
   let removed = 0;
   let skip = false;
-  for (const l of text.split(/\r?\n/)) {
-    if (/^\s*\[/.test(l)) skip = TRUST_RE.test(l);
-    if (skip && l.trim() !== '') removed++; else keep.push(l);
+  for (const l of text.replace(/^\uFEFF/, '').split(/\r?\n/)) {
+    if (/^\s*\[/.test(l)) {
+      skip = TRUST_RE.test(l);
+      if (skip) { removed++; continue; }
+      keep.push(l);
+      continue;
+    }
+    if (!skip || l.trim() === '' || /^\s*#/.test(l)) { keep.push(l); continue; }
+    if (!SCALAR_LINE.test(l)) return { text, removed: 0, unsafe: true };
+    removed++;
   }
-  return { text: keep.join(nl), removed };
+  return { text: (text.startsWith('\uFEFF') ? '\uFEFF' : '') + keep.join(nl), removed };
 }
 
 // An old release folder whose Codex marketplace provides jb-memory-codex under
@@ -338,19 +385,20 @@ function codexHome() { return process.env.CODEX_HOME || path.join(os.homedir(), 
 function surveyCodex(codex) {
   const s = { home: codexHome(), used: false, marketplaces: [], oldMarketplaces: [], installed: [], cache: [], listOk: false, trailmarkMarketplace: false };
   s.used = !!codex || isDir(s.home);
-  const cfgText = readText(path.join(s.home, 'config.toml')) || '';
+  const cfgRaw = readFollow(path.join(s.home, 'config.toml'));
+  // Can't read it: whether jb-memory-codex is installed is unknown, so every
+  // Codex step is left alone.
+  s.cfgUnknown = cfgRaw === undefined;
+  const cfgText = cfgRaw || '';
   for (const m of cfgText.matchAll(/^\s*\[\s*plugins\s*\.\s*"([^"]+)"\s*\]/gm)) {
     const id = m[1];
     if (id.split('@')[0].toLowerCase() === OLD_CODEX) s.installed.push(id);
   }
-  // The exact shape Codex uses isn't documented, so any other mention of the
-  // old plugin's name counts as installed too: its cache then stays put.
-  // Marketplace entries and hook-trust records ([hooks.state."<plugin>:..."],
-  // which can outlive the plugin) don't mean it is installed.
-  const mentions = cfgText.split(/\r?\n/).filter(l => /jb-memory-codex/i.test(l) && !/^\s*\[\s*(?:marketplaces|hooks\s*\.\s*state)\b/i.test(l) && !/^\s*#/.test(l));
-  if (!s.installed.length && mentions.length) s.installed.push(`${OLD_CODEX} (named in config.toml)`);
+  // Plugins installed from each marketplace, by marketplace name.
+  s.fromMkt = {};
+  for (const m of cfgText.matchAll(/^\s*\[\s*plugins\s*\.\s*"([^"@]+)@([^"]+)"\s*\]/gm)) (s.fromMkt[m[2]] = s.fromMkt[m[2]] || []).push(m[1]);
   for (const m of cfgText.matchAll(/^\s*\[\s*marketplaces\s*\.\s*"?([\w.+-]+)"?\s*\]/gm)) {
-    if (/^jb-memory/i.test(m[1])) s.oldMarketplaces.push({ name: m[1], from: 'config.toml' });
+    if (m[1].toLowerCase() === OLD_CODEX) s.oldMarketplaces.push({ name: m[1], from: 'config.toml' });
   }
   if (codex) {
     const l = run(codex, ['plugin', 'marketplace', 'list', '--json']);
@@ -368,16 +416,24 @@ function surveyCodex(codex) {
           provides = !!(man && Array.isArray(man.plugins) && man.plugins.some(q => q && String(q.name).toLowerCase() === OLD_CODEX));
         }
         if (name === 'trailmark-codex') s.trailmarkMarketplace = true;
-        if ((provides || /^jb-memory/i.test(name)) && !s.oldMarketplaces.some(o => o.name === name)) s.oldMarketplaces.push({ name, path: p });
+        if ((provides || name.toLowerCase() === OLD_CODEX) && !s.oldMarketplaces.some(o => o.name === name)) s.oldMarketplaces.push({ name, path: p });
       }
     } else {
-      // Older Codex without --json: the plain list, one name per line.
+      // Codex without --json prints a table: MARKETPLACE and ROOT columns.
       const t = run(codex, ['plugin', 'marketplace', 'list']);
       if (t.code === 0) {
         s.listOk = true;
-        for (const w of t.out.split(/\s+/)) {
-          if (/^jb-memory[\w.+-]*$/i.test(w) && !s.oldMarketplaces.some(o => o.name === w)) s.oldMarketplaces.push({ name: w });
-          if (w === 'trailmark-codex') s.trailmarkMarketplace = true;
+        for (const line of t.out.split(/\r?\n/)) {
+          const m = /^(\S+)\s+(.*\S)\s*$/.exec(line) || /^(\S+)\s*$/.exec(line);
+          if (!m || m[1] === 'MARKETPLACE') continue;
+          const name = m[1], root = m[2] || '';
+          if (name === 'trailmark-codex') s.trailmarkMarketplace = true;
+          let provides = false;
+          if (root && !NET.test(root)) {
+            const man = readJson(path.join(root, '.agents', 'plugins', 'marketplace.json'));
+            provides = !!(man && Array.isArray(man.plugins) && man.plugins.some(q => q && String(q.name).toLowerCase() === OLD_CODEX));
+          }
+          if ((provides || name.toLowerCase() === OLD_CODEX) && !s.oldMarketplaces.some(o => o.name === name)) s.oldMarketplaces.push({ name, path: root });
         }
       }
     }
@@ -535,6 +591,11 @@ function main() {
   }
   if (x) {
     if (!x.used) info(`Codex: not found (no codex command, no ${x.home})`);
+    if (x.cfgUnknown) {
+      warn(`${path.join(x.home, 'config.toml')} is there but can't be read, so whether jb-memory-codex is installed is unknown; every Codex step is left alone`);
+      later(`Make ${path.join(x.home, 'config.toml')} readable (or fix the link it is), then run this again for the Codex steps.`);
+      x.used = false;
+    }
     for (const id of x.installed) info(`Codex plugin installed: ${id} (listed in ${path.join(x.home, 'config.toml')})`);
     for (const m of x.oldMarketplaces) info(`old Codex marketplace: ${m.name}${m.path ? ' -> ' + m.path : ''}`);
     for (const d of x.cache) info(`old copy in Codex's plugin cache: ${d}`);
@@ -551,8 +612,10 @@ function main() {
       x.orphanMkt = mkt;
       x.orphanFrom = oldCodexRelease([o.oldRelease, ...(c ? c.oldMarketplaces.map(m => m.path) : []), ...sibs], mkt);
       warn(`jb-memory-codex is installed but its marketplace ${mkt} is gone, so the ChatGPT app can't show it to uninstall`);
+      if (o.oldRelease && !oldCodexRelease([o.oldRelease], mkt)) warn(`--old-release ${o.oldRelease} has no Codex marketplace named ${mkt} that provides jb-memory-codex`);
       if (x.orphanFrom) info(`old release with that marketplace: ${x.orphanFrom}`);
       else later(`Codex has jb-memory-codex installed, but its marketplace (${mkt}) is gone, so the ChatGPT app can't show it to uninstall. Run this again with --old-release <your old jb-memory release folder> to add that marketplace back, or add it yourself: codex plugin marketplace add <that folder>. Then uninstall jb-memory-codex in the app and run this again.`);
+      if (x.orphanFrom && !codex) later(`The codex command isn't on PATH here. Add the old marketplace back yourself: codex plugin marketplace add "${x.orphanFrom}" (or add that folder as a marketplace in the ChatGPT app), then uninstall jb-memory-codex in the app and run this again.`);
     }
     if (!x.installed.length && x.trust && !o.cleanTrust) info('those records do nothing now; --clean-codex-trust removes them');
     const relCodex = readJson(path.join(HERE, 'plugins', 'trailmark-codex', '.codex-plugin', 'plugin.json'));
@@ -563,8 +626,12 @@ function main() {
     if (tmk && tmk.path && !samePath(tmk.path, HERE) && !o.pass.includes('--repoint')) warn(`the trailmark marketplace points at ${tmk.path}; the installer stops unless you run this with --repoint, which points it here`);
   }
   if (wd.tasks.length) info(`old watchdog tasks: ${wd.tasks.join(', ')}`);
-  for (const root of o.scan) {
-    if (NET.test(root) || !isDir(root)) { warn(`--scan ${root}: not a local folder`); continue; }
+  // --scan runs after the uninstalls (or here, for a dry run), so a repo they
+  // fixed isn't reported.
+  const doScan = () => { for (const root of o.scan) {
+    let dirOk = false;
+    try { dirOk = !NET.test(root) && fs.statSync(root).isDirectory(); } catch { dirOk = false; }
+    if (!dirOk) { warn(`--scan ${root}: not a local folder`); continue; }
     const r = scanRepos(root);
     for (const f of r.found) {
       warn(`${f} turns jb-memory on`);
@@ -572,7 +639,8 @@ function main() {
     }
     if (!r.found.length) ok(`--scan ${root}: no repo settings turn jb-memory on`);
     if (r.partial) warn(`--scan ${root}: stopped after 20,000 folders; scan a smaller folder to be sure`);
-  }
+  } };
+  if (o.dryRun) doScan();
   const run1 = runningPrograms();
 
   // ---------- plan
@@ -601,6 +669,12 @@ function main() {
     info('Trailmark from this folder is already installed and on, so the installer is skipped');
     o.install = false;
   }
+  // The installer refuses while jb-memory is installed at any scope.
+  if (o.install && c && !o.projectScopes && c.plugins.some(p => p.scope !== 'user')) {
+    info('jb-memory stays at project or local scope (--keep-project-scopes), and the installer refuses while it is installed anywhere, so it is skipped');
+    later('Install Trailmark once jb-memory is gone from every scope: run this again without --keep-project-scopes, or run the installer yourself.');
+    o.install = false;
+  }
   if (o.install) {
     const flags = [];
     if (useCodex) flags.push(WIN ? '-Codex' : '--codex');
@@ -619,11 +693,12 @@ function main() {
   // Installed means a [plugins."trailmark-codex@..."] table; adding the
   // marketplace also writes its name into config.toml, so a bare mention
   // doesn't count.
-  const codexInstalled = () => /^\s*\[\s*plugins\s*\.\s*"trailmark-codex@/im.test(readText(path.join(codexHome(), 'config.toml')) || '');
+  const codexInstalled = () => /^\s*\[\s*plugins\s*\.\s*"trailmark-codex@/im.test(readFollow(path.join(codexHome(), 'config.toml')) || '');
   const codexPending = () => useCodex && !codexInstalled();
   step('Plan');
   if (!plan.length) {
     ok('nothing to do here');
+    if (!o.dryRun && o.scan.length) doScan();
     if (codexPending()) later('In the ChatGPT app: restart it, open Plugins, choose the trailmark-codex marketplace, install trailmark-codex, then review and trust its hooks when asked.');
     if (!todo.length) return 0;
     out(''); out('Left for you:');
@@ -635,12 +710,8 @@ function main() {
   if (run1.codex && x && (x.oldMarketplaces.length || x.cache.length)) warn('Codex or the ChatGPT app is running. Quit it before Codex steps, or restart it afterwards.');
   if (o.dryRun) { out(''); out('Dry run: nothing was changed.'); return 3; }
   if (!o.yes) {
-    if (!process.stdin.isTTY) fail('nothing was changed: run it in a terminal to be asked, or pass --yes.');
-    process.stdout.write('\nGo ahead? [y/N] ');
-    const buf = Buffer.alloc(16);
-    let n = 0;
-    try { n = fs.readSync(0, buf, 0, 16, null); } catch { n = 0; }
-    if (!/^\s*y(es)?\s*$/i.test(buf.slice(0, n).toString())) { out('Nothing was changed.'); return 1; }
+    if (!require('tty').isatty(0)) fail('nothing was changed: run it in a terminal to be asked, or pass --yes.');
+    if (!askYes('\nGo ahead? [y/N] ')) { out('Nothing was changed.'); return 1; }
   }
 
   const backup = backupDirFor(o);
@@ -658,7 +729,10 @@ function main() {
     for (const m of c.oldMarketplaces) {
       if (!SAFE.test(m.name)) { warn(`skipped a marketplace with an unusual name: ${JSON.stringify(m.name)}`); continue; }
       const still = (after.others || []).concat(after.trailmark).filter(p => p.id.split('@')[1] === m.name);
-      if (still.length || m.alsoTrailmark || m.name === 'trailmark') { info(`kept the marketplace ${m.name}: ${still.length ? still.map(p => p.id).join(', ') + ' still comes from it' : 'it also provides Trailmark'}`); continue; }
+      // Kept only while something is installed from it. A jb-memory marketplace
+      // that now points at this release (unpacked over the old folder) goes,
+      // and the installer adds it again as trailmark.
+      if (still.length || m.name === 'trailmark') { info(`kept the marketplace ${m.name}: ${still.length ? still.map(p => p.id).join(', ') + ' still comes from it' : 'it is Trailmark\'s own'}`); continue; }
       if (after.plugins.some(p => p.id.split('@')[1] === m.name)) { info(`kept the marketplace ${m.name}: jb-memory is still installed from it`); continue; }
       const r = run(claude, ['plugin', 'marketplace', 'remove', m.name, '--json']);
       const j = lastJsonLine(r.out);
@@ -675,6 +749,7 @@ function main() {
         if (!c.cache.length) ok('no old copies in the plugin cache');
       }
     }
+    if (o.scan.length) { step('Scan for repos that still turn jb-memory on'); doScan(); }
     for (const f of c.settingsHooks) later(`${f} has a hook that runs jb-memory's jbm.js. Remove that hook by hand (it runs next to Trailmark's). This script doesn't edit settings files.`);
   }
 
@@ -688,16 +763,18 @@ function main() {
         else warn(`codex plugin marketplace add ${x.orphanFrom} failed: ${(r.err || r.out).trim().split('\n')[0] || 'exit ' + r.code}`);
       }
     }
-    if (!codex && x.oldMarketplaces.length) later(`Remove the old Codex marketplace: codex plugin marketplace remove ${x.oldMarketplaces[0].name} (the codex command wasn't on PATH here).`);
+    if (!codex && x.oldMarketplaces.length && !x.installed.length) later(`Remove the old Codex marketplace: codex plugin marketplace remove ${x.oldMarketplaces[0].name} (the codex command wasn't on PATH here).`);
     for (const m of codex && !x.installed.length ? x.oldMarketplaces : []) {
       if (!SAFE.test(m.name)) { warn(`skipped a marketplace with an unusual name: ${JSON.stringify(m.name)}`); continue; }
+      const others = (x.fromMkt[m.name] || []).filter(n => n.toLowerCase() !== OLD_CODEX);
+      if (others.length) { info(`kept the Codex marketplace ${m.name}: ${others.join(', ')} still comes from it`); continue; }
       const r = run(codex, ['plugin', 'marketplace', 'remove', m.name]);
       if (r.code === 0) ok(`removed the Codex marketplace ${m.name}`);
-      else if (/not found|no marketplace|unknown/i.test(r.err + r.out)) ok(`the Codex marketplace ${m.name} was already gone`);
+      else if (/not configured|not found|no such marketplace/i.test(r.err + r.out)) ok(`the Codex marketplace ${m.name} was already gone`);
       else warn(`codex plugin marketplace remove ${m.name} failed: ${(r.err || r.out).trim().split('\n')[0] || 'exit ' + r.code}`);
     }
     if (!x.oldMarketplaces.length && !x.orphan) ok('no old Codex marketplace');
-    else if (x.installed.length) info(`kept the Codex marketplace ${x.oldMarketplaces.map(m => m.name).join(', ')}: the ChatGPT app shows jb-memory-codex, and so lets you uninstall it, only through it`);
+    else if (x.installed.length && x.oldMarketplaces.length) info(`kept the Codex marketplace ${x.oldMarketplaces.map(m => m.name).join(', ')}: the ChatGPT app shows jb-memory-codex, and so lets you uninstall it, only through it`);
     x.installed = surveyCodex(codex).installed;
     if (x.installed.length) {
       later(`In the ChatGPT app, open Plugins and uninstall ${x.installed.join(', ')} (Codex installs and uninstalls plugins only there), quit the app, then run this again: it moves the old copy out of Codex's cache once it is uninstalled.`);
@@ -713,14 +790,23 @@ function main() {
       else if (runningPrograms().codex) later('Quit the ChatGPT app, then run this again with --clean-codex-trust: the app may write config.toml while it runs.');
       else {
         const cfg = path.join(x.home, 'config.toml');
+        let isLink = false;
+        try { isLink = fs.lstatSync(cfg).isSymbolicLink(); } catch { /* missing */ }
         const before = readText(cfg);
         const w = before === null ? { removed: 0 } : withoutTrust(before);
-        if (w.removed) {
+        if (isLink) later(`${cfg} is a link, which this script doesn't write through. Remove the [hooks.state."jb-memory-codex@..."] tables from the file it points to by hand, if you want them gone.`);
+        else if (w.unsafe) later(`${cfg} has something other than plain settings inside a jb-memory-codex hook-trust table, so nothing was removed. Remove those tables by hand, if you want them gone.`);
+        else if (w.removed) {
           const bak = path.join(backup, 'codex-config.toml');
-          fs.mkdirSync(backup, { recursive: true });
-          fs.writeFileSync(bak, before);
-          fs.writeFileSync(cfg, w.text);
-          ok(`removed ${w.removed} lines of jb-memory-codex hook-trust records from config.toml (backup: ${bak})`);
+          try {
+            fs.mkdirSync(backup, { recursive: true });
+            fs.writeFileSync(bak, before);
+            fs.writeFileSync(cfg, w.text);
+            ok(`removed ${w.removed} lines of jb-memory-codex hook-trust records from config.toml (backup: ${bak})`);
+          } catch (e) {
+            warn(`could not rewrite ${cfg}: ${e.message}`);
+            later(`${cfg} couldn't be written (${e.code || 'error'}); the hook-trust records are still there. They do nothing, so this can wait.`);
+          }
         }
       }
     }
@@ -745,7 +831,7 @@ function main() {
         // Without PowerShell 7's PSModulePath: Windows PowerShell 5.1 started
         // with it can't load its own Get-Acl and the like (install.ps1 also
         // drops those entries itself).
-        const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toLowerCase() !== 'psmodulepath'));
+        const env = Object.fromEntries(Object.entries(BASE_ENV).filter(([k]) => k.toLowerCase() !== 'psmodulepath'));
         r = run(ps, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(HERE, 'install.ps1'), ...o.flags], { cwd: HERE, inherit: true, timeout: 30 * 60000, env });
       } else {
         r = run('/bin/bash', [path.join(HERE, 'install.sh'), ...o.flags], { cwd: HERE, inherit: true, timeout: 30 * 60000 });

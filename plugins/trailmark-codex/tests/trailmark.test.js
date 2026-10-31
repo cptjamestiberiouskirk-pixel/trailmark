@@ -1143,7 +1143,7 @@ test('git: hooks never rewrite .git/index; only the commit hook reads the reflog
   assert.strictEqual(after.mtimeMs, before.mtimeMs, 'the index was rewritten');
   assert.ok(!fs.existsSync(indexFile + '.lock'));
   const pre = fs.readFileSync(log, 'utf8');
-  assert.ok(/status --porcelain=v1 --untracked-files=normal --ignore-submodules=dirty/.test(pre), pre);
+  assert.ok(/status --porcelain=v1 --untracked-files=no --ignore-submodules=dirty/.test(pre), pre);
   // PR merge and subagent hooks run no git for facts (only the folder lookup).
   fs.writeFileSync(log, '');
   jbm(s, ['--hook', 'milestone', 'pr-merge'], JSON.stringify({ cwd: s.repo, tool_input: { command: 'gh pr merge 5 --squash' }, tool_response: {} }), env);
@@ -1202,7 +1202,9 @@ test('precompact: a repo with 2,500 changed files still gets a snapshot, with th
   const s = sandbox();
   jbm(s, ['init']);
   const pad = 'x'.repeat(50);
-  for (let i = 0; i < 2500; i++) fs.writeFileSync(path.join(s.repo, `untracked-${String(i).padStart(4, '0')}-${pad}.txt`), '');
+  // Added, not committed: untracked files aren't listed (SECURITY.md says why).
+  for (let i = 0; i < 2500; i++) fs.writeFileSync(path.join(s.repo, `added-${String(i).padStart(4, '0')}-${pad}.txt`), '');
+  s.g('add', '-A');
   const r = jbm(s, ['--hook', 'precompact'], JSON.stringify({ cwd: s.repo, trigger: 'auto', session_id: SB }));
   assert.strictEqual(r.status, 0, r.stdout + r.stderr);
   const snap = fs.readFileSync(path.join(s.memdir, 'snapshots', `${SB}.md`), 'utf8');

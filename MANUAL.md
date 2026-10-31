@@ -75,7 +75,7 @@ The installer stops at the first problem and says what to do. In order, it:
 2. refuses a folder, or a folder above it, that anyone but you can write to, replace or own (on Windows, anyone but you, Administrators and SYSTEM), and a release that holds links;
 3. on Windows, checks `NoDefaultCurrentDirectoryInExePath` (section 9);
 4. runs the sandbox check;
-5. refuses if Trailmark is already installed from another marketplace, or if a marketplace named `trailmark` points at another folder, since two copies would each run every hook;
+5. refuses while jb-memory, the name before 0.5.0, is installed at any scope, or if Trailmark is already installed from another marketplace, or if a marketplace named `trailmark` points at another folder, since two copies would each run every hook;
 6. runs `claude plugin validate`, `claude plugin marketplace add <folder>` and `claude plugin install trailmark@trailmark` (user scope).
 
 It downloads nothing and changes no file in the release folder. Options:
@@ -381,13 +381,13 @@ What it does:
 - Removes the old marketplace, unless another plugin you still have comes from it.
 - Moves the old copies out of Claude Code's plugin cache into a backup folder (`%LOCALAPPDATA%\trailmark-migration\<time>` on Windows, `~/.local/share/trailmark-migration/<time>` elsewhere), with a log. Claude Code leaves them there after an uninstall, and Trailmark and the watchdog warn about them. Nothing is deleted except the empty folder a move leaves behind.
 - Codex uninstalls plugins only in the ChatGPT app, and the app shows an installed plugin only through its marketplace. So while Codex's `config.toml` still lists jb-memory-codex as installed, the script keeps the `jb-memory-codex` marketplace and the old cache copy, and asks you to uninstall the plugin in the app. Run the script again afterwards: it removes that marketplace and moves the old Codex copy to the backup folder.
-- If the plugin is still installed but its marketplace is already gone (the app then can't show it at all), the script adds the old marketplace back from your old jb-memory release folder so you can uninstall the plugin in the app. It finds that folder on its own when it sits next to this release, or when it was the old Claude Code marketplace; otherwise pass `--old-release <folder>`.
+- If the plugin is still installed but its marketplace is already gone (the app then can't show it at all), the script adds the old marketplace back from your old jb-memory release folder so you can uninstall the plugin in the app. It finds that folder on its own when it sits next to this release with a name starting `jb-memory`, or when it was the old Claude Code marketplace; otherwise pass `--old-release <folder>`.
 - Codex keeps a hook-trust record (`[hooks.state."jb-memory-codex@..."]` in `config.toml`) for each hook you trusted, and they stay after the plugin is gone. They do nothing; `--clean-codex-trust` removes them, with `config.toml` backed up to the backup folder first, and only while the ChatGPT app is closed.
 - When an older trailmark-codex is installed, it reminds you to choose Upgrade in the app.
 - Runs `install.ps1` or `install.sh`, with `-Codex` when Codex is in use and, on Windows, `-Watchdog` when the old jb-watchdog is installed (that installer removes the old watchdog). When this release is already installed and on, the installer is skipped.
 - Checks the result and lists what is left for you, such as installing trailmark-codex in the ChatGPT app.
 
-It never touches memory folders, handoffs or `.jbmem.json`, and edits no settings file except Codex's `config.toml`, and that only with `--clean-codex-trust`. It warns when this release sits in a downloads, synced or temporary folder, since Claude Code runs the plugin from there, and when the `trailmark` marketplace already points at another folder (run it with `--repoint` to point it here). It refuses to run inside a Claude Code or Codex session. It reports a hook in your Claude Code settings that still runs `jbm.js` (from an install by hand) for you to remove. `--scan <folder>` also looks under a folder for repos whose own settings still turn jb-memory on, such as a repo that moved since Claude Code recorded it. Running it again is safe: what is done already is skipped. `--help` lists every option (`--claude-only`, `--codex-only`, `--no-install`, `--keep-project-scopes`, `--keep-cache`, `--no-watchdog`, `--old-release`, `--clean-codex-trust` and the installer's own). Exit code 0 means done, 2 done with steps left for you, 1 stopped.
+It never touches memory folders, handoffs or `.jbmem.json`, and changes no settings file itself except Codex's `config.toml`, and that only with `--clean-codex-trust` (`claude plugin uninstall` and the installer change Claude Code's settings, and a repo's own settings for a project or local install, as above). It warns when this release sits in a downloads, synced or temporary folder, since Claude Code runs the plugin from there, and when the `trailmark` marketplace already points at another folder (run it with `--repoint` to point it here). It refuses to run inside a Claude Code or Codex session. It reports a hook in your Claude Code settings that still runs `jbm.js` (from an install by hand) for you to remove. `--scan <folder>` also looks under a folder for repos whose own settings still turn jb-memory on, such as a repo that moved since Claude Code recorded it. Running it again is safe: what is done already is skipped. `--help` lists every option (`--claude-only`, `--codex-only`, `--no-install`, `--keep-project-scopes`, `--keep-cache`, `--no-watchdog`, `--old-release`, `--clean-codex-trust` and the installer's own). Exit code 0 means done, 2 done with something left for you (it lists what, or a WARN line says what wasn't done), 1 stopped, and 3 that `--dry-run` found something to do.
 
 By hand, the same steps are:
 
@@ -397,6 +397,8 @@ By hand, the same steps are:
    claude plugin uninstall jb-memory@jb-memory
    claude plugin marketplace remove jb-memory
    ```
+
+   `claude plugin list` shows any project or local scope install too; uninstall each from its repo's folder with `claude plugin uninstall jb-memory@jb-memory --scope project` (or `--scope local`).
 
    Until you do, the Trailmark installer refuses to install: two copies would each run every hook. If you install by hand instead, every session start names the jb-memory copy, installed or only cached, until it is gone.
 2. Put the new release where you keep it (renaming the folder is optional) and run its installer.

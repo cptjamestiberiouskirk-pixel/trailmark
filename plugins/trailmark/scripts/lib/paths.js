@@ -176,7 +176,7 @@ function findMemoryDir(ctx = {}) {
   const root = repoRoot(cwd, ctx.gitTimeoutMs);
 
   if (ctx.transcriptPath && !/^(\\\\|\/\/)/.test(String(ctx.transcriptPath)) && samePath(cwd, root, platform)) {
-    const projectDir = path.dirname(ctx.transcriptPath);
+    const projectDir = path.dirname(path.resolve(String(ctx.transcriptPath)));
     // Only a transcript in Claude Code's own projects folder names the
     // memory folder; any other path falls through to the lookups below.
     if (samePath(path.dirname(projectDir), projectsRoot(), platform)) {

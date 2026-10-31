@@ -159,26 +159,77 @@ function gitEnv(base = process.env) {
 // and a network path in any of those places (\\server, //server, or an NT
 // path such as \??\UNC\server) keeps git out of that folder.
 //
-// Config files are read by git itself (git config --file, includes off), so
-// quoting, comments, continued lines and subsections are taken the way git
-// takes them, and included local files are checked the same way, five deep.
-// That git runs from this script's folder with discovery stopped above it, so
-// it never looks at the repo being checked. Alternates are followed five deep
-// too, as git follows them. A folder inside a .git is never used: git may
-// take it for a repo of its own (a submodule's or worktree's gitdir).
+// The check fails closed: anything it can't be sure of keeps git out.
+// - Every path is followed one part at a time from a local root. A link on
+//   the way is read as text (never followed blind) and refused when it leads
+//   to a network path; a .git that is itself a link, and links among the
+//   gitdir's own entries (HEAD, refs, objects and the rest), are refused.
+// - Config files are read by git itself (git config --file, includes off,
+//   from this script's folder with discovery stopped above it), so quoting,
+//   comments and subsections are taken the way git takes them. Includes are
+//   followed ten deep, as git does, and at most 50 files are read; past
+//   either limit git is kept out. A value starting with %(prefix) is refused:
+//   git hands an absolute path after it on unchanged.
+// - Alternates are followed five deep, as git does, C-quoted lines decoded.
+// - Every .git from the folder up to the drive's root is checked, not only
+//   the first: git passes over a .git that isn't a valid repo and keeps going.
+// - A folder inside a .git is never used (git may take it for a submodule's
+//   or worktree's own repo), whatever its Windows spelling (GIT~1, ".git.").
+// - On Windows a drive-relative path (C:x) or a root-relative one (\x) in a
+//   pointer is refused: git and this check would resolve it differently.
+// Not covered: a link planted in place of a single loose object file, or
+// among a repo's refs past the first 20,000 entries.
 const NET_START = /^[\\/]{2}|^[\\/]\?\?[\\/]/;
+const WIN = process.platform === 'win32';
 const farCache = new Map();
 // A value as git might read it: quotes dropped and escapes undone. Both the
 // raw and the decoded spelling are checked, so neither can hide a share.
 function netText(s) {
   const raw = String(s).replace(/"/g, '').trim();
   const dec = raw.replace(/\\\\/g, '\\').trim();
+  if (/^%\(prefix\)/i.test(raw)) return true;
   return NET_START.test(raw) || NET_START.test(dec);
+}
+// A pointer git and this check may resolve differently on Windows.
+function oddRelative(t) {
+  if (!WIN) return false;
+  const v = String(t).replace(/"/g, '').trim();
+  return /^[A-Za-z]:(?![\\/])/.test(v) || /^[\\/](?![\\/])/.test(v);
+}
+const UNSAFE = Symbol('unsafe');
+// p with every link on the way read and replaced by its target, one part at
+// a time from the root; null when a link leads to a network path or the
+// links loop. Parts that don't exist are kept as they are.
+function localPath(p) {
+  let cur = path.resolve(p);
+  if (NET_START.test(cur)) return null;
+  for (let hops = 0; hops < 40; hops++) {
+    const root = path.parse(cur).root;
+    const parts = cur.slice(root.length).split(/[\\/]+/).filter(Boolean);
+    let at = root;
+    let relinked = false;
+    for (let i = 0; i < parts.length; i++) {
+      const next = path.join(at, parts[i]);
+      let st;
+      try { st = fs.lstatSync(next); } catch { return path.join(at, ...parts.slice(i)); }
+      if (st.isSymbolicLink()) {
+        let t;
+        try { t = fs.readlinkSync(next); } catch { return null; }
+        if (netText(t) || oddRelative(t)) return null;
+        cur = path.resolve(at, t, ...parts.slice(i + 1));
+        if (NET_START.test(cur)) return null;
+        relinked = true;
+        break;
+      }
+      at = next;
+    }
+    if (!relinked) return at;
+  }
+  return null;
 }
 // null when the file is missing; UNSAFE when it is there but can't be read
 // as a plain small file (a link, a folder, too big, no access), since git
 // would still follow it.
-const UNSAFE = Symbol('unsafe');
 function readSmall(file, max) {
   let st;
   try { st = fs.lstatSync(file); } catch (e) { return e && e.code === 'ENOENT' || e && e.code === 'ENOTDIR' ? null : UNSAFE; }
@@ -203,19 +254,27 @@ function configEntries(file) {
     });
   } catch { return UNSAFE; }
 }
-function farConfig(file, depth, seen) {
-  if (depth > 5 || seen.has(file)) return '';
-  seen.add(file);
-  const entries = configEntries(file);
+const MAX_INCLUDE_DEPTH = 10;
+const MAX_CONFIG_FILES = 50;
+// st: { seen, files } shared by one whole check.
+function farConfig(file, depth, st) {
+  if (depth > MAX_INCLUDE_DEPTH) return 'deep-config';
+  const real = localPath(file);
+  if (!real) return 'network-config';
+  if (st.seen.has(real)) return '';
+  st.seen.add(real);
+  if (++st.files > MAX_CONFIG_FILES) return 'many-config-files';
+  const entries = configEntries(real);
   if (entries === null) return '';
   if (entries === UNSAFE) return 'unreadable-config';
   for (const [key, value] of entries) {
     if (netText(value)) return 'network-config';
     if (!/^include\.path$|^includeif\..*\.path$/i.test(key)) continue;
     let p = value.trim();
-    if (p === '~' || p.startsWith('~/')) p = path.join(os.homedir(), p.slice(2));
-    else if (p.startsWith('~')) return 'unreadable-config';
-    const why = farConfig(path.resolve(path.dirname(file), p), depth + 1, seen);
+    if (oddRelative(p)) return 'odd-config-path';
+    if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) p = path.join(os.homedir(), p.slice(2));
+    else if (p.startsWith('~')) return 'odd-config-path';
+    const why = farConfig(path.resolve(path.dirname(real), p), depth + 1, st);
     if (why) return why;
   }
   return '';
@@ -232,44 +291,64 @@ function altLine(line) {
 }
 // The alternates of one objects folder and theirs, five deep as git goes.
 function farAlternates(objects, depth, seen) {
-  if (depth > 5 || seen.has(objects)) return '';
-  seen.add(objects);
-  const alt = readSmall(path.join(objects, 'info', 'alternates'), 64 * 1024);
+  if (depth > 5) return '';
+  const real = localPath(objects);
+  if (!real) return 'network-config';
+  if (seen.has(real)) return '';
+  seen.add(real);
+  const alt = readSmall(path.join(real, 'info', 'alternates'), 64 * 1024);
   if (alt === null) return '';
   if (alt === UNSAFE) return 'unreadable-config';
   for (const raw of alt.split(/\r?\n/)) {
     if (!raw.trim() || raw.trim().startsWith('#')) continue;
     const line = altLine(raw);
     if (netText(raw) || netText(line)) return 'network-config';
-    const next = path.resolve(objects, line);
-    if (NET_START.test(next)) return 'network-config';
-    const why = farAlternates(next, depth + 1, seen);
+    if (oddRelative(line)) return 'odd-config-path';
+    const why = farAlternates(path.resolve(real, line), depth + 1, seen);
     if (why) return why;
   }
   return '';
 }
+// A pointer read from a file (gitdir:, commondir), resolved locally; null
+// when it is, or leads through a link to, a network path or is ambiguous.
 function gitdirAt(base, t) {
-  if (netText(t)) return null;
-  const r = path.resolve(base, t.trim());
-  return NET_START.test(r) ? null : r;
+  if (netText(t) || oddRelative(t)) return null;
+  return localPath(path.resolve(base, t.trim()));
+}
+// The gitdir's own entries git reads; none may be a link.
+const GITDIR_ENTRIES = ['HEAD', 'config', 'config.worktree', 'commondir', 'objects', 'refs', 'packed-refs', 'logs', 'index', 'info', 'modules', 'worktrees', 'shallow', 'hooks', 'FETCH_HEAD', 'ORIG_HEAD', 'MERGE_HEAD'];
+function linkedEntries(gitdir) {
+  const isLink = p => { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } };
+  for (const e of GITDIR_ENTRIES) if (isLink(path.join(gitdir, e))) return true;
+  // refs, and the first level of objects and objects/pack, walked for links.
+  // Past 20,000 entries the rest isn't looked at: a big repo's unpacked refs
+  // shouldn't keep git out.
+  let budget = 20000;
+  const walk = (d, depth) => {
+    let list;
+    try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return false; }
+    for (const x of list) {
+      if (--budget < 0) return false;
+      if (x.isSymbolicLink()) return true;
+      if (x.isDirectory() && depth > 0 && walk(path.join(d, x.name), depth - 1)) return true;
+    }
+    return false;
+  };
+  return walk(path.join(gitdir, 'refs'), 10) || walk(path.join(gitdir, 'objects'), 0) || walk(path.join(gitdir, 'objects', 'pack'), 0);
 }
 function farGit(gitEntry) {
   let st;
   try { st = fs.lstatSync(gitEntry); } catch { return ''; }
   let gitdir = gitEntry;
-  if (st.isSymbolicLink()) {
-    let t = '';
-    try { t = fs.readlinkSync(gitEntry); } catch { return 'network-gitdir'; }
-    gitdir = gitdirAt(path.dirname(gitEntry), t);
-    if (!gitdir) return 'network-gitdir';
-  } else if (st.isFile()) {
+  if (st.isSymbolicLink()) return 'linked-gitdir';
+  if (st.isFile()) {
     const t = readSmall(gitEntry, 4096);
     if (t === UNSAFE) return 'unreadable-config';
     const m = t === null ? null : /^gitdir:\s*(.+?)\s*$/m.exec(t);
     if (!m) return '';
     gitdir = gitdirAt(path.dirname(gitEntry), m[1]);
     if (!gitdir) return 'network-gitdir';
-  }
+  } else if (!st.isDirectory()) return '';
   const dirs = [gitdir];
   const common = readSmall(path.join(gitdir, 'commondir'), 4096);
   if (common === UNSAFE) return 'unreadable-config';
@@ -278,9 +357,11 @@ function farGit(gitEntry) {
     if (!c) return 'network-gitdir';
     dirs.push(c);
   }
+  const cst = { seen: new Set(), files: 0 };
   for (const d of dirs) {
+    if (linkedEntries(d)) return 'linked-gitdir';
     for (const f of ['config', 'config.worktree']) {
-      const why = farConfig(path.join(d, f), 0, new Set());
+      const why = farConfig(path.join(d, f), 0, cst);
       if (why) return why;
     }
     const why = farAlternates(path.join(d, 'objects'), 0, new Set());
@@ -288,19 +369,31 @@ function farGit(gitEntry) {
   }
   return '';
 }
-// '' when git may run in cwd, else the reason it may not. The .git is the
-// first one in cwd or a folder above it, as git finds it.
+// Is this path part .git, in any spelling Windows takes for it?
+function isGitPart(c) {
+  const n = String(c).replace(/:.*$/, '').replace(/[. ]+$/, '').toLowerCase();
+  return n === '.git' || (WIN && /^git~\d+$/.test(n));
+}
+// '' when git may run in cwd, else the reason it may not. Every .git from
+// cwd up to the root is checked: git passes over one that isn't a valid
+// repo and goes on looking above it.
 function farGitConfig(cwd) {
   const key = path.resolve(String(cwd || '.'));
   if (farCache.has(key)) return farCache.get(key);
   let why = '';
-  if (key.split(/[\\/]+/).some(c => c.toLowerCase() === '.git')) why = 'inside-gitdir';
-  let d = key;
-  for (let i = 0; !why && i < 64; i++) {
+  const root = path.parse(key).root;
+  if (NET_START.test(String(cwd || '')) || NET_START.test(key)) why = 'network-folder';
+  else if (key.slice(root.length).split(/[\\/]+/).some(isGitPart)) why = 'inside-gitdir';
+  const real = why ? '' : localPath(key);
+  if (!why && !real) why = 'network-folder';
+  if (!why && real.slice(path.parse(real).root.length).split(/[\\/]+/).some(isGitPart)) why = 'inside-gitdir';
+  let d = real;
+  for (let i = 0; !why; i++) {
+    if (i > 512) { why = 'deep-folder'; break; }
     const g = path.join(d, '.git');
     let found = false;
     try { fs.lstatSync(g); found = true; } catch { found = false; }
-    if (found) { why = farGit(g); break; }
+    if (found) why = farGit(g);
     const up = path.dirname(d);
     if (up === d) break;
     d = up;
@@ -309,5 +402,11 @@ function farGitConfig(cwd) {
   farCache.set(key, why);
   return why;
 }
+// For a submodule's or nested repo's folder (git status looks into them).
+function farNested(dir) {
+  const real = localPath(dir);
+  if (!real) return 'network-folder';
+  return farGit(path.join(real, '.git'));
+}
 
-module.exports = { farGitConfig, findGit, gitPath, gitEnv, GIT_GLOBAL };
+module.exports = { farGitConfig, farNested, localPath, findGit, gitPath, gitEnv, GIT_GLOBAL };
