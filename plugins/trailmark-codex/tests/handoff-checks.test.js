@@ -738,14 +738,12 @@ test('memory folder: hard links are never written or read through; transcript --
   const day = path.join(s.memdir, 'notes', `${today}.md`);
   try { fs.rmSync(day); } catch { /* none yet */ }
   fs.linkSync(outside, day);
-  assert.throws(() => S.note(s.memdir, 'COMMIT abc $(touch x)'));
+  S.note(s.memdir, 'COMMIT abc $(touch x)');
   assert.strictEqual(fs.readFileSync(outside, 'utf8'), '# rc\n', 'a note was appended through a hard link');
+  assert.match(fs.readFileSync(day, 'utf8'), /COMMIT abc/, 'the note goes to a copy of its own');
+  assert.strictEqual(fs.statSync(day).nlink, 1);
   fs.rmSync(day);
   const secret = path.join(s.base, 'secret.txt'); fs.writeFileSync(secret, 'SECRET=hunter2\n');
-  fs.rmSync(path.join(s.memdir, 'handoff.md'), { force: true });
-  fs.linkSync(secret, path.join(s.memdir, 'handoff.md'));
-  assert.doesNotMatch(s.start(SB).context, /hunter2/, 'a hard-linked handoff was injected');
-  assert.doesNotMatch(s.jbm(['handoff']).stdout, /hunter2/);
   if (fs.existsSync(path.join(ROOT, 'skills', 'recall'))) {
     const r = s.jbm(['transcript', '--file=' + secret]);
     assert.notStrictEqual(r.status, 0, '--file outside the projects folder');
@@ -781,6 +779,103 @@ test('prune: links through a linked folder and a linked MEMORY.md are reported a
     assert.notStrictEqual(x.status, 0);
     assert.doesNotMatch(x.stderr, /\n\s+at /, 'a stack trace');
   }
+});
+
+test('git checks: alternates\' own folders, core.worktree as a base, git-lfs folders and .lfsconfig (loop round 5)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-far10-');
+  let n = 0;
+  const repo = () => { const r = path.join(base, 'r' + (n++)); repoAt(r); return r; };
+  const EVIL = '//evil.invalid/share/x';
+  // An alternate whose pack/ links to a share.
+  const a = repo();
+  const ao = path.join(base, 'alt', 'objects'); fs.mkdirSync(path.join(ao, 'info'), { recursive: true });
+  fs.symlinkSync(EVIL, path.join(ao, 'pack'));
+  fs.mkdirSync(path.join(a, '.git', 'objects', 'info'), { recursive: true });
+  fs.writeFileSync(path.join(a, '.git', 'objects', 'info', 'alternates'), ao + '\n');
+  assert.strictEqual(farGitConfig(a), 'linked-gitdir', "an alternate's pack folder");
+  // core.worktree moves git: a relative mailmap.file is taken from there.
+  const w = path.join(base, 'w'); fs.mkdirSync(w); const sub = path.join(w, 'sub'); repoAt(sub);
+  execFileSync('git', ['config', 'core.worktree', '../..'], { cwd: sub });
+  execFileSync('git', ['config', 'mailmap.file', 'lnk/m'], { cwd: sub });
+  fs.symlinkSync(EVIL, path.join(w, 'lnk'));
+  assert.strictEqual(farGitConfig(sub), 'network-config', 'relative to core.worktree');
+  // git-lfs's own folders.
+  const l1 = repo();
+  fs.mkdirSync(path.join(l1, '.git', 'lfs', 'objects', 'ab'), { recursive: true });
+  fs.symlinkSync(EVIL, path.join(l1, '.git', 'lfs', 'objects', 'ab', 'cd'));
+  assert.strictEqual(farGitConfig(l1), 'linked-gitdir', 'lfs/objects/ab/cd');
+  const l2 = repo();
+  const store = path.join(base, 'store2'); fs.mkdirSync(store); fs.symlinkSync(EVIL, path.join(store, 'objects'));
+  execFileSync('git', ['config', 'lfs.storage', store], { cwd: l2 });
+  assert.strictEqual(farGitConfig(l2), 'linked-gitdir', 'inside lfs.storage');
+  const l3 = repo();
+  const deep = path.join(base, 'deep', 'a', 'b'); fs.mkdirSync(deep, { recursive: true });
+  fs.symlinkSync(deep, path.join(l3, '.git', 'lnk'));
+  fs.symlinkSync(EVIL, path.join(l3, 'store'));
+  execFileSync('git', ['config', 'lfs.storage', 'lnk/../../store'], { cwd: l3 });
+  assert.strictEqual(farGitConfig(l3), 'network-config', "'..' taken as text, as git-lfs does");
+  const l4 = repo();
+  const bo = path.join(base, 'altB', 'objects'); fs.mkdirSync(path.join(bo, 'info'), { recursive: true });
+  fs.symlinkSync(EVIL, path.join(base, 'altB', 'lfs'));
+  fs.mkdirSync(path.join(l4, '.git', 'objects', 'info'), { recursive: true });
+  fs.writeFileSync(path.join(l4, '.git', 'objects', 'info', 'alternates'), bo + '\n');
+  assert.strictEqual(farGitConfig(l4), 'network-config', 'an LFS store next to an alternate');
+  // .lfsconfig while git-lfs runs (set up the way git lfs install --local does).
+  const lfsRepo = (setup) => {
+    const r = repo();
+    fs.writeFileSync(path.join(r, '.gitattributes'), '*.bin filter=lfs\n');
+    fs.writeFileSync(path.join(r, 'x.bin'), 'x');
+    execFileSync('git', ['-c', 'filter.lfs.clean=cat', 'add', '.'], { cwd: r });
+    execFileSync('git', ['-c', 'filter.lfs.clean=cat', 'commit', '-qm', 'lfs'], { cwd: r });
+    execFileSync('git', ['config', 'filter.lfs.process', 'git-lfs filter-process'], { cwd: r });
+    setup(r);
+    return gitFacts(r, ['status']).statusSkipped;
+  };
+  assert.strictEqual(lfsRepo(r => fs.writeFileSync(path.join(r, '.lfsconfig'), '[include]\n  path = ' + EVIL + '\n')), 'lfs-config', '.lfsconfig with an include');
+  assert.strictEqual(lfsRepo(r => fs.symlinkSync(EVIL, path.join(r, '.lfsconfig'))), 'lfs-config', '.lfsconfig as a link');
+  assert.strictEqual(lfsRepo(r => {
+    fs.writeFileSync(path.join(r, '.lfsconfig'), '[lfs]\n  batch = true\n');
+    execFileSync('git', ['add', '.lfsconfig'], { cwd: r }); execFileSync('git', ['commit', '-qm', 'c'], { cwd: r });
+    fs.rmSync(path.join(r, '.lfsconfig'));
+  }), 'lfs-config', '.lfsconfig only in the index and HEAD');
+  assert.strictEqual(lfsRepo(r => fs.writeFileSync(path.join(r, '.lfsconfig'), '[lfs]\n  batch = true\n')), undefined, 'a plain .lfsconfig');
+});
+
+test('memory folder and transcripts: hard links, record cwd, prune outcomes, settings forms (loop round 5)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { recordCwds } = require(path.join(ROOT, 'scripts', 'lib', 'plainfile.js'));
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  // Only a record's own top-level cwd, never one inside a tool call.
+  const tx = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', input: { cwd: '//evil.invalid/share' } }] } }) + '\n' + JSON.stringify({ type: 'user', cwd: '/home/me/repo' }) + '\n';
+  assert.deepStrictEqual(recordCwds(tx), ['/home/me/repo']);
+  const src = fs.readFileSync(path.join(ROOT, 'scripts', 'trailmark.js'), 'utf8');
+  assert.match(src, /recordCwds\(buf\.slice\(0, n\)\.toString\('utf8'\), 1\)\[0\]/, 'sessionHome takes the first record cwd');
+  assert.match(src, /pc \? localPathFrom\(pc, c\) : localPath\(c\)/, "only the hook cwd's share");
+  // A hard link left by a backup tool: the handoff still loads, the lock still breaks.
+  const s = sandbox();
+  s.write('# H\n## State\n- hard-linked\n');
+  fs.linkSync(path.join(s.memdir, 'handoff.md'), path.join(s.base, 'backup-handoff.md'));
+  assert.match(s.start(SB).context, /hard-linked/, 'a hard-linked handoff is read');
+  const lock = path.join(s.memdir, S.LOCK);
+  fs.writeFileSync(lock, 'pid 1 host x since 2000-01-01T00:00:00.000Z token t\n');
+  fs.linkSync(lock, path.join(s.base, 'lock-copy'));
+  let ran = false;
+  S.withLock(s.memdir, () => { ran = true; }, { waitMs: 1500 });
+  assert.ok(ran, 'a hard-linked lock kept writes out');
+  // init leaves no second name on the files it creates.
+  for (const f of [S.MARKER, 'handoff.md']) assert.ok(fs.statSync(path.join(s.memdir, f)).nlink <= 2, f);
+  // Prune: a folder that is gone means dead; a linked folder means not checked.
+  fs.appendFileSync(path.join(s.memdir, 'MEMORY.md'), '\n- [o](topics/old.md) gone\n- [u](../up.md) up\n');
+  const r = S.pruneReport(s.memdir);
+  assert.ok(r.deadLinks.includes('topics/old.md') && r.deadLinks.includes('../up.md'), JSON.stringify(r));
+  assert.deepStrictEqual(r.unchecked, []);
+  // ~you/ and the null device in settings that name a file.
+  const me = require('os').userInfo().username;
+  const t = path.join(s.base, 't'); repoAt(t);
+  execFileSync('git', ['config', 'core.excludesFile', `~${me}/.gitignore_global`], { cwd: t });
+  execFileSync('git', ['config', 'core.hooksPath', '/dev/null'], { cwd: t });
+  assert.strictEqual(farGitConfig(t), '');
 });
 
 test('memory folder: a linked subfolder is never listed or stat-ed through (loop round 2)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {

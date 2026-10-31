@@ -21,6 +21,16 @@ if ($PSVersionTable.PSVersion.Major -lt 6 -and $env:PSModulePath) {
 
 $ErrorActionPreference = 'Stop'
 $here = (Get-Location).ProviderPath.TrimEnd('\')
+# PATH keeps only absolute folders for this run (as install.ps1 does), so
+# node.exe isn't found through ".", a relative entry or a drive-relative C:.
+$tmPathKeep = [System.Collections.Generic.List[string]]::new()
+foreach ($p in ([string]$env:PATH).Split([IO.Path]::PathSeparator)) {
+  $t = $p.Trim().Trim('"')
+  if ($t -eq '') { continue }
+  if (-not [IO.Path]::IsPathRooted($t) -or $t -match '^[A-Za-z]:([^\\/]|$)' -or $t -match '^[\\/][^\\/]') { continue }
+  $tmPathKeep.Add($p)
+}
+$env:PATH = $tmPathKeep -join [IO.Path]::PathSeparator
 $node = Get-Command node.exe -CommandType Application -All -ErrorAction SilentlyContinue |
   Where-Object { [IO.Path]::IsPathRooted($_.Source) -and ((Split-Path -Parent $_.Source).TrimEnd('\') -ne $here) } |
   Select-Object -First 1

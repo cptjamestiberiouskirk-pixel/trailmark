@@ -71,9 +71,7 @@ function findTranscript(cwd, platform = process.platform) {
     const hit = newestJsonl(path.join(projectsRoot(), e.name));
     if (!hit) continue;
     const head = readHead(hit.p, 64 * 1024);
-    const m = head.match(/"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-    let c = null;
-    try { c = m && JSON.parse('"' + m[1] + '"'); } catch { /* skip */ }
+    const c = require('./plainfile').recordCwds(head, 1)[0] || null;
     if (c && samePath(c, cwd, platform) && (!best || hit.t > best.t)) best = hit;
   }
   return best ? best.p : null;
@@ -89,7 +87,8 @@ function findTranscriptForSession(cwd, session, recorded, platform = process.pla
   const root = path.resolve(projectsRoot());
   const fold = p => (platform === 'win32' ? p.toLowerCase() : p);
   const underRoot = p => fold(p).startsWith(fold(root) + path.sep);
-  const isFile = p => { try { return fs.statSync(p).isFile(); } catch { return false; } };
+  // Not used by this copy; kept as safe as the Claude Code copy's.
+  const isFile = p => { try { return !netLinkBelow(root, path.dirname(p)) && fs.lstatSync(p).isFile() && !!require('./gitbin').localPath(p); } catch { return false; } };
   if (typeof recorded === 'string' && recorded) {
     const p = path.resolve(recorded);
     // Only a path inside Claude Code's projects folder: the state file is data,

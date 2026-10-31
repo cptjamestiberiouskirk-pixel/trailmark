@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { oneLine, displayPath, inside } = require('./store');
-const { farGitConfig, farNested, localPath, localPathFrom, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
+const { farGitConfig, farNested, farLfsFile, localPath, localPathFrom, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
 // and Windows caps a variable at 32,767 characters (Linux at 128 KB), so only
@@ -171,6 +171,22 @@ const LFS_STANDARD = {
 };
 const USER_SCOPES = /^(?:global|system|command)$/i;
 
+// The .lfsconfig git-lfs would read: the worktree's (checked like a config
+// file, no includes, not a link), else the index's or HEAD's, which aren't
+// checked here, so status isn't read then.
+function farLfsConfig(r, top) {
+  const f = path.join(top, '.lfsconfig');
+  let there = false;
+  try { fs.lstatSync(f); there = true; } catch { there = false; }
+  if (there) return farLfsFile(f, top);
+  const idx = r.run(top, ['ls-files', '-z', '--', '.lfsconfig']);
+  if (!idx.ok) return idx.why === 'timeout' ? 'git-timeout' : 'git-error';
+  if (idx.out) return 'lfs-config';
+  const head = r.run(top, ['rev-parse', '--verify', '-q', 'HEAD:.lfsconfig']);
+  if (head.ok && head.out.trim()) return 'lfs-config';
+  return '';
+}
+
 function filterOverrides(r, cwd) {
   const ls = r.run(cwd, ['ls-files', '-z']);
   if (!ls.ok) return { why: ls.why === 'timeout' ? 'git-timeout' : 'git-error' };
@@ -218,6 +234,8 @@ function filterOverrides(r, cwd) {
       const lfsAsInstalled = n === 'lfs' && own.every(e => LFS_STANDARD[e.key] && LFS_STANDARD[e.key].test(e.value));
       if (!own.length || lfsAsInstalled) {
         if (n === 'lfs' && lfsExtension) return { why: 'lfs-extension' };
+        // git-lfs, left running, reads the repo's .lfsconfig with includes on.
+        if (n === 'lfs') { const lc = farLfsConfig(r, cwd); if (lc) return { why: lc }; }
         continue;
       }
     }

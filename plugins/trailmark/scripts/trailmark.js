@@ -95,8 +95,10 @@ function readFromFile(dir, file) {
   try {
     // A FIFO or device would block the read forever: refuse it before opening,
     // and open without blocking in case one is swapped in between.
-    try { const l = fs.lstatSync(file); if (!l.isFile() && !l.isSymbolicLink()) return { error: `${file} is not a file.` }; } catch (e) { return { error: `could not read ${file}: ${e.code || e.message}.` }; }
-    try { fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0)); } catch (e) { return { error: `could not read ${file}: ${e.code || e.message}.` }; }
+    // A link is refused here too (insideFolder checked it already), and the
+    // open doesn't follow one swapped in since.
+    try { const l = fs.lstatSync(file); if (!l.isFile()) return { error: `${file} is a link or not a file.` }; } catch (e) { return { error: `could not read ${file}: ${e.code || e.message}.` }; }
+    try { fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0) | (fs.constants.O_NOFOLLOW || 0)); } catch (e) { return { error: `could not read ${file}: ${e.code || e.message}.` }; }
     const st = fs.fstatSync(fd, { bigint: true });
     if (!st.isFile()) return { error: `${file} is not a file.` };
     if (st.nlink > 1n) return { error: `${file} has other hard links, so it may really live outside the memory folder. Save the text as a new file there.` };
@@ -228,10 +230,11 @@ function sessionHome(payload) {
     fd = require('./lib/plainfile').openPlain(real); // never a FIFO
     const buf = Buffer.alloc(64 * 1024);
     const n = fs.readSync(fd, buf, 0, buf.length, 0);
-    const m = /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(buf.slice(0, n).toString('utf8'));
-    if (!m) return '';
-    const c = JSON.parse('"' + m[1] + '"');
-    return typeof c === 'string' && path.isAbsolute(c) && localPathFrom(c, c) && fs.statSync(c).isDirectory() ? c : '';
+    // The first record's own cwd (never one inside a tool call's arguments),
+    // and only the share the hook's own cwd is on may be looked up.
+    const c = require('./lib/plainfile').recordCwds(buf.slice(0, n).toString('utf8'), 1)[0];
+    const pc = typeof payload.cwd === 'string' && path.isAbsolute(payload.cwd) ? payload.cwd : '';
+    return typeof c === 'string' && path.isAbsolute(c) && (pc ? localPathFrom(pc, c) : localPath(c)) && fs.statSync(c).isDirectory() ? c : '';
   } catch {
     return '';
   } finally {

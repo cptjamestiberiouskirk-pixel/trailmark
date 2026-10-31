@@ -71,9 +71,7 @@ function findTranscript(cwd, platform = process.platform) {
     const hit = newestJsonl(path.join(projectsRoot(), e.name));
     if (!hit) continue;
     const head = readHead(hit.p, 64 * 1024);
-    const m = head.match(/"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-    let c = null;
-    try { c = m && JSON.parse('"' + m[1] + '"'); } catch { /* skip */ }
+    const c = require('./plainfile').recordCwds(head, 1)[0] || null;
     if (c && samePath(c, cwd, platform) && (!best || hit.t > best.t)) best = hit;
   }
   return best ? best.p : null;

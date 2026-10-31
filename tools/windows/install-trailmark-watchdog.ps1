@@ -229,7 +229,8 @@ Write-Host '  appeared, check Settings > System > Notifications and allow Window
 
 Step 'Done'
 Write-Host '  In Windows PowerShell 5.1, the same PowerShell the scheduled scan uses, so the'
-Write-Host '  hashes an accept records match the ones the scan checks (from any window):'
+Write-Host '  hashes an accept records match the ones the scan checks (paste these into a'
+Write-Host '  PowerShell window; from cmd.exe, use %LOCALAPPDATA% for $env:LOCALAPPDATA):'
 Write-Host '    Status:         powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\trailmark-watchdog\trailmark-watchdog.ps1" -Status'
 Write-Host '    Accept changes: powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\trailmark-watchdog\trailmark-watchdog.ps1" -Accept'
 Write-Host ('  Log:            ' + (Join-Path $stateDir 'watchdog.log'))

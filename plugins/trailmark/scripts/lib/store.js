@@ -105,6 +105,20 @@ function plainUnder(dir, rel) {
   }
   return true;
 }
+// A folder between dir and dir/rel that is a link (so it isn't followed). A
+// missing folder or a '..' is not one: such a link is dead.
+function linkOnWay(dir, rel) {
+  let at = dir;
+  for (const part of String(rel).split(/[\\/]+/).filter(Boolean).slice(0, -1)) {
+    if (part === '..') return false;
+    at = path.join(at, part);
+    let st;
+    try { st = fs.lstatSync(at); } catch { return false; }
+    if (st.isSymbolicLink()) return true;
+    if (!st.isDirectory()) return false;
+  }
+  return false;
+}
 // readdirSync of a memory subfolder, never through a link on the way.
 function readDirPlain(d, opts) {
   plainSubs(d);
@@ -117,8 +131,7 @@ function readPlain(file) {
   const fd = fs.openSync(file, O_READ);
   try {
     const st = fs.fstatSync(fd, { bigint: true });
-    // A second hard link would let a file from anywhere be read as this one.
-    if (!st.isFile() || st.nlink > 1n || (l.ino && (st.ino !== l.ino || st.dev !== l.dev))) throw notPlain(file);
+    if (!st.isFile() || (l.ino && (st.ino !== l.ino || st.dev !== l.dev))) throw notPlain(file);
     return fs.readFileSync(fd, 'utf8');
   } finally { fs.closeSync(fd); }
 }
@@ -282,8 +295,10 @@ function tryBreakLock(file) {
   // reported, since what it holds isn't ours to delete.
   try {
     const l = fs.lstatSync(file);
-    // A FIFO, socket or device can't be one of ours either: removed the same way.
-    if (l.isSymbolicLink() || !(l.isFile() || l.isDirectory())) { fs.unlinkSync(file); return true; }
+    // A FIFO, socket or device can't be one of ours either: removed the same
+    // way. So is a lock with a second hard link (removing a name never
+    // touches the other one).
+    if (l.isSymbolicLink() || !(l.isFile() || l.isDirectory()) || (l.isFile() && l.nlink > 1)) { fs.unlinkSync(file); return true; }
     if (l.isDirectory()) { const e = new Error(`${LOCK} in the memory folder is a folder, not a lock file; remove it and run the command again`); e.code = 'JBMEM_LOCKED'; throw e; }
   } catch (e) { if (e && e.code === 'JBMEM_LOCKED') throw e; }
   const info = lockInfo(file);
@@ -631,7 +646,9 @@ function init(dir, { publicRepo = false, repoName = 'this repo', repoRoot = '' }
         throw e2;
       }
     } finally {
-      try { fs.unlinkSync(tmp); } catch { /* best effort */ }
+      // Retried: left in place, the temp name would stay a second hard link
+      // to the new file.
+      try { retryWin(() => fs.unlinkSync(tmp)); } catch { /* best effort */ }
     }
   };
   const cfg = { version: 1, publicRepo: !!publicRepo, createdAt: new Date().toISOString() };
@@ -994,13 +1011,20 @@ function note(dir, text, session = '') {
   } catch (e) { if (e.code !== 'EEXIST') throw e; }
   // Appending would follow a link planted in place of the day's log or of the
   // notes folder, so neither may be one. The log is appended to in place, so
-  // it may not be a hard link either (one would carry the line into a file
-  // anywhere, a shell profile say), and the file written is the one lstat saw.
+  // a second hard link to it (planted, or left by a backup tool such as
+  // cp -al) would carry the line into another file, a shell profile say: the
+  // day's log is then replaced by a copy of its own, which leaves the other
+  // name alone, and the file written is the one lstat saw.
   let l = null;
   for (const p of [path.dirname(file), file]) {
     const st = fs.lstatSync(p, { bigint: true });
-    if (st.isSymbolicLink() || (p === file && (!st.isFile() || st.nlink > 1n))) throw new Error(`${p} is a link or not a plain file; the note was not written`);
+    if (st.isSymbolicLink() || (p === file && !st.isFile())) throw new Error(`${p} is a link or not a plain file; the note was not written`);
     if (p === file) l = st;
+  }
+  if (l.nlink > 1n) {
+    atomicWrite(file, readPlain(file));
+    l = fs.lstatSync(file, { bigint: true });
+    if (!l.isFile() || l.nlink > 1n) throw new Error(`${file} has other hard links; the note was not written`);
   }
   const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_APPEND | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
   try {
@@ -1416,8 +1440,8 @@ function pruneReport(dir) {
   const links = memoryIndexLinks(memText);
   // A link through a linked folder isn't followed, so it isn't checked
   // either; Claude Code can still read it, so it isn't called dead.
-  const unchecked = links.filter(l => !plainUnder(dir, l));
-  const deadLinks = links.filter(l => plainUnder(dir, l) && !plainExists(path.join(dir, l)));
+  const unchecked = links.filter(l => linkOnWay(dir, l));
+  const deadLinks = links.filter(l => !linkOnWay(dir, l) && (!plainUnder(dir, l) || !plainExists(path.join(dir, l))));
   const topics = topicFiles(dir);
   const orphans = memoryLinked ? [] : topics.filter(t => !links.includes(t));
   const stale = [];

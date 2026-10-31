@@ -125,12 +125,7 @@ function transcriptCwds(projectDir) {
       fd = require('./plainfile').openPlain(path.join(projectDir, f));
       const buf = Buffer.alloc(64 * 1024);
       const n = fs.readSync(fd, buf, 0, buf.length, 0);
-      for (const line of buf.slice(0, n).toString('utf8').split('\n')) {
-        const m = line.match(/"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-        if (m) {
-          try { found.push(JSON.parse('"' + m[1] + '"')); } catch { /* skip */ }
-        }
-      }
+      found.push(...require('./plainfile').recordCwds(buf.slice(0, n).toString('utf8')));
     } catch { /* unreadable */ } finally {
       if (fd !== undefined) try { fs.closeSync(fd); } catch { /* ignore */ }
     }

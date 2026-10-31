@@ -170,7 +170,9 @@ function gitEnv(base = process.env) {
 //   followed ten deep, as git does, and at most 50 files are read; past
 //   either limit git is kept out. A value starting with %(prefix) is refused:
 //   git hands an absolute path after it on unchanged.
-// - Alternates are followed five deep, as git does, C-quoted lines decoded.
+// - Alternates are followed six deep, as git 2.43 reads them, C-quoted lines
+//   decoded; each alternate's own folders are walked for links, and so is an
+//   LFS store next to a first-level one (git-lfs looks there).
 // - Every .git from the folder up to the drive's root is checked, not only
 //   the first: git passes over a .git that isn't a valid repo and keeps going.
 // - A folder inside a .git is never used (git may take it for a submodule's
@@ -307,16 +309,37 @@ const PATH_KEY = /(?:file|path|dir|storage|template|worktree)$/i;
 // A file or folder named by a setting: absolute, ~/, or relative to any
 // folder git might take it from (the worktree, the gitdir, the session's
 // folder). '' when every reading of it is local, else the reason.
-function farPathValue(value, bases) {
+// ~<you>/... is your own home folder: the length of that prefix, or 0.
+function ownTilde(p) {
+  let me = '';
+  try { me = os.userInfo().username; } catch { return 0; }
+  const m = /^~([^\\/]+)[\\/]/.exec(p);
+  return m && me && (WIN ? m[1].toLowerCase() === me.toLowerCase() : m[1] === me) ? m[0].length : 0;
+}
+function farPathValue(value, bases, key = '') {
   const v = exactPointer(value);
   if (v === null) return 'odd-config-path';
   if (!v) return '';
+  // The null device, a common way to switch a file setting off.
+  if (/^(?:\/dev\/null|nul)$/i.test(v)) return '';
   if (oddRelative(v)) return 'odd-config-path';
   let p = v;
   if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) p = path.join(os.homedir(), p.slice(2));
+  else if (ownTilde(p)) p = path.join(os.homedir(), p.slice(ownTilde(p)));
   else if (p.startsWith('~')) return 'odd-config-path';
-  const tries = path.isAbsolute(p) ? [p] : bases.filter(Boolean).map(b => rawJoin(b, p));
-  for (const t of tries) if (!localPath(t)) return 'network-config';
+  // Both readings: links followed first (as git does), and '..' taken as
+  // text first (as git-lfs does).
+  const tries = path.isAbsolute(p) ? [p, path.resolve(p)] : bases.filter(Boolean).flatMap(b => [rawJoin(b, p), path.resolve(b, p)]);
+  for (const t of tries) {
+    const real = localPath(t);
+    if (!real) return 'network-config';
+    // git-lfs keeps objects and temp files in lfs.storage: walked like a gitdir.
+    if (/^lfs\.storage$/i.test(key)) {
+      let isDir = false;
+      try { isDir = fs.statSync(real).isDirectory(); } catch { isDir = false; }
+      if (isDir) { const why = linkedEntries(real); if (why) return why; }
+    }
+  }
   return '';
 }
 const MAX_INCLUDE_DEPTH = 10;
@@ -344,14 +367,16 @@ function farConfig(file, depth, st) {
     if (REMOTE_ADDRESS.test(key)) continue;
     if (netText(value)) return 'network-config';
     if (PATH_KEY.test(key) && !/^include\.path$|^includeif\..*\.path$/i.test(key)) {
-      const why = farPathValue(value, st.bases || []);
-      if (why) return why;
+      // Checked once every config file is read: a core.worktree anywhere
+      // moves git, and relative values are then taken from there too.
+      (st.pending = st.pending || []).push({ key, value, file });
       continue;
     }
     if (!/^include\.path$|^includeif\..*\.path$/i.test(key)) continue;
     let p = exactPointer(value);
     if (p === null || oddRelative(p)) return 'odd-config-path';
     if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) p = path.join(os.homedir(), p.slice(2));
+    else if (ownTilde(p)) p = path.join(os.homedir(), p.slice(ownTilde(p)));
     else if (p.startsWith('~')) return 'odd-config-path';
     const why = farConfig(rawJoin(path.dirname(file), p), depth + 1, st);
     if (why) return why;
@@ -370,12 +395,15 @@ function altLine(line) {
 }
 // The alternates of one objects folder and theirs, as deep as git goes (git
 // 2.43 reads the sixth one's too).
-function farAlternates(objects, depth, seen) {
+function farAlternates(objects, depth, seen, tops = []) {
   if (depth > 6) return '';
   const real = localPath(objects);
   if (!real) return 'network-config';
   if (seen.has(real)) return '';
   seen.add(real);
+  // An alternate's own folders (pack/, info/, its loose objects) are read
+  // like the repo's: no link in them may lead to a share.
+  if (depth > 0) { const linked = linkedEntries(real, { objectsRoot: true }); if (linked) return linked; }
   const alt = readSmall(path.join(real, 'info', 'alternates'), 64 * 1024);
   if (alt === null) return '';
   if (alt === UNSAFE) return 'unreadable-config';
@@ -386,6 +414,20 @@ function farAlternates(objects, depth, seen) {
     const line = altLine(raw);
     if (netText(raw) || netText(line)) return 'network-config';
     if (oddRelative(line)) return 'odd-config-path';
+    // git-lfs looks for an LFS store next to each first-level alternate
+    // (<alt>/../lfs, '..' taken as text, a relative line from the worktree).
+    if (depth === 0) {
+      const alt = rawJoin(real, line);
+      const sib = [path.resolve(alt, '..', 'lfs'), path.join(path.dirname(localPath(alt) || alt), 'lfs')];
+      if (!path.isAbsolute(line)) for (const t of tops) sib.push(path.resolve(t, line, '..', 'lfs'));
+      for (const c of sib) {
+        const r = localPath(c);
+        if (!r) return 'network-config';
+        let isDir = false;
+        try { isDir = fs.lstatSync(r).isDirectory(); } catch { isDir = false; }
+        if (isDir) { const linked = linkedEntries(r); if (linked) return linked; }
+      }
+    }
     const why = farAlternates(rawJoin(real, line), depth + 1, seen);
     if (why) return why;
   }
@@ -410,7 +452,9 @@ function gitdirAt(base, t) {
 // branch names) aren't walked, so a gitdir that has one is refused rather
 // than passed.
 const MAX_GITDIR_DEPTH = 64;
-function linkedEntries(gitdir) {
+// objectsRoot: gitdir is an objects folder itself (an alternate's), whose
+// two-hex loose-object folders are skipped like the gitdir's own.
+function linkedEntries(gitdir, { objectsRoot = false } = {}) {
   let budget = 20000;
   const seen = new Set();
   const walk = (d, rel, depth) => {
@@ -418,7 +462,7 @@ function linkedEntries(gitdir) {
     try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return ''; }
     for (const x of list) {
       if (--budget < 0) return '';
-      if (!rel && x.name === 'hooks') continue;
+      if (!rel && !objectsRoot && x.name === 'hooks') continue;
       let sub = path.join(d, x.name);
       let isDir = x.isDirectory();
       if (x.isSymbolicLink()) {
@@ -428,9 +472,11 @@ function linkedEntries(gitdir) {
         sub = real;
       }
       if (!isDir) continue;
-      // Loose-object folders of a real object store only: a branch may be
-      // named objects/ab too (refs/heads/objects/ab/...).
-      if (/(^|\/)objects$/.test(rel) && !rel.split('/').some(q => q === 'refs' || q === 'logs') && /^[0-9a-f]{2}$/i.test(x.name)) continue;
+      // Loose-object folders of git's own object stores only (objects/ and a
+      // submodule's modules/.../objects/): a branch may be named objects/ab
+      // (refs/heads/objects/ab/...), and git-lfs keeps lfs/objects/ab/cd.
+      const store = objectsRoot ? rel === '' : (rel === 'objects' || /^modules\/(?:.+\/)?objects$/.test(rel)) && !rel.split('/').some(q => q === 'refs' || q === 'logs' || q === 'lfs');
+      if (store && /^[0-9a-f]{2}$/i.test(x.name)) continue;
       if (depth >= MAX_GITDIR_DEPTH) return 'deep-gitdir';
       const k = WIN ? sub.toLowerCase() : sub;
       if (seen.has(k)) continue;
@@ -495,7 +541,7 @@ function farGit(gitEntry, out = {}) {
   out.gitdir = gitdir;
   out.common = dirs[1] || '';
   // Folders a relative path in a setting may be taken from.
-  const cst = { seen: new Set(), files: 0, bases: [path.dirname(gitEntry), gitdir, dirs[1] || '', CHECK_CWD] };
+  const cst = { seen: new Set(), files: 0, bases: [path.dirname(gitEntry), gitdir, dirs[1] || '', CHECK_CWD], pending: [] };
   for (const d of dirs) {
     const linked = linkedEntries(d);
     if (linked) return linked;
@@ -503,7 +549,26 @@ function farGit(gitEntry, out = {}) {
       const why = farConfig(path.join(d, f), 0, cst);
       if (why) return why;
     }
-    const why = farAlternates(path.join(d, 'objects'), 0, new Set());
+  }
+  // core.worktree (relative to the gitdir whose config set it) is where git
+  // runs; it becomes one more folder relative values are taken from.
+  const bases = cst.bases.slice();
+  for (const e of cst.pending) {
+    if (!/^core\.worktree$/i.test(e.key)) continue;
+    const v = exactPointer(e.value);
+    if (v === null || !v) continue;
+    for (const w of path.isAbsolute(v) ? [v] : [rawJoin(gitdir, v), rawJoin(path.dirname(e.file), v)]) {
+      const real = localPath(w);
+      if (!real) return 'network-config';
+      bases.push(real, path.resolve(w));
+    }
+  }
+  for (const e of cst.pending) {
+    const why = farPathValue(e.value, bases, e.key);
+    if (why) return why;
+  }
+  for (const d of dirs) {
+    const why = farAlternates(path.join(d, 'objects'), 0, new Set(), [path.dirname(gitEntry)]);
     if (why) return why;
   }
   return '';
@@ -601,7 +666,25 @@ function localRepoRoot(cwd) {
   });
 }
 
+// A worktree's .lfsconfig, which git-lfs reads with includes on while it
+// runs as a filter: '' when it is safe, else the reason. It may not be a
+// link, and it may not include another file (git-lfs follows those).
+function farLfsFile(file, top) {
+  let st;
+  try { st = fs.lstatSync(file); } catch { return ''; }
+  if (!st.isFile()) return 'lfs-config';
+  const entries = configEntries(file);
+  if (entries === null) return '';
+  if (entries === UNSAFE) return 'lfs-config';
+  for (const [key, value] of entries) {
+    if (/^include\.|^includeif\./i.test(key)) return 'lfs-config';
+    if (REMOTE_ADDRESS.test(key)) continue;
+    if (netText(value)) return 'network-config';
+    if (PATH_KEY.test(key)) { const why = farPathValue(value, [top], key); if (why) return why; }
+  }
+  return '';
+}
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { farGitConfig, farNested, localPath, localPathFrom, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };
+module.exports = { farGitConfig, farNested, farLfsFile, localPath, localPathFrom, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };

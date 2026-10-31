@@ -30,4 +30,20 @@ function plainMtime(file) {
   try { const l = fs.lstatSync(file); return l.isFile() ? l.mtimeMs : NaN; } catch { return NaN; }
 }
 
-module.exports = { openPlain, plainMtime };
+// The cwd fields of transcript records, in order: each line is parsed as
+// JSON and only a record's own top-level "cwd" counts, never a "cwd" inside
+// a tool call's arguments or a message. A line cut off at the end of the
+// text read is skipped.
+function recordCwds(text, max = Infinity) {
+  const out = [];
+  for (const line of String(text).split('\n')) {
+    if (out.length >= max) break;
+    if (!line.includes('"cwd"')) continue;
+    let j;
+    try { j = JSON.parse(line); } catch { continue; }
+    if (j && typeof j === 'object' && !Array.isArray(j) && typeof j.cwd === 'string') out.push(j.cwd);
+  }
+  return out;
+}
+
+module.exports = { openPlain, plainMtime, recordCwds };

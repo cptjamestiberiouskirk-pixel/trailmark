@@ -48,7 +48,7 @@ if [ "$NEWPATH" != "$PATH" ]; then PATH_DROPPED=1; else PATH_DROPPED=0; fi
 PATH="$NEWPATH"; export PATH
 
 case "$0" in */*) SELF_DIR="${0%/*}" ;; *) SELF_DIR=. ;; esac
-HERE="$(cd "$SELF_DIR" && pwd -P)"
+HERE="$(CDPATH='' cd -- "$SELF_DIR" && pwd -P)"
 MKT=trailmark
 PLUGIN=trailmark
 CODEX=0; CHECK=0; UNINSTALL=0; OLDNODE=0; REPOINT=0; PREFLIGHT=0
@@ -103,6 +103,7 @@ if [ "$UNINSTALL" = 1 ]; then
 fi
 
 step 'Check the tools'
+if [ "$PATH_DROPPED" = 1 ]; then warn 'PATH holds an empty entry, "." or a relative folder, so programs named by bare name can be found in the current folder (a repo). This run left those entries out (so a program found only through one counts as missing); remove them from PATH, since every hook starts node by name.'; fi
 command -v node >/dev/null 2>&1 || fail 'node is not on PATH. Install the Node.js LTS (24.22.1 or later), open a new terminal and run this again.'
 # Before node runs at all: with "." or an empty entry in PATH, the node found
 # could be one in the current folder (a repo).
@@ -132,7 +133,7 @@ const m=/(\d+)\.(\d+)\.(\d+)/.exec(process.argv[1]||""); if(!m) process.exit(0);
 const v=[+m[1],+m[2],+m[3]], f=[2,1,304];
 for (let i=0;i<3;i++){ if(v[i]!==f[i]){ process.exit(v[i]<f[i]?1:0);} }' "$CV" \
   || warn 'this Claude Code is older than 2.1.304, the oldest version tested. Hooks need command hooks with args and if; update Claude Code if the [trailmark] line never appears.'
-if [ "$PATH_DROPPED" = 1 ]; then warn 'PATH holds an empty entry, "." or a relative folder, so programs named by bare name can be found in the current folder (a repo). This run left those entries out; remove them from PATH, since every hook starts node by name.'; fi
+
 
 step 'Check this folder'
 echo "  $HERE"
@@ -163,9 +164,11 @@ GW="$(find "$HERE" \( -type d -o -type f \) -perm -0020 ! -type l $OWNGRP_NOT -p
 [ -z "$GW" ] || fail "members of a shared group can write to $GW. Claude Code runs the hooks from this folder, so fix that first (chmod -R go-w \"$HERE\")."
 # Access-list entries (setfacl) can grant others write access that the mode
 # bits above don't show. Linux; on macOS, chmod -N removes them (ls -le).
+# Only an entry that lets a named user or group write counts.
+acl_write() { getfacl "$@" -s -p 2>/dev/null | awk '/^# file: /{f=substr($0,9)} /^(default:)?(user|group):[^:]+:.w/{print f; exit}'; }
 if command -v getfacl >/dev/null 2>&1; then
-  ACL="$(getfacl -R -s -p "$HERE" 2>/dev/null | sed -n 's/^# file: //p' | head -n 1)"
-  [ -z "$ACL" ] || fail "$ACL has access-list entries (setfacl), which can let others write there. Claude Code runs the hooks from this folder, so remove them first (setfacl -R -b \"$HERE\")."
+  ACL="$(acl_write -R "$HERE")"
+  [ -z "$ACL" ] || fail "$ACL has access-list entries (setfacl) that let others write there. Claude Code runs the hooks from this folder, so remove them first (setfacl -R -b \"$HERE\")."
 fi
 # The release ships no links, and a link could point at something others can write.
 LK="$(find "$HERE" -type l -print -quit 2>/dev/null)"
@@ -179,6 +182,7 @@ while [ -n "$P" ]; do
     # shellcheck disable=SC2086
     if [ -n "$(find "$P" -maxdepth 0 -perm -0020 $OWNGRP_NOT 2>/dev/null)" ]; then fail "members of a shared group can write to $P, which holds this folder. Move the release under your home folder."; fi
   fi
+  if command -v getfacl >/dev/null 2>&1 && [ -n "$(acl_write "$P")" ]; then fail "$P, which holds this folder, has access-list entries (setfacl) that let others write there. Move the release under your home folder."; fi
   if [ -z "$(find "$P" -maxdepth 0 \( -user "$ME" -o -user 0 \) 2>/dev/null)" ]; then fail "$P, which holds this folder, belongs to another user. Move the release under your home folder."; fi
   [ "$P" = "/" ] && break
   P="$(dirname "$P")"

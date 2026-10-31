@@ -71,7 +71,8 @@ $tmPathDropped = ''
 foreach ($p in ([string]$env:PATH).Split([IO.Path]::PathSeparator)) {
   $t = $p.Trim().Trim('"')
   if ($t -eq '') { continue }
-  if (-not [IO.Path]::IsPathRooted($t) -or $t -match '^[A-Za-z]:[^\\/]' -or ($t -match '^[\\/][^\\/]' -and [IO.Path]::DirectorySeparatorChar -eq '\')) { if (-not $tmPathDropped) { $tmPathDropped = $t }; continue }
+  # Drive-relative forms (C:, C:x) and a rooted path without a drive (\x) count as relative.
+  if (-not [IO.Path]::IsPathRooted($t) -or $t -match '^[A-Za-z]:([^\\/]|$)' -or ($t -match '^[\\/][^\\/]' -and [IO.Path]::DirectorySeparatorChar -eq '\')) { if (-not $tmPathDropped) { $tmPathDropped = $t }; continue }
   $tmPathKeep.Add($p)
 }
 $env:PATH = $tmPathKeep -join [IO.Path]::PathSeparator
