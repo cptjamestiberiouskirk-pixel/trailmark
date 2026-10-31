@@ -527,7 +527,11 @@ function main() {
 
   // The new Codex plugin is installed in the ChatGPT app, not from here; until
   // config.toml names it, say so on every run.
-  const codexPending = () => useCodex && !/trailmark-codex/i.test(readText(path.join(x.home, 'config.toml')) || '');
+  // Installed means a [plugins."trailmark-codex@..."] table; adding the
+  // marketplace also writes its name into config.toml, so a bare mention
+  // doesn't count.
+  const codexInstalled = () => /^\s*\[\s*plugins\s*\.\s*"trailmark-codex@/im.test(readText(path.join(codexHome(), 'config.toml')) || '');
+  const codexPending = () => useCodex && !codexInstalled();
   step('Plan');
   if (!plan.length) {
     ok('nothing to do here');
@@ -665,7 +669,7 @@ function main() {
   // ---------- report
   out(''); out(`Log${moved ? ' and the old copies' : ''}: ${backup}`);
   if (moved) out('Delete that folder once Trailmark works for you.');
-  if (codexPending() || (!o.claude && codex && !/trailmark-codex/i.test(readText(path.join(codexHome(), 'config.toml')) || ''))) later('In the ChatGPT app: restart it, open Plugins, choose the trailmark-codex marketplace, install trailmark-codex, then review and trust its hooks when asked. Its skills are tm-checkpoint, tm-recall and so on.');
+  if (codexPending() || (!o.claude && codex && !codexInstalled())) later('In the ChatGPT app: restart it, open Plugins, choose the trailmark-codex marketplace, install trailmark-codex, then review and trust its hooks when asked. Its skills are tm-checkpoint, tm-recall and so on.');
   if (wd.folder && !wd.tasks.length) later(`The old watchdog's log and known-good list are in ${wd.folder}; delete that folder when you no longer need them.`);
   if (todo.length) {
     out(''); out('Left for you:');

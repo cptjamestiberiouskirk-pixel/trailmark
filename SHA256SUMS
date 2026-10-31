@@ -75,7 +75,7 @@ a5fcf1a7e5f87f186cafa20e5fc348b52c973af723abeb56c9369957822b2a9d  ./plugins/trai
 a1ad9071d799d78eb350818d74651cceb5f44be852169b5e1da0be5ff850ce15  ./plugins/trailmark/tests/handoff-checks.test.js
 114e06088e669aca90942936820bbc81b0560c071689b8909a1b284d8592644a  ./plugins/trailmark/tests/trailmark.test.js
 06aeeee7f6fc6d37f86a5a9fd0de6d4a7d13f80a10104c65c29b47a305c85142  ./tools/install-check.js
-d406dd97064e51e6d6151984a6746e47a84489b55f2354d358fa90db819ef19e  ./tools/migrate-from-jb-memory.js
+5d6175178e496b4e7fe6a25f05265a8a94d75c5d88aaae8fad8e68d8ce6d521e  ./tools/migrate-from-jb-memory.js
 ecc32e629aeb6d301e7469d9bb6ff333c240aa68102466935533b1727c3cfbd8  ./tools/migrate-from-jb-memory.ps1
 b0b8853cdb828897903f65adb9222279a52aa0fc0a7ce91c76bba0239f962e8b  ./tools/windows/check-trailmark-checkpoints.ps1
 3670d51903fd0ba80a5d90b058d3df8c35f33d3772db716c003106a01ec32bcc  ./tools/windows/inspect-last-checkpoint.ps1
