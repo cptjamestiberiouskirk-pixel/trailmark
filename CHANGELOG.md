@@ -1,8 +1,11 @@
 # Changelog
 
-## 0.5.0 (Trailmark), 0.3.0 (trailmark-codex), 1.7.0 (trailmark-watchdog): 2026-10-28
+## 0.5.0 (Trailmark and trailmark-codex), 1.7.0 (trailmark-watchdog): 2026-10-28
 
 jb-memory is now Trailmark, ahead of its first public release. Everything in 0.4.5 below is part of this release.
+
+- The Codex copy now shares Trailmark's version number, 0.5.0 (it was 0.2.4 as jb-memory-codex), so one number names one release. Codex installs it under a new cache folder and may ask you to trust its hooks again.
+- The message when the lock file can't be created now names the likely cause. In the Codex copy that is Codex's sandbox, which refuses writes outside the workspace until you approve them; the old text blamed another program holding the file.
 
 - Names: the plugin and its marketplace are `trailmark` (install `trailmark@trailmark`), the Codex copy and its marketplace are `trailmark-codex`, the watchdog is `trailmark-watchdog`, and the launcher is `scripts/trailmark.js`. Skills are `/trailmark:checkpoint` and so on; the Codex copy's skills are `tm-checkpoint` and so on. The status line reads `[trailmark]`. The Codex hook text changed, so Codex asks you to trust the hooks again.
 - Unchanged on purpose, so existing repos need nothing: the memory folder's files (`.jbmem.json`, `.jbmem-state.json`, `.jbmem.lock`) and the `JBMEM_*` environment variables.

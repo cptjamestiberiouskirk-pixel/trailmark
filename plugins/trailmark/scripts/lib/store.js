@@ -293,7 +293,7 @@ function withLock(dir, fn, { waitMs = 10000, holder = '' } = {}) {
       const info = lockInfo(file);
       const err = new Error(info || lastCode === 'EEXIST'
         ? `another trailmark command is using the memory folder (lock: ${info ? oneLine(info.text || 'no label yet', 160) : 'released just now'}); wait a few seconds and run the command again`
-        : `could not create the lock file ${LOCK} in the memory folder (${lastCode}); something is holding it open`);
+        : `could not create the lock file ${LOCK} in the memory folder (${lastCode}): the folder can't be written from here, or another program is holding the file open`);
       err.code = 'JBMEM_LOCKED';
       throw err;
     }

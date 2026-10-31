@@ -472,7 +472,7 @@ test('rename: an old jb-memory-codex in the Codex plugin cache is found', () => 
   const { oldCodexCopies } = require(path.join(ROOT, 'scripts', 'lib', 'health.js'));
   const home = realTemp('jbmem-codexhome-');
   fs.mkdirSync(path.join(home, 'plugins', 'cache', 'jb-memory-codex', 'jb-memory-codex', '0.2.3'), { recursive: true });
-  fs.mkdirSync(path.join(home, 'plugins', 'cache', 'trailmark-codex', 'trailmark-codex', '0.3.0'), { recursive: true });
+  fs.mkdirSync(path.join(home, 'plugins', 'cache', 'trailmark-codex', 'trailmark-codex', '0.5.0'), { recursive: true });
   assert.deepStrictEqual(oldCodexCopies(home), ['plugins/cache/jb-memory-codex']);
   assert.deepStrictEqual(oldCodexCopies(realTemp('jbmem-codexempty-')), []);
   assert.deepStrictEqual(oldCodexCopies('//evil.invalid/share'), []);

@@ -2,7 +2,7 @@
 
 Trailmark keeps one short state file per repo, the handoff, and gives it to every new Claude Code session in that repo. Claude rewrites it at milestones (a commit, a merged PR, a subagent's result, before a compaction), so the next session starts from where the last one stopped instead of from a cold read of the code. This manual covers installing it, setting a repo up, using it day to day, the Codex copy for the ChatGPT desktop app, the Windows watchdog and the diagnostic scripts.
 
-Version 0.5.0 (Codex copy 0.3.0, trailmark-watchdog 1.7.0). MIT licensed.
+Version 0.5.0, for both Claude Code and the Codex copy (trailmark-watchdog 1.7.0). MIT licensed.
 
 ## Contents
 
@@ -331,7 +331,7 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 1. Replace the release folder's contents with the new release (keep the same path).
 2. In Claude Code, run `/reload-plugins` or start new sessions. Nothing needs reinstalling: the plugin is read in place.
 3. If trailmark-watchdog is installed, check the changes it reports against `CHANGELOG.md`, then accept. If the new release has a new `trailmark-watchdog.ps1`, run `install-trailmark-watchdog.ps1` again so the scheduled copy is the new one, then accept with the installed copy.
-4. Codex: restart the ChatGPT app and trust the hooks again if they changed (0.3.0 changed them).
+4. Codex: restart the ChatGPT app and trust the hooks again when Codex asks (it asks after any change to them).
 
 ## 13. Troubleshooting
 
