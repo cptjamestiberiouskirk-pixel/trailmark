@@ -77,6 +77,7 @@ Questions and bug reports go to [GitHub issues](https://github.com/cptjamestiber
 | `plugins/trailmark-codex/` | The Codex copy |
 | `tools/windows/` | trailmark-watchdog and the Windows diagnostic scripts |
 | `tools/install-check.js`, `install.*` | The installers |
+| `migrate-from-jb-memory.cmd`, `tools/migrate-from-jb-memory.*` | Moves a jb-memory install to Trailmark |
 | `.claude-plugin/`, `.agents/plugins/` | The Claude Code and Codex marketplace files |
 
 ## License

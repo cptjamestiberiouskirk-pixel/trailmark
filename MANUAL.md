@@ -28,6 +28,7 @@ Version 0.5.0 (Codex copy 0.3.0, trailmark-watchdog 1.7.0). MIT licensed.
 |---|---|
 | `install.sh` | Installer for macOS and Linux |
 | `install.ps1`, `install.cmd` | Installer for Windows (`install.cmd` runs the `.ps1` without changing the execution policy) |
+| `migrate-from-jb-memory.cmd`, `tools/migrate-from-jb-memory.*` | Moves an install of jb-memory, the name before 0.5.0, to Trailmark (section 15) |
 | `.claude-plugin/marketplace.json` | The Claude Code marketplace, named `trailmark` |
 | `plugins/trailmark/` | The Claude Code plugin: hooks, six skills, the launcher and its tests |
 | `.agents/plugins/marketplace.json` | The Codex marketplace, named `trailmark-codex` |
@@ -364,6 +365,28 @@ Nothing in your repos or memory folders is deleted. Each repo's handoff, archive
 ### From jb-memory (before 0.5.0)
 
 Trailmark was called jb-memory up to 0.4.5. The memory folders, handoffs and `.jbmem.json` settings carry over unchanged: they keep their file names, and so do the `JBMEM_*` environment variables. What changes is the plugin, marketplace and skill names, so it is one uninstall and one install.
+
+The migration script does the whole move, for Claude Code and Codex, and installs this release with its installer. Unpack the release where you'll keep it (section 3), quit Claude Code and the ChatGPT app, then run it from a terminal of its own:
+
+```text
+node tools/migrate-from-jb-memory.js --dry-run    see what it would do
+node tools/migrate-from-jb-memory.js              do it (it shows the plan and asks)
+```
+
+On Windows you can double-click `migrate-from-jb-memory.cmd` instead, or pass options to it (`migrate-from-jb-memory.cmd --dry-run`).
+
+What it does:
+
+- Uninstalls jb-memory at every scope Claude Code lists it in. A project or local scope install is uninstalled from its repo's folder, which edits that repo's `.claude/settings.json` or `settings.local.json`; commit a changed `settings.json`, since your teammates read it. When the repo has moved or been deleted, the folder Claude Code recorded is made again, empty, for that one command and removed after.
+- Removes the old marketplace, unless another plugin you still have comes from it.
+- Moves the old copies out of Claude Code's plugin cache into a backup folder (`%LOCALAPPDATA%\trailmark-migration\<time>` on Windows, `~/.local/share/trailmark-migration/<time>` elsewhere), with a log. Claude Code leaves them there after an uninstall, and Trailmark and the watchdog warn about them. Nothing is deleted except the empty folder a move leaves behind.
+- Removes the `jb-memory-codex` marketplace. Codex uninstalls plugins only in the ChatGPT app, so while Codex's `config.toml` still names jb-memory-codex the script asks you to uninstall it there, and leaves its cache alone. Run the script again afterwards: it moves the old Codex copy to the backup folder and changes nothing else.
+- Runs `install.ps1` or `install.sh`, with `-Codex` when Codex is in use and, on Windows, `-Watchdog` when the old jb-watchdog is installed (that installer removes the old watchdog). When this release is already installed and on, the installer is skipped.
+- Checks the result and lists what is left for you, such as installing trailmark-codex in the ChatGPT app.
+
+It never touches memory folders, handoffs or `.jbmem.json`, and doesn't edit settings files. It reports a hook in your Claude Code settings that still runs `jbm.js` (from an install by hand) for you to remove. `--scan <folder>` also looks under a folder for repos whose own settings still turn jb-memory on, such as a repo that moved since Claude Code recorded it. Running it again is safe: what is done already is skipped. `--help` lists every option (`--claude-only`, `--codex-only`, `--no-install`, `--keep-project-scopes`, `--keep-cache`, `--no-watchdog` and the installer's own). Exit code 0 means done, 2 done with steps left for you, 1 stopped.
+
+By hand, the same steps are:
 
 1. Uninstall the old plugin and marketplace:
 
