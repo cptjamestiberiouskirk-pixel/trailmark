@@ -496,7 +496,7 @@ function writePlain(dir, name, text, append) {
 
 function dumpOnRequest(dir, p) {
   const flag = path.join(dir, 'dump-next-tool-result');
-  try { if (!fs.statSync(flag).isFile()) return; } catch { return; }
+  try { if (!fs.lstatSync(flag).isFile()) return; } catch { return; }
   if (p.hook_event_name !== 'PostToolUse') return;
   const cmd = p.tool_input && p.tool_input.command;
   const r = p.tool_response;
@@ -517,7 +517,7 @@ function logShape(name, extra, p) {
   const dir = process.env.PLUGIN_DATA;
   if (!dir || !path.isAbsolute(dir) || NET_PATH.test(dir) || /^(0|off|false|no)$/i.test(process.env.JBMEM_SHAPES || '')) return;
   const f = path.join(dir, 'payload-shapes.log');
-  try { if (fs.statSync(f).size > 256 * 1024) return; } catch { /* new file */ }
+  try { if (fs.lstatSync(f).size > 256 * 1024) return; } catch { /* new file */ }
   const ty = v => (Array.isArray(v) ? 'array' : v === null ? 'null' : typeof v);
   const keys = o => (o && typeof o === 'object' && !Array.isArray(o) ? Object.keys(o).slice(0, 30).map(k => `${k.replace(/[^\w-]/g, '?').slice(0, 30)}:${ty(o[k])}`).join(',') : ty(o));
   const safe = s => (typeof s === 'string' ? s.replace(/[^\w.:-]/g, '?').slice(0, 40) : ty(s));

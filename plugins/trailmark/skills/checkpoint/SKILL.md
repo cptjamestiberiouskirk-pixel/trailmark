@@ -46,7 +46,7 @@ Every command here runs Trailmark from the path shown, `${CLAUDE_PLUGIN_ROOT}/sc
    JBMEM_EOF_${CLAUDE_SESSION_ID}
    ```
 
-   The end marker carries this session's ID, so a line in the text can't end the heredoc early. A line that starts with `JBMEM_EOF` is refused, whichever way the text is passed: indent that line by two spaces and run the command again.
+   The end marker carries this session's ID, so a line in the text can't end the heredoc early. A line that starts with `JBMEM_EOF` is refused, whichever way the text is passed: indent that line by two spaces and run the command again. If the marker shows a placeholder in braces instead of this session's ID, it is the same in every session, so don't use the heredoc: save the text with the Write tool and pass it with `--from` as described next, in Bash too.
 
    Use the Bash tool for this when you have it. PowerShell won't pipe text into a command without manual approval, so with PowerShell only: take the memory folder from the first line of `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" dir`, save the full handoff with the Write tool as `incoming-handoff-${CLAUDE_SESSION_ID}.md` in that folder, then run `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" write-handoff --base=<version> --session=${CLAUDE_SESSION_ID} --from="<memory folder>/incoming-handoff-${CLAUDE_SESSION_ID}.md"`. The file is removed when the write exits 0. On exit 2 or 3 it stays: save the new text to the same file and run the command again. Write each command with the full trailmark.js path as shown, not through a variable such as `$j`, so PowerShell can check the whole command before it runs.
 

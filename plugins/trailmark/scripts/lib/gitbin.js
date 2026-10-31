@@ -282,7 +282,10 @@ function configEntries(file) {
   // can name a network path or another file, so git isn't started for it.
   // (Quotes and backslashes are what git's value parser joins or decodes:
   // /""/server/share reads as //server/share.)
-  if (!/[\\"]|\/\/|%\(|include/i.test(st)) return [];
+  // A key that names a file or folder (attributesFile, mailmap.file,
+  // worktree, lfs.storage and the like) is read too: its value may be a
+  // plain name that is a link.
+  if (!/[\\"]|\/\/|%\(|include|(?:file|path|dir|storage|template|worktree)\s*=/i.test(st)) return [];
   const bin = gitPath(__dirname);
   if (!bin) return UNSAFE;
   try {
@@ -297,6 +300,25 @@ function configEntries(file) {
   } catch { return UNSAFE; }
 }
 const REMOTE_ADDRESS = /^remote\..+\.(?:url|pushurl)$|^url\..+\.(?:insteadof|pushinsteadof)$|^submodule\..+\.url$/i;
+// Settings whose value names a file or folder git may open (core.attributesFile,
+// core.excludesFile, core.worktree, mailmap.file, lfs.storage and the like),
+// judged by the last part of the key's name.
+const PATH_KEY = /(?:file|path|dir|storage|template|worktree)$/i;
+// A file or folder named by a setting: absolute, ~/, or relative to any
+// folder git might take it from (the worktree, the gitdir, the session's
+// folder). '' when every reading of it is local, else the reason.
+function farPathValue(value, bases) {
+  const v = exactPointer(value);
+  if (v === null) return 'odd-config-path';
+  if (!v) return '';
+  if (oddRelative(v)) return 'odd-config-path';
+  let p = v;
+  if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) p = path.join(os.homedir(), p.slice(2));
+  else if (p.startsWith('~')) return 'odd-config-path';
+  const tries = path.isAbsolute(p) ? [p] : bases.filter(Boolean).map(b => rawJoin(b, p));
+  for (const t of tries) if (!localPath(t)) return 'network-config';
+  return '';
+}
 const MAX_INCLUDE_DEPTH = 10;
 const MAX_CONFIG_FILES = 50;
 // st: { seen, files } shared by one whole check.
@@ -306,8 +328,11 @@ function farConfig(file, depth, st) {
   if (depth > MAX_INCLUDE_DEPTH) return 'deep-config';
   const real = localPath(file);
   if (!real) return 'network-config';
-  if (st.seen.has(real)) return '';
-  st.seen.add(real);
+  // Each path as git builds it, not each real file: a file reached two ways
+  // has relative includes that differ by the way.
+  const seenKey = WIN ? path.resolve(file).toLowerCase() : path.resolve(file);
+  if (st.seen.has(seenKey)) return '';
+  st.seen.add(seenKey);
   if (++st.files > MAX_CONFIG_FILES) return 'many-config-files';
   const entries = configEntries(real);
   if (entries === null) return '';
@@ -318,6 +343,11 @@ function farConfig(file, depth, st) {
     // GIT_NO_LAZY_FETCH), so a remote on a share doesn't keep git out.
     if (REMOTE_ADDRESS.test(key)) continue;
     if (netText(value)) return 'network-config';
+    if (PATH_KEY.test(key) && !/^include\.path$|^includeif\..*\.path$/i.test(key)) {
+      const why = farPathValue(value, st.bases || []);
+      if (why) return why;
+      continue;
+    }
     if (!/^include\.path$|^includeif\..*\.path$/i.test(key)) continue;
     let p = exactPointer(value);
     if (p === null || oddRelative(p)) return 'odd-config-path';
@@ -338,9 +368,10 @@ function altLine(line) {
   const map = { a: '\x07', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v' };
   return body.replace(/\\([0-7]{3}|.)/g, (_, c) => c.length === 3 ? String.fromCharCode(parseInt(c, 8)) : (map[c] || c));
 }
-// The alternates of one objects folder and theirs, five deep as git goes.
+// The alternates of one objects folder and theirs, as deep as git goes (git
+// 2.43 reads the sixth one's too).
 function farAlternates(objects, depth, seen) {
-  if (depth > 5) return '';
+  if (depth > 6) return '';
   const real = localPath(objects);
   if (!real) return 'network-config';
   if (seen.has(real)) return '';
@@ -397,7 +428,9 @@ function linkedEntries(gitdir) {
         sub = real;
       }
       if (!isDir) continue;
-      if (/(^|\/)objects$/.test(rel) && /^[0-9a-f]{2}$/i.test(x.name)) continue;
+      // Loose-object folders of a real object store only: a branch may be
+      // named objects/ab too (refs/heads/objects/ab/...).
+      if (/(^|\/)objects$/.test(rel) && !rel.split('/').some(q => q === 'refs' || q === 'logs') && /^[0-9a-f]{2}$/i.test(x.name)) continue;
       if (depth >= MAX_GITDIR_DEPTH) return 'deep-gitdir';
       const k = WIN ? sub.toLowerCase() : sub;
       if (seen.has(k)) continue;
@@ -419,7 +452,19 @@ function validGitdir(gitdir, common) {
   if (t === null || t === UNSAFE) return false;
   head = t.slice(0, 200);
   if (!/^ref: refs\/|^[0-9a-f]{40}|^[0-9a-f]{64}/.test(head)) return false;
-  try { return fs.statSync(path.join(base, 'objects')).isDirectory() && fs.statSync(path.join(base, 'refs')).isDirectory(); } catch { return false; }
+  // Resolved a part at a time first, so a link to a share is never stat-ed
+  // through; and searchable, as git requires (access X_OK), so a decoy git
+  // passes over isn't taken for the repo.
+  const usable = (q) => {
+    const r = localPath(q);
+    if (!r) return false;
+    try {
+      if (!fs.statSync(r).isDirectory()) return false;
+      if (!WIN) fs.accessSync(r, fs.constants.X_OK);
+      return true;
+    } catch { return false; }
+  };
+  return usable(path.join(base, 'objects')) && usable(path.join(base, 'refs'));
 }
 function farGit(gitEntry, out = {}) {
   let st;
@@ -449,7 +494,8 @@ function farGit(gitEntry, out = {}) {
   }
   out.gitdir = gitdir;
   out.common = dirs[1] || '';
-  const cst = { seen: new Set(), files: 0 };
+  // Folders a relative path in a setting may be taken from.
+  const cst = { seen: new Set(), files: 0, bases: [path.dirname(gitEntry), gitdir, dirs[1] || '', CHECK_CWD] };
   for (const d of dirs) {
     const linked = linkedEntries(d);
     if (linked) return linked;
@@ -473,8 +519,10 @@ function isGitPart(c) {
 function farGitConfig(cwd) {
   return withShare(cwd, () => farGitConfigIn(cwd));
 }
+let CHECK_CWD = '';
 function farGitConfigIn(cwd) {
   const key = path.resolve(String(cwd || '.'));
+  CHECK_CWD = key;
   if (farCache.has(key)) return farCache.get(key);
   let why = '';
   const root = path.parse(key).root;

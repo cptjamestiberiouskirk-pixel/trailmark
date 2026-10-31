@@ -35,7 +35,20 @@
 
 set -u
 
-HERE="$(cd "$(dirname "$0")" && pwd -P)"
+# Programs are run by name (node, claude, git, find and the rest), so PATH
+# keeps only absolute folders: an empty entry or "." would find a program in
+# the current folder, which may be a repo. Done before anything runs.
+NEWPATH=''
+IFS_OLD="$IFS"; IFS=':'; set -f
+for e in $PATH; do
+  case "$e" in /*) NEWPATH="${NEWPATH:+$NEWPATH:}$e" ;; esac
+done
+set +f; IFS="$IFS_OLD"
+if [ "$NEWPATH" != "$PATH" ]; then PATH_DROPPED=1; else PATH_DROPPED=0; fi
+PATH="$NEWPATH"; export PATH
+
+case "$0" in */*) SELF_DIR="${0%/*}" ;; *) SELF_DIR=. ;; esac
+HERE="$(cd "$SELF_DIR" && pwd -P)"
 MKT=trailmark
 PLUGIN=trailmark
 CODEX=0; CHECK=0; UNINSTALL=0; OLDNODE=0; REPOINT=0; PREFLIGHT=0
@@ -119,9 +132,7 @@ const m=/(\d+)\.(\d+)\.(\d+)/.exec(process.argv[1]||""); if(!m) process.exit(0);
 const v=[+m[1],+m[2],+m[3]], f=[2,1,304];
 for (let i=0;i<3;i++){ if(v[i]!==f[i]){ process.exit(v[i]<f[i]?1:0);} }' "$CV" \
   || warn 'this Claude Code is older than 2.1.304, the oldest version tested. Hooks need command hooks with args and if; update Claude Code if the [trailmark] line never appears.'
-case ":$PATH:" in
-  *::*|*:.:*) warn 'PATH holds an empty entry or ".", so programs named by bare name can be found in the current folder (a repo). Remove it from PATH; every hook starts node by name.' ;;
-esac
+if [ "$PATH_DROPPED" = 1 ]; then warn 'PATH holds an empty entry, "." or a relative folder, so programs named by bare name can be found in the current folder (a repo). This run left those entries out; remove them from PATH, since every hook starts node by name.'; fi
 
 step 'Check this folder'
 echo "  $HERE"
@@ -140,6 +151,9 @@ if find "$HERE" -maxdepth 0 -group "$ME" >/dev/null 2>&1; then
   if command -v getent >/dev/null 2>&1; then
     MEMBERS="$(getent group "$ME" | cut -d: -f4)"
     case ",$MEMBERS," in ",,"|",$ME,") ;; *) OWNGRP_NOT='' ;; esac
+    # Users whose primary group it is aren't listed there.
+    GID="$(getent group "$ME" | cut -d: -f3)"
+    if [ -n "$GID" ] && getent passwd | awk -F: -v g="$GID" -v me="$ME" '$4==g && $1!=me {found=1} END {exit !found}'; then OWNGRP_NOT=''; fi
   fi
 else
   OWNGRP_NOT=''
@@ -147,6 +161,12 @@ fi
 # shellcheck disable=SC2086
 GW="$(find "$HERE" \( -type d -o -type f \) -perm -0020 ! -type l $OWNGRP_NOT -print -quit 2>/dev/null)"
 [ -z "$GW" ] || fail "members of a shared group can write to $GW. Claude Code runs the hooks from this folder, so fix that first (chmod -R go-w \"$HERE\")."
+# Access-list entries (setfacl) can grant others write access that the mode
+# bits above don't show. Linux; on macOS, chmod -N removes them (ls -le).
+if command -v getfacl >/dev/null 2>&1; then
+  ACL="$(getfacl -R -s -p "$HERE" 2>/dev/null | sed -n 's/^# file: //p' | head -n 1)"
+  [ -z "$ACL" ] || fail "$ACL has access-list entries (setfacl), which can let others write there. Claude Code runs the hooks from this folder, so remove them first (setfacl -R -b \"$HERE\")."
+fi
 # The release ships no links, and a link could point at something others can write.
 LK="$(find "$HERE" -type l -print -quit 2>/dev/null)"
 [ -z "$LK" ] || fail "$LK is a link. The release has none; replace it with the real file or folder."

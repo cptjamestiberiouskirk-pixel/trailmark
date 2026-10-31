@@ -1359,7 +1359,8 @@ test('launcher: a memory folder set outside the projects folder gets no read gra
   fs.writeFileSync(secret, JSON.stringify({ type: 'user', message: { content: 'SECRET-PARENT-LINE' } }) + '\n');
   const t = jbm(s, ['transcript', `--file=${secret}`]);
   assert.ok(!t.stdout.includes('SECRET-PARENT-LINE'), 'read a file next to the missing memory folder');
-  assert.match(t.stderr, /sandbox refused/);
+  // Refused by --file's own check (only a transcript in the projects folder), or by the sandbox.
+  assert.match(t.stderr, /sandbox refused|--file takes a transcript/);
   // The read commands still answer: not set up.
   const d = jbm(s, ['dir']);
   assert.strictEqual(d.status, 0, d.stdout + d.stderr);

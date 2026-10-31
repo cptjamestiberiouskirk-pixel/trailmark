@@ -263,4 +263,4 @@ function extract(file, { since = 0, maxChars = 20000, tail = false } = {}) {
   };
 }
 
-module.exports = { forEachLine, findTranscript, findTranscriptForSession, extract, stripWrappers };
+module.exports = { forEachLine, findTranscript, findTranscriptForSession, extract, stripWrappers, netLinkBelow };

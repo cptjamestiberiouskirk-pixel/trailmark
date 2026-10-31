@@ -366,4 +366,4 @@ function extract(file, { since = 0, maxChars = 20000, tail = false } = {}) {
   };
 }
 
-module.exports = { forEachLine, findTranscript, findTranscriptForSession, findCodexTranscript, codexHome, codexRoots, plainPath, extract, stripWrappers };
+module.exports = { forEachLine, findTranscript, findTranscriptForSession, findCodexTranscript, codexHome, codexRoots, plainPath, extract, stripWrappers, netLinkBelow };

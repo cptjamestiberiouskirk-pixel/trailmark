@@ -76,7 +76,7 @@ Every hook and skill command enters through `scripts/trailmark.js`. The launcher
 | Grant | Scope |
 |---|---|
 | Write | the repo's memory folder only |
-| Read | the plugin folder and the memory folder (plus Claude Code's projects folder for `transcript`) |
+| Read | the plugin folder and the memory folder (plus Claude Code's projects folder for `transcript`; in the Codex copy, Codex's `sessions` and `archived_sessions` folders) |
 | Child processes, workers, native addons | none |
 
 The sandboxed script gets the launcher's environment without `NODE_OPTIONS` or any other `NODE_*` variable, which could otherwise carry permission flags that undo these grants, and without inherited `JBMEM_*` variables, which could choose the memory folder. Its subfolders (`snapshots/`, `archive/`, `parked/`) must be real folders, not links, since the permission model follows a link out of a granted folder.

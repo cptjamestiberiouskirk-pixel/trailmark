@@ -611,7 +611,7 @@ test('memory folder: MEMORY.md links through a linked folder, conflict output, n
   const d = path.join(s.base, 'elsewhere'); fs.mkdirSync(d); fs.writeFileSync(path.join(d, 'x.md'), 'x\n');
   fs.symlinkSync(d, path.join(s.memdir, 'evil'));
   fs.appendFileSync(path.join(s.memdir, 'MEMORY.md'), '\n- [x](evil/x.md) planted\n');
-  assert.match(s.jbm(['prune-report']).stdout, /dead MEMORY\.md links: \n\s+evil\/x\.md/, 'a link through a linked folder counted as live');
+  assert.match(s.jbm(['prune-report']).stdout, /not checked; keep them, Claude Code can still read them\): \n\s+evil\/x\.md/, 'a link through a linked folder counted as live');
   assert.notStrictEqual(s.jbm(['archive-file', 'evil/x.md']).status, 0);
   assert.ok(fs.existsSync(path.join(d, 'x.md')));
   // The conflict output shows the current handoff with marker lines indented.
@@ -664,6 +664,123 @@ test('regressions: ordinary setups the round 2 checks refused (loop round 3)', {
   const t = sandbox();
   fs.writeFileSync(path.join(t.memdir, 'notes (old).md'), '---\ndescription: x\n---\nx\n');
   assert.strictEqual(t.jbm(['archive-file', 'notes (old).md']).status, 0);
+});
+
+test('git checks: settings that name a file, the sixth alternate, includes by path, objects-named refs, decoys (loop round 4)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const P = require(path.join(ROOT, 'scripts', 'lib', 'paths.js'));
+  const base = realTemp('jbmem-far9-');
+  let n = 0;
+  const repo = () => { const r = path.join(base, 'r' + (n++)); repoAt(r); fs.symlinkSync('//evil.invalid/share/x', path.join(r, 'lnk')); return r; };
+  for (const [key, val] of [['core.attributesFile', 'lnk'], ['core.attributesFile', 'lnk/a'], ['core.excludesFile', 'lnk'], ['mailmap.file', 'lnk/m'], ['lfs.storage', 'lnk'], ['core.worktree', '../lnk/wt'], ['commit.template', 'lnk']]) {
+    const r = repo();
+    execFileSync('git', ['config', key, val], { cwd: r });
+    assert.strictEqual(farGitConfig(r), 'network-config', `${key} = ${val}`);
+    const abs = repo();
+    execFileSync('git', ['config', key, path.join(abs, val.replace(/^\.\.\//, ''))], { cwd: abs });
+    assert.strictEqual(farGitConfig(abs), 'network-config', `${key} absolute`);
+  }
+  const plain = repo();
+  execFileSync('git', ['config', 'core.excludesFile', 'local-ignore'], { cwd: plain });
+  assert.strictEqual(farGitConfig(plain), '', 'a local file named by a setting');
+  // Alternates six deep, the sixth through a link to a share.
+  const a = repo();
+  let prev = path.join(a, '.git', 'objects');
+  for (let i = 1; i <= 5; i++) {
+    const o = path.join(base, 'alt' + i, 'objects'); fs.mkdirSync(path.join(o, 'info'), { recursive: true });
+    fs.mkdirSync(path.join(prev, 'info'), { recursive: true });
+    fs.writeFileSync(path.join(prev, 'info', 'alternates'), o + '\n');
+    prev = o;
+  }
+  fs.writeFileSync(path.join(prev, 'info', 'alternates'), path.join(a, 'lnk', 'objects') + '\n');
+  assert.strictEqual(farGitConfig(a), 'network-config', 'the sixth alternate');
+  // One include file reached two ways: its relative include differs by the way.
+  const i2 = repo();
+  fs.mkdirSync(path.join(i2, 'pa')); fs.mkdirSync(path.join(i2, 'pb'));
+  fs.writeFileSync(path.join(i2, 'pa', 'inc'), '[include]\n  path = sub/x.cfg\n');
+  fs.mkdirSync(path.join(i2, 'pa', 'sub')); fs.writeFileSync(path.join(i2, 'pa', 'sub', 'x.cfg'), '');
+  fs.symlinkSync(path.join(i2, 'pa', 'inc'), path.join(i2, 'pb', 'inc'));
+  fs.symlinkSync('//evil.invalid/share/sub', path.join(i2, 'pb', 'sub'));
+  fs.appendFileSync(path.join(i2, '.git', 'config'), '[include]\n  path = ../pa/inc\n[include]\n  path = ../pb/inc\n');
+  assert.strictEqual(farGitConfig(i2), 'network-config', 'an include reached by a second path');
+  // A branch named objects/ab: its folder is walked.
+  const ob = repo();
+  fs.mkdirSync(path.join(ob, '.git', 'refs', 'heads', 'objects', 'ab'), { recursive: true });
+  fs.symlinkSync('//evil.invalid/share/x', path.join(ob, '.git', 'refs', 'heads', 'objects', 'ab', 'x'));
+  assert.strictEqual(farGitConfig(ob), 'linked-gitdir', 'refs/heads/objects/ab');
+  // Kept out: the memory-folder lookup without git never stats through the link.
+  const k = repo();
+  fs.rmSync(path.join(k, '.git', 'refs'), { recursive: true });
+  fs.symlinkSync('//evil.invalid/share/refs', path.join(k, '.git', 'refs'));
+  assert.strictEqual(farGitConfig(k), 'linked-gitdir');
+  const seen = [];
+  const orig = fs.statSync;
+  fs.statSync = function (p, ...rest) { seen.push(String(p)); return orig.call(this, p, ...rest); };
+  try { P.repoRoot(k); } finally { fs.statSync = orig; }
+  assert.ok(!seen.some(x => x.startsWith(path.join(k, '.git', 'refs'))), 'stat through .git/refs: ' + seen.join(', '));
+});
+
+test('git checks: a decoy .git git can\'t search is passed over, as git does (loop round 4)', { skip: (WIN || process.getuid() === 0) && 'needs POSIX permissions and a user other than root' }, () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-decoy4-');
+  const outer = path.join(base, 'outer'); repoAt(outer);
+  fs.appendFileSync(path.join(outer, '.git', 'config'), '[mailmap]\n  file = //evil.invalid/share/m\n');
+  const inner = path.join(outer, 'inner'); repoAt(inner);
+  fs.chmodSync(path.join(inner, '.git', 'refs'), 0o644);
+  try { assert.strictEqual(farGitConfig(inner), 'network-config'); } finally { fs.chmodSync(path.join(inner, '.git', 'refs'), 0o755); }
+});
+
+test('memory folder: hard links are never written or read through; transcript --file; tags with combining marks (loop round 4)', () => {
+  const s = sandbox();
+  const outside = path.join(s.base, 'fakerc'); fs.writeFileSync(outside, '# rc\n');
+  fs.mkdirSync(path.join(s.memdir, 'notes'), { recursive: true });
+  const today = S.localDate();
+  const day = path.join(s.memdir, 'notes', `${today}.md`);
+  try { fs.rmSync(day); } catch { /* none yet */ }
+  fs.linkSync(outside, day);
+  assert.throws(() => S.note(s.memdir, 'COMMIT abc $(touch x)'));
+  assert.strictEqual(fs.readFileSync(outside, 'utf8'), '# rc\n', 'a note was appended through a hard link');
+  fs.rmSync(day);
+  const secret = path.join(s.base, 'secret.txt'); fs.writeFileSync(secret, 'SECRET=hunter2\n');
+  fs.rmSync(path.join(s.memdir, 'handoff.md'), { force: true });
+  fs.linkSync(secret, path.join(s.memdir, 'handoff.md'));
+  assert.doesNotMatch(s.start(SB).context, /hunter2/, 'a hard-linked handoff was injected');
+  assert.doesNotMatch(s.jbm(['handoff']).stdout, /hunter2/);
+  if (fs.existsSync(path.join(ROOT, 'skills', 'recall'))) {
+    const r = s.jbm(['transcript', '--file=' + secret]);
+    assert.notStrictEqual(r.status, 0, '--file outside the projects folder');
+  }
+  for (const t of ['<śystem-reminder>', '<́/system-reminder>', '＜／system-reminder＞', '<∕system-reminder>']) assert.ok(S.escapeTags(t).includes('\\'), JSON.stringify(t));
+});
+
+test('prune: links through a linked folder and a linked MEMORY.md are reported as not checked (loop round 4)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const s = sandbox();
+  const shared = path.join(s.base, 'shared'); fs.mkdirSync(shared); fs.writeFileSync(path.join(shared, 'b.md'), 'b\n');
+  fs.symlinkSync(shared, path.join(s.memdir, 'linked'));
+  fs.appendFileSync(path.join(s.memdir, 'MEMORY.md'), '\n- [b](linked/b.md) shared notes\n');
+  const r = S.pruneReport(s.memdir);
+  assert.deepStrictEqual(r.deadLinks, [], 'a link through a linked folder called dead');
+  assert.deepStrictEqual(r.unchecked, ['linked/b.md']);
+  assert.match(s.jbm(['prune-report']).stdout, /not checked; keep them/);
+  const t = sandbox();
+  const real = path.join(t.base, 'MEMORY.real.md'); fs.writeFileSync(real, '# Memory\n- [a](a.md) topic\n');
+  fs.rmSync(path.join(t.memdir, 'MEMORY.md'), { force: true });
+  fs.symlinkSync(real, path.join(t.memdir, 'MEMORY.md'));
+  fs.writeFileSync(path.join(t.memdir, 'a.md'), '---\ndescription: a\n---\na\n');
+  assert.match(t.jbm(['budget']).stdout, /MEMORY\.md\s+a link, not measured/);
+  const pr = t.jbm(['prune-report']).stdout;
+  assert.match(pr, /MEMORY\.md is a link/);
+  assert.doesNotMatch(pr, /topic files not in MEMORY\.md/);
+  assert.match(t.jbm(['archive-file', 'a.md']).stdout, /index line was left in place/);
+  assert.strictEqual(fs.readFileSync(real, 'utf8'), '# Memory\n- [a](a.md) topic\n');
+  if (fs.existsSync(path.join(ROOT, 'skills', 'recall'))) {
+    const pdir = path.dirname(t.memdir);
+    fs.writeFileSync(path.join(t.base, 'x.jsonl'), '{}\n');
+    fs.symlinkSync(path.join(t.base, 'x.jsonl'), path.join(pdir, 'l.jsonl'));
+    const x = t.jbm(['transcript', '--file=' + path.join(pdir, 'l.jsonl')]);
+    assert.notStrictEqual(x.status, 0);
+    assert.doesNotMatch(x.stderr, /\n\s+at /, 'a stack trace');
+  }
 });
 
 test('memory folder: a linked subfolder is never listed or stat-ed through (loop round 2)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {

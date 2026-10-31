@@ -10,6 +10,7 @@ Everything runs on Node's built-in test runner, with no dependencies to install.
 node --test plugins/trailmark/tests/trailmark.test.js plugins/trailmark/tests/handoff-checks.test.js
 node --test plugins/trailmark-codex/tests/trailmark.test.js plugins/trailmark-codex/tests/handoff-checks.test.js
 node plugins/trailmark/scripts/trailmark.js --sandbox-check
+node plugins/trailmark-codex/scripts/trailmark.js --sandbox-check
 ```
 
 The tests create throwaway repos in the temp folder and never touch your own Claude Code settings. A few tests need a shell script to stand in for git, which Windows can't run; they skip themselves there and say why.
@@ -26,7 +27,7 @@ The scripts in `tools/windows` that call the model (`test-trailmark-roundtrip.ps
 
 - Keep each pull request to one change, with a test that fails without it.
 - Raise the version in the plugin's `plugin.json` and add a CHANGELOG entry. The plugin directory picks up a new version only when that number changes.
-- Run `claude plugin validate .` and `claude plugin validate plugins/trailmark`.
+- Run `claude plugin validate .`, `claude plugin validate plugins/trailmark` and `claude plugin validate plugins/trailmark-codex`.
 - Regenerate `SHA256SUMS` from the repository root:
 
   ```text

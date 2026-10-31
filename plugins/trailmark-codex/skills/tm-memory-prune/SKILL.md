@@ -30,7 +30,7 @@ Every command here runs Trailmark through its launcher, written below as `<launc
 2. **Read only the flagged files.** For each candidate, choose one action:
    - **keep**: still current and needed
    - **archive**: finished or superseded. This is the default; it moves the file verbatim and keeps it recoverable.
-   - **delete**: only for dead MEMORY.md index lines and exact duplicates
+   - **delete**: only for dead MEMORY.md index lines and exact duplicates. Links listed as going through a linked folder aren't dead: keep them
    - **promote**: a convention every session in this repo should follow, or one tied to specific paths
 
 3. **Propose** a table: `# | item | action | reason | evidence`. Ask "all, pick numbers, or skip?" and wait.

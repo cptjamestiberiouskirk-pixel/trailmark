@@ -13,7 +13,7 @@ Every hook and skill command enters through `plugins/trailmark/scripts/trailmark
 | Right | Granted |
 |---|---|
 | Write | the repo's memory folder only |
-| Read | the plugin folder and the memory folder, plus Claude Code's projects folder for the transcript command |
+| Read | the plugin folder and the memory folder, plus Claude Code's projects folder for the transcript command (in the Codex copy, Codex's `sessions` and `archived_sessions` folders instead) |
 | Child processes, worker threads, native addons, WASI | none |
 
 `node plugins/trailmark/scripts/trailmark.js --sandbox-check` proves this on the current machine, and the installers refuse to install when it fails. Node calls its permission model a seat belt: it stops trusted code from touching the wrong files, and it doesn't promise to contain malicious code. It also follows a symbolic link out of a granted folder.
@@ -27,6 +27,7 @@ git is run by the launcher, outside the sandbox, by full path (found on absolute
 | Command text Claude runs | Untrusted | Parsed to find where commits ran; never executed by Trailmark. Folders named in it are only passed to hardened git |
 | The repo and its `.git` config | Untrusted | See git above. A `node.exe` in the repo is the one gap the plugin can't close itself on Windows: see the next section |
 | Text saved in the handoff | Untrusted at the next session | Injected inside a frame marked as notes from earlier sessions, with a random marker per session; lines that imitate the frame are indented and tag-like text is escaped, so saved text can't close the frame or pose as markup |
+| Transcripts (Claude Code's projects folder, Codex's session folders) and the `transcript_path` a hook is given | Untrusted | Opened only as plain files: never a link, a FIFO or a device, never through a link to a network path, and the file opened must be the one checked (`lib/plainfile.js`). A transcript that is itself a link isn't read |
 | The memory folder's own subfolders and files | Untrusted | Subfolders must be real folders, never links, before anything is written or pruned there. Files are read, listed and dated only when they are plain files and never through a link (a link counts as missing, and a linked lock file is removed, never followed) (`O_NOFOLLOW` where the platform has it, a check that the open file is the one seen before it was opened elsewhere), since the launcher reads some of them outside the sandbox and a link could lead to a network share |
 | The handoff's `Updated:` line (HEAD, agent) | Untrusted | Its HEAD reaches git only as 7 to 12 hex digits, checked by the launcher; anything else is ignored. The agent name is shown only when it is exactly `Claude Code` or `Codex` |
 | Commit subjects listed at session start | Untrusted | Read by the launcher from `git log`, cut to one line of 80 characters, and injected in their own frame marked as repo data, with the same line and tag escaping as the handoff |

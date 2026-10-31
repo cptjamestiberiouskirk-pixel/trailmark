@@ -120,7 +120,8 @@ function readPlain(file) {
   const fd = fs.openSync(file, O_READ);
   try {
     const st = fs.fstatSync(fd, { bigint: true });
-    if (!st.isFile() || (l.ino && (st.ino !== l.ino || st.dev !== l.dev))) throw notPlain(file);
+    // A second hard link would let a file from anywhere be read as this one.
+    if (!st.isFile() || st.nlink > 1n || (l.ino && (st.ino !== l.ino || st.dev !== l.dev))) throw notPlain(file);
     return fs.readFileSync(fd, 'utf8');
   } finally { fs.closeSync(fd); }
 }
@@ -995,12 +996,21 @@ function note(dir, text, session = '') {
     pruneNotes(dir, cfg.notesKeepDays);
   } catch (e) { if (e.code !== 'EEXIST') throw e; }
   // Appending would follow a link planted in place of the day's log or of the
-  // notes folder, so neither may be one.
+  // notes folder, so neither may be one. The log is appended to in place, so
+  // it may not be a hard link either (one would carry the line into a file
+  // anywhere, a shell profile say), and the file written is the one lstat saw.
+  let l = null;
   for (const p of [path.dirname(file), file]) {
-    const st = fs.lstatSync(p);
-    if (st.isSymbolicLink() || (p === file && !st.isFile())) throw new Error(`${p} is a link or not a plain file; the note was not written`);
+    const st = fs.lstatSync(p, { bigint: true });
+    if (st.isSymbolicLink() || (p === file && (!st.isFile() || st.nlink > 1n))) throw new Error(`${p} is a link or not a plain file; the note was not written`);
+    if (p === file) l = st;
   }
-  fs.appendFileSync(file, `- ${localTime()} ${line}\n`);
+  const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_APPEND | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+  try {
+    const st = fs.fstatSync(fd, { bigint: true });
+    if (!st.isFile() || st.nlink > 1n || (l.ino && (st.ino !== l.ino || st.dev !== l.dev))) throw new Error(`${file} is a link or not a plain file; the note was not written`);
+    fs.writeSync(fd, `- ${localTime()} ${line}\n`);
+  } finally { fs.closeSync(fd); }
   return file;
 }
 
@@ -1402,12 +1412,17 @@ function pruneReport(dir) {
   const cfg = loadConfig(dir);
   const now = Date.now();
   const staleMs = cfg.staleDays * 86400000;
-  const memText = readText(path.join(dir, 'MEMORY.md')) || '';
+  // A MEMORY.md that is a link isn't read (Claude Code still loads it), so
+  // its links can't be checked and no topic file can be called unlisted.
+  const memoryLinked = linkedFiles(dir).includes('MEMORY.md');
+  const memText = memoryLinked ? '' : readText(path.join(dir, 'MEMORY.md')) || '';
   const links = memoryIndexLinks(memText);
-  // A link that leads through a linked folder counts as dead: it isn't read.
-  const deadLinks = links.filter(l => !plainUnder(dir, l) || !plainExists(path.join(dir, l)));
+  // A link through a linked folder isn't followed, so it isn't checked
+  // either; Claude Code can still read it, so it isn't called dead.
+  const unchecked = links.filter(l => !plainUnder(dir, l));
+  const deadLinks = links.filter(l => plainUnder(dir, l) && !plainExists(path.join(dir, l)));
   const topics = topicFiles(dir);
-  const orphans = topics.filter(t => !links.includes(t));
+  const orphans = memoryLinked ? [] : topics.filter(t => !links.includes(t));
   const stale = [];
   const byDesc = new Map();
   for (const t of topics) {
@@ -1423,7 +1438,7 @@ function pruneReport(dir) {
   const oldParked = listDir(dir, 'parked')
     .filter(p => now - p.mtime.getTime() > staleMs)
     .map(p => ({ file: p.name, days: Math.floor((now - p.mtime.getTime()) / 86400000) }));
-  return { deadLinks, orphans, stale, duplicates, oldParked, handoff: measureHandoff(dir, cfg), measure: measure(dir) };
+  return { deadLinks, unchecked, memoryLinked, orphans, stale, duplicates, oldParked, handoff: measureHandoff(dir, cfg), measure: measure(dir) };
 }
 
 // Move a topic file into archive/files/ and drop its MEMORY.md index lines.
@@ -1465,7 +1480,8 @@ function archiveFileLocked(dir, src, base) {
   fs.renameSync(src, dest);
   const relPosix = path.relative(dir, src).split(path.sep).join('/');
   const memFile = path.join(dir, 'MEMORY.md');
-  const mem = readText(memFile);
+  const memoryLinked = linkedFiles(dir).includes('MEMORY.md');
+  const mem = memoryLinked ? null : readText(memFile);
   let removed = [];
   if (mem !== null) {
     const kept = [];
@@ -1477,7 +1493,7 @@ function archiveFileLocked(dir, src, base) {
       atomicWrite(memFile, kept.join('\n'));
     }
   }
-  return { dest, removedIndexLines: removed };
+  return { dest, removedIndexLines: removed, memoryLinked };
 }
 
 // ---------- SessionStart injection ----------
@@ -1590,12 +1606,12 @@ const LINE_BREAKS = /\r\n|[\r\u000b\u000c\u0085\u2028\u2029]/g;
 // whose name has a dash or underscore or is a role or block word
 // (<system-reminder>, <user>, <instructions>). Code such as Array<string>,
 // i<n or <https://...> is left alone.
-const FRAME_LIKE = /^[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*(?:[-\p{Pd}\u2212\u02d7\u2043\u2500-\u257f\u23af\u2e3a\u2e3b\ufe58\ufe63\uff0d]{2}|[[\uff3b<\uff1c\u2039\u2329\u27e8\u3008\u300a\u3010\u3014\u3016\u3018\u301a\u2770-\u2775\ufe64])/u;
+const FRAME_LIKE = /^[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*(?:[-\p{Pd}\u2212\u02d7\u2043\u2500-\u257f\u23af\u2e3a\u2e3b\ufe58\ufe63\uff0d]{2}|[[\uff3b<\uff1c\u2039\u2329\u27e8\u3008\u300a\u3010\u3014\u3016\u3018\u301a\u2770-\u2775\ufe64])/u;
 // An opening tag is escaped when its name has a separator (- _ . or a colon
 // before a letter) or an invisible character in it, starts with a role or
 // block word (<systemprompt>, <developer>), or has a letter outside ASCII in
 // it (a look-alike such as a Cyrillic s).
-const TAG_LIKE = /[<＜﹤](?=[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*\/?[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*$|[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*\/[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*[\p{L}_]|[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*(?:[\p{L}_][\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*(?:[-_.\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]|:(?=\p{L}))[\p{L}\p{N}_.:\p{Cf}\p{Default_Ignorable_Code_Point}\u2800-]*|(?:system|user|assistant|human|tool|function|developer|instructions?|context|documents?|example|reminder|message|prompt)[\p{L}\p{N}_]*|[\p{L}\p{N}_]*(?:(?![\x00-\x7f])\p{L})[\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*)[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]*(?:[\s>＞\/]|$))/giu;
+const TAG_LIKE = /[<＜﹤](?=[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*[\/／∕⁄⧸]?[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*$|[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*[\/／∕⁄⧸][\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*[\p{L}_]|[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*(?:[\p{L}_][\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*(?:[-_.\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]|:(?=\p{L}))[\p{L}\p{N}_.:\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}-]*|(?:system|user|assistant|human|tool|function|developer|instructions?|context|documents?|example|reminder|message|prompt)[\p{L}\p{N}_]*|[\p{L}\p{N}_]*(?:(?![\x00-\x7f])\p{L})[\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*)[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*(?:[\s>＞\/／∕⁄⧸]|$))/giu;
 // A line that is the skills' heredoc end marker would end the heredoc when a
 // later checkpoint copies the handoff forward; indented, it can't.
 const HEREDOC_END = /^JBMEM_EOF/;
@@ -1603,12 +1619,12 @@ const HEREDOC_END = /^JBMEM_EOF/;
 // would hide it from the patterns below.
 const CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
 function framed(text) {
-  return text.replace(LINE_BREAKS, '\n').replace(CONTROLS, '').split('\n').map(l => (FRAME_LIKE.test(l) || HEREDOC_END.test(l) ? '  ' + l : l).replace(TAG_LIKE, m => m + '\\')).join('\n');
+  return String(text).normalize('NFC').replace(LINE_BREAKS, '\n').replace(CONTROLS, '').split('\n').map(l => (FRAME_LIKE.test(l) || HEREDOC_END.test(l) ? '  ' + l : l).replace(TAG_LIKE, m => m + '\\')).join('\n');
 }
 
 // Tag-like text escaped as in framed(), for one line placed outside a frame.
 function escapeTags(t) {
-  return String(t).replace(CONTROLS, '').replace(TAG_LIKE, m => m + '\\');
+  return String(t).normalize('NFC').replace(CONTROLS, '').replace(TAG_LIKE, m => m + '\\');
 }
 
 function frameMarker() {

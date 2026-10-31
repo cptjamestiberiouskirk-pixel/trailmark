@@ -63,6 +63,19 @@ if ($PSVersionTable.PSVersion.Major -lt 6 -and $env:PSModulePath) {
   $env:PSModulePath = $tmPsPaths -join ';'
 }
 
+# Programs are run by name (node, claude, git, codex), and the claude and
+# codex .cmd shims start node by name: PATH keeps only absolute folders for
+# this run, so "." or a relative entry can't find one in the current folder.
+$tmPathKeep = [System.Collections.Generic.List[string]]::new()
+$tmPathDropped = ''
+foreach ($p in ([string]$env:PATH).Split([IO.Path]::PathSeparator)) {
+  $t = $p.Trim().Trim('"')
+  if ($t -eq '') { continue }
+  if (-not [IO.Path]::IsPathRooted($t) -or $t -match '^[A-Za-z]:[^\\/]' -or ($t -match '^[\\/][^\\/]' -and [IO.Path]::DirectorySeparatorChar -eq '\')) { if (-not $tmPathDropped) { $tmPathDropped = $t }; continue }
+  $tmPathKeep.Add($p)
+}
+$env:PATH = $tmPathKeep -join [IO.Path]::PathSeparator
+
 # cmd.exe, which runs the claude and codex .cmd shims, would otherwise look
 # for node.exe in the current folder (a repo) before PATH. For this run only.
 $env:NoDefaultCurrentDirectoryInExePath = '1'
@@ -158,10 +171,7 @@ if ($cv -match '(\d+)\.(\d+)\.(\d+)') {
   $v = [version]('{0}.{1}.{2}' -f $Matches[1], $Matches[2], $Matches[3])
   if ($v -lt [version]'2.1.304') { Warn 'this Claude Code is older than 2.1.304, the oldest version tested. Hooks need command hooks with args and if; update Claude Code if the [trailmark] line never appears.' }
 }
-foreach ($p in ([string]$env:PATH).Split([IO.Path]::PathSeparator)) {
-  $t = $p.Trim().Trim('"')
-  if ($t -eq '' -or -not [IO.Path]::IsPathRooted($t) -or $t -match '^[A-Za-z]:[^\\/]' -or ($t -match '^[\\/][^\\/]' -and [IO.Path]::DirectorySeparatorChar -eq '\')) { Warn ('PATH holds an empty or relative entry ("' + $t + '"), which is looked up from the current folder. Remove it: every hook starts node by name.'); break }
-}
+if ($tmPathDropped) { Warn ('PATH holds a relative entry ("' + $tmPathDropped + '"), which is looked up from the current folder. This run left it out; remove it from PATH, since every hook starts node by name.') }
 
 Step 'Check this folder'
 Write-Host ('  ' + $here)

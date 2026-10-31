@@ -31,21 +31,21 @@ Every command here runs Trailmark through its launcher, written below as `<launc
    - Set up (status says so): show the folder and the handoff's age, and go on.
    - Not set up, or `resolved by` is `formula-unverified`: ask the user whether they also use Claude Code in this repo.
      - If they do, or might: tell them to set the repo up from Claude Code (trailmark:memory-setup there), then run this check again. A folder Codex guesses may not be the one Claude Code uses, and the two would then keep separate handoffs.
-     - If they use only Codex here: show them these commands to run themselves, in a terminal outside Codex, with `<repo>` the repo's top folder and `<launcher>` the full launcher path. Add `--public` to the init line if the repo is public. Then stop; once they have run them, they start a new chat and run this check again.
+     - If they use only Codex here: show them these commands to run themselves, in a terminal outside Codex, with `<repo>` the repo's top folder and `<launcher>` the full launcher path, both inside the single quotes shown, where a shell expands nothing. If either path contains a single quote (`'`, or a typographic curly one), don't show the commands: ask the user to rename that folder first. Add `--public` to the init line if the repo is public. Then stop; once they have run them, they start a new chat and run this check again.
 
        Windows PowerShell:
 
        ```text
-       Set-Location "<repo>"
+       Set-Location -LiteralPath '<repo>'
        $env:JBMEM_CODEX_INIT = '1'
-       node "<launcher>" init --force
+       node '<launcher>' init --force
        Remove-Item Env:\JBMEM_CODEX_INIT
        ```
 
        macOS or Linux:
 
        ```text
-       cd "<repo>" && JBMEM_CODEX_INIT=1 node "<launcher>" init --force
+       cd '<repo>' && JBMEM_CODEX_INIT=1 node '<launcher>' init --force
        ```
 
        The variable is set for that one command only. Never set it yourself, run `init` yourself or suggest making the variable permanent: it is what keeps a Codex session from setting up a repo on its own. `--force` is needed because, with no Claude Code session ever in the repo, the folder comes from Claude Code's naming formula and can't be confirmed; Claude Code uses the same formula, so it would find the same folder later.
