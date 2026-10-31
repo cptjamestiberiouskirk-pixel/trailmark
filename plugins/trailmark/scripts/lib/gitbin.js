@@ -330,6 +330,7 @@ function farPathValue(value, bases, key = '') {
   // Both readings: links followed first (as git does), and '..' taken as
   // text first (as git-lfs does).
   const tries = path.isAbsolute(p) ? [p, path.resolve(p)] : bases.filter(Boolean).flatMap(b => [rawJoin(b, p), path.resolve(b, p)]);
+  const walked = new Set();
   for (const t of tries) {
     const real = localPath(t);
     if (!real) return 'network-config';
@@ -337,7 +338,8 @@ function farPathValue(value, bases, key = '') {
     if (/^lfs\.storage$/i.test(key)) {
       let isDir = false;
       try { isDir = fs.statSync(real).isDirectory(); } catch { isDir = false; }
-      if (isDir) { const why = linkedEntries(real); if (why) return why; }
+      const k = WIN ? real.toLowerCase() : real;
+      if (isDir && !walked.has(k)) { walked.add(k); const why = linkedEntries(real, { lfsStore: true }); if (why) return why; }
     }
   }
   return '';
@@ -425,7 +427,7 @@ function farAlternates(objects, depth, seen, tops = []) {
         if (!r) return 'network-config';
         let isDir = false;
         try { isDir = fs.lstatSync(r).isDirectory(); } catch { isDir = false; }
-        if (isDir) { const linked = linkedEntries(r); if (linked) return linked; }
+        if (isDir) { const linked = linkedEntries(r, { lfsStore: true }); if (linked) return linked; }
       }
     }
     const why = farAlternates(rawJoin(real, line), depth + 1, seen);
@@ -454,15 +456,22 @@ function gitdirAt(base, t) {
 const MAX_GITDIR_DEPTH = 64;
 // objectsRoot: gitdir is an objects folder itself (an alternate's), whose
 // two-hex loose-object folders are skipped like the gitdir's own.
-function linkedEntries(gitdir, { objectsRoot = false } = {}) {
-  let budget = 20000;
+// lfsStore: gitdir is a git-lfs store (lfs.storage, or one next to an
+// alternate): its objects/ab/cd folders are walked too. A gitdir's own lfs/
+// is walked last, on a budget of its own (LFS_BUDGET), so a large LFS store
+// can't use up the budget for git's own folders.
+const LFS_BUDGET = 10000;
+function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
+  const main = { n: lfsStore ? LFS_BUDGET : 20000 };
   const seen = new Set();
-  const walk = (d, rel, depth) => {
+  let lfsLater = null;
+  const walk = (d, rel, depth, budget) => {
     let list;
     try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return ''; }
     for (const x of list) {
-      if (--budget < 0) return '';
+      if (--budget.n < 0) return '';
       if (!rel && !objectsRoot && x.name === 'hooks') continue;
+      if (!rel && !objectsRoot && !lfsStore && x.name === 'lfs' && !lfsLater) { lfsLater = x; continue; }
       let sub = path.join(d, x.name);
       let isDir = x.isDirectory();
       if (x.isSymbolicLink()) {
@@ -475,18 +484,25 @@ function linkedEntries(gitdir, { objectsRoot = false } = {}) {
       // Loose-object folders of git's own object stores only (objects/ and a
       // submodule's modules/.../objects/): a branch may be named objects/ab
       // (refs/heads/objects/ab/...), and git-lfs keeps lfs/objects/ab/cd.
-      const store = objectsRoot ? rel === '' : (rel === 'objects' || /^modules\/(?:.+\/)?objects$/.test(rel)) && !rel.split('/').some(q => q === 'refs' || q === 'logs' || q === 'lfs');
+      const store = lfsStore ? false : objectsRoot ? rel === '' : (rel === 'objects' || /^modules\/(?:.+\/)?objects$/.test(rel)) && !rel.split('/').some(q => q === 'refs' || q === 'logs' || q === 'lfs');
       if (store && /^[0-9a-f]{2}$/i.test(x.name)) continue;
       if (depth >= MAX_GITDIR_DEPTH) return 'deep-gitdir';
       const k = WIN ? sub.toLowerCase() : sub;
       if (seen.has(k)) continue;
       seen.add(k);
-      const why = walk(sub, rel ? rel + '/' + x.name : x.name, depth + 1);
+      const why = walk(sub, rel ? rel + '/' + x.name : x.name, depth + 1, budget);
       if (why) return why;
     }
     return '';
   };
-  return walk(gitdir, '', 0);
+  const why = walk(gitdir, '', 0, main);
+  if (why || !lfsLater) return why;
+  // The lfs/ folder (a link to a share there is refused like any other).
+  let sub = path.join(gitdir, 'lfs');
+  if (lfsLater.isSymbolicLink()) { const real = localPath(sub); if (!real) return 'linked-gitdir'; sub = real; }
+  let isDir = false;
+  try { isDir = fs.statSync(sub).isDirectory(); } catch { isDir = false; }
+  return isDir ? walk(sub, 'lfs', 1, { n: LFS_BUDGET }) : '';
 }
 // Is this a gitdir git would accept: HEAD there, objects and refs in it or
 // in its commondir.
@@ -568,10 +584,38 @@ function farGit(gitEntry, out = {}) {
     if (why) return why;
   }
   for (const d of dirs) {
-    const why = farAlternates(path.join(d, 'objects'), 0, new Set(), [path.dirname(gitEntry)]);
+    // git-lfs takes a relative alternates line from where it runs: the
+    // worktree, a core.worktree included.
+    const why = farAlternates(path.join(d, 'objects'), 0, new Set(), bases.filter(Boolean));
     if (why) return why;
   }
+  // Submodule gitdirs kept in modules/: git status may open one by the name
+  // in .gitmodules (when the submodule's own .git can't be used), so each is
+  // checked like a repo's own.
+  for (const d of dirs) {
+    for (const g of moduleGitdirs(path.join(d, 'modules'))) {
+      const why = farGit(g);
+      if (why) return why;
+    }
+  }
   return '';
+}
+// Folders under modules/ that hold a HEAD (submodule gitdirs), at most 2000.
+// A nested submodule's gitdir is found by farGit on its parent's.
+function moduleGitdirs(root) {
+  const out = [];
+  const walk = (d, depth) => {
+    if (out.length >= 2000 || depth > MAX_GITDIR_DEPTH) return;
+    let list;
+    try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    // A gitdir: only its own modules/ is looked into further (farGit
+    // checks the rest). Otherwise every folder, since a submodule name may
+    // hold slashes (modules/libs/foo).
+    if (list.some(x => x.name === 'HEAD' && x.isFile())) { out.push(d); return; }
+    for (const x of list) if (x.isDirectory()) walk(path.join(d, x.name), depth + 1);
+  };
+  walk(root, 0);
+  return out;
 }
 // Is this path part .git, in any spelling Windows takes for it?
 function isGitPart(c) {
@@ -676,6 +720,11 @@ function farLfsFile(file, top) {
   const entries = configEntries(file);
   if (entries === null) return '';
   if (entries === UNSAFE) return 'lfs-config';
+  return farLfsEntries(entries, top);
+}
+// The same rules for .lfsconfig's settings however they were read (from the
+// worktree file, or from the index's or HEAD's copy with git config --blob).
+function farLfsEntries(entries, top) {
   for (const [key, value] of entries) {
     if (/^include\.|^includeif\./i.test(key)) return 'lfs-config';
     if (REMOTE_ADDRESS.test(key)) continue;
@@ -687,4 +736,4 @@ function farLfsFile(file, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { farGitConfig, farNested, farLfsFile, localPath, localPathFrom, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };
+module.exports = { farGitConfig, farNested, farLfsFile, farLfsEntries, localPath, localPathFrom, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };

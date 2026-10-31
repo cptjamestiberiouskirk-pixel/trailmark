@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { oneLine, displayPath, inside } = require('./store');
-const { farGitConfig, farNested, farLfsFile, localPath, localPathFrom, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
+const { farGitConfig, farNested, farLfsFile, farLfsEntries, localPath, localPathFrom, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
 // and Windows caps a variable at 32,767 characters (Linux at 128 KB), so only
@@ -136,6 +136,13 @@ function farWorktree(r, cwd) {
     if (r.left() < 800) return 'git-timeout';
     if (farNested(path.join(top.top, rel), top.top)) return 'submodule-pointer';
   }
+  // With submodules, git status may read .gitmodules for their names: it
+  // must be a plain file (or missing), never a link.
+  if (n) {
+    let gm = null;
+    try { gm = fs.lstatSync(path.join(top.top, '.gitmodules')); } catch { gm = null; }
+    if (gm && !gm.isFile()) return 'submodule-pointer';
+  }
   for (const rel of folders) {
     let st;
     try { st = fs.lstatSync(path.join(top.top, rel)); } catch { continue; }
@@ -179,12 +186,20 @@ function farLfsConfig(r, top) {
   let there = false;
   try { fs.lstatSync(f); there = true; } catch { there = false; }
   if (there) return farLfsFile(f, top);
+  // Not in the worktree: git-lfs reads the index's copy, else HEAD's, and
+  // the same rules apply to it (read by git config --blob, includes off).
   const idx = r.run(top, ['ls-files', '-z', '--', '.lfsconfig']);
   if (!idx.ok) return idx.why === 'timeout' ? 'git-timeout' : 'git-error';
-  if (idx.out) return 'lfs-config';
-  const head = r.run(top, ['rev-parse', '--verify', '-q', 'HEAD:.lfsconfig']);
-  if (head.ok && head.out.trim()) return 'lfs-config';
-  return '';
+  let spec = idx.out ? ':.lfsconfig' : '';
+  if (!spec) {
+    const head = r.run(top, ['rev-parse', '--verify', '-q', 'HEAD:.lfsconfig']);
+    if (head.ok && head.out.trim()) spec = 'HEAD:.lfsconfig';
+  }
+  if (!spec) return '';
+  const cfg = r.run(top, ['config', '--blob', spec, '--no-includes', '--null', '--list']);
+  if (!cfg.ok) return cfg.why === 'timeout' ? 'git-timeout' : 'lfs-config';
+  const entries = cfg.out.split('\0').filter(Boolean).map(e => { const i = e.indexOf('\n'); return i < 0 ? [e, ''] : [e.slice(0, i), e.slice(i + 1)]; });
+  return farLfsEntries(entries, top);
 }
 
 function filterOverrides(r, cwd) {

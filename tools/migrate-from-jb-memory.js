@@ -27,7 +27,9 @@
 //      installer is skipped, so you still have a plugin (with --no-install,
 //      user scope is removed anyway). Then removes the old
 //      marketplace with `claude plugin marketplace remove`, unless another
-//      installed plugin still comes from it or it offers other plugins too.
+//      installed plugin still comes from it or it offers other plugins too,
+//      or it is a copy Claude Code made (from GitHub or a URL) that Codex's
+//      jb-memory-codex may still come from (removing it deletes the copy).
 //   4. Moves the old copies out of Claude Code's plugin cache into a backup
 //      folder. Claude Code leaves them there after an uninstall, and both
 //      Trailmark and the watchdog warn about them, since a cached copy can run.
@@ -124,10 +126,10 @@ function parseArgs(argv) {
       case '--keep-cache': o.cache = false; break;
       case '--watchdog': o.watchdog = 'yes'; break;
       case '--no-watchdog': o.watchdog = 'no'; break;
-      case '--old-release': o.oldRelease = argv[++i] || ''; if (!o.oldRelease) throw new Error('--old-release needs a folder'); break;
+      case '--old-release': o.oldRelease = folderArg(argv[++i]); if (!o.oldRelease) throw new Error('--old-release needs a folder'); break;
       case '--clean-codex-trust': o.cleanTrust = true; break;
-      case '--scan': o.scan.push(argv[++i] || ''); if (!o.scan[o.scan.length - 1]) throw new Error('--scan needs a folder'); break;
-      case '--backup-dir': o.backupDir = argv[++i] || ''; if (!o.backupDir) throw new Error('--backup-dir needs a folder'); break;
+      case '--scan': o.scan.push(folderArg(argv[++i])); if (!o.scan[o.scan.length - 1]) throw new Error('--scan needs a folder'); break;
+      case '--backup-dir': o.backupDir = folderArg(argv[++i]); if (!o.backupDir) throw new Error('--backup-dir needs a folder'); break;
       case '--set-no-cwd-lookup': case '--allow-old-node': case '--repoint': o.pass.push(a); break;
       case '-h': case '--help': o.help = true; break;
       default: throw new Error(`unknown option: ${a} (see --help)`);
@@ -274,6 +276,12 @@ function isDir(d) { try { return fs.lstatSync(d).isDirectory(); } catch { return
 // A folder, or a link to one (a home folder kept in a dotfiles repo).
 function isDirFollow(d) { try { return !NET.test(d) && fs.statSync(d).isDirectory(); } catch { return false; } }
 const NET = /^(?:\\\\|\/\/|[\\/]\?\?[\\/])/;
+// Same folder by name or by real path (a subst drive, a junction, a link).
+function sameReal(a, b) {
+  if (samePath(a, b)) return true;
+  if (NET.test(a) || NET.test(b)) return false;
+  try { return samePath(fs.realpathSync.native(a), fs.realpathSync.native(b)); } catch { return false; }
+}
 function samePath(a, b) {
   const n = p => { let r = path.resolve(p).replace(/[\\/]+$/, ''); if (WIN) r = r.replace(/\//g, '\\').toLowerCase(); return r; };
   return n(a) === n(b);
@@ -403,6 +411,29 @@ function withoutTrust(text) {
 
 // An old release folder whose Codex marketplace provides jb-memory-codex under
 // the marketplace name Codex has it installed from ('' when none is found).
+// A local copy of the old release whose Claude Code manifest still offers
+// jb-memory: { folder, name } or null. Not one Claude Code copied into its
+// own folder (removing the marketplace deleted it).
+// A folder given on the command line. Windows PowerShell 5.1 passes
+// "C:\My Repos\" on as C:\My Repos" (the \" read as a quote): put back.
+function folderArg(a) {
+  let v = String(a || '');
+  if (WIN && /[^"]"$/.test(v) && !v.slice(0, -1).includes('"')) v = v.slice(0, -1) + '\\';
+  return v;
+}
+function oldClaudeRelease(folders) {
+  const ownCfg = (path.resolve(claudeConfigDir()) + path.sep).toLowerCase();
+  for (const f of folders) {
+    if (!f || NET.test(f) || !isDirFollow(f) || (path.resolve(f) + path.sep).toLowerCase().startsWith(ownCfg) || samePath(f, HERE)) continue;
+    const man = readJson(path.join(f, '.claude-plugin', 'marketplace.json'));
+    if (man && SAFE.test(String(man.name || '')) && Array.isArray(man.plugins) && man.plugins.some(q => q && String(q.name).toLowerCase() === OLD_PLUGIN)) return { folder: path.resolve(f), name: String(man.name) };
+  }
+  return null;
+}
+// jb-memory* folders next to this release (an old release kept beside it).
+function siblingReleases() {
+  return listDir(path.dirname(HERE)).filter(d => d.isDirectory() && /^jb-memory/i.test(d.name)).map(d => path.join(path.dirname(HERE), d.name));
+}
 function oldCodexRelease(folders, mkt) {
   for (const f of folders) {
     if (!f || NET.test(f) || !isDir(f)) continue;
@@ -432,7 +463,7 @@ function codexOffersOthers(m) {
 // jb-memory-codex from that copy: it offers jb-memory-codex, and Codex has it
 // installed, or Codex's state can't be read (a network home, an unreadable
 // config.toml). Checked whatever --claude-only says.
-function codexMayUse(m) {
+function codexMayUse(m, cx) {
   if (!m || !m.path || NET.test(m.path)) return false;
   if (!path.resolve(m.path).toLowerCase().startsWith(path.resolve(claudeConfigDir()).toLowerCase() + path.sep)) return false;
   const man = readJson(path.join(m.path, '.agents', 'plugins', 'marketplace.json'));
@@ -441,7 +472,13 @@ function codexMayUse(m) {
   if (NET.test(home)) return true;
   const cfg = readFollow(path.join(home, 'config.toml'));
   if (cfg === undefined) return true;
-  return !!cfg && /^\s*\[\s*plugins\s*\.\s*"jb-memory-codex@/im.test(cfg);
+  if (!(cfg && /^\s*\[\s*plugins\s*\.\s*"jb-memory-codex@/im.test(cfg))) return false;
+  // When Codex's own list said where its marketplaces are, only a copy one
+  // of them uses is kept.
+  if (cx && cx.listOk && cx.oldMarketplaces.some(cm => cm.path)) {
+    return cx.oldMarketplaces.some(cm => cm.path && !NET.test(cm.path) && (samePath(cm.path, m.path) || path.resolve(cm.path).toLowerCase().startsWith(path.resolve(m.path).toLowerCase() + path.sep)));
+  }
+  return true;
 }
 // The plugins a Claude Code marketplace offers besides jb-memory and Trailmark.
 function claudeOffersOthers(m) {
@@ -500,7 +537,7 @@ function surveyCodex(codex) {
           const man = readJson(path.join(p, '.agents', 'plugins', 'marketplace.json'));
           provides = !!(man && Array.isArray(man.plugins) && man.plugins.some(q => q && String(q.name).toLowerCase() === OLD_CODEX));
         }
-        if (name === 'trailmark-codex') { if (!p || samePath(p, HERE)) s.trailmarkMarketplace = true; else s.trailmarkElsewhere = p; }
+        if (name === 'trailmark-codex') { if (!p || sameReal(p, HERE)) s.trailmarkMarketplace = true; else s.trailmarkElsewhere = p; }
         if (provides || name.toLowerCase() === OLD_CODEX) addOld(name, p, provides);
       }
     } else {
@@ -512,7 +549,7 @@ function surveyCodex(codex) {
           const m = /^(\S+)\s+(.*\S)\s*$/.exec(line) || /^(\S+)\s*$/.exec(line);
           if (!m || m[1] === 'MARKETPLACE') continue;
           const name = m[1], root = plainRoot(m[2] || '');
-          if (name === 'trailmark-codex') { if (!root || samePath(root, HERE)) s.trailmarkMarketplace = true; else s.trailmarkElsewhere = root; }
+          if (name === 'trailmark-codex') { if (!root || sameReal(root, HERE)) s.trailmarkMarketplace = true; else s.trailmarkElsewhere = root; }
           let provides = false;
           if (root && !NET.test(root)) {
             const man = readJson(path.join(root, '.agents', 'plugins', 'marketplace.json'));
@@ -583,7 +620,11 @@ function runInstaller(flags, inherit) {
     const env = Object.fromEntries(Object.entries(BASE_ENV).filter(([k]) => k.toLowerCase() !== 'psmodulepath'));
     return run(ps, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(HERE, 'install.ps1'), ...flags], { cwd: HERE, inherit, timeout: 30 * 60000, env });
   }
-  return run('/bin/bash', [path.join(HERE, 'install.sh'), ...flags], { cwd: HERE, inherit, timeout: 30 * 60000 });
+  const bash = fs.existsSync('/bin/bash') ? '/bin/bash' : findProgram('bash');
+  if (!bash) return { code: 1, out: '', err: 'bash was not found (/bin/bash or an absolute PATH folder); install.sh needs it' };
+  const r = run(bash, [path.join(HERE, 'install.sh'), ...flags], { cwd: HERE, inherit, timeout: 30 * 60000 });
+  if (r.code !== 0 && !r.out && !r.err && r.error) r.err = String(r.error.message || r.error);
+  return r;
 }
 
 function backupDirFor(o) {
@@ -725,7 +766,8 @@ function main() {
       // Not a copy under Claude Code's own folder: removing the old Claude Code
       // marketplace deletes it before the Codex step runs.
       const ownCfg = path.resolve(claudeConfigDir()) + path.sep;
-      const fromClaude = (c ? c.oldMarketplaces.map(m => m.path) : []).filter(q => q && !(path.resolve(q) + path.sep).toLowerCase().startsWith(ownCfg.toLowerCase()));
+      // Unless it is kept for Codex: then it is still there to add back from.
+      const fromClaude = (c ? c.oldMarketplaces.filter(m => m.path && (!(path.resolve(m.path) + path.sep).toLowerCase().startsWith(ownCfg.toLowerCase()) || codexMayUse(m, x))).map(m => m.path) : []);
       x.orphanFrom = oldCodexRelease([o.oldRelease, ...fromClaude, ...sibs], mkt);
       warn(`jb-memory-codex is installed but its marketplace ${mkt} is gone, so the ChatGPT app can't show it to uninstall`);
       if (o.oldRelease && !oldCodexRelease([o.oldRelease], mkt)) warn(`--old-release ${o.oldRelease} has no Codex marketplace named ${mkt} that provides jb-memory-codex`);
@@ -781,7 +823,7 @@ function main() {
   if (c) {
     for (const p of c.plugins) if ((p.scope === 'user' && !o.keepUser) || (p.scope !== 'user' && o.projectScopes)) plan.push(`uninstall ${p.id} (${p.scope}${p.projectPath ? ', ' + p.projectPath : ''})`);
     for (const m of c.oldMarketplaces) {
-      if (codexMayUse(m)) plan.push(`keep the Claude Code marketplace ${m.name} for now: Codex's jb-memory-codex may still come from its folder`);
+      if (codexMayUse(m, x)) plan.push(`keep the Claude Code marketplace ${m.name} for now: Codex's jb-memory-codex may still come from its folder`);
       else if (claudeOffersOthers(m).length) plan.push(`keep the Claude Code marketplace ${m.name}: it also offers ${claudeOffersOthers(m).join(', ')}`);
       else plan.push(`remove the Claude Code marketplace ${m.name} (unless a plugin you keep still comes from it)`);
     }
@@ -855,6 +897,9 @@ function main() {
   // Said only once the trailmark-codex marketplace is there to choose.
   const codexPending = () => useCodex && !codexInstalled() && !!(codex && surveyCodex(codex).trailmarkMarketplace);
   step('Plan');
+  // Lines that only say what stays aren't work to do.
+  const keeps = plan.filter(p => /^keep /.test(p));
+  if (plan.length && keeps.length === plan.length) { for (const p of keeps) info(p.replace(/^keep /, 'keeping ')); plan.length = 0; }
   if (!plan.length) {
     ok('nothing to do here');
     if (!o.dryRun && o.scan.length) doScan();
@@ -907,7 +952,7 @@ function main() {
       // A marketplace Claude Code copied into its own folder (from GitHub or a
       // URL) is deleted with it, and that copy may also be the folder of a
       // Codex marketplace kept for the ChatGPT app.
-      if (codexMayUse(m)) {
+      if (codexMayUse(m, x)) {
         info(`kept the marketplace ${m.name}: Codex's jb-memory-codex marketplace uses its folder; run this again once jb-memory-codex is uninstalled in the ChatGPT app`);
         later(`Run this again once jb-memory-codex is uninstalled in the ChatGPT app: it then removes the Claude Code marketplace ${m.name}, whose folder Codex uses.`);
         continue;
@@ -967,7 +1012,7 @@ function main() {
         if (r.code === 0) ok(`added the old Codex marketplace back from ${x.orphanFrom}`);
         else {
           warn(`codex plugin marketplace add ${x.orphanFrom} failed: ${(r.err || r.out).trim().split('\n')[0] || 'exit ' + r.code}`);
-          later(`Add the old Codex marketplace back by hand, so the ChatGPT app shows jb-memory-codex to uninstall: codex plugin marketplace add "${x.orphanFrom}"`);
+          later(`Add the old Codex marketplace back by hand, so the ChatGPT app shows jb-memory-codex to uninstall: codex plugin marketplace remove ${x.orphanMkt || OLD_CODEX} (if it is still listed), then codex plugin marketplace add "${x.orphanFrom}"`);
         }
       }
     }
@@ -1051,17 +1096,11 @@ function main() {
         warn(`the installer stopped (exit ${r.code}); its message is above`);
         installed = false;
         // jb-memory is already gone here: say how to finish, or how to go back.
-        // A marketplace from GitHub or a URL lived in Claude Code's own folder,
-        // which `marketplace remove` deleted: it is added back from its source.
-        // The marketplace the user-scope jb-memory came from, added back from
-        // its source, or from its folder while that still offers jb-memory
-        // (not when this release was unpacked over it).
-        const userMkt = (c && c.plugins.find(p => p.scope === 'user') || { id: '' }).id.split('@')[1];
-        const offersOld = (m) => { const man = m.path && !NET.test(m.path) ? readJson(path.join(m.path, '.claude-plugin', 'marketplace.json')) : null; return !!(man && Array.isArray(man.plugins) && man.plugins.some(q => q && String(q.name).toLowerCase() === OLD_PLUGIN)); };
-        const usable = (m) => SAFE.test(m.name) && (m.repo || m.url || offersOld(m));
-        const oldMkt = c && (c.oldMarketplaces.find(m => m.name === userMkt && usable(m)) || c.oldMarketplaces.find(usable));
-        const addFrom = oldMkt ? (oldMkt.repo ? oldMkt.repo : oldMkt.url ? `"${oldMkt.url}"` : `"${oldMkt.path}"`) : '';
-        later(`Neither jb-memory nor Trailmark may be installed now. Fix what the installer says, then run it again: ${WIN ? `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(HERE, 'install.ps1')}"` : `"${path.join(HERE, 'install.sh')}"`}${addFrom ? `. To go back to jb-memory meanwhile: claude plugin marketplace add ${addFrom}, then claude plugin install jb-memory@${oldMkt.name}` : ''}`);
+        // Back only from a local copy of the old release that still offers
+        // jb-memory: the GitHub repo under the old name is Trailmark now, so
+        // adding it from there gives a marketplace named trailmark instead.
+        const back = oldClaudeRelease([o.oldRelease, ...(c ? c.oldMarketplaces.map(m => m.path) : []), ...siblingReleases()]);
+        later(`Neither jb-memory nor Trailmark may be installed now. Fix what the installer says, then run it again: ${WIN ? `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(HERE, 'install.ps1')}"` : `"${path.join(HERE, 'install.sh')}"`}${back ? `. To go back to jb-memory meanwhile: claude plugin marketplace add "${back.folder}", then claude plugin install jb-memory@${back.name}` : '. To go back to jb-memory meanwhile, you need a copy of the old jb-memory release folder (its GitHub repo is Trailmark now)'}`);
       }
       if (installed && wasOff) later(`${c.plugins.some(p => p.scope === 'user' && !p.enabled) ? 'jb-memory' : 'Trailmark'} was turned off at user scope, and the installer turned Trailmark on. To turn it off: claude plugin disable trailmark@trailmark --scope user`);
     }
@@ -1087,10 +1126,11 @@ function main() {
   if (x && x.used) {
     const end = surveyCodex(codex);
     // One kept on purpose (other plugins come from it or it offers them) isn't a leftover.
-    const leftover = end.oldMarketplaces.filter(m => !codexOffersOthers(m).length && !(end.fromMkt[m.name] || []).some(n => n.toLowerCase() !== OLD_CODEX));
+    // Nor is one kept until jb-memory-codex is uninstalled in the app.
+    const leftover = end.installed.length ? [] : end.oldMarketplaces.filter(m => !codexOffersOthers(m).length && !(end.fromMkt[m.name] || []).some(n => n.toLowerCase() !== OLD_CODEX));
     if (leftover.length) { warn(`old Codex marketplace still configured: ${leftover.map(m => m.name).join(', ')}`); clean = false; }
     if (end.installed.length) { warn(`jb-memory-codex still installed in the ChatGPT app`); clean = false; }
-    if (o.install && codex && end.listOk) { if (end.trailmarkMarketplace) ok('the trailmark-codex marketplace is added'); else { warn('the trailmark-codex marketplace isn\'t listed by Codex'); clean = false; } }
+    if (o.install && codex && end.listOk) { if (end.trailmarkMarketplace) ok('the trailmark-codex marketplace is added'); else { warn(end.trailmarkElsewhere ? `the trailmark-codex marketplace points at ${end.trailmarkElsewhere}, not this folder` : 'the trailmark-codex marketplace isn\'t listed by Codex'); clean = false; } }
   }
 
   if (WIN && watchdog && o.flags) {

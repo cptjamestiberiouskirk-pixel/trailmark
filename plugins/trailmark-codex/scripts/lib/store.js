@@ -299,9 +299,18 @@ function tryBreakLock(file) {
   try {
     const l = fs.lstatSync(file);
     // A FIFO, socket or device can't be one of ours either: removed the same
-    // way. So is a lock with a second hard link (removing a name never
-    // touches the other one).
-    if (l.isSymbolicLink() || !(l.isFile() || l.isDirectory()) || (l.isFile() && l.nlink > 1)) { fs.unlinkSync(file); return true; }
+    // way. It is moved aside first and checked again there, so a real lock
+    // another command made in the meantime is put back, never deleted. (A
+    // lock with a second hard link is read like any other and ages out.)
+    if (l.isSymbolicLink() || !(l.isFile() || l.isDirectory())) {
+      const aside = `${file}.${crypto.randomBytes(6).toString('hex')}.gone`;
+      try { fs.renameSync(file, aside); } catch { return false; }
+      let a = null;
+      try { a = fs.lstatSync(aside); } catch { return false; }
+      if (a.isFile()) { try { fs.linkSync(aside, file); } catch { /* a newer lock is there */ } try { fs.unlinkSync(aside); } catch { /* best effort */ } return false; }
+      try { fs.unlinkSync(aside); } catch { /* best effort */ }
+      return true;
+    }
     if (l.isDirectory()) { const e = new Error(`${LOCK} in the memory folder is a folder, not a lock file; remove it and run the command again`); e.code = 'JBMEM_LOCKED'; throw e; }
   } catch (e) { if (e && e.code === 'JBMEM_LOCKED') throw e; }
   const info = lockInfo(file);
@@ -521,10 +530,11 @@ function readStateStrict(dir) {
   if (text === null) return {};
   const v = parseState(text);
   if (v) return v;
-  // COPYFILE_EXCL: never through a link or over a file already there. An
-  // older .bad copy stays; this one gets a time suffix.
-  try { fs.copyFileSync(file, `${file}.bad`, fs.constants.COPYFILE_EXCL); } catch (e) {
-    if (e && e.code === 'EEXIST') { try { fs.copyFileSync(file, `${file}.bad-${Date.now()}`, fs.constants.COPYFILE_EXCL); } catch { /* best effort */ } }
+  // The text already read, created exclusively ('wx'): never through a link
+  // or over a file already there. An older .bad copy stays; this one gets a
+  // time suffix.
+  try { fs.writeFileSync(`${file}.bad`, text, { flag: 'wx' }); } catch (e) {
+    if (e && e.code === 'EEXIST') { try { fs.writeFileSync(`${file}.bad-${Date.now()}`, text, { flag: 'wx' }); } catch { /* best effort */ } }
   }
   return {};
 }
@@ -1024,17 +1034,27 @@ function note(dir, text, session = '') {
     if (st.isSymbolicLink() || (p === file && !st.isFile())) throw new Error(`${p} is a link or not a plain file; the note was not written`);
     if (p === file) l = st;
   }
-  if (l.nlink > 1n) {
-    atomicWrite(file, readPlain(file));
+  const entry = `- ${localTime()} ${line}\n`;
+  // Twice at most: a line appended to a copy that another session's copy
+  // replaced a moment later is written again to the file now there.
+  for (let tries = 0; tries < 2; tries++) {
+    if (l.nlink > 1n) {
+      atomicWrite(file, readPlain(file));
+      l = fs.lstatSync(file, { bigint: true });
+      if (!l.isFile() || l.nlink > 1n) throw new Error(`${file} has other hard links; the note was not written`);
+    }
+    const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_APPEND | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+    let same = true;
+    try {
+      const st = fs.fstatSync(fd, { bigint: true });
+      if (!st.isFile() || st.nlink > 1n || (l.ino && (st.ino !== l.ino || st.dev !== l.dev))) throw new Error(`${file} is a link or not a plain file; the note was not written`);
+      fs.writeSync(fd, entry);
+      try { const now = fs.lstatSync(file, { bigint: true }); same = now.ino === st.ino && now.dev === st.dev; } catch { same = true; }
+    } finally { fs.closeSync(fd); }
+    if (same) break;
     l = fs.lstatSync(file, { bigint: true });
-    if (!l.isFile() || l.nlink > 1n) throw new Error(`${file} has other hard links; the note was not written`);
+    if (l.isSymbolicLink() || !l.isFile()) throw new Error(`${file} is a link or not a plain file; the note was not written`);
   }
-  const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_APPEND | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
-  try {
-    const st = fs.fstatSync(fd, { bigint: true });
-    if (!st.isFile() || st.nlink > 1n || (l.ino && (st.ino !== l.ino || st.dev !== l.dev))) throw new Error(`${file} is a link or not a plain file; the note was not written`);
-    fs.writeSync(fd, `- ${localTime()} ${line}\n`);
-  } finally { fs.closeSync(fd); }
   return file;
 }
 
@@ -1443,8 +1463,11 @@ function pruneReport(dir) {
   const links = memoryIndexLinks(memText);
   // A link through a linked folder isn't followed, so it isn't checked
   // either; Claude Code can still read it, so it isn't called dead.
-  const unchecked = links.filter(l => linkOnWay(dir, l));
-  const deadLinks = links.filter(l => !linkOnWay(dir, l) && (!plainUnder(dir, l) || !plainExists(path.join(dir, l))));
+  // Not checked: a link through a linked folder, and one that leaves the
+  // memory folder ('..' or an absolute path), since neither is followed.
+  const outside = l => path.isAbsolute(l) || /^[A-Za-z]:/.test(l) || String(l).split(/[\\/]+/).includes('..');
+  const unchecked = links.filter(l => outside(l) || linkOnWay(dir, l));
+  const deadLinks = links.filter(l => !unchecked.includes(l) && (!plainUnder(dir, l) || !plainExists(path.join(dir, l))));
   const topics = topicFiles(dir);
   const orphans = memoryLinked ? [] : topics.filter(t => !links.includes(t));
   const stale = [];

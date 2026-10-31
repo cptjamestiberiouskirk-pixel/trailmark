@@ -230,7 +230,9 @@ function sessionHome(payload) {
   if (!real) return '';
   let fd;
   try {
-    fd = require('./lib/plainfile').openPlain(real); // never a FIFO
+    // The name itself, so a transcript that is a link isn't read (openPlain
+    // refuses it); localPath above already checked the folders on the way.
+    fd = require('./lib/plainfile').openPlain(f); // never a FIFO
     const buf = Buffer.alloc(64 * 1024);
     const n = fs.readSync(fd, buf, 0, buf.length, 0);
     // The first record's own cwd (never one inside a tool call's arguments),

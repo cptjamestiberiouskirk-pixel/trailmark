@@ -3,8 +3,10 @@
 # the Codex marketplace) on macOS or Linux, from this release folder.
 #
 # What it does, in order. It stops at the first step that fails and says why.
-#   1. Checks Node (present, and not older than its line's October 2026
-#      security release), git and the claude command.
+#   1. Leaves out PATH entries that aren't absolute folders (".", empty,
+#      relative) for this run and says so. Checks Node (present, and not
+#      older than its line's October 2026 security release), git and the
+#      claude command.
 #   2. Checks this folder and the folders above it: Claude Code runs the
 #      hooks from here, so write access for other users or a shared group,
 #      another owner above it, or a link inside it is refused.
@@ -165,9 +167,25 @@ GW="$(find "$HERE" \( -type d -o -type f \) -perm -0020 ! -type l $OWNGRP_NOT -p
 # Access-list entries (setfacl) can grant others write access that the mode
 # bits above don't show. Linux; on macOS, chmod -N removes them (ls -le).
 # Only an entry that lets a named user or group write counts.
-acl_write() { getfacl "$@" -s -p 2>/dev/null | awk '/^# file: /{f=substr($0,9)} /^(default:)?(user|group):[^:]+:.w/{print f; exit}'; }
+# An entry for yourself doesn't count, the mask's limit (#effective) does,
+# and on a folder above the release, default: entries (for new files) don't.
+acl_write() {
+  DEFAULTS_TOO="$1"; shift
+  getfacl "$@" -s -p 2>/dev/null | awk -v me="$ME" -v dflt="$DEFAULTS_TOO" '
+    /^# file: / { f = substr($0, 9); next }
+    {
+      line = $0
+      if (line ~ /^default:/) { if (dflt != 1) next; sub(/^default:/, "", line) }
+      if (line !~ /^(user|group):[^:]+:/) next
+      split(line, a, ":")
+      if (a[1] == "user" && a[2] == me) next
+      perm = substr(a[3], 1, 3)
+      if (match(line, /#effective:[rwx-]+/)) perm = substr(line, RSTART + 11, 3)
+      if (substr(perm, 2, 1) == "w") { print f; exit }
+    }'
+}
 if command -v getfacl >/dev/null 2>&1; then
-  ACL="$(acl_write -R "$HERE")"
+  ACL="$(acl_write 1 -R "$HERE")"
   [ -z "$ACL" ] || fail "$ACL has access-list entries (setfacl) that let others write there. Claude Code runs the hooks from this folder, so remove them first (setfacl -R -b \"$HERE\")."
 fi
 # The release ships no links, and a link could point at something others can write.
@@ -182,7 +200,7 @@ while [ -n "$P" ]; do
     # shellcheck disable=SC2086
     if [ -n "$(find "$P" -maxdepth 0 -perm -0020 $OWNGRP_NOT 2>/dev/null)" ]; then fail "members of a shared group can write to $P, which holds this folder. Move the release under your home folder."; fi
   fi
-  if command -v getfacl >/dev/null 2>&1 && [ -n "$(acl_write "$P")" ]; then fail "$P, which holds this folder, has access-list entries (setfacl) that let others write there. Move the release under your home folder."; fi
+  if command -v getfacl >/dev/null 2>&1 && [ -n "$(acl_write 0 "$P")" ]; then fail "$P, which holds this folder, has access-list entries (setfacl) that let others write there. Move the release under your home folder."; fi
   if [ -z "$(find "$P" -maxdepth 0 \( -user "$ME" -o -user 0 \) 2>/dev/null)" ]; then fail "$P, which holds this folder, belongs to another user. Move the release under your home folder."; fi
   [ "$P" = "/" ] && break
   P="$(dirname "$P")"

@@ -36,14 +36,68 @@ function plainMtime(file) {
 // text read is skipped.
 function recordCwds(text, max = Infinity) {
   const out = [];
-  for (const line of String(text).split('\n')) {
+  for (let line of String(text).replace(/^\uFEFF/, '').split('\n')) {
     if (out.length >= max) break;
     if (!line.includes('"cwd"')) continue;
     let j;
-    try { j = JSON.parse(line); } catch { continue; }
-    if (j && typeof j === 'object' && !Array.isArray(j) && typeof j.cwd === 'string') out.push(j.cwd);
+    try { j = JSON.parse(line); } catch { j = undefined; }
+    if (j !== undefined) {
+      if (j && typeof j === 'object' && !Array.isArray(j) && typeof j.cwd === 'string') out.push(j.cwd);
+      continue;
+    }
+    // A line cut off where the read stopped (a long first prompt): its
+    // top-level "cwd", read with a scan that tracks nesting and strings.
+    const c = topLevelCwd(line);
+    if (typeof c === 'string') out.push(c);
   }
   return out;
+}
+// The value of a top-level "cwd" key in the start of a JSON object, or
+// undefined. Keys and values inside nested objects, arrays and strings never
+// count.
+function topLevelCwd(t) {
+  let i = 0;
+  const n = t.length;
+  const ws = () => { while (i < n && /\s/.test(t[i])) i++; };
+  const str = () => {
+    const s0 = i;
+    i++;
+    while (i < n) { if (t[i] === '\\') { i += 2; continue; } if (t[i] === '"') { i++; return t.slice(s0, i); } i++; }
+    return null;
+  };
+  ws();
+  if (t[i] !== '{') return undefined;
+  i++;
+  let depth = 1;
+  let expectKey = true;
+  while (i < n && depth > 0) {
+    ws();
+    const ch = t[i];
+    if (ch === undefined) break;
+    if (ch === '"') {
+      const raw = str();
+      if (raw === null) return undefined;
+      if (depth === 1 && expectKey) {
+        ws();
+        if (t[i] !== ':') return undefined;
+        i++; ws();
+        if (raw === '"cwd"') {
+          if (t[i] !== '"') return undefined;
+          const v = str();
+          if (v === null) return undefined;
+          try { return JSON.parse(v); } catch { return undefined; }
+        }
+        expectKey = false;
+        continue;
+      }
+      continue;
+    }
+    if (ch === '{' || ch === '[') { depth++; i++; continue; }
+    if (ch === '}' || ch === ']') { depth--; i++; continue; }
+    if (ch === ',') { if (depth === 1) expectKey = true; i++; continue; }
+    i++;
+  }
+  return undefined;
 }
 
 module.exports = { openPlain, plainMtime, recordCwds };

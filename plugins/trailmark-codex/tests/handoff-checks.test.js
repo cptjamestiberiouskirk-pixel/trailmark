@@ -835,11 +835,17 @@ test('git checks: alternates\' own folders, core.worktree as a base, git-lfs fol
   };
   assert.strictEqual(lfsRepo(r => fs.writeFileSync(path.join(r, '.lfsconfig'), '[include]\n  path = ' + EVIL + '\n')), 'lfs-config', '.lfsconfig with an include');
   assert.strictEqual(lfsRepo(r => fs.symlinkSync(EVIL, path.join(r, '.lfsconfig'))), 'lfs-config', '.lfsconfig as a link');
+  // Only in the index and HEAD: its copy there is checked the same way.
+  assert.strictEqual(lfsRepo(r => {
+    fs.writeFileSync(path.join(r, '.lfsconfig'), '[include]\n  path = ' + EVIL + '\n');
+    execFileSync('git', ['add', '.lfsconfig'], { cwd: r }); execFileSync('git', ['commit', '-qm', 'c'], { cwd: r });
+    fs.rmSync(path.join(r, '.lfsconfig'));
+  }), 'lfs-config', '.lfsconfig with an include, only in the index and HEAD');
   assert.strictEqual(lfsRepo(r => {
     fs.writeFileSync(path.join(r, '.lfsconfig'), '[lfs]\n  batch = true\n');
     execFileSync('git', ['add', '.lfsconfig'], { cwd: r }); execFileSync('git', ['commit', '-qm', 'c'], { cwd: r });
     fs.rmSync(path.join(r, '.lfsconfig'));
-  }), 'lfs-config', '.lfsconfig only in the index and HEAD');
+  }), undefined, 'a plain .lfsconfig only in the index and HEAD');
   assert.strictEqual(lfsRepo(r => fs.writeFileSync(path.join(r, '.lfsconfig'), '[lfs]\n  batch = true\n')), undefined, 'a plain .lfsconfig');
 });
 
@@ -860,6 +866,8 @@ test('memory folder and transcripts: hard links, record cwd, prune outcomes, set
   const lock = path.join(s.memdir, S.LOCK);
   fs.writeFileSync(lock, 'pid 1 host x since 2000-01-01T00:00:00.000Z token t\n');
   fs.linkSync(lock, path.join(s.base, 'lock-copy'));
+  // Read like any lock: an old one ages out (a fresh one would wait).
+  fs.utimesSync(lock, new Date(Date.now() - 120000), new Date(Date.now() - 120000));
   let ran = false;
   S.withLock(s.memdir, () => { ran = true; }, { waitMs: 1500 });
   assert.ok(ran, 'a hard-linked lock kept writes out');
@@ -868,14 +876,97 @@ test('memory folder and transcripts: hard links, record cwd, prune outcomes, set
   // Prune: a folder that is gone means dead; a linked folder means not checked.
   fs.appendFileSync(path.join(s.memdir, 'MEMORY.md'), '\n- [o](topics/old.md) gone\n- [u](../up.md) up\n');
   const r = S.pruneReport(s.memdir);
-  assert.ok(r.deadLinks.includes('topics/old.md') && r.deadLinks.includes('../up.md'), JSON.stringify(r));
-  assert.deepStrictEqual(r.unchecked, []);
+  assert.ok(r.deadLinks.includes('topics/old.md'), JSON.stringify(r));
+  // A link out of the memory folder isn't followed, so it isn't called dead.
+  assert.deepStrictEqual(r.unchecked, ['../up.md']);
   // ~you/ and the null device in settings that name a file.
   const me = require('os').userInfo().username;
   const t = path.join(s.base, 't'); repoAt(t);
   execFileSync('git', ['config', 'core.excludesFile', `~${me}/.gitignore_global`], { cwd: t });
   execFileSync('git', ['config', 'core.hooksPath', '/dev/null'], { cwd: t });
   assert.strictEqual(farGitConfig(t), '');
+});
+
+test('lock, day log and state copy: hard links and races (loop round 6)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const base = realTemp('jbmem-r6-');
+  // A fresh live-looking lock with a second hard link is not broken at once.
+  const d1 = path.join(base, 'd1'); fs.mkdirSync(d1);
+  const lock = path.join(d1, S.LOCK);
+  fs.writeFileSync(lock, `pid ${process.pid} host ${require('os').hostname().replace(/\s+/g, '_').slice(0, 64)} since ${new Date().toISOString()} token t\n`);
+  fs.linkSync(lock, path.join(base, 'lock-copy'));
+  assert.throws(() => S.withLock(d1, () => {}, { waitMs: 300 }), e => e.code === 'JBMEM_LOCKED', 'a live lock with a second link was broken');
+  // A transcript that is itself a link isn't read by sessionHome.
+  const src = fs.readFileSync(path.join(ROOT, 'scripts', 'trailmark.js'), 'utf8');
+  assert.match(src, /openPlain\(f\); \/\/ never a FIFO/);
+  // A bad state file is copied from the text read, never through a link.
+  const d2 = path.join(base, 'd2'); fs.mkdirSync(d2);
+  fs.writeFileSync(path.join(d2, '.jbmem-state.json'), '{not json');
+  S.readState(d2);
+  const bad = fs.readdirSync(d2).find(f => f.startsWith('.jbmem-state.json.bad'));
+  if (bad) assert.strictEqual(fs.readFileSync(path.join(d2, bad), 'utf8'), '{not json');
+});
+
+test('git checks: submodule gitdirs in modules/, .gitmodules, alternates from core.worktree (loop round 6)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-far11-');
+  const EVIL = '//evil.invalid/share/x';
+  const withSub = (name) => {
+    const sp = path.join(base, name); const g = repoAt(sp);
+    const sub = path.join(sp, 'sub'); repoAt(sub);
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: sub, encoding: 'utf8' }).trim();
+    g('update-index', '--add', '--cacheinfo', `160000,${head},sub`);
+    fs.writeFileSync(path.join(sp, '.gitmodules'), '[submodule "x"]\n\tpath = sub\n');
+    g('add', '.gitmodules'); g('commit', '-qm', 'sub');
+    return sp;
+  };
+  // A gitdir in .git/modules/ whose commondir leads to a share.
+  const a = withSub('a');
+  const md = path.join(a, '.git', 'modules', 'x');
+  fs.mkdirSync(path.join(md, 'objects'), { recursive: true }); fs.mkdirSync(path.join(md, 'refs'));
+  fs.writeFileSync(path.join(md, 'HEAD'), 'ref: refs/heads/main\n');
+  fs.writeFileSync(path.join(md, 'commondir'), EVIL + '\n');
+  assert.strictEqual(farGitConfig(a), 'network-gitdir', 'a modules/ gitdir');
+  // .gitmodules as a link, with a submodule in the index.
+  const b = withSub('b');
+  fs.rmSync(path.join(b, '.gitmodules'));
+  fs.symlinkSync(EVIL, path.join(b, '.gitmodules'));
+  assert.strictEqual(gitFacts(b, ['status']).statusSkipped, 'submodule-pointer');
+  // A relative alternates line taken from a core.worktree (git-lfs does).
+  const w = path.join(base, 'w'); fs.mkdirSync(w); execFileSync('git', ['init', '-q', w]);
+  fs.mkdirSync(path.join(w, 'sub'));
+  execFileSync('git', ['config', 'core.worktree', '../sub'], { cwd: w });
+  fs.symlinkSync(EVIL, path.join(w, 'sub', 'evil'));
+  fs.mkdirSync(path.join(w, '.git', 'objects', 'info'), { recursive: true });
+  fs.writeFileSync(path.join(w, '.git', 'objects', 'info', 'alternates'), 'evil/objects\n');
+  assert.notStrictEqual(farGitConfig(path.join(w, 'sub')), '', 'alternates line read from the worktree');
+  // An ordinary superproject is fine.
+  const ok = withSub('ok');
+  assert.strictEqual(farGitConfig(ok), '');
+});
+
+test('LFS stores, long transcript lines (loop round 6)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const { recordCwds } = require(path.join(ROOT, 'scripts', 'lib', 'plainfile.js'));
+  const base = realTemp('jbmem-r6b-');
+  const EVIL = '//evil.invalid/share/x';
+  // A big .git/lfs store doesn't use up the budget for git's own folders.
+  const a = path.join(base, 'a'); repoAt(a);
+  const lo = path.join(a, '.git', 'lfs', 'objects');
+  for (let i = 0; i < 160; i++) { const d = path.join(lo, (i % 256).toString(16).padStart(2, '0'), 'aa'); fs.mkdirSync(d, { recursive: true }); for (let j = 0; j < 140; j++) fs.writeFileSync(path.join(d, `f${i}_${j}`), ''); }
+  fs.symlinkSync(EVIL, path.join(a, '.git', 'refs', 'heads', 'zz'));
+  assert.strictEqual(farGitConfig(a), 'linked-gitdir', 'a link in refs/ after a big lfs/');
+  // Inside lfs.storage, objects/ab/cd is walked.
+  const b = path.join(base, 'b'); repoAt(b);
+  const st = path.join(base, 'store'); fs.mkdirSync(path.join(st, 'objects', 'ab'), { recursive: true });
+  fs.symlinkSync(EVIL, path.join(st, 'objects', 'ab', 'cd'));
+  execFileSync('git', ['config', 'lfs.storage', st], { cwd: b });
+  assert.strictEqual(farGitConfig(b), 'linked-gitdir', 'lfs.storage/objects/ab/cd');
+  // A first record longer than the 64 KB read still gives its cwd.
+  const rec = JSON.stringify({ type: 'user', cwd: '/home/me/repo', message: { content: 'x'.repeat(70000) } });
+  assert.deepStrictEqual(recordCwds(rec.slice(0, 65536)), ['/home/me/repo']);
+  const tool = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', input: { cwd: EVIL } }], pad: 'x'.repeat(70000) }, cwd: '/r' });
+  assert.deepStrictEqual(recordCwds(tool.slice(0, 65536)), [], 'a cwd inside a tool call');
 });
 
 test('memory folder: a linked subfolder is never listed or stat-ed through (loop round 2)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
