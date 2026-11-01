@@ -1245,7 +1245,7 @@ function readCommitStart(dir, toolUseId, session = '', now = Date.now()) {
   const sid = cleanSession(session);
   if (sid && rec.session && cleanSession(rec.session) !== sid) return null;
   const sites = Array.isArray(rec.sites) && rec.sites.length <= 4 && rec.sites.every(d => typeof d === 'string' && d.length <= 1024 && path.isAbsolute(d)) ? rec.sites : undefined;
-  return { cwd: rec.cwd, at: rec.at, name: `${toolUseId}.json`, session: cleanSession(rec.session) || '', agent: typeof rec.agent === 'string' && AGENT_RE.test(rec.agent) ? rec.agent : '', ...(sites ? { sites } : {}) };
+  return { cwd: rec.cwd, at: rec.at, name: `${toolUseId}.json`, session: cleanSession(rec.session) || '', agent: cleanAgent(rec.agent), ...(sites ? { sites } : {}) };
 }
 
 // A subagent's ID from a hook payload, or '' (the main thread, or none given).

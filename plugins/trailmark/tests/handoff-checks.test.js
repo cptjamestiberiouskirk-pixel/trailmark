@@ -1753,7 +1753,7 @@ test('round 10 regressions: old git and HEAD-like folders, flags kept, MEMORY.md
   assert.deepStrictEqual(pr.orphans, []);
 });
 
-test('sweep: a commit command denied at the prompt stops holding the sweep once its session finishes a later one (final check)', () => {
+test('sweep: a commit command denied at the prompt stops holding the sweep once its session finishes a later one, except in Codex, which gives no subagent ID (final check)', () => {
   const base = realTemp('jbmem-deny-');
   const pend = path.join(base, 'pending'); fs.mkdirSync(pend);
   const now = Date.now();
@@ -1876,7 +1876,7 @@ test('sweep: a later finished commit releases an earlier record only from the sa
   assert.strictEqual(S.cleanAgent(7), '');
 });
 
-test('git checks: a NUL or control character in a pointer file keeps git out, since git reads only up to the NUL (review round 11)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git checks: a NUL in a pointer file keeps git out, since git reads only up to the NUL; a tab in a folder name does not (review round 11)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
   const G = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-nul-');
   const m = path.join(base, 'm'); repoAt(m);
@@ -1888,6 +1888,6 @@ test('git checks: a NUL or control character in a pointer file keeps git out, si
   assert.strictEqual(G.farGitConfig(m), 'network-gitdir', 'a NUL after a link to a share');
   fs.writeFileSync(path.join(w, 'gitdir'), path.join(base, 'wt\tx', '.git') + '\n');
   const s2 = path.join(m, 's2'); fs.mkdirSync(s2);
-  assert.strictEqual(G.farGitConfig(s2), 'network-gitdir', 'a control character in a pointer');
+  assert.strictEqual(G.farGitConfig(s2), '', 'a worktree folder whose name has a tab: git opens the same path the check reads');
   assert.strictEqual(G.localPath(path.join(base, 'lnk') + '\0/x'), null);
 });
