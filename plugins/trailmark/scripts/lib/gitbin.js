@@ -554,8 +554,8 @@ function validGitdir(gitdir, common) {
   };
   return usable(path.join(base, 'objects')) && usable(path.join(base, 'refs'));
 }
-// '' when every worktrees/<id>/commondir in wt leads to a local place, else
-// the reason. Up to 10,000 worktrees are read; past that, git is kept out.
+// '' when every worktrees/<id>/commondir and gitdir in wt leads to a local
+// place, else the reason. Up to 10,000 worktrees are read; past that, git is kept out.
 const MAX_WORKTREES = 10000;
 function otherWorktrees(wt) {
   let names;
@@ -568,8 +568,14 @@ function otherWorktrees(wt) {
     if (!st.isDirectory()) continue; // a link there was walked with the gitdir
     const c = readSmall(path.join(d, 'commondir'), 4096);
     if (c === UNSAFE) return 'unreadable-config';
-    if (c === null || !c.replace(/[\r\n]+$/, '')) continue;
-    if (!gitdirAt(d, c)) return 'network-gitdir';
+    if (c !== null && c.replace(/[\r\n]+$/, '') && !gitdirAt(d, c)) return 'network-gitdir';
+    // The worktree's own folder, as recorded in gitdir: git 2.56 looks it up
+    // for rev-list --all (and git worktree list), relative paths included
+    // (worktree.useRelativePaths), so one that leads to a network path, or
+    // through a link to one, keeps git out too.
+    const g = readSmall(path.join(d, 'gitdir'), 4096);
+    if (g === UNSAFE) return 'unreadable-config';
+    if (g !== null && g.replace(/[\r\n]+$/, '') && !gitdirAt(d, g)) return 'network-gitdir';
   }
   return '';
 }

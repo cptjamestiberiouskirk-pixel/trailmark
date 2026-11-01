@@ -1769,3 +1769,35 @@ test('sweep: a commit command denied at the prompt stops holding the sweep once 
   fs.unlinkSync(path.join(pend, 'toolu_later.done'));
   assert.strictEqual(S.openCommitStart(base, {}, 600000, now, '22222222-2222-4222-8222-333333333333'), now - 20000);
 });
+
+test('git checks: another worktree recorded through a link to a share, or on one, keeps git out (git 2.56, final check)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-wtgd-');
+  const EVIL = '//evil.invalid/share/x';
+  const mk = (name) => {
+    const root = path.join(base, name); fs.mkdirSync(root);
+    const m = path.join(root, 'main'); const g = repoAt(m);
+    g('worktree', 'add', '-q', path.join(root, 'wt'));
+    const id = fs.readdirSync(path.join(m, '.git', 'worktrees'))[0];
+    return { root, m, gd: path.join(m, '.git', 'worktrees', id, 'gitdir') };
+  };
+  // An ordinary worktree, absolute or relative, and one whose folder is gone.
+  const a = mk('a');
+  fs.mkdirSync(path.join(a.m, 's1'));
+  assert.strictEqual(farGitConfig(path.join(a.m, 's1')), '', 'an ordinary worktree');
+  fs.writeFileSync(a.gd, '../../../../wt/.git\n');
+  fs.mkdirSync(path.join(a.m, 's2'));
+  assert.strictEqual(farGitConfig(path.join(a.m, 's2')), '', 'a relative worktree path');
+  fs.writeFileSync(a.gd, path.join(base, 'gone', '.git') + '\n');
+  fs.mkdirSync(path.join(a.m, 's3'));
+  assert.strictEqual(farGitConfig(path.join(a.m, 's3')), '', 'a worktree that was deleted');
+  // Recorded through a link to a share (as git 2.56 writes it, relative), and on a share.
+  const b = mk('b');
+  fs.rmSync(path.join(b.root, 'wt'), { recursive: true });
+  fs.symlinkSync(EVIL, path.join(b.root, 'wt'));
+  fs.writeFileSync(b.gd, '../../../../wt/.git\n');
+  assert.strictEqual(farGitConfig(b.m), 'network-gitdir', 'a worktree recorded through a link to a share');
+  const c = mk('c');
+  fs.writeFileSync(c.gd, EVIL + '/wt/.git\n');
+  assert.strictEqual(farGitConfig(c.m), 'network-gitdir', 'a worktree recorded on a share');
+});
