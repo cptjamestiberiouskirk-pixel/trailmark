@@ -39,15 +39,20 @@ if (-not $node) {
   exit 1
 }
 $script = Join-Path $PSScriptRoot 'migrate-from-jb-memory.js'
-# Windows PowerShell 5.1 passes an argument with spaces and a trailing
-# backslash as "C:\a b\", which node reads as an escaped quote and joins with
-# what follows: the trailing backslash is doubled for it.
+# Windows PowerShell 5.1, and PowerShell 7 before 7.3 (or with
+# $PSNativeCommandArgumentPassing set to Legacy), pass an argument with spaces
+# and trailing backslashes as "C:\a b\", which node reads as an escaped quote
+# and joins with what follows: the trailing backslashes are doubled for it.
+$tmLegacy = $PSVersionTable.PSVersion.Major -lt 6 -or -not (Get-Variable -Name PSNativeCommandArgumentPassing -ErrorAction SilentlyContinue) -or "$PSNativeCommandArgumentPassing" -eq 'Legacy'
 $tmArgs = [System.Collections.Generic.List[string]]::new()
 foreach ($a in $args) {
   $v = [string]$a
-  if ($PSVersionTable.PSVersion.Major -lt 6 -and $v -match '\s' -and $v.EndsWith('\')) { $v = $v + '\' }
+  if ($tmLegacy -and $v -match '\s') { $v = $v -replace '(\\+)$', '$1$1' }
   $tmArgs.Add($v)
 }
 $tmArr = $tmArgs.ToArray()
+# The script's own error output must not stop this wrapper (Windows
+# PowerShell 5.1 turns a program's stderr into errors when it is redirected).
+$ErrorActionPreference = 'Continue'
 & $node.Source $script @tmArr
 exit $LASTEXITCODE

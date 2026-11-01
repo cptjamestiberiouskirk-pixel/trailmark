@@ -277,11 +277,16 @@ function readSmall(file, max) {
 }
 // A config file with no quotes or backslashes, read the way git does:
 // [section] or [section.sub] headers, key = value, a key alone is true,
-// comments from # or ; on. null when a line doesn't fit that shape.
+// comments from # or ; on. null when a line doesn't fit that shape, or
+// holds anything but printable ASCII after its indent: git's own idea of
+// whitespace (space, tab, CR, LF only, a tab inside a value read as a space)
+// and a NUL that ends its value differ from JavaScript's, so git reads those.
 function plainConfig(text) {
+  if (/[^\t\r\n\x20-\x7E]/.test(text)) return null;
   const out = [];
   let sec = '';
   for (let line of text.split(/\r?\n/)) {
+    if (/[\t\r]/.test(line.replace(/^[ \t]+/, ''))) return null;
     line = line.replace(/[#;].*$/, '').trim();
     if (!line) continue;
     let m = /^\[\s*([A-Za-z0-9.-]+)\s*\]$/.exec(line);
@@ -549,6 +554,67 @@ function validGitdir(gitdir, common) {
   };
   return usable(path.join(base, 'objects')) && usable(path.join(base, 'refs'));
 }
+// '' when every worktrees/<id>/commondir in wt leads to a local place, else
+// the reason. The first 1,000 worktrees are read; past that, git is kept out.
+const MAX_WORKTREES = 1000;
+function otherWorktrees(wt) {
+  let names;
+  try { names = fs.readdirSync(wt); } catch { return ''; }
+  if (names.length > MAX_WORKTREES) return 'many-worktrees';
+  for (const n of names) {
+    const d = path.join(wt, n);
+    let st;
+    try { st = fs.lstatSync(d); } catch { continue; }
+    if (!st.isDirectory()) continue; // a link there was walked with the gitdir
+    const c = readSmall(path.join(d, 'commondir'), 4096);
+    if (c === UNSAFE) return 'unreadable-config';
+    if (c === null || !c.replace(/[\r\n]+$/, '')) continue;
+    if (!gitdirAt(d, c)) return 'network-gitdir';
+  }
+  return '';
+}
+// What git reads when it tries a folder as a bare repo before
+// safe.bareRepository=explicit refuses it (is_git_directory, git 2.43): HEAD,
+// which must look like a head (a link is opened through), then commondir and
+// the objects and refs folders it names. Nothing else: config, alternates and
+// links inside aren't read. '' or the reason.
+function farBareProbe(d) {
+  const h = path.join(d, 'HEAD');
+  let st;
+  try { st = fs.lstatSync(h); } catch { return ''; }
+  let file = h;
+  let valid = false;
+  if (st.isSymbolicLink()) {
+    let t = '';
+    try { t = fs.readlinkSync(h); } catch { return 'unreadable-config'; }
+    file = localPath(h);
+    if (!file) return 'network-gitdir';
+    if (/^refs\//.test(t)) valid = true;
+    else {
+      try { st = fs.statSync(file); } catch { return ''; }
+    }
+  }
+  if (!valid) {
+    if (!st.isFile()) return '';
+    let text = '';
+    let fd;
+    try {
+      fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
+      const buf = Buffer.alloc(256);
+      text = buf.subarray(0, fs.readSync(fd, buf, 0, 256, 0)).toString('latin1');
+    } catch { return ''; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } } // git can't read it either
+    if (!/^ref:\s*refs\/|^[0-9a-f]{40}/i.test(text)) return '';
+  }
+  let base = d;
+  const common = readSmall(path.join(d, 'commondir'), 4096);
+  if (common === UNSAFE) return 'unreadable-config';
+  if (common !== null && common.replace(/[\r\n]+$/, '')) {
+    base = gitdirAt(d, common);
+    if (!base) return 'network-gitdir';
+  }
+  for (const s of ['objects', 'refs']) if (!localPath(path.join(base, s))) return 'network-gitdir';
+  return '';
+}
 // light: for a submodule gitdir in modules/ (its links were walked with the
 // repo's gitdir); the rest of the checks are the same.
 function farGit(gitEntry, out = {}, { light = false } = {}) {
@@ -579,6 +645,15 @@ function farGit(gitEntry, out = {}, { light = false } = {}) {
   }
   out.gitdir = gitdir;
   out.common = dirs[1] || '';
+  // Each other worktree's commondir: git reads the refs there for --all (and
+  // a later git version may for more), so one that leads to a network path
+  // keeps git out like the repo's own.
+  if (!light) {
+    for (const d of dirs) {
+      const w = otherWorktrees(path.join(d, 'worktrees'));
+      if (w) return w;
+    }
+  }
   // Folders a relative path in a setting may be taken from.
   const cst = { seen: new Set(), files: 0, bases: [path.dirname(gitEntry), gitdir, dirs[1] || '', CHECK_CWD], pending: [] };
   for (const d of dirs) {
@@ -663,9 +738,12 @@ function moduleGitdirs(root) {
     // A folder with a HEAD (a file or a link, as git accepts either) is a
     // candidate gitdir; the walk goes on inside it too, since a submodule
     // named a/b keeps its gitdir in modules/a/b even when modules/a is one.
-    if (list.some(x => x.name === 'HEAD' && (x.isFile() || x.isSymbolicLink()))) out.push(d);
+    const isGitdir = list.some(x => x.name === 'HEAD' && (x.isFile() || x.isSymbolicLink()));
+    if (isGitdir) out.push(d);
     for (const x of list) {
-      if (/^(objects|lfs|logs|hooks)$/.test(x.name) && out[out.length - 1] === d) continue;
+      // A gitdir's own objects, refs (refs/remotes/origin holds a HEAD too),
+      // logs, lfs and hooks hold no submodule gitdir.
+      if (isGitdir && /^(objects|refs|lfs|logs|hooks)$/.test(x.name)) continue;
       let sub = path.join(d, x.name);
       let isDir = x.isDirectory();
       if (x.isSymbolicLink()) {
@@ -720,22 +798,27 @@ function farGitConfigIn(cwd) {
         const g = path.join(d, '.git');
         let found = false;
         try { fs.lstatSync(g); found = true; } catch { found = false; }
-        // git also tries each folder it passes as a gitdir of its own (a
-        // bare repo) before safe.bareRepository refuses it: a folder with a
-        // HEAD in it is checked as one, its commondir and links included.
-        if (!found) {
-          let head = false;
-          try { fs.lstatSync(path.join(d, 'HEAD')); head = true; } catch { head = false; }
-          if (head) why = farGit(d);
-          if (why) break;
-        }
+        let accepted = false;
         if (found) {
           const at = {};
           why = farGit(g, at);
           // git stops at the first repo it accepts; past one it doesn't, it
           // goes on looking, so the check does too.
-          if (!why && at.gitdir && validGitdir(at.gitdir, at.common)) { seenDirs.set(k, true); break; }
+          if (why) break;
+          accepted = !!(at.gitdir && validGitdir(at.gitdir, at.common));
         }
+        // git also tries each folder it passes as a gitdir of its own (a
+        // bare repo) before safe.bareRepository refuses it, also when the
+        // folder has a .git it didn't accept (an empty folder, a dead link):
+        // a folder with a HEAD in it is checked as one, its commondir and
+        // links included.
+        if (!accepted) {
+          let head = false;
+          try { fs.lstatSync(path.join(d, 'HEAD')); head = true; } catch { head = false; }
+          if (head) why = farBareProbe(d);
+          if (why) break;
+        }
+        if (accepted) { seenDirs.set(k, true); break; }
       }
       const up = path.dirname(d);
       if (up === d) break;

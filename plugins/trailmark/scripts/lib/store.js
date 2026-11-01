@@ -86,11 +86,19 @@ function notPlain(file) { const e = new Error(`${file} is a link or not a plain 
 // The memory subfolders on the way to p (notes/, archive/handoff-history/
 // and the like), each checked before anything looks inside: a folder that is
 // a link, or not a folder, throws. A missing one has nothing to follow.
+// Memory folders found in this process (the launcher finds them itself and
+// gets no JBMEM_DIR), so the walk below stops at each one.
+const memoryRoots = new Set();
+function addMemoryRoot(dir) { if (typeof dir === 'string' && dir) memoryRoots.add(path.resolve(dir)); }
+function isMemoryRoot(q) {
+  const r = path.resolve(q);
+  if (process.env.JBMEM_DIR && r === path.resolve(process.env.JBMEM_DIR)) return true;
+  return memoryRoots.has(r);
+}
 function plainSubs(p) {
   // Never above the memory folder itself, which may be named like one of its
   // subfolders (an autoMemoryDirectory such as ~/notes).
-  const top = process.env.JBMEM_DIR ? path.resolve(process.env.JBMEM_DIR) : '';
-  for (let q = p, i = 0; i < 3 && MEMORY_SUBS.has(path.basename(q)) && path.resolve(q) !== top; q = path.dirname(q), i++) {
+  for (let q = p, i = 0; i < 3 && MEMORY_SUBS.has(path.basename(q)) && !isMemoryRoot(q); q = path.dirname(q), i++) {
     let st;
     try { st = fs.lstatSync(q); } catch (e) { if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) continue; throw e; }
     if (st.isSymbolicLink() || !st.isDirectory()) { const e = new Error(`${q} is a link or not a folder`); e.code = 'ENOENT'; throw e; }
@@ -296,28 +304,18 @@ function tryBreakLock(file) {
   // A lock is only ever created as a plain file. A link there is not one of
   // ours and is removed (the link, never what it points to); a folder is
   // reported, since what it holds isn't ours to delete.
+  let nonFile = false;
   try {
     const l = fs.lstatSync(file);
     // A FIFO, socket or device can't be one of ours either: removed the same
-    // way. It is moved aside first and checked again there, so a real lock
-    // another command made in the meantime is put back, never deleted. (A
-    // lock with a second hard link is read like any other and ages out.)
-    if (l.isSymbolicLink() || !(l.isFile() || l.isDirectory())) {
-      const aside = `${file}.${crypto.randomBytes(6).toString('hex')}.gone`;
-      try { fs.renameSync(file, aside); } catch { return false; }
-      let a = null;
-      try { a = fs.lstatSync(aside); } catch { return false; }
-      // A real lock made since the lstat: put back. If that fails (a newer
-      // lock took the name, or the drive has no hard links), the copy is left
-      // as .gone rather than deleted, so no holder's lock is lost by this.
-      if (a.isFile()) { try { fs.linkSync(aside, file); try { fs.unlinkSync(aside); } catch { /* best effort */ } } catch { /* left as .gone */ } return false; }
-      try { fs.unlinkSync(aside); } catch { /* best effort */ }
-      return true;
-    }
-    if (l.isDirectory()) { const e = new Error(`${LOCK} in the memory folder is a folder, not a lock file; remove it and run the command again`); e.code = 'JBMEM_LOCKED'; throw e; }
+    // way, under the .break lock below like any other break, so two commands
+    // never both take the name. (A lock with a second hard link is read like
+    // any other and ages out.)
+    if (l.isSymbolicLink() || !(l.isFile() || l.isDirectory())) nonFile = true;
+    else if (l.isDirectory()) { const e = new Error(`${LOCK} in the memory folder is a folder, not a lock file; remove it and run the command again`); e.code = 'JBMEM_LOCKED'; throw e; }
   } catch (e) { if (e && e.code === 'JBMEM_LOCKED') throw e; }
-  const info = lockInfo(file);
-  if (!lockBreakable(info)) return false;
+  const info = nonFile ? null : lockInfo(file);
+  if (!nonFile && !lockBreakable(info)) return false;
   const brk = `${file}.break`;
   let bfd;
   try { bfd = fs.openSync(brk, 'wx'); } catch {
@@ -338,6 +336,20 @@ function tryBreakLock(file) {
   }
   try {
     try { fs.closeSync(bfd); } catch { /* closed */ }
+    if (nonFile) {
+      // Moved aside and checked again there: a real lock another command
+      // made since the lstat is put back. If that fails (a newer lock took
+      // the name, or the drive has no hard links) it is left as .gone, not
+      // deleted; its holder still finishes, but a third command may then
+      // take the lock while it runs.
+      const aside = `${file}.${crypto.randomBytes(6).toString('hex')}.gone`;
+      try { fs.renameSync(file, aside); } catch { return false; }
+      let a = null;
+      try { a = fs.lstatSync(aside); } catch { return false; }
+      if (a.isFile()) { try { fs.linkSync(aside, file); try { fs.unlinkSync(aside); } catch { /* best effort */ } } catch { /* left as .gone */ } return false; }
+      try { fs.unlinkSync(aside); } catch { /* best effort */ }
+      return true;
+    }
     const again = lockInfo(file);
     if (again && again.text === info.text && lockBreakable(again)) { retryWin(() => fs.unlinkSync(file)); return true; }
     return false;
@@ -736,7 +748,7 @@ function stampUpdated(text, facts, now = new Date(), session = '') {
     }
   }
   const parts = [`Updated: ${localDate(now)} ${localTime(now)}`];
-  const fromGit = facts && (facts.head || (facts.branch && facts.branch !== 'detached'));
+  const fromGit = facts && (facts.head || (facts.branch && facts.branch !== 'detached' && facts.branch !== 'unknown'));
   if (fromGit) {
     if (facts.branch) parts.push(`branch ${facts.branch}`);
     if (facts.head) parts.push(`HEAD ${facts.head}`);
@@ -1932,7 +1944,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   return { text, summary: `handoff ${age} old, ~${estTokens(text.length)} tokens injected${cut ? ', TRUNCATED' : ''}${ho.overChars || ho.overLines ? ', over budget' : ''}` };
 }
 
-module.exports = { plainStat, plainExists, shownName, linkedFiles,
+module.exports = { addMemoryRoot, plainStat, plainExists, shownName, linkedFiles,
   checkRepoRoot, escapeTags, readPlain, handoffStamp, checkSinceFacts, coveredSteps, pruneNotes, AGENT,
   MARKER, HANDOFF, HANDOFF_PREV, PRECOMPACT, SNAPSHOTS, LOCK, PENDING, DEFAULTS, HISTORY, CHECKPOINT_SKILL, SKILL_RULE,
   cleanSession, shortSession, versionOf, withLock, updateState, sessionRecord, otherSessions, lastWriterOf,

@@ -317,7 +317,6 @@ function surveyClaude(claude) {
       if (mk.path && !NET.test(mk.path)) {
         const man = readJson(path.join(mk.path, '.claude-plugin', 'marketplace.json'));
         provides = !!(man && Array.isArray(man.plugins) && man.plugins.some(p => p && String(p.name).toLowerCase() === OLD_PLUGIN));
-        mk.alsoTrailmark = !!(man && Array.isArray(man.plugins) && man.plugins.some(p => p && String(p.name).toLowerCase() === 'trailmark'));
       }
       if (fromInstalls.has(mk.name) || provides || /^jb-memory/i.test(mk.name)) s.oldMarketplaces.push(mk);
     }
@@ -419,10 +418,10 @@ function withoutTrust(text) {
 function folderArg(a) {
   let v = String(a || '');
   if (WIN && /[^"]"$/.test(v) && !v.slice(0, -1).includes('"')) v = v.slice(0, -1) + '\\';
-  // Still a quote, or what looks like another option inside: the shell
-  // joined arguments (a trailing backslash before a quote), so nothing is
-  // guessed.
-  if (v.includes('"') || / --?[a-z]/.test(v)) throw new Error(`a folder option looks joined with what follows it (${JSON.stringify(v)}); leave out a trailing backslash and run this again`);
+  // Still a quote: the shell joined arguments (a trailing backslash read as
+  // an escaped quote always leaves one), so nothing is guessed. A folder
+  // name such as "old -backup" is fine.
+  if (v.includes('"')) throw new Error(`a folder option looks joined with what follows it (${JSON.stringify(v)}); leave out a trailing backslash and run this again`);
   return v;
 }
 function oldClaudeRelease(folders) {
@@ -781,7 +780,7 @@ function main() {
       warn(`jb-memory-codex is installed but its marketplace ${mkt} is gone, so the ChatGPT app can't show it to uninstall`);
       if (o.oldRelease && !oldCodexRelease([o.oldRelease], mkt)) warn(`--old-release ${o.oldRelease} has no Codex marketplace named ${mkt} that provides jb-memory-codex`);
       if (x.orphanFrom) info(`old release with that marketplace: ${x.orphanFrom}`);
-      else later(`Codex has jb-memory-codex installed, but its marketplace (${mkt}) is gone, so the ChatGPT app can't show it to uninstall. Run this again with --old-release <your old jb-memory release folder> to add that marketplace back, or add it yourself: codex plugin marketplace add <that folder>. Then uninstall jb-memory-codex in the app and run this again.`);
+      else later(`Codex has jb-memory-codex installed, but its marketplace (${mkt}) is gone, so the ChatGPT app can't show it to uninstall. Run this again with --old-release <your old jb-memory release folder> to add that marketplace back, or add it yourself: codex plugin marketplace remove ${mkt}, then codex plugin marketplace add <that folder>. Then uninstall jb-memory-codex in the app and run this again.`);
       if (x.orphanFrom && !codex) later(`The codex command isn't on PATH here. Add the old marketplace back yourself: codex plugin marketplace add "${x.orphanFrom}" (or add that folder as a marketplace in the ChatGPT app), then uninstall jb-memory-codex in the app and run this again.`);
     }
     if (!x.installed.length && x.trust && !o.cleanTrust) info('those records do nothing now; --clean-codex-trust removes them');
@@ -831,18 +830,19 @@ function main() {
     c.trailmark.some(p => p.id === 'trailmark@trailmark' && p.scope === 'user' && !p.enabled)));
   if (c) {
     for (const p of c.plugins) if ((p.scope === 'user' && !o.keepUser) || (p.scope !== 'user' && o.projectScopes)) plan.push(`uninstall ${p.id} (${p.scope}${p.projectPath ? ', ' + p.projectPath : ''})`);
-    for (const m of c.oldMarketplaces) {
+    // With jb-memory kept at user scope, its marketplace and cache stay too.
+    for (const m of o.keepUser ? [] : c.oldMarketplaces) {
       if (codexMayUse(m, x)) plan.push(`keep the Claude Code marketplace ${m.name} for now: Codex's jb-memory-codex may still come from its folder`);
       else if (claudeOffersOthers(m).length) plan.push(`keep the Claude Code marketplace ${m.name}: it also offers ${claudeOffersOthers(m).join(', ')}`);
       else plan.push(`remove the Claude Code marketplace ${m.name} (unless a plugin you keep still comes from it)`);
     }
-    if (o.cache) for (const d of c.cache) plan.push(`move ${d} to the backup folder`);
+    if (o.cache && !o.keepUser) for (const d of c.cache) plan.push(`move ${d} to the backup folder`);
   }
   if (x && x.used) {
     // The ChatGPT app lists an installed plugin only through its marketplace,
     // so that marketplace stays until the plugin is uninstalled there.
     if (!codex && x.used) later(`The codex command isn't on PATH, so this couldn't change Codex. In the ChatGPT app: add ${HERE} as a plugin marketplace, install trailmark-codex from it and trust its hooks${x.installed.length ? '; uninstall jb-memory-codex first' : ''}. Or install the Codex CLI and run this again.`);
-    else if (x.installed.length) for (const m of x.oldMarketplaces) plan.push(x.orphan && x.orphanFrom && codex && m.stale ? `replace the Codex marketplace ${m.name}, which no longer offers jb-memory-codex, with the old release, until jb-memory-codex is uninstalled in the ChatGPT app` : `keep the Codex marketplace ${m.name} until jb-memory-codex is uninstalled in the ChatGPT app`);
+    else if (x.installed.length) for (const m of x.oldMarketplaces) plan.push(x.orphan && x.orphanFrom && codex && m.stale ? `replace the Codex marketplace ${m.name}, which no longer offers jb-memory-codex, with the old release, until jb-memory-codex is uninstalled in the ChatGPT app` : x.orphan && !x.orphanFrom && m.stale ? `keep the Codex marketplace ${m.name} for now (it no longer offers jb-memory-codex; see below for adding the old one back)` : `keep the Codex marketplace ${m.name} until jb-memory-codex is uninstalled in the ChatGPT app`);
     else if (codex) for (const m of x.oldMarketplaces) plan.push(codexOffersOthers(m).length ? `keep the Codex marketplace ${m.name}: it also offers ${codexOffersOthers(m).join(', ')}` : `remove the Codex marketplace ${m.name}`);
     if (o.cache && !x.installed.length) for (const d of x.cache) plan.push(`move ${d} to the backup folder`);
     if (x.orphan && x.orphanFrom && codex) plan.push(`add the old Codex marketplace back from ${x.orphanFrom}, so the ChatGPT app shows jb-memory-codex for you to uninstall`);
@@ -912,7 +912,7 @@ function main() {
     for (const p of keeps) info(p.replace(/^keep /, 'keeping '));
     plan.length = 0;
     // What is kept waits on the app: say so, as the Codex step would.
-    if (x && x.used && x.installed.length) later(`In the ChatGPT app, open Plugins and uninstall ${x.installed.join(', ')} (Codex installs and uninstalls plugins only there), quit the app, then run this again: it moves the old copy out of Codex's cache once it is uninstalled.`);
+    if (x && x.used && x.installed.length && !(x.orphan && !x.orphanFrom)) later(`In the ChatGPT app, open Plugins and uninstall ${x.installed.join(', ')} (Codex installs and uninstalls plugins only there), quit the app, then run this again: it moves the old copy out of Codex's cache once it is uninstalled.`);
     if (keeps.some(p => /Claude Code marketplace .* for now/.test(p))) later('Run this again once jb-memory-codex is uninstalled in the ChatGPT app: it then removes the Claude Code marketplace kept for it.');
   }
   if (!plan.length) {
@@ -1043,13 +1043,13 @@ function main() {
       const r = run(codex, ['plugin', 'marketplace', 'remove', m.name]);
       if (r.code === 0) ok(`removed the Codex marketplace ${m.name}`);
       else if (/not configured|not found|no such marketplace/i.test(r.err + r.out)) ok(`the Codex marketplace ${m.name} was already gone`);
-      else warn(`codex plugin marketplace remove ${m.name} failed: ${(r.err || r.out).trim().split('\n')[0] || 'exit ' + r.code}`);
+      else { warn(`codex plugin marketplace remove ${m.name} failed: ${(r.err || r.out).trim().split('\n')[0] || 'exit ' + r.code}`); later(`Remove the Codex marketplace ${m.name} yourself: codex plugin marketplace remove ${m.name} (or remove it in the ChatGPT app).`); }
     }
     if (!x.oldMarketplaces.length && !x.orphan) ok('no old Codex marketplace');
     else if (x.installed.length && x.oldMarketplaces.length) info(`kept the Codex marketplace ${x.oldMarketplaces.map(m => m.name).join(', ')}: the ChatGPT app shows jb-memory-codex, and so lets you uninstall it, only through it`);
     x.installed = surveyCodex(codex).installed;
     if (x.installed.length) {
-      later(`In the ChatGPT app, open Plugins and uninstall ${x.installed.join(', ')} (Codex installs and uninstalls plugins only there), quit the app, then run this again: it moves the old copy out of Codex's cache once it is uninstalled.`);
+      if (!(x.orphan && !x.orphanFrom)) later(`In the ChatGPT app, open Plugins and uninstall ${x.installed.join(', ')} (Codex installs and uninstalls plugins only there), quit the app, then run this again: it moves the old copy out of Codex's cache once it is uninstalled.`);
       info('old Codex cache copies kept until the plugin is uninstalled in the ChatGPT app');
     } else if (o.cache) {
       for (const d of x.cache) {
@@ -1074,7 +1074,16 @@ function main() {
             // config.toml can hold tokens: the copy is readable only by you.
             fs.mkdirSync(backup, { recursive: true, mode: 0o700 });
             fs.writeFileSync(bak, before, { mode: 0o600 });
-            fs.writeFileSync(cfg, w.text);
+            // Written next to it and renamed over it, so a stop partway
+            // never leaves half a config.toml; not when it changed meanwhile.
+            let mode = 0o600;
+            try { mode = fs.statSync(cfg).mode & 0o777; } catch { /* default */ }
+            const tmp = `${cfg}.trailmark-${process.pid}.tmp`;
+            fs.writeFileSync(tmp, w.text, { mode, flag: 'wx' });
+            try {
+              if (readText(cfg) !== before) { const e = new Error('config.toml changed while this ran'); e.code = 'ECHANGED'; throw e; }
+              fs.renameSync(tmp, cfg);
+            } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }
             ok(`removed ${w.removed} lines of jb-memory-codex hook-trust records from config.toml (backup: ${bak})`);
           } catch (e) {
             warn(`could not rewrite ${cfg}: ${e.message}`);

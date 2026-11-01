@@ -1308,3 +1308,138 @@ test('rename: an old jb-memory-codex in the Codex plugin cache is found', () => 
     assert.match(out.hookSpecificOutput.additionalContext, /An old copy of this plugin, jb-memory-codex/);
   }
 });
+
+test('launcher: a memory folder named notes, reached through a link, still starts the session (loop round 8)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const s = sandbox();
+  const realMem = path.join(s.base, 'realnotes'); fs.mkdirSync(realMem);
+  const mem = path.join(s.base, 'notes');
+  fs.symlinkSync(realMem, mem);
+  fs.writeFileSync(path.join(s.cfg, 'settings.json'), JSON.stringify({ autoMemoryDirectory: mem }));
+  assert.strictEqual(s.jbm(['init', '--force']).status, 0);
+  s.write('# H\n## State\n- the notes-named folder works\n');
+  const { context } = s.start(SB);
+  assert.match(context, /the notes-named folder works/, 'session start was silent for a linked ~/notes memory folder');
+});
+
+test('lock: a link in place of the lock is removed under the .break lock (loop round 8)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const base = realTemp('jbmem-lock8-');
+  const target = path.join(base, 'elsewhere'); fs.writeFileSync(target, 'keep');
+  const lock = path.join(base, S.LOCK);
+  fs.symlinkSync(target, lock);
+  // Another command is breaking the lock right now: the link must stay.
+  fs.writeFileSync(lock + '.break', '');
+  assert.throws(() => S.withLock(base, () => {}, { waitMs: 300 }));
+  assert.ok(fs.lstatSync(lock).isSymbolicLink(), 'a link was taken while another command held .break');
+  fs.unlinkSync(lock + '.break');
+  let ran = false;
+  S.withLock(base, () => { ran = true; }, { waitMs: 1500 });
+  assert.ok(ran, 'a link in place of the lock kept it forever');
+  assert.strictEqual(fs.readFileSync(target, 'utf8'), 'keep', 'the link target was touched');
+  assert.deepStrictEqual(fs.readdirSync(base).filter(f => f.endsWith('.gone')), []);
+});
+
+test('git checks: a decoy .git beside a bare-repo HEAD, plain configs read as git reads them, other worktrees\' commondir (loop round 8)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far8-');
+  const EVIL = '//evil.invalid/share/x';
+  // git probes a folder as a bare repo when its .git is a folder it won't use.
+  const r = path.join(base, 'r'); repoAt(r);
+  fs.mkdirSync(path.join(r, 'docs', '.git'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'docs', 'HEAD'), 'ref: refs/heads/main\n');
+  fs.writeFileSync(path.join(r, 'docs', 'commondir'), EVIL + '\n');
+  assert.notStrictEqual(farGitConfig(path.join(r, 'docs')), '', 'decoy .git and HEAD+commondir in one folder');
+  const r2 = path.join(base, 'r2'); repoAt(r2);
+  fs.mkdirSync(path.join(r2, 'docs'));
+  fs.symlinkSync(path.join(base, 'nowhere'), path.join(r2, 'docs', '.git'));
+  fs.writeFileSync(path.join(r2, 'docs', 'HEAD'), 'ref: refs/heads/main\n');
+  fs.writeFileSync(path.join(r2, 'docs', 'commondir'), EVIL + '\n');
+  assert.notStrictEqual(farGitConfig(path.join(r2, 'docs')), '', 'dangling .git link and HEAD+commondir');
+  // A config with no quote or backslash, whose value git reads differently
+  // from the text: a tab inside (git: a space), a no-break space or form feed
+  // at an end (git keeps them), a NUL (git stops there).
+  const plain = (name, line, linkName) => {
+    const d = path.join(base, name); repoAt(d);
+    fs.appendFileSync(path.join(d, '.git', 'config'), `[core]\n\t${line}\n`);
+    fs.symlinkSync(EVIL, path.join(d, linkName));
+    return farGitConfig(d);
+  };
+  assert.notStrictEqual(plain('p1', 'attributesFile = at\tx', 'at x'), '', 'tab inside a value');
+  assert.notStrictEqual(plain('p2', 'attributesFile = at ', 'at '), '', 'no-break space at the end');
+  assert.notStrictEqual(plain('p3', 'attributesFile = \fat', '\fat'), '', 'form feed at the start');
+  assert.notStrictEqual(plain('p4', 'attributesFile = evil\0x', 'evil'), '', 'NUL in a value');
+  assert.notStrictEqual(plain('p5', 'worktree = ../w\tx', path.join('.git', '..', 'w x')), '', 'core.worktree with a tab');
+  // Another worktree's commondir (git rev-list --all reads its refs there).
+  const m = path.join(base, 'm'); const g = repoAt(m);
+  g('worktree', 'add', '-q', path.join(base, 'm-wt'));
+  assert.strictEqual(farGitConfig(m), '', 'an ordinary linked worktree is fine');
+  fs.writeFileSync(path.join(m, '.git', 'worktrees', 'm-wt', 'commondir'), EVIL + '\n');
+  fs.mkdirSync(path.join(m, 'sub')); // a folder not checked yet (results are kept per folder)
+  assert.notStrictEqual(farGitConfig(path.join(m, 'sub')), '', "another worktree's commondir on a share");
+});
+
+test('git status: tracked paths are never lstat-ed through a linked folder (loop round 8)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-r8-');
+  const EVIL = '//evil.invalid/share/x';
+  const v = path.join(base, 'v'); const g = repoAt(v);
+  fs.mkdirSync(path.join(v, 'd', 'e'), { recursive: true });
+  fs.writeFileSync(path.join(v, 'd', 'e', 'f'), 'x'); g('add', 'd'); g('commit', '-qm', 'd');
+  fs.rmSync(path.join(v, 'd'), { recursive: true });
+  fs.symlinkSync(EVIL, path.join(v, 'd'));
+  const seen = [];
+  const orig = { lstatSync: fs.lstatSync, statSync: fs.statSync, readdirSync: fs.readdirSync };
+  for (const k of Object.keys(orig)) fs[k] = function (p, ...a) { seen.push(String(p)); return orig[k].call(this, p, ...a); };
+  let f;
+  try { f = gitFacts(v, ['status']); } finally { Object.assign(fs, orig); }
+  assert.strictEqual(f.statusSkipped, 'linked-folder');
+  const through = seen.filter(p => p.startsWith(path.join(v, 'd') + path.sep));
+  assert.deepStrictEqual(through, [], 'a path looked up through the link');
+});
+
+test('branch: a folder that is not a repo has no branch, and the Updated line keeps the model\'s (loop round 8)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const d = realTemp('jbmem-nr-');
+  const f = gitFacts(d, ['branch', 'head']);
+  assert.notStrictEqual(f.branch, 'unknown', 'not a repo is not a timeout');
+  const out = S.stampUpdated('# H\nUpdated: 2026-10-01 10:00 | branch feature-x | HEAD abcdef1\n', { branch: 'unknown' });
+  assert.match(out, /branch feature-x \| HEAD abcdef1/, "an unknown branch replaced the model's own");
+});
+
+test('git checks: a folder with a HEAD is probed only as git probes a bare repo; module walks skip refs/ and objects/ (loop round 8)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { farGitConfig, farModules } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-bare8-');
+  const EVIL = '//evil.invalid/share/x';
+  // An ordinary folder whose HEAD isn't a git head: git doesn't try it, so
+  // its JSON config, deep folders or links don't matter.
+  const r = path.join(base, 'r'); repoAt(r);
+  const api = path.join(r, 'api'); fs.mkdirSync(api);
+  fs.writeFileSync(path.join(api, 'HEAD'), 'notes about the HEAD service\n');
+  fs.writeFileSync(path.join(api, 'config'), '{"port": 8080}\n');
+  fs.symlinkSync(EVIL, path.join(api, 'share'));
+  assert.strictEqual(farGitConfig(api), '', 'a text HEAD made the folder a gitdir');
+  // One that looks like a head: its objects folder on a share keeps git out.
+  const b = path.join(r, 'b'); fs.mkdirSync(path.join(b, 'refs'), { recursive: true });
+  fs.writeFileSync(path.join(b, 'HEAD'), 'ref: refs/heads/main\n');
+  fs.symlinkSync(EVIL, path.join(b, 'objects'));
+  assert.strictEqual(farGitConfig(b), 'network-gitdir');
+  // Module gitdirs: refs/remotes/origin/HEAD isn't a gitdir, and a module's
+  // objects/ isn't walked once a nested one was found.
+  const sp = path.join(base, 'sp'); repoAt(sp);
+  for (let i = 0; i < 1100; i++) {
+    const d = path.join(sp, '.git', 'modules', 's' + i);
+    fs.mkdirSync(path.join(d, 'refs', 'remotes', 'origin'), { recursive: true });
+    fs.writeFileSync(path.join(d, 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(d, 'refs', 'remotes', 'origin', 'HEAD'), 'ref: refs/remotes/origin/main\n');
+  }
+  const m0 = path.join(sp, '.git', 'modules', 's0');
+  fs.mkdirSync(path.join(m0, 'modules', 'inner', 'refs'), { recursive: true });
+  fs.writeFileSync(path.join(m0, 'modules', 'inner', 'HEAD'), 'ref: refs/heads/main\n');
+  fs.mkdirSync(path.join(m0, 'objects', 'ab'), { recursive: true });
+  const seen = [];
+  const orig = fs.readdirSync;
+  fs.readdirSync = function (p, ...a) { seen.push(String(p)); return orig.call(this, p, ...a); };
+  let why;
+  try { why = farModules(sp); } finally { fs.readdirSync = orig; }
+  assert.strictEqual(why, '', '1,100 submodules with a remote counted as more than 2,000');
+  assert.deepStrictEqual(seen.filter(p => p.startsWith(path.join(m0, 'objects'))), [], "a module's objects/ was walked");
+});

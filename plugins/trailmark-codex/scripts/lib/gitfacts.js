@@ -71,10 +71,10 @@ function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
   const refused = farGitConfig(cwd);
   if (refused) { f.gitRefused = refused; return f; }
   if (wanted.includes('branch')) {
-    // 'unknown' when git didn't answer (a timeout), 'detached' only when it
-    // said there is no current branch.
+    // 'unknown' when git didn't answer (a timeout); 'detached' when it said
+    // there is no current branch, or failed (not a repo), as before.
     const b = r.run(cwd, ['branch', '--no-color', '--show-current']);
-    f.branch = b.ok ? branchToken(b.out.trim() || 'detached', 80) || 'detached' : 'unknown';
+    f.branch = b.ok ? branchToken(b.out.trim() || 'detached', 80) || 'detached' : b.why === 'timeout' ? 'unknown' : 'detached';
   }
   if (wanted.includes('head')) f.head = git(['rev-parse', '--short', 'HEAD']).replace(/[^0-9a-f]/gi, '').slice(0, 12);
   if (wanted.includes('subject')) f.subject = oneLine(git(['log', '-1', '--no-show-signature', '--no-color', '--format=%s']), 100);
@@ -121,6 +121,8 @@ function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
 // The time check below is what bounds the run; this only caps a huge index.
 const MAX_SUBMODULES = 2000;
 const MAX_TREE_FOLDERS = 20000;
+// Windows and macOS find a file whatever the case of its name.
+const CASELESS = process.platform === 'win32' || process.platform === 'darwin';
 function farWorktree(r, cwd) {
   const top = topLevel(r, cwd);
   if (!top.ok) return top.why === 'timeout' ? 'git-timeout' : 'git-error';
@@ -130,6 +132,7 @@ function farWorktree(r, cwd) {
   let files = 0;
   let anyFolder = false;
   const folders = new Set();
+  const entries = [];
   for (const e of ls.out.split('\0')) {
     const rel = e.slice(e.indexOf('\t') + 1);
     if (!rel || e.indexOf('\t') < 0) continue;
@@ -137,21 +140,54 @@ function farWorktree(r, cwd) {
     // Every folder on the way to the file (past MAX_TREE_FOLDERS the rest
     // isn't looked at, so a very large repo still gets a snapshot).
     const parts = rel.split('/');
-    for (let i = 1; i < parts.length && folders.size < MAX_TREE_FOLDERS; i++) folders.add(parts.slice(0, i).join('/'));
-    if (!e.startsWith('160000 ')) {
-      // A tracked file whose path is now a folder: git status looks for a
-      // repo there (as for a submodule), so one there is checked the same way.
-      if (++files % 2000 === 0 && r.left() < 800) return 'git-timeout';
-      let st = null;
-      try { st = fs.lstatSync(path.join(top.top, rel)); } catch { st = null; }
-      if (st && st.isDirectory()) {
-        let g = false;
-        try { fs.lstatSync(path.join(top.top, rel, '.git')); g = true; } catch { g = false; }
-        if (g && farNested(path.join(top.top, rel), top.top)) return 'submodule-pointer';
-        anyFolder = true;
-      }
-      continue;
+    let seen = true;
+    for (let i = 1; i < parts.length; i++) {
+      const f = parts.slice(0, i).join('/');
+      if (!folders.has(f)) { if (folders.size < MAX_TREE_FOLDERS) folders.add(f); else seen = false; }
     }
+    entries.push({ rel, link: e.startsWith('160000 '), seen });
+  }
+  // The folders first, parents before their subfolders: nothing below looks
+  // into one until it is known not to be a link to a network path.
+  for (const rel of folders) {
+    let st;
+    try { st = fs.lstatSync(path.join(top.top, rel)); } catch { continue; }
+    if (!st.isSymbolicLink()) continue;
+    let t = '';
+    try { t = fs.readlinkSync(path.join(top.top, rel)); } catch { return 'linked-folder'; }
+    if (/^[\\/]{2}|^[\\/]\?\?[\\/]|^%\(prefix\)/i.test(t.replace(/"/g, '').trim())) return 'linked-folder';
+    if (!localPathFrom(top.top, path.join(top.top, rel))) return 'linked-folder';
+  }
+  // A tracked file whose path is now a folder: git status looks for a repo
+  // there (as for a submodule), so one there is checked the same way. Found
+  // with one listing per folder of tracked files rather than a lookup per
+  // file; a file under a folder past MAX_TREE_FOLDERS isn't looked up at all.
+  const byFolder = new Map();
+  for (const { rel, link, seen } of entries) {
+    if (link || !seen) continue;
+    const i = rel.lastIndexOf('/');
+    const dir = i < 0 ? '' : rel.slice(0, i);
+    if (!byFolder.has(dir)) byFolder.set(dir, []);
+    byFolder.get(dir).push(rel.slice(i + 1));
+  }
+  const fold = (x) => (CASELESS ? x.toLowerCase() : x);
+  for (const [dir, names] of byFolder) {
+    if (++files % 500 === 0 && r.left() < 800) return 'git-timeout';
+    let list;
+    try { list = fs.readdirSync(path.join(top.top, dir), { withFileTypes: true }); } catch { continue; }
+    const subdirs = new Set(list.filter(x => x.isDirectory()).map(x => fold(x.name)));
+    if (!subdirs.size) continue;
+    for (const nm of names) {
+      if (!subdirs.has(fold(nm))) continue;
+      const at = path.join(top.top, dir, nm);
+      let g = false;
+      try { fs.lstatSync(path.join(at, '.git')); g = true; } catch { g = false; }
+      if (g && farNested(at, top.top)) return 'submodule-pointer';
+      anyFolder = true;
+    }
+  }
+  for (const { rel, link } of entries) {
+    if (!link) continue;
     if (++n > MAX_SUBMODULES) return 'many-submodules';
     if (r.left() < 800) return 'git-timeout';
     if (farNested(path.join(top.top, rel), top.top)) return 'submodule-pointer';
@@ -164,16 +200,7 @@ function farWorktree(r, cwd) {
     try { gm = fs.lstatSync(path.join(top.top, '.gitmodules')); } catch { gm = null; }
     if (gm && !gm.isFile()) return 'submodule-pointer';
     const why = farModules(top.top, () => r.left());
-    if (why) return why === 'git-timeout' ? 'git-timeout' : 'submodule-pointer';
-  }
-  for (const rel of folders) {
-    let st;
-    try { st = fs.lstatSync(path.join(top.top, rel)); } catch { continue; }
-    if (!st.isSymbolicLink()) continue;
-    let t = '';
-    try { t = fs.readlinkSync(path.join(top.top, rel)); } catch { return 'linked-folder'; }
-    if (/^[\\/]{2}|^[\\/]\?\?[\\/]|^%\(prefix\)/i.test(t.replace(/"/g, '').trim())) return 'linked-folder';
-    if (!localPathFrom(top.top, path.join(top.top, rel))) return 'linked-folder';
+    if (why) return why === 'git-timeout' || why === 'many-submodules' ? why : 'submodule-pointer';
   }
   return '';
 }
@@ -621,7 +648,7 @@ function sweepCommits(folders, { homeCwd, budgetMs = 3000, now = Date.now() } = 
     const commits = entries.filter((e, i) => e.t >= lo && e.t < hi && COMMIT_ACTION.test(e.action) &&
       !(i > 0 && /^commit \(amend\): /.test(entries[i - 1].action)) && !excluded(e.sha));
     if (commits.length) {
-      const reach = r.run(t.top, ['rev-list', '--all', '-n', '3000', `--since=${Math.floor(lo / 1000) - 3600}`]);
+      const reach = r.run(t.top, ['rev-list', '--branches', '--tags', '--remotes', 'HEAD', '-n', '3000', `--since=${Math.floor(lo / 1000) - 3600}`]);
       if (!reach.ok) continue;
       const onRef = new Set(reach.out.split(/\r?\n/).filter(x => SHA.test(x)));
       const keep = new Set();

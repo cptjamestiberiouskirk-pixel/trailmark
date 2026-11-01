@@ -40,9 +40,12 @@ const os = require('os');
 const path = require('path');
 const tty = require('tty');
 const { spawnSync } = require('child_process');
-const { findMemoryDir, projectsRoot, samePath, repoRoot, configDir } = require('./lib/paths');
+const { findMemoryDir: findMemoryDirRaw, projectsRoot, samePath, repoRoot, configDir } = require('./lib/paths');
 const { nodeAdvice, otherCopies, nodeInside } = require('./lib/health');
 const S = require('./lib/store');
+// Every memory folder found here is told to the store, so its link checks
+// stop at that folder even when it is named like a subfolder (~/notes).
+function findMemoryDir(ctx) { const l = findMemoryDirRaw(ctx); if (l && l.dir) S.addMemoryRoot(l.dir); return l; }
 const { commitsSince, gitFacts, commitFacts, fitCommitFacts, sweepCommits, sameFolder, windowMs, farNetwork } = require('./lib/gitfacts');
 const { localPath, localPathFrom } = require('./lib/gitbin');
 // When the launcher started: a hook's sandboxed script gets what is left of
