@@ -81,7 +81,7 @@ function findTranscript(cwd, platform = process.platform) {
 // SessionStart hook (recorded in the state file), then <session id>.jsonl in
 // this folder's project directory (or another key for the same folder). Returns null
 // when none is found; the caller falls back to the newest one and says so.
-function findTranscriptForSession(cwd, session, recorded, platform = process.platform) {
+function findTranscriptForSession(cwd, session, recorded, platform = process.platform, ownDirs = []) {
   session = require('./store').cleanSession(session);
   if (!session) return null;
   const root = path.resolve(projectsRoot());
@@ -101,11 +101,18 @@ function findTranscriptForSession(cwd, session, recorded, platform = process.pla
       return !!localPath(p);
     } catch { return false; }
   };
+  // The project folders that are this repo's: the one for this folder (or
+  // another key for it) and any the caller names (the one holding the memory
+  // folder).
+  const mine = [...candidateKeys(path.resolve(cwd)).map(k => path.join(root, k)), ...(Array.isArray(ownDirs) ? ownDirs : [])]
+    .filter(d => typeof d === 'string' && d).map(d => fold(path.resolve(d)));
   if (typeof recorded === 'string' && recorded) {
     const p = path.resolve(recorded);
     // Only a path inside Claude Code's projects folder: the state file is data,
-    // and the sandbox grants reads there and nowhere else.
-    if (underRoot(p) && /\.jsonl$/i.test(p) && isFile(p)) return p;
+    // and the sandbox grants reads there and nowhere else. And only in one of
+    // this repo's project folders: a session can write the state file, and
+    // another project's transcript is not this repo's to read.
+    if (underRoot(p) && /\.jsonl$/i.test(p) && mine.includes(fold(path.dirname(p))) && isFile(p)) return p;
   }
   const name = `${session}.jsonl`;
   for (const key of candidateKeys(path.resolve(cwd))) {

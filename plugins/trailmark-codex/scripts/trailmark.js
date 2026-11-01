@@ -145,7 +145,9 @@ function sandboxDecision(dir) {
 
 function permissionFlags({ reads, writes }) {
   const flags = ['--permission'];
-  for (const r of reads) flags.push(`--allow-fs-read=${path.resolve(r)}`);
+  // Folders above others first: Node 22 can refuse to list a folder
+  // granted after one inside it.
+  for (const r of reads.slice().sort((a, b) => path.resolve(a).length - path.resolve(b).length)) flags.push(`--allow-fs-read=${path.resolve(r)}`);
   for (const w of writes) flags.push(`--allow-fs-write=${path.resolve(w)}`);
   return flags;
 }
@@ -806,7 +808,7 @@ function cliMode(args) {
   const writes = [loc.dir];
   if (cmd === 'transcript') {
     const { codexRoots } = require('./lib/transcript');
-    for (const r of codexRoots()) if (fs.existsSync(r)) reads.push(r);
+    for (const r of codexRoots()) if (localPath(r) && fs.existsSync(r)) reads.push(r);
   }
   // Node only honors grants for paths that exist at startup. Before memory/
   // exists (a repo Claude Code hasn't written auto memory for yet), checks such

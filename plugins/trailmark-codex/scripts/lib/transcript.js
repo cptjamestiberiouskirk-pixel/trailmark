@@ -81,7 +81,7 @@ function findTranscript(cwd, platform = process.platform) {
 // SessionStart hook (recorded in the state file), then <session id>.jsonl in
 // this folder's project directory (or another key for the same folder). Returns null
 // when none is found; the caller falls back to the newest one and says so.
-function findTranscriptForSession(cwd, session, recorded, platform = process.platform) {
+function findTranscriptForSession(cwd, session, recorded, platform = process.platform, ownDirs = []) {
   session = require('./store').cleanSession(session);
   if (!session) return null;
   const root = path.resolve(projectsRoot());
@@ -89,11 +89,18 @@ function findTranscriptForSession(cwd, session, recorded, platform = process.pla
   const underRoot = p => fold(p).startsWith(fold(root) + path.sep);
   // Not used by this copy; kept as safe as the Claude Code copy's.
   const isFile = p => { try { return !netLinkBelow(root, path.dirname(p)) && fs.lstatSync(p).isFile() && !!require('./gitbin').localPath(p); } catch { return false; } };
+  // The project folders that are this repo's: the one for this folder (or
+  // another key for it) and any the caller names (the one holding the memory
+  // folder).
+  const mine = [...candidateKeys(path.resolve(cwd)).map(k => path.join(root, k)), ...(Array.isArray(ownDirs) ? ownDirs : [])]
+    .filter(d => typeof d === 'string' && d).map(d => fold(path.resolve(d)));
   if (typeof recorded === 'string' && recorded) {
     const p = path.resolve(recorded);
     // Only a path inside Claude Code's projects folder: the state file is data,
-    // and the sandbox grants reads there and nowhere else.
-    if (underRoot(p) && /\.jsonl$/i.test(p) && isFile(p)) return p;
+    // and the sandbox grants reads there and nowhere else. And only in one of
+    // this repo's project folders: a session can write the state file, and
+    // another project's transcript is not this repo's to read.
+    if (underRoot(p) && /\.jsonl$/i.test(p) && mine.includes(fold(path.dirname(p))) && isFile(p)) return p;
   }
   const name = `${session}.jsonl`;
   for (const key of candidateKeys(path.resolve(cwd))) {
@@ -148,12 +155,15 @@ function findCodexTranscript(session, recorded, platform = process.platform) {
     const real = localPath(p);
     return !!real && realRoots.some(r => fold(real).startsWith(fold(r) + path.sep));
   };
-  if (typeof recorded === 'string' && recorded) {
-    const p = path.resolve(plainPath(recorded));
-    if (/\.jsonl$/i.test(p) && inRoots(p) && isFile(p)) return p;
-  }
   const want = `${session}.jsonl`;
   const match = name => name.toLowerCase().endsWith(want) && /^rollout-/i.test(name);
+  // The recorded path is data from the state file, which a session can write:
+  // it counts only when its name carries this session's ID, as the search
+  // below requires, so it can't lead to another chat's rollout.
+  if (typeof recorded === 'string' && recorded) {
+    const p = path.resolve(plainPath(recorded));
+    if (/\.jsonl$/i.test(p) && match(path.basename(p)) && inRoots(p) && isFile(p)) return p;
+  }
   const subdirs = d => { try { return fs.readdirSync(d, { withFileTypes: true }).filter(e => e.isDirectory() && /^\d+$/.test(e.name)).map(e => e.name).sort().reverse(); } catch { return []; } };
   const days = [];
   for (const y of subdirs(roots[0]).slice(0, 3)) {

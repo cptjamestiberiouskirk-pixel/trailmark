@@ -191,7 +191,7 @@ switch (cmd) {
       const w = S.lastWriterOf(S.readState(dir));
       if (w) console.log(`  last handoff write: ${writerText(w)}, version ${w.version || 'unknown'}`);
       const last = S.lastNote(dir, 'SESSION_START');
-      console.log(`  last session start: ${last || 'none logged yet'}`);
+      console.log(`  last session start: ${last ? S.escapeTags(S.oneLine(last, 500)) : 'none logged yet'}`);
       const others = S.otherSessions(dir, session);
       console.log(`  other sessions active in the last 3 h: ${others.length ? others.map(o => `${o.short} (${S.ageText(Date.now() - (o.seen || 0))} ago)`).join(', ') : 'none'}`);
       if (session) {
@@ -295,7 +295,7 @@ switch (cmd) {
       ? S.topicFiles(dir).map(r => ({ name: r, description: S.splitFrontmatter(S.readText(path.join(dir, r)) || '').data.description || '', mtime: S.plainStat(path.join(dir, r)).mtime }))
       : S.listDir(dir, what === 'history' ? S.HISTORY.split(path.sep).join('/') : what);
     if (!rows.length) console.log(`(no ${what})`);
-    for (const r of rows) console.log(`${S.localDate(r.mtime)}  ${S.shownName(r.name)}  -- ${r.description}`);
+    for (const r of rows) console.log(`${S.localDate(r.mtime)}  ${S.shownName(r.name)}  -- ${S.escapeTags(S.oneLine(r.description || '', 300))}`);
     break;
   }
 
@@ -344,7 +344,11 @@ switch (cmd) {
     let warn = '';
     if (!file && session) {
       const rec = S.sessionRecord(dir, session);
-      file = findTranscriptForSession(process.cwd(), session, rec && rec.transcript);
+      // The project folder that holds the memory folder, and the repo root's,
+      // are this repo's too (a session started at the root or in a worktree).
+      const { projectsRoot, candidateKeys } = require('./lib/paths');
+      const own = [path.dirname(dir), ...candidateKeys(path.resolve(loc.root || process.cwd())).map(k => path.join(projectsRoot(), k))];
+      file = findTranscriptForSession(process.cwd(), session, rec && rec.transcript, process.platform, own);
       if (!file) warn = `WARNING: no transcript found for session ${session.slice(0, 8)}; showing the newest transcript for this folder, which may be another session's.`;
     }
     if (!file) file = findTranscript(process.cwd());

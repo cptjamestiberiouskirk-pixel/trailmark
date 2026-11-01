@@ -6,8 +6,10 @@
 //
 //   node install-check.js node-advice      '' or one sentence on updating Node
 //   node install-check.js others           reads `claude plugin list --json` on
-//                                          stdin; prints the ids of trailmark
-//                                          installed from another marketplace
+//                                          stdin; prints each other copy once
+//                                          (trailmark from another marketplace,
+//                                          or jb-memory) with its scopes:
+//                                          "id (scope[ in path], ...); ..." 
 //   node install-check.js others-new       the same, leaving jb-memory out (the
 //                                          migration removes it after the checks)
 //   node install-check.js real <path>      the real path of a folder

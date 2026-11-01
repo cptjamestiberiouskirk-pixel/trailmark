@@ -1593,3 +1593,154 @@ test('sweep: a file named HEAD, a commit only another worktree or a custom ref k
     assert.strictEqual(r.read.length, 1, `${path.basename(d)} not marked as read`);
   }
 });
+
+const CODEX = fs.existsSync(path.join(ROOT, 'scripts', 'lib', 'host.js'));
+// A trailmark copy in a plugin cache laid out as Claude Code keeps it.
+function cachedCopy(cache) {
+  const v = path.join(cache, 'mkt', 'trailmark', '0.1.0');
+  fs.mkdirSync(path.join(v, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(v, 'scripts', 'trailmark.js'), '');
+  return v;
+}
+
+// Must-fix: lib/health.js list() opens a folder with opendirSync without
+// checking the folder itself, and installPaths() calls existsSync before its
+// local() checks. The launcher runs this outside the sandbox at every session
+// start, so a plugin cache (or plugins folder) that is a link to \\server\share
+// is opened, and on Windows that sends the server your sign-in hash. On Linux
+// and macOS //x resolves like /x, so a copy found through the link shows it
+// was followed.
+test('health: a plugin cache or plugins folder that links to a network path is never opened (loop round 10)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { otherCopies } = require(path.join(ROOT, 'scripts', 'lib', 'health.js'));
+  const base = realTemp('jbmem-hc10-');
+  const own = path.join(base, 'own'); fs.mkdirSync(own);
+  // What the walk opens, reads or looks up at or under a given folder.
+  const watch = (under, fn) => {
+    const seen = [];
+    const names = ['opendirSync', 'readdirSync', 'existsSync', 'statSync', 'readFileSync', 'openSync'];
+    const orig = Object.fromEntries(names.map(n => [n, fs[n]]));
+    for (const n of names) fs[n] = function (p, ...a) { if (typeof p === 'string' && (p === under || p.startsWith(under + path.sep))) seen.push(`${n} ${p}`); return orig[n].call(this, p, ...a); };
+    try { fn(); } finally { for (const n of names) fs[n] = orig[n]; }
+    return seen;
+  };
+  // The cache folder itself is the link.
+  const realCache = path.join(base, 'share-cache');
+  cachedCopy(realCache);
+  const cfg = path.join(base, 'cfg');
+  fs.mkdirSync(path.join(cfg, 'plugins'), { recursive: true });
+  fs.symlinkSync('/' + realCache, path.join(cfg, 'plugins', 'cache'));
+  let r1;
+  const seen1 = watch(path.join(cfg, 'plugins', 'cache'), () => { r1 = otherCopies(cfg, own); });
+  assert.deepStrictEqual(seen1, [], 'opened a plugin cache that links to a network path');
+  assert.deepStrictEqual(r1.copies, []);
+  // The plugins folder above it is the link.
+  const realPlugins = path.join(base, 'share-plugins');
+  cachedCopy(path.join(realPlugins, 'cache'));
+  fs.writeFileSync(path.join(realPlugins, 'installed_plugins.json'), '{}');
+  const cfg2 = path.join(base, 'cfg2'); fs.mkdirSync(cfg2);
+  fs.symlinkSync('/' + realPlugins, path.join(cfg2, 'plugins'));
+  const seen2 = watch(path.join(cfg2, 'plugins'), () => otherCopies(cfg2, own));
+  assert.deepStrictEqual(seen2, [], 'opened a plugins folder that links to a network path');
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+// Must-fix: samePlace() resolves every installPath from installed_plugins.json
+// with realpathSync.native. That file is plugin-cache data the walk otherwise
+// treats as untrusted, and an installPath through a link to a share (or one
+// written \??\UNC\..., which networkPath() doesn't know) was resolved, which
+// opens the share on Windows. gitfacts.realOr already guards this way.
+test('health: an installPath through a link to a network path is never resolved (loop round 10)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const { otherCopies } = require(path.join(ROOT, 'scripts', 'lib', 'health.js'));
+  const base = realTemp('jbmem-hi10-');
+  const own = path.join(base, 'own'); fs.mkdirSync(own);
+  const cfg = path.join(base, 'cfg');
+  cachedCopy(path.join(cfg, 'plugins', 'cache'));
+  fs.symlinkSync('//jbmem-no-such-server/share', path.join(base, 'lnk'));
+  const viaShare = path.join(base, 'lnk', 'trailmark', '0.1.0');
+  fs.writeFileSync(path.join(cfg, 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: { 'trailmark@x': [{ scope: 'user', installPath: viaShare }] } }));
+  const resolved = [];
+  const real = fs.realpathSync.native;
+  fs.realpathSync.native = function (p, ...a) { resolved.push(String(p)); return real.call(this, p, ...a); };
+  try { otherCopies(cfg, own); } finally { fs.realpathSync.native = real; }
+  assert.deepStrictEqual(resolved.filter(p => p.startsWith(path.join(base, 'lnk'))), [], 'an installPath through a link to a network path was resolved');
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+// Must-fix: the transcript path recorded in the state file was accepted for
+// any transcript in Claude Code's projects folder (Codex copy: any rollout in
+// Codex's session folders, whatever session it names). The state file is data
+// a session can write, so one session could point another's `transcript
+// --session` (the checkpoint skill's recovery step) at another project's
+// conversation, without the "may be another session's" warning; round 9 stopped
+// the session-ID lookup from reading other projects' folders for the same reason.
+test('transcript: a path in the state file counts only for this repo\'s folders and this session (loop round 10)', () => {
+  const base = realTemp('jbmem-tx10-');
+  const cfg = path.join(base, 'cfg');
+  const codexHome = path.join(base, 'codex');
+  const repoA = path.join(base, 'repoA'); repoAt(repoA);
+  const repoB = path.join(base, 'repoB'); repoAt(repoB);
+  const key = d => d.replace(/[^a-zA-Z0-9]/g, '-');
+  const projA = path.join(cfg, 'projects', key(repoA));
+  const projB = path.join(cfg, 'projects', key(repoB));
+  fs.mkdirSync(projA, { recursive: true }); fs.mkdirSync(projB, { recursive: true });
+  const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg, CODEX_HOME: codexHome };
+  for (const k of ['JBMEM_DIR', 'CLAUDE_CODE_PROJECT_DIR_NAME', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_SESSION_ID', 'CODEX_THREAD_ID']) delete env[k];
+  const jbm = (args) => spawnSync(process.execPath, [JBM, ...args], { cwd: repoA, env, encoding: 'utf8' });
+  const init = jbm(['init', '--force']);
+  assert.strictEqual(init.status, 0, init.stderr);
+  const memdir = path.join(projA, 'memory');
+  const now = new Date().toISOString();
+  let other;
+  if (CODEX) {
+    const day = path.join(codexHome, 'sessions', '2026', '11', '01');
+    fs.mkdirSync(day, { recursive: true });
+    const ev = msg => JSON.stringify({ timestamp: now, type: 'event_msg', payload: { type: 'user_message', message: msg } }) + '\n';
+    other = path.join(day, `rollout-2026-11-01T00-00-00-${SB}.jsonl`);
+    fs.writeFileSync(other, ev('OTHER CHAT ONLY'));
+    fs.writeFileSync(path.join(day, `rollout-2026-11-01T00-00-01-${SA}.jsonl`), ev('THIS SESSION'));
+  } else {
+    const line = (cwd, sid, msg) => JSON.stringify({ type: 'user', cwd, sessionId: sid, timestamp: now, message: { role: 'user', content: msg } }) + '\n';
+    other = path.join(projB, `${SB}.jsonl`);
+    fs.writeFileSync(other, line(repoB, SB, 'OTHER PROJECT ONLY'));
+    fs.writeFileSync(path.join(projA, `${SA}.jsonl`), line(repoA, SA, 'THIS SESSION'));
+  }
+  fs.writeFileSync(path.join(memdir, '.jbmem-state.json'), JSON.stringify({ sessions: { [SA]: { seen: Date.now(), start: Date.now() - 1000, transcript: other } } }));
+  const r = jbm(['transcript', `--session=${SA}`]);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /OTHER (PROJECT|CHAT) ONLY/, 'a transcript path from the state file led to another project\'s or session\'s transcript');
+  assert.match(r.stdout, /THIS SESSION/, 'this session\'s own transcript is the one read');
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test('round 10 regressions: old git and HEAD-like folders, flags kept, MEMORY.md links with #part (loop round 10)', { skip: WIN && 'the git stand-in is a shell script' }, () => {
+  const base = realTemp('jbmem-r10-');
+  // A git that says it is 2.34.1 (Ubuntu 22.04's) and hands the rest to git.
+  const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  const bin = path.join(base, 'bin'); fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "git version 2.34.1"; exit 0; fi\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
+  const r = path.join(base, 'r'); repoAt(r);
+  const fx = path.join(r, 'fixture'); fs.mkdirSync(fx);
+  fs.writeFileSync(path.join(fx, 'HEAD'), 'ref: refs/heads/main\n');
+  fs.writeFileSync(path.join(fx, 'config'), '{"json": true}\n');
+  const probe = (d) => spawnSync(process.execPath, ['-e', `process.stdout.write(require(${JSON.stringify(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'))}).farGitConfig(${JSON.stringify(d)}))`], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, encoding: 'utf8' }).stdout;
+  assert.strictEqual(probe(fx), '', 'old git: a folder with only a HEAD file kept git out');
+  // With objects and refs there, old git takes it as a repo: checked whole.
+  const fy = path.join(r, 'fixture2'); fs.mkdirSync(path.join(fy, 'objects'), { recursive: true }); fs.mkdirSync(path.join(fy, 'refs'));
+  fs.writeFileSync(path.join(fy, 'HEAD'), 'ref: refs/heads/main\n');
+  fs.writeFileSync(path.join(fy, 'config'), '[include]\n\tpath = //evil.invalid/share/x\n');
+  assert.notStrictEqual(probe(fy), '', 'old git: a planted bare repo was not checked');
+  // A subdivision flag survives the frame; a lone tag character doesn't.
+  const scot = '\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}';
+  assert.strictEqual(S.escapeTags(`go ${scot}`), `go ${scot}`);
+  assert.strictEqual(S.escapeTags('a\u{E0041}b'), 'ab');
+  // Bidi in a name is shown quoted.
+  assert.match(S.shownName('ok‮dm.txt.md'), /unusual characters/);
+  // MEMORY.md links as a viewer reads them.
+  const mem = path.join(base, 'mem'); fs.mkdirSync(mem);
+  fs.writeFileSync(path.join(mem, 'my notes.md'), '---\ndescription: x\n---\n');
+  fs.writeFileSync(path.join(mem, 'topic.md'), '---\ndescription: y\n---\n');
+  fs.writeFileSync(path.join(mem, 'MEMORY.md'), '- [a](my%20notes.md) a\n- [b](topic.md#part) b\n');
+  const pr = S.pruneReport(mem);
+  assert.deepStrictEqual(pr.deadLinks, []);
+  assert.deepStrictEqual(pr.orphans, []);
+});

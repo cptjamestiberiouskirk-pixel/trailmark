@@ -178,7 +178,7 @@ function farWorktree(r, cwd) {
   for (const [dir, names] of byFolder) {
     if (++files % 500 === 0 && r.left() < 800) return 'git-timeout';
     let list;
-    if (names.length <= 16) {
+    if (names.length <= 2) {
       // A few tracked names: each looked up (the filesystem matches the name
       // as git's own lookup will), not the whole folder listed.
       list = [];

@@ -142,7 +142,9 @@ function sandboxDecision(dir) {
 
 function permissionFlags({ reads, writes }) {
   const flags = ['--permission'];
-  for (const r of reads) flags.push(`--allow-fs-read=${path.resolve(r)}`);
+  // Folders above others first: Node 22 can refuse to list a folder
+  // granted after one inside it.
+  for (const r of reads.slice().sort((a, b) => path.resolve(a).length - path.resolve(b).length)) flags.push(`--allow-fs-read=${path.resolve(r)}`);
   for (const w of writes) flags.push(`--allow-fs-write=${path.resolve(w)}`);
   return flags;
 }

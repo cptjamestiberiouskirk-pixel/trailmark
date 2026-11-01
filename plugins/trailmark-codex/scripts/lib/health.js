@@ -67,6 +67,9 @@ function readSmall(file, max) {
 // read within the limits.
 function installPaths(configDir) {
   const file = path.join(configDir, 'plugins', 'installed_plugins.json');
+  // Looked up only once the folders on the way are known to be local: the
+  // plugins folder could itself be a link to a share.
+  if (!local(path.dirname(file)) || !local(file)) return { ok: false, paths: [] };
   if (!fs.existsSync(file)) return { ok: true, paths: [] };
   const text = readSmall(file, 1024 * 1024);
   if (text === null) return { ok: false, paths: [] };
@@ -95,7 +98,8 @@ function installPaths(configDir) {
   return { ok: !cut, paths: out.slice(0, 200) };
 }
 
-const networkPath = p => /^(\\\\|\/\/)/.test(String(p || ''));
+// \\server, //server and the NT form \??\UNC\server, as gitbin.js reads them.
+const networkPath = p => /^(\\\\|\/\/|[\\/]\?\?[\\/])/.test(String(p || ''));
 
 // False when p is a link (or under a link at its last step) that points at
 // a network path: such a path is treated as missing, never touched.
@@ -108,8 +112,10 @@ function realOr(p) {
   try { return fs.realpathSync.native(p); } catch { return path.resolve(p); }
 }
 
+// installPath strings come from installed_plugins.json, data like the rest
+// of the cache: one that leads through a link to a share is never resolved.
 function samePlace(a, b) {
-  if (networkPath(a) || networkPath(b)) return false;
+  if (networkPath(a) || networkPath(b) || !local(a) || !local(b)) return false;
   const x = realOr(a), y = realOr(b);
   return process.platform === 'win32' ? x.toLowerCase() === y.toLowerCase() : x === y;
 }
@@ -119,6 +125,9 @@ function samePlace(a, b) {
 // at a time and stop after max; full is false when entries were left unread.
 function list(dir, max) {
   const out = [];
+  // The folder itself may be a link (the cache, a marketplace): one that
+  // leads to a network path is never opened.
+  if (!local(dir)) return { names: out, full: false, net: true };
   let d;
   // A folder that is there but can't be listed is not an empty one.
   try { d = fs.opendirSync(dir); } catch (e) { return { names: out, full: !!(e && e.code === 'ENOENT') }; }
@@ -199,7 +208,8 @@ function otherCopies(configDir, ownRoot, { maxCopies = 10, budgetMs = 300, maxEn
   };
   const late = () => { if (Date.now() > until) { why.add('it took too long'); return true; } return false; };
   const mkts = list(cache, maxEntries);
-  if (!mkts.full) why.add('the plugin cache has too many folders');
+  if (mkts.net) why.add('the plugin cache leads to a network path');
+  else if (!mkts.full) why.add('the plugin cache has too many folders');
   // Pass 1: <marketplace>/trailmark/<version>, and the same under the old name.
   outer1:
   for (const [mkt, name] of mkts.names.flatMap(m => NAMES.map(n => [m, n]))) {

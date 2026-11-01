@@ -1466,9 +1466,15 @@ function measure(dir) {
 
 function memoryIndexLinks(text) {
   const links = [];
-  const re = /\]\(([^)\s]+\.md)\)/g;
+  // A #part or ?query after the name, and %20 and the like in it, as a
+  // Markdown viewer reads them.
+  const re = /\]\(([^)\s]+?\.md)(?:[#?][^)\s]*)?\)/g;
   let m;
-  while ((m = re.exec(text)) !== null) links.push(m[1].replace(/^\.\//, ''));
+  while ((m = re.exec(text)) !== null) {
+    let l = m[1];
+    try { l = decodeURIComponent(l); } catch { /* left as written */ }
+    links.push(l.replace(/^\.\//, ''));
+  }
   return links;
 }
 
@@ -1521,7 +1527,7 @@ const RESERVED_LC = new Set([...RESERVED].map(n => n.toLowerCase()));
 // string: ' and, in PowerShell, the typographic single quotes. Control
 // characters, and a name or folder starting with a dash (read as an option),
 // are refused too. The whole path is checked, folders included.
-const SHELL_ODD = /['\u2018-\u201b\u0000-\u001f\u007f-\u009f]|(?:^|\/)[-\u2013\u2014\u2015]/;
+const SHELL_ODD = /['\u2018-\u201b\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\u{e0000}-\u{e007f}]|(?:^|\/)[-\u2013\u2014\u2015]/u;
 function shownName(n) {
   return SHELL_ODD.test(String(n)) ? `${JSON.stringify(String(n))} (unusual characters: move it by hand, not with archive-file)` : n;
 }
@@ -1685,14 +1691,17 @@ const TAG_LIKE = /[<＜﹤](?=[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{
 const HEREDOC_END = /^JBMEM_EOF/;
 // Control characters (tab kept) are dropped first: inside a tag name they
 // would hide it from the patterns below.
-const CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\u{e0000}-\u{e007f}]/gu;
+// Tag characters are invisible text, kept only inside a subdivision flag
+// (England, Scotland, Wales: a black flag, tag letters, a cancel tag).
+const CONTROLS = /\u{1f3f4}[\u{e0030}-\u{e0039}\u{e0061}-\u{e007a}]{2,6}\u{e007f}|[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\u{e0000}-\u{e007f}]/gu;
+const dropControls = (t) => String(t).replace(CONTROLS, m => (m.length > 2 && m.codePointAt(0) === 0x1f3f4 ? m : ''));
 function framed(text) {
-  return String(text).normalize('NFC').replace(LINE_BREAKS, '\n').replace(CONTROLS, '').split('\n').map(l => (FRAME_LIKE.test(l) || HEREDOC_END.test(l) ? '  ' + l : l).replace(TAG_LIKE, m => m + '\\')).join('\n');
+  return String(text).normalize('NFC').replace(LINE_BREAKS, '\n').replace(CONTROLS, m => (m.length > 2 && m.codePointAt(0) === 0x1f3f4 ? m : '')).split('\n').map(l => (FRAME_LIKE.test(l) || HEREDOC_END.test(l) ? '  ' + l : l).replace(TAG_LIKE, m => m + '\\')).join('\n');
 }
 
 // Tag-like text escaped as in framed(), for one line placed outside a frame.
 function escapeTags(t) {
-  return String(t).normalize('NFC').replace(CONTROLS, '').replace(TAG_LIKE, m => m + '\\');
+  return dropControls(String(t).normalize('NFC')).replace(TAG_LIKE, m => m + '\\');
 }
 
 function frameMarker() {

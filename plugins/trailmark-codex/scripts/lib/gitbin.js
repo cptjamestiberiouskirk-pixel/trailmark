@@ -619,7 +619,6 @@ function farBareProbe(d) {
     } catch { return ''; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } } // git can't read it either
     if (!/^ref:\s*refs\/|^[0-9a-f]{40}/i.test(text)) return '';
   }
-  if (!bareRefused()) return farGit(d);
   let base = d;
   const common = readSmall(path.join(d, 'commondir'), 4096);
   if (common === UNSAFE) return 'unreadable-config';
@@ -628,6 +627,12 @@ function farBareProbe(d) {
     if (!base) return 'network-gitdir';
   }
   for (const s of ['objects', 'refs']) if (!localPath(path.join(base, s))) return 'network-gitdir';
+  // An older git that takes such a folder as a repo (objects and refs there)
+  // reads all of it, so then all of it is checked.
+  if (!bareRefused()) {
+    const usable = ['objects', 'refs'].every(s => { try { return fs.statSync(localPath(path.join(base, s))).isDirectory(); } catch { return false; } });
+    return usable ? farGit(d) : '';
+  }
   return '';
 }
 // light: for a submodule gitdir in modules/ (its links were walked with the
