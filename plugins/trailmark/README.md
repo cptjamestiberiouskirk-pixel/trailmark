@@ -12,7 +12,7 @@ That's what a fresh session receives: the handoff, then the commits made since i
 - The note is checked against git. Commits made since it was written are listed, so Claude doesn't redo finished work.
 - After a commit, a merged PR or a subagent's result, Claude is reminded to update the note. Before a compaction, a snapshot of the repo's git state is saved.
 - Parallel sessions are safe. Every write names the version it started from, so one session can't silently overwrite another's notes.
-- If you also use Codex with trailmark-codex in the same repo, both read and write the same note, and each entry says which agent wrote it.
+- If you also use Codex with trailmark-codex in the same repo, both read and write the same note. Its `Updated:` line names the agent that wrote it last.
 
 ## What it doesn't do
 

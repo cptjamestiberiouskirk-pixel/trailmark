@@ -1753,23 +1753,63 @@ test('round 10 regressions: old git and HEAD-like folders, flags kept, MEMORY.md
   assert.deepStrictEqual(pr.orphans, []);
 });
 
-test('sweep: a commit command denied at the prompt stops holding the sweep once its session finishes a later one, except in Codex, which gives no subagent ID (final check)', () => {
+test('sweep: a commit command denied at the prompt stops holding the sweep once the same thread finishes a later one; a Codex record without a subagent ID, or a command sent to the background, holds until its time is up (final check)', () => {
   const base = realTemp('jbmem-deny-');
   const pend = path.join(base, 'pending'); fs.mkdirSync(pend);
   const now = Date.now();
-  const rec = (id, at, sid) => fs.writeFileSync(path.join(pend, `${id}.json`), JSON.stringify({ cwd: base, at, session: sid, sites: [base] }));
+  const rec = (id, at, sid, more = {}) => fs.writeFileSync(path.join(pend, `${id}.json`), JSON.stringify({ cwd: base, at, session: sid, sites: [base], ...more }));
   rec('toolu_denied', now - 20000, SA);
   assert.strictEqual(S.openCommitStart(base, {}, 600000, now, SB), now - 20000, 'a lone open record holds the sweep');
   rec('toolu_later', now - 10000, SA);
   fs.writeFileSync(path.join(pend, 'toolu_later.done'), '');
-  // Codex gives no subagent ID and may run one thread's commands alongside
-  // each other, so there the record holds until its time is up.
-  assert.strictEqual(S.openCommitStart(base, {}, 600000, now, SB), CODEX ? now - 20000 : Infinity, 'a denied command still held the sweep after its session finished a later commit');
+  assert.strictEqual(S.openCommitStart(base, {}, 600000, now, SB), Infinity, 'a denied command still held the sweep after its session finished a later commit');
+  // A Codex record without a subagent ID, and a command sent to the
+  // background, are not released by a later one.
+  rec('toolu_codex', now - 15000, SA, { host: 'codex' });
+  assert.strictEqual(S.openCommitStart(base, {}, 600000, now, SB), now - 15000, 'a Codex record was released');
+  fs.unlinkSync(path.join(pend, 'toolu_codex.json'));
+  rec('toolu_bg', now - 15000, SA, { bg: true });
+  assert.strictEqual(S.openCommitStart(base, {}, 600000, now, SB), now - 15000, 'a background command was released');
+  fs.unlinkSync(path.join(pend, 'toolu_bg.json'));
   // Another session's later commit says nothing about this one.
   rec('toolu_other', now - 5000, SB);
   fs.writeFileSync(path.join(pend, 'toolu_other.done'), '');
   fs.unlinkSync(path.join(pend, 'toolu_later.done'));
   assert.strictEqual(S.openCommitStart(base, {}, 600000, now, '22222222-2222-4222-8222-333333333333'), now - 20000);
+});
+
+test('git checks: names and pointers that are not valid UTF-8 keep git out, and so does a gitdir past its entry budget (review round 12)', { skip: (WIN || process.platform === 'darwin') && 'needs a filesystem that keeps raw bytes in names' }, () => {
+  const G = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-utf8-');
+  const share = '//evil.invalid/share/.git';
+  const ff = Buffer.from([0xff]).toString('latin1');
+  const raw = (p) => Buffer.from(p, 'latin1');
+  // A .git pointer with a byte that isn't UTF-8, and a link of that name to a share.
+  const r1 = path.join(base, 'r1'); fs.mkdirSync(r1);
+  fs.writeFileSync(path.join(r1, '.git'), Buffer.concat([Buffer.from('gitdir: '), Buffer.from([0xff])]));
+  fs.symlinkSync(share, raw(path.join(r1, ff)));
+  assert.notStrictEqual(G.farGitConfig(r1), '', 'a non-UTF-8 .git pointer');
+  // A link inside .git whose name isn't UTF-8.
+  const r2 = path.join(base, 'r2'); repoAt(r2);
+  fs.symlinkSync(share, raw(path.join(r2, '.git', 'refs', 'heads', ff)));
+  assert.strictEqual(G.farGitConfig(r2), 'odd-path', 'a non-UTF-8 name in .git');
+  // An alternates line with such a byte.
+  const r3 = path.join(base, 'r3'); repoAt(r3);
+  fs.writeFileSync(path.join(r3, '.git', 'objects', 'info', 'alternates'), Buffer.concat([Buffer.from(base + '/'), Buffer.from([0xff]), Buffer.from('\n')]));
+  assert.strictEqual(G.farGitConfig(r3), 'odd-config-path', 'a non-UTF-8 alternates line');
+  // A link whose target has such a byte.
+  const r4 = path.join(base, 'r4'); repoAt(r4);
+  fs.symlinkSync(raw(base + '/' + ff), path.join(r4, '.git', 'refs', 'heads', 'x'));
+  assert.notStrictEqual(G.farGitConfig(r4), '', 'a link with a non-UTF-8 target');
+  // More than 20,000 entries in .git besides loose objects.
+  const r5 = path.join(base, 'r5'); repoAt(r5);
+  const tags = path.join(r5, '.git', 'refs', 'tags');
+  const head = fs.readFileSync(path.join(r5, '.git', 'refs', 'heads', fs.readdirSync(path.join(r5, '.git', 'refs', 'heads'))[0]));
+  for (let i = 0; i < 20001; i++) fs.writeFileSync(path.join(tags, `t${i}`), head);
+  assert.strictEqual(G.farGitConfig(r5), 'many-entries');
+  // An ordinary repo with a unicode name still passes.
+  const r6 = path.join(base, 'r\u00e9pertoire'); repoAt(r6);
+  assert.strictEqual(G.farGitConfig(r6), '');
 });
 
 test('git checks: another worktree recorded through a link to a share, or on one, keeps git out (git 2.56, final check)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {

@@ -1214,7 +1214,7 @@ test('precompact: a repo with 2,500 changed files still gets a snapshot, with th
   assert.match(notes, /PRE_COMPACT .* uncommitted=2500/);
 });
 
-test('skills: note and search text goes in single quotes; heredocs end at a per-session marker', () => {
+test('skills: note and search text goes in single quotes; heredocs end at a per-session marker', (t) => {
   const dir = path.join(ROOT, 'skills');
   const all = fs.readdirSync(dir).map(d => [d, fs.readFileSync(path.join(dir, d, 'SKILL.md'), 'utf8')]);
   for (const [name, text] of all) {
@@ -1231,7 +1231,7 @@ test('skills: note and search text goes in single quotes; heredocs end at a per-
   // The quoted marker is taken literally whether or not the ID was filled in,
   // and a plain JBMEM_EOF line inside the text no longer ends it.
   // Needs bash on PATH (Git for Windows puts it in Git\bin, not Git\cmd).
-  if (spawnSync('bash', ['-c', 'exit 0']).error) return;
+  if (spawnSync('bash', ['-c', 'exit 0']).error) { t.skip('the heredoc step needs bash on PATH (Git for Windows keeps it in Git\\bin)'); return; }
   const out = execFileSync('bash', ['-c', "cat <<'JBMEM_EOF_${CLAUDE_SESSION_ID}'\nline one\nJBMEM_EOF\nline after\nJBMEM_EOF_${CLAUDE_SESSION_ID}\n"], { encoding: 'utf8' });
   assert.strictEqual(out, 'line one\nJBMEM_EOF\nline after\n');
 });

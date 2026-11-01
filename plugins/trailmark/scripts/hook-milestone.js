@@ -91,9 +91,12 @@ guard(() => {
   const { dir, cwd } = memoryDirOrExit(payload);
   const toolId = typeof payload.tool_use_id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(payload.tool_use_id) ? payload.tool_use_id : '';
   // Every way out of a commit run marks its PreToolUse record done, after
-  // anything it logs: a commit sweep waits for a command until then.
+  // anything it logs: a commit sweep waits for a command until then. A
+  // command sent to the background returns before it has run, so its record
+  // stays open until its time is up.
+  const background = !!(payload.tool_input && payload.tool_input.run_in_background === true);
   const leave = () => {
-    if (kind === 'commit' && toolId) {
+    if (kind === 'commit' && toolId && !background) {
       try { S.markCommitDone(dir, toolId); } catch (e) { if (e && e.code === 'ERR_ACCESS_DENIED') throw e; }
     }
     process.exit(0);

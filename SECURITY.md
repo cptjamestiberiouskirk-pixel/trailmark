@@ -118,7 +118,8 @@ Not covered:
 
 - A mapped drive letter that leads to a share. It can't be told apart from a local drive.
 - A link planted in place of a single loose object file.
-- A link in a gitdir past its first 20,000 entries, or among a repo's folders past the first 20,000. A tracked file there that has become a folder with a `.git` isn't looked at either.
+- A link in a Git LFS store past its first 10,000 entries, or among a repo's folders past the first 20,000. A tracked file there that has become a folder with a `.git` isn't looked at either. (A gitdir with more than 20,000 entries, loose objects aside, keeps git out: `many-entries`.)
+- A gitdir file or folder name that isn't valid UTF-8 keeps git out (`odd-path`): git opens the raw bytes, which Node can't name. So does such a byte in a pointer, a link's target or an alternates line.
 - `~/` in an include is checked against your home folder as Node sees it, which can differ from git's `HOME` on some company machines. A path written as `~user/...` keeps git out (`odd-config-path`) unless `user` is you.
 
 ### Links in the memory folder

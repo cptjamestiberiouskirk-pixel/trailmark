@@ -504,12 +504,14 @@ Before git runs in a repo, Trailmark checks that nothing in the repo's `.git` se
 | Reason | What it means |
 |---|---|
 | `network-config` | A config value or include leads to a network path. A remote's or submodule's address doesn't count; a Git LFS address on a share does |
-| `network-gitdir` | The `.git` file, `commondir` (the repo's or another worktree's), another worktree's recorded folder (its `gitdir` file) or alternates lead to a network path |
+| `network-gitdir` | The `.git` file, `commondir` (the repo's or another worktree's), another worktree's recorded folder (its `gitdir` file) or alternates lead to a network path, or one of those pointers can't be read the way git reads it (a NUL in it, whitespace at either end, or a drive-relative `C:x` or `\x` on Windows) |
 | `linked-gitdir` | A link inside `.git` leads to one |
 | `many-worktrees` | There are more than 10,000 worktrees to check |
+| `many-entries` | `.git` holds more than 20,000 entries besides loose objects and Git LFS's store, so a link could hide past the ones checked |
+| `odd-path` | A file or folder name inside `.git` isn't valid UTF-8, so the check can't name the file git opens |
 | `deep-gitdir` | `.git` has folders nested more than 64 deep |
 | `odd-config-path` | An include, or a setting that names a file, could be read differently by git and by the check (leading or trailing spaces, `~user/` for someone other than you, `C:x`) |
-| `unreadable-config` | A config or pointer file isn't a plain small file (a link, a folder, a FIFO, a config file over 8 MB, or a pointer file over 4 KB) |
+| `unreadable-config` | A config or pointer file isn't a plain small file (for example a link, a folder, a FIFO, a config file over 8 MB, an `alternates` file over 64 KB, or a pointer file over 4 KB) |
 | `deep-config` | Includes go more than ten deep |
 | `many-config-files` | Includes reach more than 50 files |
 | `network-folder` | The folder itself is on a network path other than the session's own share |
@@ -529,7 +531,7 @@ Before a compaction, the snapshot runs `git status` to list changed files. When 
 | `outside-worktree` | The repo's `core.worktree` names a folder that isn't the session's folder or above it |
 | `lfs-config` | Git LFS runs as a filter and the repo's `.lfsconfig` (the worktree's, else the index's or HEAD's) is a link or includes another file |
 | `lfs-extension` | Git LFS runs and the repo's own config names an LFS extension program |
-| `odd-path` | A tracked path is absolute, holds `..`, or isn't valid UTF-8 |
+| `odd-path` | A tracked path is absolute, holds `..`, or isn't valid UTF-8, or a folder name among the tracked files' folders isn't |
 | `odd-filter-name` | A filter name has characters other than letters, digits, `.`, `_` and `-` |
 | `many-filters` | Tracked files use more than 32 filters |
 | `filter-check` | Listing the filters tracked files use failed |

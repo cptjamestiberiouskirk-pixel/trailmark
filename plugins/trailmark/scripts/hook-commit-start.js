@@ -49,6 +49,9 @@ guard(() => {
   // them apart (store.js, openCommitStart).
   const agent = S.cleanAgent(payload.agent_id);
   if (agent) rec.agent = agent;
+  // Codex gives no subagent ID (store.js, openCommitStart); a command sent to
+  // the background is still running after its hook.
+  if (payload.tool_input && payload.tool_input.run_in_background === true) rec.bg = true;
   // The PostToolUse hook reads a record of up to 8 KB; the sites must not
   // push this one past that.
   if (sites && Buffer.byteLength(JSON.stringify({ ...rec, sites }), 'utf8') <= 6000) rec.sites = sites;

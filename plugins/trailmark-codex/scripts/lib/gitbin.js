@@ -180,7 +180,8 @@ function gitEnv(base = process.env) {
 // - On Windows a drive-relative path (C:x) or a root-relative one (\x) in a
 //   pointer is refused: git and this check would resolve it differently.
 // Not covered: a link planted in place of a single loose object file, or in
-// a gitdir past its first 20,000 entries.
+// a Git LFS store past its first 10,000 entries. A gitdir past its first
+// 20,000 entries keeps git out.
 const NET_START = /^[\\/]{2}|^[\\/]\?\?[\\/]/;
 const WIN = process.platform === 'win32';
 // The network share the session itself works in (\\server\share), while one
@@ -231,14 +232,17 @@ function rawJoin(a, b) {
 // whitespace or holds a line break: git keeps such characters, and this
 // check would otherwise look at a different file than git opens.
 // A NUL is refused too: git reads a pointer up to a NUL, so the check would
-// look at a different path than git opens.
+// look at a different path than git opens. So is U+FFFD, which is what Node
+// makes of bytes that aren't valid UTF-8: git opens the raw bytes (Git for
+// Windows maps them to other characters), a path this check can't name.
 function exactPointer(t) {
   const v = String(t).replace(/[\r\n]+$/, '');
-  return /^\s|\s$|[\r\n\0]/.test(v) ? null : v;
+  return /^\s|\s$|[\r\n\0\uFFFD]/.test(v) ? null : v;
 }
 function localPath(p) {
-  // A NUL ends the path for git but makes Node throw: never taken as local.
-  if (String(p).includes('\0')) return null;
+  // A NUL ends the path for git but makes Node throw, and U+FFFD stands for
+  // bytes that aren't valid UTF-8 (see exactPointer): never taken as local.
+  if (/[\0\uFFFD]/.test(String(p))) return null;
   let cur = WIN ? path.resolve(String(p)) : String(p);
   if (!WIN && !cur.startsWith('/') && !NET_START.test(cur)) cur = rawJoin(process.cwd(), cur);
   if (blocked(cur)) return null;
@@ -256,7 +260,7 @@ function localPath(p) {
       if (st.isSymbolicLink()) {
         let t;
         try { t = fs.readlinkSync(next); } catch { return null; }
-        if (netText(t) || oddRelative(t)) return null;
+        if (netText(t) || oddRelative(t) || t.includes('\uFFFD')) return null;
         const rest = parts.slice(i + 1).join(path.sep);
         cur = rawJoin(at, t);
         if (rest) cur = rawJoin(cur, rest);
@@ -442,7 +446,7 @@ function farAlternates(objects, depth, seen, tops = []) {
   for (const raw0 of alt.split('\n')) {
     const raw = raw0.replace(/\r$/, '');
     if (!raw.trim() || raw.trim().startsWith('#')) continue;
-    if (/^\s|\s$/.test(raw)) return 'odd-config-path';
+    if (/^\s|\s$|[\0\uFFFD]/.test(raw)) return 'odd-config-path';
     const line = altLine(raw);
     if (netText(raw) || netText(line)) return 'network-config';
     if (oddRelative(line)) return 'odd-config-path';
@@ -477,8 +481,8 @@ function gitdirAt(base, t) {
 // and what it leads to is walked too (tools such as git-new-workdir and
 // Android's repo link a gitdir's entries). hooks/ is left out: hooks never
 // run (core.hooksPath is set). Loose object files (objects/xx/...) aren't
-// walked, as there can be very many; past 20,000 entries the rest isn't
-// looked at, so a big repo isn't kept out.
+// walked, as there can be very many; past 20,000 other entries git is kept
+// out (many-entries), since a link could hide past them.
 // '' when nothing in the gitdir is a link to a network path, else the reason.
 // Folders deeper than MAX_GITDIR_DEPTH (far past nested submodules with deep
 // branch names) aren't walked, so a gitdir that has one is refused rather
@@ -492,14 +496,19 @@ const MAX_GITDIR_DEPTH = 64;
 // can't use up the budget for git's own folders.
 const LFS_BUDGET = 10000;
 function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
-  const main = { n: lfsStore ? LFS_BUDGET : 20000 };
+  const main = { n: lfsStore ? LFS_BUDGET : 20000, lfs: lfsStore };
   const seen = new Set();
   let lfsLater = null;
   const walk = (d, rel, depth, budget) => {
     let list;
     try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return ''; }
     for (const x of list) {
-      if (--budget.n < 0) return '';
+      // Past the budget: the rest isn't looked at. In the gitdir's own
+      // folders that keeps git out, since a link could hide past it; a big
+      // LFS store (its own budget) is let through.
+      if (--budget.n < 0) return budget.lfs ? '' : 'many-entries';
+      // A name that isn't valid UTF-8 can't be looked up by the name Node gives.
+      if (x.name.includes('\uFFFD')) return 'odd-path';
       if (!rel && !objectsRoot && x.name === 'hooks') continue;
       if (!rel && !objectsRoot && !lfsStore && x.name === 'lfs' && !lfsLater) { lfsLater = x; continue; }
       let sub = path.join(d, x.name);
@@ -532,7 +541,7 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
   if (lfsLater.isSymbolicLink()) { const real = localPath(sub); if (!real) return 'linked-gitdir'; sub = real; }
   let isDir = false;
   try { isDir = fs.statSync(sub).isDirectory(); } catch { isDir = false; }
-  return isDir ? walk(sub, 'lfs', 1, { n: LFS_BUDGET }) : '';
+  return isDir ? walk(sub, 'lfs', 1, { n: LFS_BUDGET, lfs: true }) : '';
 }
 // Is this a gitdir git would accept: HEAD there, objects and refs in it or
 // in its commondir.
@@ -582,6 +591,7 @@ function otherWorktrees(wt) {
   try { names = fs.readdirSync(top.dir); } catch { return ''; }
   if (names.length > MAX_WORKTREES) return 'many-worktrees';
   for (const n of names) {
+    if (n.includes('\uFFFD')) return 'odd-path';
     const d = path.join(wt, n);
     const r = realFolder(path.join(top.dir, n));
     if (r.why) return r.why;
@@ -628,6 +638,7 @@ function farBareProbe(d) {
   if (st.isSymbolicLink()) {
     let t = '';
     try { t = fs.readlinkSync(h); } catch { return 'unreadable-config'; }
+    if (t.includes('\uFFFD')) return 'unreadable-config';
     file = localPath(h);
     if (!file) return 'network-gitdir';
     if (/^refs\//.test(t)) valid = true;
@@ -793,6 +804,7 @@ function moduleGitdirs(root) {
     const isGitdir = list.some(x => x.name === 'HEAD' && (x.isFile() || x.isSymbolicLink()));
     if (isGitdir) out.push(d);
     for (const x of list) {
+      if (x.name.includes('\uFFFD')) { why = 'odd-path'; return; }
       // A gitdir's own objects, refs (refs/remotes/origin holds a HEAD too),
       // logs, lfs and hooks hold no submodule gitdir.
       if (isGitdir && /^(objects|refs|lfs|logs|hooks)$/.test(x.name)) continue;

@@ -1245,7 +1245,7 @@ function readCommitStart(dir, toolUseId, session = '', now = Date.now()) {
   const sid = cleanSession(session);
   if (sid && rec.session && cleanSession(rec.session) !== sid) return null;
   const sites = Array.isArray(rec.sites) && rec.sites.length <= 4 && rec.sites.every(d => typeof d === 'string' && d.length <= 1024 && path.isAbsolute(d)) ? rec.sites : undefined;
-  return { cwd: rec.cwd, at: rec.at, name: `${toolUseId}.json`, session: cleanSession(rec.session) || '', agent: cleanAgent(rec.agent), ...(sites ? { sites } : {}) };
+  return { cwd: rec.cwd, at: rec.at, name: `${toolUseId}.json`, session: cleanSession(rec.session) || '', agent: cleanAgent(rec.agent), host: rec.host === 'codex' ? 'codex' : '', bg: rec.bg === true, ...(sites ? { sites } : {}) };
 }
 
 // A subagent's ID from a hook payload, or '' (the main thread, or none given).
@@ -1338,7 +1338,10 @@ function openCommitStart(dir, state, windowMs, now = Date.now(), session = '') {
     // The same thread of its session finished a commit command started after
     // this one: this one isn't running any more (it was denied, or its hook
     // didn't run).
-    if (rec.session && lastDone.get(key(rec)) > rec.at) continue;
+    // Not for a Codex record without a subagent ID (Codex may run one
+    // thread's commands alongside each other), nor for a command sent to the
+    // background: those hold until their time is up.
+    if (rec.session && !rec.bg && (rec.agent || rec.host !== 'codex') && lastDone.get(key(rec)) > rec.at) continue;
     if (rec.at < earliest) earliest = rec.at;
   }
   return earliest;

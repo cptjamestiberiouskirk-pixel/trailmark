@@ -29,7 +29,7 @@ You need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines) an
 
 2. **Trust the hooks.** Codex runs a plugin's hooks only after you review and trust them, and again after any change to them. Each hook should read `node -e "...PLUGIN_ROOT..." trailmark --hook <name>`. In the Codex CLI, `/hooks` lists them.
 
-3. **Writes to the memory folder.** A checkpoint writes the handoff in Claude Code's memory folder for the repo, which is outside the workspace, so Codex asks you to approve each checkpoint write. That's the default and the safer choice: the approval shows the command, so you can see it's the launcher writing.
+3. **Writes to the memory folder.** A checkpoint writes the handoff in Claude Code's memory folder for the repo, which is outside the workspace, so Codex asks you to approve each checkpoint write (the skills retry a refused write with escalated permissions, which is what makes Codex ask). That's the default and the safer choice: the approval shows the command, so you can see it's the launcher writing.
 
    To skip the prompts you can make the memory folder a writable root, but know the cost first: every command the agent runs may then write there, not only the launcher. A prompt-injected turn could edit `handoff.md` or `MEMORY.md` directly, past the version check, and that text is injected into every later Codex and Claude Code session in the repo. (It couldn't switch the sandbox off: this copy ignores `"sandbox": false` in `.jbmem.json`.) If you accept that, get the folder from the first line of `node "<launcher>" dir` and add it to `~/.codex/config.toml` (`%USERPROFILE%\.codex\config.toml` on Windows):
 
