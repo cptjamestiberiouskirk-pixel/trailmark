@@ -1330,6 +1330,8 @@ test('skills: note and search text goes in single quotes; heredocs end at a per-
   }
   // The quoted marker is taken literally whether or not the ID was filled in,
   // and a plain JBMEM_EOF line inside the text no longer ends it.
+  // Needs bash on PATH (Git for Windows puts it in Git\bin, not Git\cmd).
+  if (spawnSync('bash', ['-c', 'exit 0']).error) return;
   const out = execFileSync('bash', ['-c', "cat <<'JBMEM_EOF_${CLAUDE_SESSION_ID}'\nline one\nJBMEM_EOF\nline after\nJBMEM_EOF_${CLAUDE_SESSION_ID}\n"], { encoding: 'utf8' });
   assert.strictEqual(out, 'line one\nJBMEM_EOF\nline after\n');
 });
@@ -1888,9 +1890,11 @@ function multiFolder() {
   // in, then PostToolUse with the folder it ended in (end), the same tool
   // call ID, and the command's duration.
   const hook = (cwd, sid, command, extra = {}) => {
-    const { end, pre = true, duration_ms = 60000, env = {}, response = {}, ...rest } = extra;
+    const { end, pre = true, duration_ms = 60000, env = {}, response = {}, between, ...rest } = extra;
     const base = { session_id: sid, tool_name: 'Bash', tool_input: { command }, tool_use_id: `toolu_t${++toolSeq}x${process.pid}`, ...rest };
     if (pre) jbm(s, ['--hook', 'commit-start'], JSON.stringify({ ...base, cwd, hook_event_name: 'PreToolUse' }), env);
+    // What the command does, run after PreToolUse as in a real session.
+    if (between) between();
     const post = { ...base, cwd: end || cwd, hook_event_name: 'PostToolUse', tool_response: response };
     if (duration_ms !== null) post.duration_ms = duration_ms;
     return jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify(post), env);
@@ -2326,9 +2330,12 @@ test('0.3.3 commits: loops, many commits, functions, scripts on stdin and a mess
   hook(s.repo, SA, `cd "${clone}" && for i in 1 2 3; do git commit -q --allow-empty -m "loop $i"; done`, { end: s.repo });
   for (const sha of shas) assert.ok(commitLines(s).some(l => l.includes(`COMMIT ${sha} `)), `${sha}: ${notesOf(s)}`);
   // Without duration_ms (an older Claude Code) a loop still takes them all.
+  // The commits are made after PreToolUse, as the command would: without a
+  // duration the window starts at that record (a slow machine takes more than
+  // its second of slack for three commits made before it).
   const shas2 = [];
-  for (let i = 1; i <= 3; i++) { gClone('commit', '-q', '--allow-empty', '-m', `loop2 ${i}`); shas2.push(head(clone)); }
-  hook(s.repo, SA, `cd "${clone}" && while read m; do git commit -q --allow-empty -m "$m"; done < list`, { end: s.repo, duration_ms: null });
+  hook(s.repo, SA, `cd "${clone}" && while read m; do git commit -q --allow-empty -m "$m"; done < list`, { end: s.repo, duration_ms: null,
+    between: () => { for (let i = 1; i <= 3; i++) { gClone('commit', '-q', '--allow-empty', '-m', `loop2 ${i}`); shas2.push(head(clone)); } } });
   for (const sha of shas2) assert.ok(commitLines(s).some(l => l.includes(`COMMIT ${sha} `)), `${sha}: ${notesOf(s)}`);
   // Fourteen commits in one command.
   const many = [];
