@@ -43,7 +43,7 @@ A copy under the old name still counts as another copy, because two copies would
 
 ### Other changes you may notice
 
-- When git is kept out of a repo, session start says so with a reason word: `git is kept out of this repo (<reason>)`. The snapshot taken before a compaction shows `not read (git kept out: <reason>)`. The handoff still loads, and the memory folder is found without git, so worktrees keep their shared handoff. MANUAL.md, section 13, lists each reason word and what to fix.
+- When git is kept out of a repo, session start says so with a reason word: `git is kept out of this repo (<reason>)`. The snapshot taken before a compaction shows `not read (git kept out: <reason>)`. The handoff still loads, and the memory folder is found without git, so worktrees keep their shared handoff. MANUAL.md, section 16, lists each reason word and what to fix.
 - A snapshot can also say `not read (<reason>)` when only its list of changed files was skipped. Reasons that come from checks added in this release include `odd-path` (a tracked path that isn't valid UTF-8), `outside-worktree` (a `core.worktree` that isn't the session's folder or above it), `lfs-config`, `submodule-pointer`, `linked-folder` and `many-submodules`. One submodule on a share skips only the file list.
 - The snapshot no longer lists untracked files, since git would look inside untracked folders that are repos of their own. Its `git status` covers the whole worktree even when the session works in a subfolder.
 - A branch git didn't report in time is shown as `unknown` rather than `detached`, and the `Updated:` line the model wrote is kept.

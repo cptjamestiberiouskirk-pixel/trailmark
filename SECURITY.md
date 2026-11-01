@@ -74,7 +74,7 @@ A repo's `.claude/settings.json` can set environment variables, and it can also 
 A repo's own files can send git to a network share even when the folder git runs in is local. git follows these whatever settings it is given:
 
 - a `.git` file's `gitdir`;
-- a worktree's `commondir`;
+- a worktree's `commondir`, and the folder recorded for another worktree in its `gitdir` file;
 - `include.path` and `includeIf` paths;
 - settings that name a file;
 - `objects/info/alternates`;
@@ -94,7 +94,7 @@ How the check reads the repo:
 - `lfs.storage` and git-lfs's own `lfs/objects` folders are walked too, on a budget of their own (the first 10,000 entries), so a large LFS store can't use up the budget for git's own folders.
 - While git-lfs runs as a filter, the repo's `.lfsconfig` must be a plain file with no includes. One that is only in the index or HEAD is read with `git config --blob` and held to the same rules.
 - git tries a folder on the way up whose `HEAD` looks like a git head as a bare repo before refusing it. What git reads there (its `commondir` and the `objects` and `refs` folders) is checked, also when the folder has a `.git` git won't use. git older than 2.38 uses such a folder as a repo, so with that git the whole folder is checked like a gitdir.
-- Each other worktree's `commondir` is checked too.
+- Each other worktree's `commondir` is checked too, and so is the folder recorded in its `gitdir` file, because git 2.56 opens that folder for `rev-list --all` (relative paths, written with `worktree.useRelativePaths`, included).
 - A working folder inside a `.git` (in any Windows spelling, such as `GIT~1`) is refused. So is a pointer that git and the check would resolve differently on Windows (`C:x`, `\x`).
 - A gitdir with folders nested more than 64 deep keeps git out.
 - A folder named in a command (`cd vend && git commit`) is checked for links to a share before anything looks into it.
