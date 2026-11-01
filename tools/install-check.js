@@ -30,7 +30,7 @@ function readList() {
   let s = '';
   try { s = fs.readFileSync(0, 'utf8'); } catch { /* empty */ }
   let j;
-  try { j = JSON.parse(s.replace(/^﻿/, '').trim()); } catch { process.stdout.write('unreadable'); process.exit(3); }
+  try { j = JSON.parse(s.replace(/^\uFEFF/, '').trim()); } catch { process.stdout.write('unreadable'); process.exit(3); }
   if (!Array.isArray(j)) { process.stdout.write('unreadable'); process.exit(3); }
   return j;
 }

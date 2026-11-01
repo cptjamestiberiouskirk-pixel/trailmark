@@ -12,9 +12,10 @@
 #   3. Checks NoDefaultCurrentDirectoryInExePath (see MANUAL.md); with
 #      -SetNoCwdLookup it sets it to 1 for your user.
 #   4. Runs trailmark's sandbox check (Node's permission model on this PC).
-#   5. Refuses if trailmark is already installed from another marketplace, or
-#      if a marketplace named trailmark points at another folder, since two
-#      copies would each run the hooks. -Repoint allows the second case.
+#   5. Refuses if trailmark is already installed from another marketplace,
+#      if jb-memory (its old name) is installed, or if a marketplace named
+#      trailmark points at another folder, since two copies would each run
+#      the hooks. -Repoint allows the last case.
 #   6. claude plugin validate, claude plugin marketplace add <this folder>,
 #      claude plugin install trailmark@trailmark (user scope).
 #   7. With -Codex: codex plugin marketplace add <this folder>.

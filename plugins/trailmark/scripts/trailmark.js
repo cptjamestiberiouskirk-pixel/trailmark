@@ -13,7 +13,7 @@
 //
 // Usage:
 //   node trailmark.js <memory.js command> [args]        skills
-//   node trailmark.js --hook <session-start|precompact|milestone> [kind]   hooks
+//   node trailmark.js --hook <session-start|precompact|commit-start|milestone> [kind]   hooks
 //   node trailmark.js --sandbox-check                   self-test of the seat belt
 //
 // Escape hatch: JBMEM_SANDBOX=off in the environment (for every session: the

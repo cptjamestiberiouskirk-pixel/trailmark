@@ -12,9 +12,10 @@
 #      another owner above it, or a link inside it is refused.
 #   3. Runs trailmark's sandbox check (Node's permission model on this
 #      machine).
-#   4. Refuses if trailmark is already installed from another marketplace, or
-#      if a marketplace named trailmark points at another folder, since two
-#      copies would each run the hooks. --repoint allows the second case.
+#   4. Refuses if trailmark is already installed from another marketplace,
+#      if jb-memory (its old name) is installed, or if a marketplace named
+#      trailmark points at another folder, since two copies would each run
+#      the hooks. --repoint allows the last case.
 #   5. claude plugin validate, claude plugin marketplace add <this folder>,
 #      claude plugin install trailmark@trailmark (user scope).
 #   6. With --codex: codex plugin marketplace add <this folder>. Installing in
@@ -26,7 +27,8 @@
 #
 #   ./install.sh                 install for Claude Code
 #   ./install.sh --codex         also add the Codex marketplace
-#   ./install.sh --check         run steps 1 to 4 only, change nothing
+#   ./install.sh --check         run steps 1 to 4 and claude plugin validate,
+#                                change nothing
 #   ./install.sh --uninstall     uninstall the plugin and remove the
 #                                marketplace (memory folders are kept)
 #   ./install.sh --allow-old-node  continue on a Node below the security floor
@@ -62,7 +64,7 @@ for a in "$@"; do
     --allow-old-node) OLDNODE=1 ;;
     --repoint) REPOINT=1 ;;
     --preflight) PREFLIGHT=1; CHECK=1 ;;
-    -h|--help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) echo "Unknown option: $a (see --help)"; exit 2 ;;
   esac
 done

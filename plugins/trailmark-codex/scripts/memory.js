@@ -4,11 +4,11 @@
 //
 // Read commands:  dir [--json] | status | budget [--json] | handoff | list [parked|archive|notes|topics|history]
 //                 search <query> | prune-report [--json]
-//                 transcript [--since=checkpoint|<ISO time>] [--max=<chars>] [--tail] [--file=<jsonl>]
+//                 transcript [--since=checkpoint|<ISO time>] [--max=<chars>] [--tail]
 // Write commands: init [--public] | write-handoff --base=<version> (stdin) | undo-handoff [--force]
 //                 rotate | note <text> | park --slug=<slug> [--replace] (stdin) | archive-file <relpath>
 //
-// Any command takes --session=<Claude Code session ID>. Skills pass it, so
+// Any command takes --session=<Codex thread ID>. Skills pass it, so
 // per-session state, the right transcript and log lines follow the session.
 //
 // Several sessions can share one memory folder. `handoff` prints the file's
@@ -142,7 +142,7 @@ function printBudget(m) {
   console.log('Loaded into every session (costs tokens each time):');
   console.log(`  MEMORY.md      ${L.memoryMd.exists ? `${L.memoryMd.lines} lines, ${fmtKb(L.memoryMd.bytes)}` : S.linkedFiles(dir).includes('MEMORY.md') ? 'a link, not measured (Claude Code still loads it)' : 'none'}  [${L.memoryMd.level}]  target <= ${b.memoryMdLines} lines / ${fmtKb(b.memoryMdBytes)}; Claude Code loads 200 lines or 25 KB${L.memoryMd.truncatedByClaudeCode ? '  ** past Claude Code\'s cap: the tail is NOT loaded **' : ''}`);
   console.log(`  handoff.md     ${L.handoff.lines} lines, ${L.handoff.chars} chars (~${L.handoff.tokens} tokens)  [${L.handoff.level}]  target <= ${b.handoffLines} lines / ${b.handoffChars} chars`);
-  console.log(`  start inject   ${L.injection.chars} chars (~${L.injection.tokens} tokens)  [${L.injection.level}]  target <= ${b.injectChars} chars; hook output over 10,000 chars is cut to a 2,000-char preview`);
+  console.log(`  start inject   ${L.injection.chars} chars (~${L.injection.tokens} tokens)  [${L.injection.level}]  target <= ${b.injectChars} chars; Codex moves hook output past about 9,000 chars to a file`);
   if (L.handoff.doneItems) console.log(`  ${L.handoff.doneItems} [done] item(s) waiting for rotate`);
   const D = m.onDiskOnly;
   console.log('On disk only (read on demand, no per-session cost):');

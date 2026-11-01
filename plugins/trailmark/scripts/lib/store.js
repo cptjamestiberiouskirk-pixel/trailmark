@@ -1297,8 +1297,10 @@ function markCommitDone(dir, toolUseId) {
 // commit sweep leaves what came after that to the command's own hook, which
 // knows the session that made it. A command whose hook never ran (denied at
 // the permission prompt, stopped with Esc, a hook that timed out) holds the
-// sweep back until the window passes; nothing is lost, the next sweep starts
-// there. Infinity when there is none.
+// sweep back until the window passes, or until its session finishes a later
+// commit command (Claude Code runs commands that write one at a time, so the
+// earlier one has ended); nothing is lost, the next sweep starts there.
+// Infinity when there is none.
 function openCommitStart(dir, state, windowMs, now = Date.now(), session = '') {
   const done = new Set(isPlainObject(state) && Array.isArray(state.recentTools) ? state.recentTools.filter(x => typeof x === 'string') : []);
   let names = [];
@@ -1306,10 +1308,21 @@ function openCommitStart(dir, state, windowMs, now = Date.now(), session = '') {
   for (const n of names) { const d = /^([A-Za-z0-9_-]{1,128})\.done$/.exec(n); if (d) done.add(d[1]); }
   let earliest = Infinity;
   const sid = cleanSession(session);
+  // For each session, when its latest finished commit command started.
+  const lastDone = new Map();
+  for (const n of names) {
+    const m = /^([A-Za-z0-9_-]{1,128})\.json$/.exec(n);
+    if (!m || !done.has(m[1])) continue;
+    const r = readCommitStart(dir, m[1], '', now);
+    if (r && r.session && !(lastDone.get(r.session) >= r.at)) lastDone.set(r.session, r.at);
+  }
   for (const { rec } of liveRecords(dir, names, done, windowMs, now)) {
     // The sweeping session's own: a commit of its own command (a subagent's,
     // running in parallel) is its own commit either way.
     if (sid && rec.session === sid) continue;
+    // Its session finished a commit command started after this one: this
+    // one isn't running any more (it was denied, or its hook didn't run).
+    if (rec.session && lastDone.get(rec.session) > rec.at) continue;
     if (rec.at < earliest) earliest = rec.at;
   }
   return earliest;

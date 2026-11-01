@@ -65,7 +65,7 @@
 //
 // Options:
 //   --dry-run              show what would be done; change nothing
-//   --yes                  don't ask before changing things
+//   --yes, -y              don't ask before changing things
 //   --claude-only          leave Codex alone
 //   --codex-only           leave Claude Code alone (still installs Trailmark's
 //                          Codex marketplace, not the Claude Code plugin)
@@ -89,6 +89,7 @@
 //   --backup-dir <folder>  where cache copies and the log go
 //   --set-no-cwd-lookup, --allow-old-node, --repoint
 //                          passed on to the installer (see MANUAL.md, section 3)
+//   --help, -h             this text
 //
 // Exit codes: 0 done; 1 stopped on an error; 2 done here, with something left
 // for you (listed at the end, or a WARN line above says what wasn't done);

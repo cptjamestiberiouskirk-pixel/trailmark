@@ -1744,3 +1744,20 @@ test('round 10 regressions: old git and HEAD-like folders, flags kept, MEMORY.md
   assert.deepStrictEqual(pr.deadLinks, []);
   assert.deepStrictEqual(pr.orphans, []);
 });
+
+test('sweep: a commit command denied at the prompt stops holding the sweep once its session finishes a later one (final check)', () => {
+  const base = realTemp('jbmem-deny-');
+  const pend = path.join(base, 'pending'); fs.mkdirSync(pend);
+  const now = Date.now();
+  const rec = (id, at, sid) => fs.writeFileSync(path.join(pend, `${id}.json`), JSON.stringify({ cwd: base, at, session: sid, sites: [base] }));
+  rec('toolu_denied', now - 20000, SA);
+  assert.strictEqual(S.openCommitStart(base, {}, 600000, now, SB), now - 20000, 'a lone open record holds the sweep');
+  rec('toolu_later', now - 10000, SA);
+  fs.writeFileSync(path.join(pend, 'toolu_later.done'), '');
+  assert.strictEqual(S.openCommitStart(base, {}, 600000, now, SB), Infinity, 'a denied command still held the sweep after its session finished a later commit');
+  // Another session's later commit says nothing about this one.
+  rec('toolu_other', now - 5000, SB);
+  fs.writeFileSync(path.join(pend, 'toolu_other.done'), '');
+  fs.unlinkSync(path.join(pend, 'toolu_later.done'));
+  assert.strictEqual(S.openCommitStart(base, {}, 600000, now, '22222222-2222-4222-8222-333333333333'), now - 20000);
+});
