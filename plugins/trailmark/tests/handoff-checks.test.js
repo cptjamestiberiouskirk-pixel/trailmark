@@ -1359,17 +1359,25 @@ test('git checks: a decoy .git beside a bare-repo HEAD, plain configs read as gi
   // A config with no quote or backslash, whose value git reads differently
   // from the text: a tab inside (git: a space), a no-break space or form feed
   // at an end (git keeps them), a NUL (git stops there).
-  const plain = (name, line, linkName) => {
+  // The link goes where the installed git itself reads the value (git 2.43
+  // turns a tab inside a value into a space, newer git keeps it), so the test
+  // holds for any git version.
+  const plain = (name, line) => {
     const d = path.join(base, name); repoAt(d);
-    fs.appendFileSync(path.join(d, '.git', 'config'), `[core]\n\t${line}\n`);
-    fs.symlinkSync(EVIL, path.join(d, linkName));
+    const cfg = path.join(d, '.git', 'config');
+    fs.appendFileSync(cfg, `[core]\n\t${line}\n`);
+    const key = line.split('=')[0].trim();
+    let v = null;
+    try { v = execFileSync('git', ['config', '--file', cfg, '--get', `core.${key}`], { encoding: 'utf8' }).replace(/\n$/, ''); } catch { v = null; }
+    // A file git won't read keeps git out by itself; the check must too.
+    if (v !== null && v) fs.symlinkSync(EVIL, key === 'worktree' ? path.join(d, '.git', v) : path.join(d, v));
     return farGitConfig(d);
   };
-  assert.notStrictEqual(plain('p1', 'attributesFile = at\tx', 'at x'), '', 'tab inside a value');
-  assert.notStrictEqual(plain('p2', 'attributesFile = at ', 'at '), '', 'no-break space at the end');
-  assert.notStrictEqual(plain('p3', 'attributesFile = \fat', '\fat'), '', 'form feed at the start');
-  assert.notStrictEqual(plain('p4', 'attributesFile = evil\0x', 'evil'), '', 'NUL in a value');
-  assert.notStrictEqual(plain('p5', 'worktree = ../w\tx', path.join('.git', '..', 'w x')), '', 'core.worktree with a tab');
+  assert.notStrictEqual(plain('p1', 'attributesFile = at\tx'), '', 'tab inside a value');
+  assert.notStrictEqual(plain('p2', 'attributesFile = at\u00a0'), '', 'no-break space at the end');
+  assert.notStrictEqual(plain('p3', 'attributesFile = \fat'), '', 'form feed at the start');
+  assert.notStrictEqual(plain('p4', 'attributesFile = evil\0x'), '', 'NUL in a value');
+  assert.notStrictEqual(plain('p5', 'worktree = ../w\tx'), '', 'core.worktree with a tab');
   // Another worktree's commondir (git rev-list --all reads its refs there).
   const m = path.join(base, 'm'); const g = repoAt(m);
   g('worktree', 'add', '-q', path.join(base, 'm-wt'));
