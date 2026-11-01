@@ -180,7 +180,7 @@ function gitEnv(base = process.env) {
 // - On Windows a drive-relative path (C:x) or a root-relative one (\x) in a
 //   pointer is refused: git and this check would resolve it differently.
 // Not covered: a link planted in place of a single loose object file, or in
-// a Git LFS store past its first 10,000 entries. A gitdir past its first
+// a Git LFS or git-annex store past its first 10,000 entries. A gitdir past its first
 // 20,000 entries keeps git out.
 const NET_START = /^[\\/]{2}|^[\\/]\?\?[\\/]/;
 const WIN = process.platform === 'win32';
@@ -248,7 +248,8 @@ function localPath(p) {
   if (blocked(cur)) return null;
   for (let hops = 0; hops < 40; hops++) {
     const root = path.parse(cur).root;
-    const parts = cur.slice(root.length).split(/[\\/]+/).filter(x => x && x !== '.');
+    // A backslash is a separator on Windows only; elsewhere it is part of a name.
+    const parts = cur.slice(root.length).split(WIN ? /[\\/]+/ : /\/+/).filter(x => x && x !== '.');
     let at = root;
     let relinked = false;
     for (let i = 0; i < parts.length; i++) {
@@ -422,8 +423,6 @@ function farConfig(file, depth, st) {
   }
   return '';
 }
-// An alternates line as git reads it: a line starting with a quote is
-// C-quoted (\\, \", \t and the like, \ooo octal).
 // The entries of an alternates file, read as git reads them
 // (parse_alt_odb_entry, unquote_c_style): one per line; a line starting with
 // '#' is a comment; a line starting with '"' is C-quoted, its \ooo escapes
@@ -445,9 +444,10 @@ function altEntries(text) {
     let k = i + 1;
     let closed = false;
     while (k < text.length) {
-      const ch = text[k];
+      // One character at a time (a code point, not half of a pair).
+      const ch = String.fromCodePoint(text.codePointAt(k));
       if (ch === '"') { closed = true; k++; break; }
-      if (ch !== '\\') { bytes.push(...Buffer.from(ch, 'utf8')); k++; continue; }
+      if (ch !== '\\') { bytes.push(...Buffer.from(ch, 'utf8')); k += ch.length; continue; }
       const e = text[k + 1];
       if (e !== undefined && Object.prototype.hasOwnProperty.call(map, e)) { bytes.push(map[e]); k += 2; continue; }
       if (/^[0-3][0-7][0-7]$/.test(text.slice(k + 1, k + 4))) { bytes.push(parseInt(text.slice(k + 1, k + 4), 8)); k += 4; continue; }
@@ -455,7 +455,8 @@ function altEntries(text) {
     }
     if (!closed || k !== nl) return null;
     let line;
-    try { line = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(bytes)); } catch { return null; }
+    // ignoreBOM: a BOM is part of the name for git, so it stays in.
+    try { line = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.from(bytes)); } catch { return null; }
     out.push({ raw, line });
     i = nl + 1;
   }
@@ -545,8 +546,10 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
       if (!rel && !objectsRoot && x.name === 'hooks') continue;
       if (!rel && !objectsRoot && !lfsStore && x.name === 'lfs' && !lfsLater) { lfsLater = x; continue; }
       // A submodule gitdir's own LFS store, and git-annex's object store, can
-      // be large too: each is walked on a budget of its own.
-      if (!objectsRoot && !lfsStore && x.isDirectory() && ((x.name === 'lfs' && /^modules\/./.test(rel)) || (x.name === 'annex' && (!rel || /^modules\/./.test(rel))))) {
+      // be large too: each is walked on a budget of its own. Only at a
+      // gitdir's top (a folder with a HEAD, not inside its refs or logs).
+      const gitdirTop = () => !rel || (/^modules\/./.test(rel) && !rel.split('/').some(q => q === 'refs' || q === 'logs' || q === 'lfs' || q === 'objects' || q === 'annex') && (() => { try { return fs.lstatSync(path.join(d, 'HEAD')).isFile(); } catch { return false; } })());
+      if (!objectsRoot && !lfsStore && x.isDirectory() && ((x.name === 'lfs' && rel) || x.name === 'annex') && gitdirTop()) {
         const why = walk(path.join(d, x.name), rel ? rel + '/' + x.name : x.name, depth + 1, { n: LFS_BUDGET, lfs: true });
         if (why) return why;
         continue;

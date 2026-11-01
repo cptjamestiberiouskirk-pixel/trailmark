@@ -1822,6 +1822,7 @@ test('git checks: names and pointers that are not valid UTF-8 keep git out, and 
   // An ordinary repo with a unicode name still passes.
   const r6 = path.join(base, 'r\u00e9pertoire'); repoAt(r6);
   assert.strictEqual(G.farGitConfig(r6), '');
+  fs.rmSync(base, { recursive: true, force: true });
 });
 
 test('git checks: another worktree recorded through a link to a share, or on one, keeps git out (git 2.56, final check)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
@@ -1966,16 +1967,40 @@ test('git checks: alternates are read as git reads them, a missing folder follow
   // A missing folder, then '..', then a link to a share: refused, never looked through.
   const r = path.join(base, 'dd'); repoAt(r);
   fs.symlinkSync('//evil.invalid/share', path.join(base, 'lk'));
-  assert.strictEqual(G.localPath(path.join(base, 'nothere', '..', 'lk') ), null);
   assert.strictEqual(G.localPath(base + '/nothere/../lk/x'), null);
   assert.strictEqual(G.localPath(path.join(base, 'nothere', 'x')), path.join(base, 'nothere', 'x'), 'a missing path without .. is still local');
   // A submodule's LFS store and a git-annex store are walked on their own budget.
   const s = path.join(base, 'sub'); repoAt(s);
   const lfs = path.join(s, '.git', 'modules', 's1', 'lfs', 'objects', 'aa', 'bb'); fs.mkdirSync(lfs, { recursive: true });
+  fs.writeFileSync(path.join(s, '.git', 'modules', 's1', 'HEAD'), 'ref: refs/heads/main\n');
   for (let i = 0; i < 20500; i++) fs.writeFileSync(path.join(lfs, `o${i}`), '');
   assert.strictEqual(G.farGitConfig(s), '', 'a big LFS store in a submodule');
   const an = path.join(base, 'annex'); repoAt(an);
   const ao = path.join(an, '.git', 'annex', 'objects', 'aa'); fs.mkdirSync(ao, { recursive: true });
   for (let i = 0; i < 20500; i++) fs.writeFileSync(path.join(ao, `k${i}`), '');
   assert.strictEqual(G.farGitConfig(an), '', 'a big git-annex store');
+  // A folder named annex inside refs gets no budget of its own.
+  const rf = path.join(base, 'refsannex'); repoAt(rf);
+  const big = path.join(rf, '.git', 'modules', 's1', 'refs', 'heads', 'annex', 'big'); fs.mkdirSync(big, { recursive: true });
+  fs.writeFileSync(path.join(rf, '.git', 'modules', 's1', 'HEAD'), 'ref: refs/heads/main\n');
+  for (let i = 0; i < 20500; i++) fs.writeFileSync(path.join(big, `r${i}`), '');
+  fs.symlinkSync('//evil.invalid/share', path.join(rf, '.git', 'modules', 's1', 'refs', 'heads', 'annex', 'z'));
+  assert.notStrictEqual(G.farGitConfig(rf), '', 'a link past a big refs/heads/annex');
+  // A BOM at the start of a quoted entry stays part of the name, as git keeps it.
+  const bom = path.join(base, 'bom'); repoAt(bom);
+  fs.writeFileSync(alts(bom), '"\\357\\273\\277lk/objects"\n');
+  fs.symlinkSync('//evil.invalid/share', path.join(bom, '.git', 'objects', '\ufefflk'));
+  assert.notStrictEqual(G.farGitConfig(bom), '', 'a quoted BOM keeps git out');
+  // A character outside the BMP in a quoted entry is read whole.
+  const emo = path.join(base, 'st\u{1F600}', 'objects'); fs.mkdirSync(emo, { recursive: true });
+  assert.strictEqual(check('"' + emo + '"\n'), '', 'an emoji in a quoted entry');
+  // On Linux and macOS a backslash is part of a name, not a separator.
+  if (!WIN) {
+    const bs = path.join(base, 'bs'); repoAt(bs);
+    fs.mkdirSync(path.join(base, 'a', 'b', 'objects'), { recursive: true });
+    fs.symlinkSync('//evil.invalid/share', path.join(base, 'a\\b'));
+    fs.writeFileSync(alts(bs), base + '/a\\b/objects\n');
+    assert.notStrictEqual(G.farGitConfig(bs), '', 'a backslash in a name keeps git out');
+  }
+  fs.rmSync(base, { recursive: true, force: true });
 });
