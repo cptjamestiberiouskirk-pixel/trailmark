@@ -151,7 +151,7 @@ const todo = [];
 let backupDir = '';
 function writeLog() {
   if (!backupDir) return;
-  try { fs.mkdirSync(backupDir, { recursive: true }); fs.writeFileSync(path.join(backupDir, 'migrate.log'), logLines.join('\n') + '\n'); } catch { /* best effort */ }
+  try { fs.mkdirSync(backupDir, { recursive: true }); fs.appendFileSync(path.join(backupDir, 'migrate.log'), logLines.join('\n') + '\n'); } catch { /* best effort */ }
 }
 function later(t) { todo.push(t); }
 class Stop extends Error {}
@@ -417,11 +417,13 @@ function withoutTrust(text) {
 // "C:\My Repos\" on as C:\My Repos" (the \" read as a quote): put back.
 function folderArg(a) {
   let v = String(a || '');
+  // An option where the folder should be (--scan --yes): the folder was left out.
+  if (/^--[a-z]/i.test(v) || v === '-y' || v === '-h') throw new Error(`a folder option is followed by ${JSON.stringify(v)}, not a folder; put the folder after it`);
   if (WIN && /[^"]"$/.test(v) && !v.slice(0, -1).includes('"')) v = v.slice(0, -1) + '\\';
   // Still a quote: the shell joined arguments (a trailing backslash read as
   // an escaped quote always leaves one), so nothing is guessed. A folder
   // name such as "old -backup" is fine.
-  if (v.includes('"')) throw new Error(`a folder option looks joined with what follows it (${JSON.stringify(v)}); leave out a trailing backslash and run this again`);
+  if (WIN && v.includes('"')) throw new Error(`a folder option looks joined with what follows it (${JSON.stringify(v)}); leave out a trailing backslash and run this again`);
   return v;
 }
 function oldClaudeRelease(folders) {
@@ -468,7 +470,9 @@ function codexOffersOthers(m) {
 // config.toml). Checked whatever --claude-only says.
 function codexMayUse(m, cx) {
   if (!m || !m.path || NET.test(m.path)) return false;
-  if (!path.resolve(m.path).toLowerCase().startsWith(path.resolve(claudeConfigDir()).toLowerCase() + path.sep)) return false;
+  const inCfg = (a, b) => path.resolve(a).toLowerCase().startsWith(path.resolve(b).toLowerCase() + path.sep);
+  const realOf = (q) => { try { return fs.realpathSync.native(q); } catch { return q; } };
+  if (!inCfg(m.path, claudeConfigDir()) && !inCfg(realOf(m.path), realOf(claudeConfigDir()))) return false;
   const man = readJson(path.join(m.path, '.agents', 'plugins', 'marketplace.json'));
   if (!(man && Array.isArray(man.plugins) && man.plugins.some(q => q && String(q.name).toLowerCase() === OLD_CODEX))) return false;
   const home = codexHome();
@@ -780,7 +784,7 @@ function main() {
       warn(`jb-memory-codex is installed but its marketplace ${mkt} is gone, so the ChatGPT app can't show it to uninstall`);
       if (o.oldRelease && !oldCodexRelease([o.oldRelease], mkt)) warn(`--old-release ${o.oldRelease} has no Codex marketplace named ${mkt} that provides jb-memory-codex`);
       if (x.orphanFrom) info(`old release with that marketplace: ${x.orphanFrom}`);
-      else later(`Codex has jb-memory-codex installed, but its marketplace (${mkt}) is gone, so the ChatGPT app can't show it to uninstall. Run this again with --old-release <your old jb-memory release folder> to add that marketplace back, or add it yourself: codex plugin marketplace remove ${mkt}, then codex plugin marketplace add <that folder>. Then uninstall jb-memory-codex in the app and run this again.`);
+      else later(`Codex has jb-memory-codex installed, but its marketplace (${mkt}) is gone, so the ChatGPT app can't show it to uninstall. Run this again with --old-release <your old jb-memory release folder> to add that marketplace back, or add it yourself: ${x.oldMarketplaces.some(m => m.name === mkt) ? `codex plugin marketplace remove ${mkt}, then ` : ''}codex plugin marketplace add <that folder>. Then uninstall jb-memory-codex in the app and run this again.`);
       if (x.orphanFrom && !codex) later(`The codex command isn't on PATH here. Add the old marketplace back yourself: codex plugin marketplace add "${x.orphanFrom}" (or add that folder as a marketplace in the ChatGPT app), then uninstall jb-memory-codex in the app and run this again.`);
     }
     if (!x.installed.length && x.trust && !o.cleanTrust) info('those records do nothing now; --clean-codex-trust removes them');
@@ -813,15 +817,16 @@ function main() {
   const plan = [];
   // jb-memory installs at project or local scope that this run won't remove:
   // kept on purpose, or recorded for a folder that can't be used. The
-  // installer refuses while jb-memory is installed anywhere, so then the
-  // user-scope jb-memory stays too, rather than leaving no plugin at all.
+  // installer refuses while jb-memory is installed anywhere, so then
+  // jb-memory stays at every scope (o.keepUser), rather than leaving you, or a
+  // repo installed only at project or local scope, with no plugin at all.
   const stays = c ? c.plugins.filter(p => p.scope !== 'user' && (!o.projectScopes || !usableScope(p))) : [];
-  o.keepUser = !!(o.install && o.claude && stays.length && c.plugins.some(p => p.scope === 'user'));
+  o.keepUser = !!(o.install && o.claude && stays.length);
   if (o.install && c && stays.length) {
-    info(`jb-memory stays at ${stays.map(p => `${p.scope} scope${p.projectPath ? ' in ' + p.projectPath : ''}`).join(', ')}${o.projectScopes ? '' : ' (--keep-project-scopes)'}, and the installer refuses while it is installed anywhere, so the installer is skipped${o.keepUser ? ' and jb-memory is kept at user scope too, so you still have a plugin' : ''}`);
+    info(`jb-memory stays at ${stays.map(p => `${p.scope} scope${p.projectPath ? ' in ' + p.projectPath : ''}`).join(', ')}${o.projectScopes ? '' : ' (--keep-project-scopes)'}, and the installer refuses while it is installed anywhere, so the installer is skipped and jb-memory is kept at every scope, so you still have a plugin`);
     later(o.projectScopes
-      ? 'Remove jb-memory from the scopes above by hand (the warnings say how), then run this again.'
-      : 'Install Trailmark once jb-memory is gone from every scope: run this again without --keep-project-scopes, or run the installer yourself.');
+      ? `Remove jb-memory by hand where this can't (${stays.map(p => `claude plugin uninstall ${p.id} --scope ${p.scope}${p.projectPath ? ` in ${p.projectPath}` : ''}`).join('; ')}), then run this again.`
+      : 'Install Trailmark once jb-memory is gone from every scope: run this again without --keep-project-scopes.');
     o.install = false;
   }
   // jb-memory (or Trailmark) turned off at user scope: the installer turns
@@ -829,7 +834,7 @@ function main() {
   const wasOff = !!(c && ((c.plugins.some(p => p.scope === 'user') && c.plugins.filter(p => p.scope === 'user').every(p => !p.enabled)) ||
     c.trailmark.some(p => p.id === 'trailmark@trailmark' && p.scope === 'user' && !p.enabled)));
   if (c) {
-    for (const p of c.plugins) if ((p.scope === 'user' && !o.keepUser) || (p.scope !== 'user' && o.projectScopes)) plan.push(`uninstall ${p.id} (${p.scope}${p.projectPath ? ', ' + p.projectPath : ''})`);
+    for (const p of o.keepUser ? [] : c.plugins) if (p.scope === 'user' || o.projectScopes) plan.push(`uninstall ${p.id} (${p.scope}${p.projectPath ? ', ' + p.projectPath : ''})`);
     // With jb-memory kept at user scope, its marketplace and cache stay too.
     for (const m of o.keepUser ? [] : c.oldMarketplaces) {
       if (codexMayUse(m, x)) plan.push(`keep the Claude Code marketplace ${m.name} for now: Codex's jb-memory-codex may still come from its folder`);
@@ -838,14 +843,17 @@ function main() {
     }
     if (o.cache && !o.keepUser) for (const d of c.cache) plan.push(`move ${d} to the backup folder`);
   }
+  // A stale same-named Codex marketplace that another installed plugin comes
+  // from isn't replaced with the old release (that plugin would be hidden).
+  if (x) x.replaceBlocked = x.oldMarketplaces.find(q => q.stale && (x.fromMkt[q.name] || []).some(n => n.toLowerCase() !== OLD_CODEX)) || null;
   if (x && x.used) {
     // The ChatGPT app lists an installed plugin only through its marketplace,
     // so that marketplace stays until the plugin is uninstalled there.
     if (!codex && x.used) later(`The codex command isn't on PATH, so this couldn't change Codex. In the ChatGPT app: add ${HERE} as a plugin marketplace, install trailmark-codex from it and trust its hooks${x.installed.length ? '; uninstall jb-memory-codex first' : ''}. Or install the Codex CLI and run this again.`);
-    else if (x.installed.length) for (const m of x.oldMarketplaces) plan.push(x.orphan && x.orphanFrom && codex && m.stale ? `replace the Codex marketplace ${m.name}, which no longer offers jb-memory-codex, with the old release, until jb-memory-codex is uninstalled in the ChatGPT app` : x.orphan && !x.orphanFrom && m.stale ? `keep the Codex marketplace ${m.name} for now (it no longer offers jb-memory-codex; see below for adding the old one back)` : `keep the Codex marketplace ${m.name} until jb-memory-codex is uninstalled in the ChatGPT app`);
+    else if (x.installed.length) for (const m of x.oldMarketplaces) plan.push(x.orphan && x.orphanFrom && codex && m.stale && !x.replaceBlocked ? `replace the Codex marketplace ${m.name}, which no longer offers jb-memory-codex, with the old release, until jb-memory-codex is uninstalled in the ChatGPT app` : x.orphan && !x.orphanFrom && m.stale ? `keep the Codex marketplace ${m.name} for now (it no longer offers jb-memory-codex; see below for adding the old one back)` : `keep the Codex marketplace ${m.name} until jb-memory-codex is uninstalled in the ChatGPT app`);
     else if (codex) for (const m of x.oldMarketplaces) plan.push(codexOffersOthers(m).length ? `keep the Codex marketplace ${m.name}: it also offers ${codexOffersOthers(m).join(', ')}` : `remove the Codex marketplace ${m.name}`);
     if (o.cache && !x.installed.length) for (const d of x.cache) plan.push(`move ${d} to the backup folder`);
-    if (x.orphan && x.orphanFrom && codex) plan.push(`add the old Codex marketplace back from ${x.orphanFrom}, so the ChatGPT app shows jb-memory-codex for you to uninstall`);
+    if (x.orphan && x.orphanFrom && codex && !x.replaceBlocked) plan.push(`add the old Codex marketplace back from ${x.orphanFrom}, so the ChatGPT app shows jb-memory-codex for you to uninstall`);
     if (o.cleanTrust && !x.installed.length && x.trust) plan.push(`remove ${x.trust} hook-trust records for jb-memory-codex from config.toml (backed up first)`);
   }
   const useCodex = !!(x && x.used && codex);
@@ -943,26 +951,43 @@ function main() {
     // Project and local scopes first, user scope last: if one of those can't
     // be removed, the installer can't run, and jb-memory then stays at user
     // scope so there is still a plugin.
-    for (const p of c.plugins) if (p.scope !== 'user') uninstallClaude(claude, p, o);
-    if (o.install && !o.keepUser && c.plugins.some(p => p.scope !== 'user') && c.plugins.some(p => p.scope === 'user')) {
+    const removed = [];
+    if (!o.keepUser) for (const p of c.plugins) if (p.scope !== 'user' && uninstallClaude(claude, p, o)) removed.push(p);
+    if (o.install && !o.keepUser && c.plugins.some(p => p.scope !== 'user')) {
       const stuck = surveyClaude(claude).plugins.filter(p => p.scope !== 'user');
       if (stuck.length) {
-        warn(`jb-memory is still installed at ${stuck.map(p => `${p.scope} scope${p.projectPath ? ' in ' + p.projectPath : ''}`).join(', ')}, so the installer can't run; jb-memory is kept at user scope, so you still have a plugin`);
-        later('Remove jb-memory from the scopes above by hand (the warnings say how), then run this again.');
+        warn(`jb-memory is still installed at ${stuck.map(p => `${p.scope} scope${p.projectPath ? ' in ' + p.projectPath : ''}`).join(', ')}, so the installer can't run; jb-memory is kept${c.plugins.some(p => p.scope === 'user') ? ' at user scope' : ''}, so you still have a plugin`);
+        later(`Remove jb-memory by hand where it is stuck (${stuck.map(p => `claude plugin uninstall ${p.id} --scope ${p.scope}${p.projectPath ? ` in ${p.projectPath}` : ''}`).join('; ')}), then run this again.`);
         o.keepUser = true;
         o.install = false;
+        // A repo whose jb-memory was just removed would be left with no
+        // plugin: put it back there.
+        for (const p of removed) {
+          const r = run(claude, ['plugin', 'install', p.id, '--scope', p.scope], { cwd: p.projectPath });
+          if (r.code === 0) {
+            ok(`put ${p.id} back at ${p.scope} scope in ${p.projectPath}, since Trailmark can't be installed yet`);
+            // Its settings file is as it was: nothing to commit.
+            const i = todo.findIndex(t => t.startsWith(`${path.join(p.projectPath, '.claude', 'settings.json')} changed`));
+            if (i >= 0) todo.splice(i, 1);
+          }
+          else {
+            warn(`could not put ${p.id} back at ${p.scope} scope in ${p.projectPath}: ${(r.err || r.out).trim().split('\n')[0] || 'exit ' + r.code}`);
+            later(`${p.projectPath} has no plugin now. Put jb-memory back there until Trailmark can be installed: claude plugin install ${p.id} --scope ${p.scope} (run it in that folder).`);
+          }
+        }
       }
     }
     if (!o.keepUser) for (const p of c.plugins) if (p.scope === 'user') uninstallClaude(claude, p, o);
     // Uninstall left nothing at any scope? Then the marketplaces and cache can go.
     const after = surveyClaude(claude);
-    const left = after.plugins.filter(p => (o.projectScopes && p.scope !== 'user') || (p.scope === 'user' && !o.keepUser));
+    const left = o.keepUser ? [] : after.plugins.filter(p => (o.projectScopes && p.scope !== 'user') || p.scope === 'user');
     if (left.length) {
       warn(`still installed: ${left.map(p => `${p.id} (${p.scope})`).join(', ')}`);
       for (const p of left) later(`Uninstall ${p.id} by hand${p.projectPath ? ` from ${p.projectPath}` : ''}: claude plugin uninstall ${p.id} --scope ${p.scope}${p.projectPath ? ' (run it in that folder)' : ''}. Then run this again.`);
       if (o.install) { info('the installer is skipped: it refuses while jb-memory is installed anywhere'); o.install = false; }
     }
-    for (const m of c.oldMarketplaces) {
+    // With jb-memory kept, its marketplaces stay too (the plan lists none).
+    for (const m of o.keepUser ? [] : c.oldMarketplaces) {
       if (!SAFE.test(m.name)) { warn(`skipped a marketplace with an unusual name: ${JSON.stringify(m.name)}`); continue; }
       // A marketplace Claude Code copied into its own folder (from GitHub or a
       // URL) is deleted with it, and that copy may also be the folder of a
@@ -994,7 +1019,8 @@ function main() {
       }
     }
     if (o.cache) {
-      if (after.plugins.length && !o.projectScopes) info('old cache copies kept: jb-memory is still installed at project or local scope (--keep-project-scopes)');
+      if (after.plugins.length && o.keepUser) info('old cache copies kept with jb-memory');
+      else if (after.plugins.length && !o.projectScopes) info('old cache copies kept: jb-memory is still installed at project or local scope (--keep-project-scopes)');
       else if (after.plugins.length) warn('old cache copies kept, since jb-memory is still installed somewhere');
       else {
         for (const d of surveyClaude(claude).cache) {
@@ -1016,6 +1042,12 @@ function main() {
     if (x.orphan) {
       if (x.orphanFrom && codex && !oldCodexRelease([x.orphanFrom], x.orphanMkt)) {
         later(`The old release at ${x.orphanFrom} is gone now. Run this again with --old-release <a copy of your old jb-memory release>, then uninstall jb-memory-codex in the ChatGPT app.`);
+      } else if (x.orphanFrom && codex && x.replaceBlocked) {
+        // The stale same-named marketplace is what another installed plugin
+        // (trailmark-codex, say) comes from: replacing it would hide that one.
+        const q = x.replaceBlocked;
+        info(`kept the Codex marketplace ${q.name}: ${(x.fromMkt[q.name] || []).filter(n => n.toLowerCase() !== OLD_CODEX).join(', ')} still comes from it`);
+        later(`In the ChatGPT app, uninstall ${(x.fromMkt[q.name] || []).filter(n => n.toLowerCase() !== OLD_CODEX).join(', ')} (it comes from the Codex marketplace ${q.name}, which no longer offers jb-memory-codex; this run replaces that marketplace with the old release so jb-memory-codex can be uninstalled, and would hide it), then run this again. Install trailmark-codex again from the trailmark-codex marketplace once jb-memory-codex is gone.`);
       } else if (x.orphanFrom && codex) {
         // A same-named marketplace that no longer offers the plugin goes first.
         for (const m of x.oldMarketplaces.filter(q => q.stale && SAFE.test(q.name))) {
@@ -1046,10 +1078,11 @@ function main() {
       else { warn(`codex plugin marketplace remove ${m.name} failed: ${(r.err || r.out).trim().split('\n')[0] || 'exit ' + r.code}`); later(`Remove the Codex marketplace ${m.name} yourself: codex plugin marketplace remove ${m.name} (or remove it in the ChatGPT app).`); }
     }
     if (!x.oldMarketplaces.length && !x.orphan) ok('no old Codex marketplace');
-    else if (x.installed.length && x.oldMarketplaces.length) info(`kept the Codex marketplace ${x.oldMarketplaces.map(m => m.name).join(', ')}: the ChatGPT app shows jb-memory-codex, and so lets you uninstall it, only through it`);
+    else if (x.installed.length && x.oldMarketplaces.some(m => !m.stale)) info(`kept the Codex marketplace ${x.oldMarketplaces.filter(m => !m.stale).map(m => m.name).join(', ')}: the ChatGPT app shows jb-memory-codex, and so lets you uninstall it, only through it`);
+    else if (x.installed.length && x.oldMarketplaces.length && !x.replaceBlocked) info(`kept the Codex marketplace ${x.oldMarketplaces.map(m => m.name).join(', ')} for now, though it no longer offers jb-memory-codex`);
     x.installed = surveyCodex(codex).installed;
     if (x.installed.length) {
-      if (!(x.orphan && !x.orphanFrom)) later(`In the ChatGPT app, open Plugins and uninstall ${x.installed.join(', ')} (Codex installs and uninstalls plugins only there), quit the app, then run this again: it moves the old copy out of Codex's cache once it is uninstalled.`);
+      if (!(x.orphan && (!x.orphanFrom || x.replaceBlocked))) later(`In the ChatGPT app, open Plugins and uninstall ${x.installed.join(', ')} (Codex installs and uninstalls plugins only there), quit the app, then run this again: it moves the old copy out of Codex's cache once it is uninstalled.`);
       info('old Codex cache copies kept until the plugin is uninstalled in the ChatGPT app');
     } else if (o.cache) {
       for (const d of x.cache) {
@@ -1063,17 +1096,21 @@ function main() {
       else {
         const cfg = path.join(x.home, 'config.toml');
         let isLink = false;
-        try { isLink = fs.lstatSync(cfg).isSymbolicLink(); } catch { /* missing */ }
+        // A hard link (a dotfiles copy, say) would lose its other name to the
+        // rename below, so it is left alone like a symbolic link.
+        try { const ls = fs.lstatSync(cfg); isLink = ls.isSymbolicLink() || ls.nlink > 1; } catch { /* missing */ }
         const before = readText(cfg);
         const w = before === null ? { removed: 0 } : withoutTrust(before);
-        if (isLink) later(`${cfg} is a link, which this script doesn't write through. Remove the [hooks.state."jb-memory-codex@..."] tables from the file it points to by hand, if you want them gone.`);
+        if (isLink) later(`${cfg} is a link (or has a second hard link), which this script doesn't write through. Remove the [hooks.state."jb-memory-codex@..."] tables from the file it points to by hand, if you want them gone.`);
         else if (w.unsafe) later(`${cfg} has something other than plain settings inside a jb-memory-codex hook-trust table, so nothing was removed. Remove those tables by hand, if you want them gone.`);
         else if (w.removed) {
-          const bak = path.join(backup, 'codex-config.toml');
+          // A backup folder used before keeps its earlier copy.
+          let bak = path.join(backup, 'codex-config.toml');
+          for (let n = 2; fs.existsSync(bak); n++) bak = path.join(backup, `codex-config-${n}.toml`);
           try {
             // config.toml can hold tokens: the copy is readable only by you.
             fs.mkdirSync(backup, { recursive: true, mode: 0o700 });
-            fs.writeFileSync(bak, before, { mode: 0o600 });
+            fs.writeFileSync(bak, before, { mode: 0o600, flag: 'wx' });
             // Written next to it and renamed over it, so a stop partway
             // never leaves half a config.toml; not when it changed meanwhile.
             let mode = 0o600;
@@ -1145,8 +1182,10 @@ function main() {
     }
     const strays = end.trailmark.filter(p => p.id !== 'trailmark@trailmark');
     if (strays.length) { warn(`Trailmark is also installed as ${strays.map(p => p.id).join(', ')}; two copies would each run every hook`); clean = false; }
-    if (end.plugins.length) { warn(`jb-memory still installed: ${end.plugins.map(p => `${p.id} (${p.scope})`).join(', ')}`); clean = false; } else ok('no jb-memory install left');
-    if (end.cache.length && o.cache) { warn(`old copies still in the plugin cache: ${end.cache.join(', ')}`); clean = false; } else if (!end.cache.length) ok('no old copies in the plugin cache');
+    if (end.plugins.length && o.keepUser) { info(`jb-memory kept, as said above: ${end.plugins.map(p => `${p.id} (${p.scope})`).join(', ')}`); clean = false; }
+    else if (end.plugins.length) { warn(`jb-memory still installed: ${end.plugins.map(p => `${p.id} (${p.scope})`).join(', ')}`); clean = false; } else ok('no jb-memory install left');
+    if (end.cache.length && o.cache && o.keepUser) info('old copies kept in the plugin cache with jb-memory');
+    else if (end.cache.length && o.cache) { warn(`old copies still in the plugin cache: ${end.cache.join(', ')}`); clean = false; } else if (!end.cache.length) ok('no old copies in the plugin cache');
     if (end.memoryFolders !== c.memoryFolders) { warn(`memory folders set up: ${end.memoryFolders}, was ${c.memoryFolders}`); clean = false; } else ok(`memory folders set up: ${end.memoryFolders}, as before`);
   }
   if (x && x.used) {
@@ -1176,7 +1215,8 @@ function main() {
     todo.forEach((t, i) => out(`  ${i + 1}. ${t}`));
   }
   out('');
-  out('Then start a new Claude Code session in a repo you had set up: a status line starting [trailmark] and ending "sandbox on" means it works. Skills are now /trailmark:checkpoint and so on.');
+  if (o.keepUser) out('jb-memory was kept, so Trailmark isn\'t installed yet: once the list above is done, run this again.');
+  else out('Then start a new Claude Code session in a repo you had set up: a status line starting [trailmark] and ending "sandbox on" means it works. Skills are now /trailmark:checkpoint and so on.');
   writeLog();
   if (!installed) return 1;
   return todo.length || !clean ? 2 : 0;

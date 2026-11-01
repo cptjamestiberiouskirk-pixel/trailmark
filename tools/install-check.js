@@ -37,14 +37,20 @@ const cmd = process.argv[2];
 if (cmd === 'node-advice') {
   const { nodeAdvice } = require(path.join(__dirname, '..', 'plugins', 'trailmark', 'scripts', 'lib', 'health.js'));
   process.stdout.write(nodeAdvice(process.version));
-} else if (cmd === 'others') {
-  const ids = readList().map(p => String((p && p.id) || '')).filter(id => /^(?:trailmark|jb-memory)@/i.test(id) && id !== 'trailmark@trailmark'); // jb-memory: the name before 0.5.0
-  process.stdout.write(ids.join(' '));
-} else if (cmd === 'others-new') {
-  // For the migration's preflight: jb-memory is about to be removed, so only
-  // another Trailmark install counts.
-  const ids = readList().map(p => String((p && p.id) || '')).filter(id => /^trailmark@/i.test(id) && id !== 'trailmark@trailmark');
-  process.stdout.write(ids.join(' '));
+} else if (cmd === 'others' || cmd === 'others-new') {
+  // others-new, for the migration's preflight: jb-memory is about to be
+  // removed, so only another Trailmark install counts. Each id once, with the
+  // scopes it is installed at (jb-memory: the name before 0.5.0).
+  const want = cmd === 'others' ? /^(?:trailmark|jb-memory)@/i : /^trailmark@/i;
+  const by = new Map();
+  for (const p of readList()) {
+    const id = String((p && p.id) || '');
+    if (!want.test(id) || id === 'trailmark@trailmark') continue;
+    const sc = String((p && p.scope) || 'user') + (p && p.projectPath ? ` in ${p.projectPath}` : '');
+    if (!by.has(id)) by.set(id, []);
+    if (!by.get(id).includes(sc)) by.get(id).push(sc);
+  }
+  process.stdout.write([...by].map(([id, s]) => `${id} (${s.join(', ')})`).join('; '));
 } else if (cmd === 'real') {
   // A folder's real path (junctions and subst drives resolved), so it can be
   // compared with the marketplace's, which is printed the same way.

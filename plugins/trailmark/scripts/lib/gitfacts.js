@@ -128,6 +128,10 @@ function farWorktree(r, cwd) {
   if (!top.ok) return top.why === 'timeout' ? 'git-timeout' : 'git-error';
   const ls = r.run(cwd, ['ls-files', '--stage', '-z', '--full-name']);
   if (!ls.ok) return ls.why === 'timeout' ? 'git-timeout' : 'git-error';
+  // A path that isn't valid UTF-8 reads back here with U+FFFD in it, so
+  // every lookup below would name a file git doesn't use: not checked, so
+  // status isn't read.
+  if (ls.out.includes('\uFFFD')) return 'odd-path';
   let n = 0;
   let files = 0;
   let anyFolder = false;
@@ -174,16 +178,29 @@ function farWorktree(r, cwd) {
   for (const [dir, names] of byFolder) {
     if (++files % 500 === 0 && r.left() < 800) return 'git-timeout';
     let list;
-    try { list = fs.readdirSync(path.join(top.top, dir), { withFileTypes: true }); } catch { continue; }
-    const subdirs = new Set(list.filter(x => x.isDirectory()).map(x => fold(x.name)));
-    if (!subdirs.size) continue;
-    for (const nm of names) {
-      if (!subdirs.has(fold(nm))) continue;
+    if (names.length <= 16) {
+      // A few tracked names: each looked up (the filesystem matches the name
+      // as git's own lookup will), not the whole folder listed.
+      list = [];
+      for (const nm of names) {
+        try { if (fs.lstatSync(path.join(top.top, dir, nm)).isDirectory()) list.push({ name: nm, isDirectory: () => true }); } catch { /* not there */ }
+      }
+    } else {
+      try { list = fs.readdirSync(path.join(top.top, dir), { withFileTypes: true }); } catch { continue; }
+    }
+    const subdirs = list.filter(x => x.isDirectory()).map(x => x.name);
+    if (!subdirs.length) continue;
+    // Windows and macOS match names in ways JavaScript's lower case doesn't
+    // (final sigma, Unicode normal forms), so there every subfolder on disk
+    // is checked; elsewhere only those named like a tracked file.
+    const want = new Set(names.map(fold));
+    for (const nm of subdirs) {
+      if (!CASELESS && !want.has(nm)) continue;
       const at = path.join(top.top, dir, nm);
       let g = false;
       try { fs.lstatSync(path.join(at, '.git')); g = true; } catch { g = false; }
       if (g && farNested(at, top.top)) return 'submodule-pointer';
-      anyFolder = true;
+      if (g || want.has(fold(nm))) anyFolder = true;
     }
   }
   for (const { rel, link } of entries) {
@@ -256,6 +273,9 @@ function filterOverrides(r, cwd) {
   const ls = r.run(cwd, ['ls-files', '-z']);
   if (!ls.ok) return { why: ls.why === 'timeout' ? 'git-timeout' : 'git-error' };
   if (!ls.out) return { args: [] };
+  // Sent back to check-attr as text, a path that isn't valid UTF-8 would
+  // name another file and its filter wouldn't be seen.
+  if (ls.out.includes('\uFFFD')) return { why: 'odd-path' };
   const ca = r.run(cwd, ['check-attr', '-z', '--stdin', 'filter'], ls.out);
   if (!ca.ok) return { why: ca.why === 'timeout' ? 'git-timeout' : 'filter-check' };
   const names = new Map(); // filter name -> tracked files that use it
@@ -648,7 +668,7 @@ function sweepCommits(folders, { homeCwd, budgetMs = 3000, now = Date.now() } = 
     const commits = entries.filter((e, i) => e.t >= lo && e.t < hi && COMMIT_ACTION.test(e.action) &&
       !(i > 0 && /^commit \(amend\): /.test(entries[i - 1].action)) && !excluded(e.sha));
     if (commits.length) {
-      const reach = r.run(t.top, ['rev-list', '--branches', '--tags', '--remotes', 'HEAD', '-n', '3000', `--since=${Math.floor(lo / 1000) - 3600}`]);
+      const reach = r.run(t.top, ['rev-list', '--all', '-n', '3000', `--since=${Math.floor(lo / 1000) - 3600}`, '--']);
       if (!reach.ok) continue;
       const onRef = new Set(reach.out.split(/\r?\n/).filter(x => SHA.test(x)));
       const keep = new Set();

@@ -555,8 +555,8 @@ function validGitdir(gitdir, common) {
   return usable(path.join(base, 'objects')) && usable(path.join(base, 'refs'));
 }
 // '' when every worktrees/<id>/commondir in wt leads to a local place, else
-// the reason. The first 1,000 worktrees are read; past that, git is kept out.
-const MAX_WORKTREES = 1000;
+// the reason. Up to 10,000 worktrees are read; past that, git is kept out.
+const MAX_WORKTREES = 10000;
 function otherWorktrees(wt) {
   let names;
   try { names = fs.readdirSync(wt); } catch { return ''; }
@@ -578,6 +578,20 @@ function otherWorktrees(wt) {
 // which must look like a head (a link is opened through), then commondir and
 // the objects and refs folders it names. Nothing else: config, alternates and
 // links inside aren't read. '' or the reason.
+// safe.bareRepository needs git 2.38: an older git uses a bare repo it finds,
+// so there the whole folder is checked like a gitdir. Unknown counts as old.
+let bareRefusedCache;
+function bareRefused() {
+  if (bareRefusedCache !== undefined) return bareRefusedCache;
+  bareRefusedCache = false;
+  const bin = gitPath(__dirname);
+  if (!bin) return false;
+  try {
+    const v = /git version (\d+)\.(\d+)/.exec(execFileSync(bin, ['--version'], { cwd: __dirname, env: gitEnv(), encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }));
+    bareRefusedCache = !!v && (+v[1] > 2 || (+v[1] === 2 && +v[2] >= 38));
+  } catch { /* unknown: old */ }
+  return bareRefusedCache;
+}
 function farBareProbe(d) {
   const h = path.join(d, 'HEAD');
   let st;
@@ -605,6 +619,7 @@ function farBareProbe(d) {
     } catch { return ''; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } } // git can't read it either
     if (!/^ref:\s*refs\/|^[0-9a-f]{40}/i.test(text)) return '';
   }
+  if (!bareRefused()) return farGit(d);
   let base = d;
   const common = readSmall(path.join(d, 'commondir'), 4096);
   if (common === UNSAFE) return 'unreadable-config';
@@ -810,8 +825,8 @@ function farGitConfigIn(cwd) {
         // git also tries each folder it passes as a gitdir of its own (a
         // bare repo) before safe.bareRepository refuses it, also when the
         // folder has a .git it didn't accept (an empty folder, a dead link):
-        // a folder with a HEAD in it is checked as one, its commondir and
-        // links included.
+        // a folder with a HEAD in it gets what git reads there checked
+        // (farBareProbe).
         if (!accepted) {
           let head = false;
           try { fs.lstatSync(path.join(d, 'HEAD')); head = true; } catch { head = false; }

@@ -218,7 +218,7 @@ step 'Check for other copies'
 LIST="$(claude plugin list --json 2>/dev/null)" || fail 'claude plugin list --json failed, so other installs could not be checked.'
 OTHERS_MODE=others; [ "$PREFLIGHT" = 1 ] && OTHERS_MODE=others-new
 OTHER="$(printf '%s' "$LIST" | node "$CHECK_JS" "$OTHERS_MODE")" || fail 'could not read the output of claude plugin list --json.'
-[ -z "$OTHER" ] || fail "another copy is already installed as $OTHER (jb-memory is Trailmark's old name). Two copies would each run every hook. Uninstall it first: claude plugin uninstall $OTHER"
+[ -z "$OTHER" ] || fail "another copy is already installed as $OTHER (jb-memory is Trailmark's old name). Two copies would each run every hook. Uninstall it first, at each scope listed: claude plugin uninstall <id> --scope <scope> (in that folder for a project or local scope)"
 MLIST="$(claude plugin marketplace list --json 2>/dev/null)" || fail 'claude plugin marketplace list --json failed, so other marketplaces could not be checked.'
 WHERE="$(printf '%s' "$MLIST" | node "$CHECK_JS" marketplace)" || fail 'could not read the output of claude plugin marketplace list --json.'
 if [ -n "$WHERE" ] && [ "$WHERE" != "$HERE" ]; then

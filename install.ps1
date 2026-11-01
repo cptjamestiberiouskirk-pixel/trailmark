@@ -269,7 +269,7 @@ $list = RunOut 'claude' @('plugin', 'list', '--json')
 if ($LASTEXITCODE -ne 0) { Fail 'claude plugin list --json failed, so other installs could not be checked.' }
 $other = NodeCheck $(if ($Preflight) { 'others-new' } else { 'others' }) $list
 if ($null -eq $other) { Fail 'could not read the output of claude plugin list --json.' }
-if ($other) { Fail ('another copy is already installed as ' + $other + ' (jb-memory is Trailmark''s old name). Two copies would each run every hook. Uninstall it first: claude plugin uninstall ' + $other) }
+if ($other) { Fail ('another copy is already installed as ' + $other + ' (jb-memory is Trailmark''s old name). Two copies would each run every hook. Uninstall it first, at each scope listed: claude plugin uninstall <id> --scope <scope> (in that folder for a project or local scope)') }
 $mlist = RunOut 'claude' @('plugin', 'marketplace', 'list', '--json')
 if ($LASTEXITCODE -ne 0) { Fail 'claude plugin marketplace list --json failed, so other marketplaces could not be checked.' }
 $where = NodeCheck 'marketplace' $mlist

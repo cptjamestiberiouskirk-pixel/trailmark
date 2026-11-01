@@ -123,13 +123,15 @@ function plainUnder(dir, rel) {
 // missing folder or a '..' is not one: such a link is dead.
 function linkOnWay(dir, rel) {
   let at = dir;
-  for (const part of String(rel).split(/[\\/]+/).filter(Boolean).slice(0, -1)) {
-    if (part === '..') return false;
-    at = path.join(at, part);
+  const parts = String(rel).split(/[\\/]+/).filter(Boolean);
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] === '..') return false;
+    at = path.join(at, parts[i]);
     let st;
     try { st = fs.lstatSync(at); } catch { return false; }
+    // The file itself counts too: a linked topic file isn't dead either.
     if (st.isSymbolicLink()) return true;
-    if (!st.isDirectory()) return false;
+    if (i < parts.length - 1 && !st.isDirectory()) return false;
   }
   return false;
 }
@@ -345,6 +347,9 @@ function tryBreakLock(file) {
       // the name, or the drive has no hard links) it is left as .gone, not
       // deleted; its holder still finishes, but a third command may then
       // take the lock while it runs.
+      // Looked at again now that .break is held: a real lock taken since
+      // the first look is left alone, never moved.
+      try { const n = fs.lstatSync(file); if (n.isFile() || n.isDirectory()) return false; } catch { return false; }
       const aside = `${file}.${crypto.randomBytes(6).toString('hex')}.gone`;
       try { fs.renameSync(file, aside); } catch { return false; }
       let a = null;
@@ -1683,7 +1688,7 @@ const TAG_LIKE = /[<＜﹤](?=[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{
 const HEREDOC_END = /^JBMEM_EOF/;
 // Control characters (tab kept) are dropped first: inside a tag name they
 // would hide it from the patterns below.
-const CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
+const CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\u{e0000}-\u{e007f}]/gu;
 function framed(text) {
   return String(text).normalize('NFC').replace(LINE_BREAKS, '\n').replace(CONTROLS, '').split('\n').map(l => (FRAME_LIKE.test(l) || HEREDOC_END.test(l) ? '  ' + l : l).replace(TAG_LIKE, m => m + '\\')).join('\n');
 }

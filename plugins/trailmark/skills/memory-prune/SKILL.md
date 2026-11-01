@@ -23,10 +23,10 @@ Every command here runs Trailmark from the path shown, `${CLAUDE_PLUGIN_ROOT}/sc
    node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" prune-report
    ```
 
-2. **Read only the flagged files.** Don't open a link listed as leaving the memory folder or going through a linked folder, not even to look: it can point anywhere on the machine or the network. Report those by name only. For each candidate, choose one action:
+2. **Read only the flagged files.** Don't open a link listed as leaving the memory folder, going to a linked file or going through a linked folder, not even to look: it can point anywhere on the machine or the network. Report those by name only. For each candidate, choose one action:
    - **keep**: still current and needed
    - **archive**: finished or superseded. This is the default; it moves the file verbatim and keeps it recoverable.
-   - **delete**: only for dead MEMORY.md index lines and exact duplicates. Links listed as going through a linked folder aren't dead: keep them. Links listed as leaving the memory folder aren't checked: ask the user before removing one
+   - **delete**: only for dead MEMORY.md index lines and exact duplicates. Links listed as going to a linked file or through a linked folder aren't dead: keep them. Links listed as leaving the memory folder aren't checked: ask the user before removing one
    - **promote**: a convention every session in this repo should follow, or one tied to specific paths
 
 3. **Propose** a table: `# | item | action | reason | evidence`. Ask "all, pick numbers, or skip?" and wait.

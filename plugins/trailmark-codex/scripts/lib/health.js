@@ -100,11 +100,8 @@ const networkPath = p => /^(\\\\|\/\/)/.test(String(p || ''));
 // False when p is a link (or under a link at its last step) that points at
 // a network path: such a path is treated as missing, never touched.
 function local(p) {
-  try {
-    const st = fs.lstatSync(p);
-    if (!st.isSymbolicLink()) return true;
-    return !networkPath(fs.readlinkSync(p));
-  } catch { return true; } // missing: the caller's own check says so
+  // Every link on the way, read a part at a time (gitbin.localPath).
+  return !networkPath(p) && !!require('./gitbin').localPath(p);
 }
 
 function realOr(p) {
@@ -137,7 +134,7 @@ function list(dir, max) {
         const p = path.join(dir, e.name);
         let target = '';
         try { target = fs.readlinkSync(p); } catch { continue; }
-        if (networkPath(target)) continue;
+        if (networkPath(target) || !local(p)) continue;
         try { if (fs.statSync(p).isDirectory()) out.push(e.name); } catch { /* broken link */ }
       }
     }

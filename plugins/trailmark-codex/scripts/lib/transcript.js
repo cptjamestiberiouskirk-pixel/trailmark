@@ -79,7 +79,7 @@ function findTranscript(cwd, platform = process.platform) {
 
 // The transcript of one session. First the path Claude Code itself gave the
 // SessionStart hook (recorded in the state file), then <session id>.jsonl in
-// this folder's project directory, then in any project directory. Returns null
+// this folder's project directory (or another key for the same folder). Returns null
 // when none is found; the caller falls back to the newest one and says so.
 function findTranscriptForSession(cwd, session, recorded, platform = process.platform) {
   session = require('./store').cleanSession(session);
@@ -100,13 +100,8 @@ function findTranscriptForSession(cwd, session, recorded, platform = process.pla
     const p = path.join(root, key, name);
     if (isFile(p)) return p;
   }
-  let entries = [];
-  try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { return null; }
-  for (const e of entries.slice(0, 500)) {
-    if (!e.isDirectory()) continue;
-    const p = path.join(root, e.name, name);
-    if (isFile(p)) return p;
-  }
+  // Not looked for in other projects' folders: a session ID alone doesn't
+  // make another project's transcript this repo's to read.
   return null;
 }
 

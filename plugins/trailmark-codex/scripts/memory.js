@@ -315,7 +315,7 @@ switch (cmd) {
     const show = (label, list, fmt) => console.log(`  ${label}: ${list.length ? '' : 'none'}${list.length ? '\n' + list.map(x => '    ' + fmt(x)).join('\n') : ''}`);
     if (r.memoryLinked) console.log('  MEMORY.md is a link: not read here, so its links and unlisted topic files aren\'t checked (Claude Code still loads it)');
     show('dead MEMORY.md links', r.deadLinks, x => S.shownName(x));
-    if (r.unchecked.length) show('MEMORY.md links through a linked folder (not checked; keep them, Claude Code can still read them)', r.unchecked, x => S.shownName(x));
+    if (r.unchecked.length) show('MEMORY.md links to a linked file or through a linked folder (not checked; keep them, Claude Code can still read them)', r.unchecked, x => S.shownName(x));
     if (r.outsideLinks.length) show('MEMORY.md links that leave the memory folder (not checked; ask the user before removing them)', r.outsideLinks, x => S.shownName(x));
     if (!r.memoryLinked) show('topic files not in MEMORY.md', r.orphans, x => S.shownName(x));
     show(`stale topic files (> ${S.loadConfig(dir).staleDays} days)`, r.stale, x => `${S.shownName(x.file)} (${x.days} days)`);
