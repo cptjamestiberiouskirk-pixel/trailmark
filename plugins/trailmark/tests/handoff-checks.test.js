@@ -32,6 +32,9 @@ function repoAt(dir) {
   fs.mkdirSync(dir, { recursive: true });
   const g = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@t'); g('config', 'user.name', 't');
+  // No automatic maintenance: git 2.56 runs it detached after a commit, and
+  // its worktree prune can remove a worktrees/<id> a test is still writing.
+  g('config', 'maintenance.auto', 'false'); g('config', 'gc.auto', '0');
   fs.writeFileSync(path.join(dir, 'a'), 'a'); g('add', 'a'); g('commit', '-qm', 'init');
   return g;
 }
