@@ -456,7 +456,8 @@ function altEntries(text) {
     }
     if (!closed || k !== nl) return null;
     let line;
-    // ignoreBOM: a BOM is part of the name for git, so it stays in.
+    // ignoreBOM: a BOM is part of the name for git, so it stays in (and a
+    // leading one is then refused with the other leading whitespace).
     try { line = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.from(bytes)); } catch { return null; }
     out.push({ raw, line });
     i = nl + 1;
@@ -570,7 +571,7 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
       // Loose-object folders of git's own object stores only (objects/ and a
       // submodule's modules/.../objects/): a branch may be named objects/ab
       // (refs/heads/objects/ab/...), and git-lfs keeps lfs/objects/ab/cd.
-      const store = lfsStore ? false : objectsRoot ? rel === '' : (rel === 'objects' || /^modules\/(?:.+\/)?objects$/.test(rel)) && !rel.split('/').some(q => q === 'refs' || q === 'logs' || q === 'lfs');
+      const store = lfsStore ? false : objectsRoot ? rel === '' : rel === (top ? top + '/objects' : 'objects');
       if (store && /^[0-9a-f]{2}$/i.test(x.name)) continue;
       if (depth >= MAX_GITDIR_DEPTH) return 'deep-gitdir';
       const k = WIN ? sub.toLowerCase() : sub;

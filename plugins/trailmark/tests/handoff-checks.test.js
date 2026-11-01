@@ -1988,7 +1988,13 @@ test('git checks: alternates are read as git reads them, a missing folder follow
   for (let i = 0; i < 20500; i++) fs.writeFileSync(path.join(big, `r${i}`), '');
   fs.symlinkSync('//evil.invalid/share', path.join(rf, '.git', 'modules', 's1', 'refs', 'heads', 'annex', 'z'));
   assert.notStrictEqual(G.farGitConfig(rf), '', 'a link past a big refs/heads/annex');
-  // A BOM at the start of a quoted entry stays part of the name, as git keeps it.
+  // Two-hex folders inside a submodule's annex store are walked, not taken for loose objects.
+  const ah = path.join(base, 'annexhex'); repoAt(ah);
+  const ahm = path.join(ah, '.git', 'modules', 's1'); fs.mkdirSync(path.join(ahm, 'annex', 'objects', '12'), { recursive: true });
+  fs.writeFileSync(path.join(ahm, 'HEAD'), 'ref: refs/heads/main\n');
+  fs.symlinkSync('//evil.invalid/share', path.join(ahm, 'annex', 'objects', '12', 'k'));
+  assert.strictEqual(G.farGitConfig(ah), 'linked-gitdir', 'a link in a submodule annex store');
+  // A BOM at the start of a quoted entry is part of the name for git; the check keeps git out.
   const bom = path.join(base, 'bom'); repoAt(bom);
   fs.writeFileSync(alts(bom), '"\\357\\273\\277lk/objects"\n');
   const inner = path.join(bom, '.git', 'objects', '\ufefflk', 'objects', 'info'); fs.mkdirSync(inner, { recursive: true });
@@ -2016,6 +2022,13 @@ test('git checks: alternates are read as git reads them, a missing folder follow
     fs.symlinkSync('//evil.invalid/share', path.join(base, 'a\\b'));
     fs.writeFileSync(alts(bs), base + '/a\\b/objects\n');
     assert.notStrictEqual(G.farGitConfig(bs), '', 'a backslash in a name keeps git out');
+    // A folder name ending in a backslash: an include there is read from that folder.
+    const tb = path.join(base, 'tb'); repoAt(tb);
+    fs.mkdirSync(path.join(tb, '.git', 'x\\'));
+    fs.writeFileSync(path.join(tb, '.git', 'x\\', 'inc'), '[include]\n\tpath = y\n');
+    fs.writeFileSync(path.join(tb, '.git', 'x\\', 'y'), '[core]\n\texcludesFile = //evil.invalid/share/x\n');
+    fs.appendFileSync(path.join(tb, '.git', 'config'), '[include]\n\tpath = x\\\\/inc\n');
+    assert.strictEqual(G.farGitConfig(tb), 'network-config', 'a name ending in a backslash');
   }
   fs.rmSync(base, { recursive: true, force: true });
 });
