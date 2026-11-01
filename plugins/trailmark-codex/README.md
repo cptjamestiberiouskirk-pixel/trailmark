@@ -102,6 +102,7 @@ Outside the memory folder, this copy:
 | Shell | Bash or PowerShell tool | Codex calls its shell tool Bash whatever runs it. On Windows a command is read as PowerShell, the agent's default. Set `JBMEM_CODEX_SHELL=bash` if the agent runs in Git Bash or WSL |
 | Chat-start message | Always shown | Codex shows it as a warning, so it's sent only for a real warning (an old Node, other Trailmark copies, a handoff cut short) |
 | Size cap | 10,000 characters | 9,000: Codex moves hook output past about 2,500 tokens to a file instead of the chat |
+| Commit sweep | A commit command whose hook never ran stops holding the sweep once the same thread (main conversation or subagent) finishes a later one | It holds the sweep until its 11 minutes pass, since Codex gives no subagent ID |
 | After a compaction | The SessionStart hook brings the handoff and the session's snapshot back | The same SessionStart hook, which the desktop app runs after a compaction. Codex's PostCompact hook can't add text to the chat, so this copy doesn't use it |
 | Commit-folder check | An `END_MISMATCH` diagnostic | None: each Codex command runs in a fresh shell and the chat's folder never moves |
 

@@ -230,11 +230,15 @@ function rawJoin(a, b) {
 // The pointer text git uses, refused (null) when it starts or ends with
 // whitespace or holds a line break: git keeps such characters, and this
 // check would otherwise look at a different file than git opens.
+// A NUL or other control character is refused too: git reads a pointer up
+// to a NUL, so the check would look at a different path than git opens.
 function exactPointer(t) {
   const v = String(t).replace(/[\r\n]+$/, '');
-  return /^\s|\s$|[\r\n]/.test(v) ? null : v;
+  return /^\s|\s$|[\x00-\x1f\x7f]/.test(v) ? null : v;
 }
 function localPath(p) {
+  // A NUL ends the path for git but makes Node throw: never taken as local.
+  if (String(p).includes('\0')) return null;
   let cur = WIN ? path.resolve(String(p)) : String(p);
   if (!WIN && !cur.startsWith('/') && !NET_START.test(cur)) cur = rawJoin(process.cwd(), cur);
   if (blocked(cur)) return null;

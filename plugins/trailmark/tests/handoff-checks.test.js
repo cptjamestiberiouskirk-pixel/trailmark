@@ -1762,7 +1762,9 @@ test('sweep: a commit command denied at the prompt stops holding the sweep once 
   assert.strictEqual(S.openCommitStart(base, {}, 600000, now, SB), now - 20000, 'a lone open record holds the sweep');
   rec('toolu_later', now - 10000, SA);
   fs.writeFileSync(path.join(pend, 'toolu_later.done'), '');
-  assert.strictEqual(S.openCommitStart(base, {}, 600000, now, SB), Infinity, 'a denied command still held the sweep after its session finished a later commit');
+  // Codex gives no subagent ID and may run one thread's commands alongside
+  // each other, so there the record holds until its time is up.
+  assert.strictEqual(S.openCommitStart(base, {}, 600000, now, SB), CODEX ? now - 20000 : Infinity, 'a denied command still held the sweep after its session finished a later commit');
   // Another session's later commit says nothing about this one.
   rec('toolu_other', now - 5000, SB);
   fs.writeFileSync(path.join(pend, 'toolu_other.done'), '');
@@ -1868,6 +1870,24 @@ test('sweep: a later finished commit releases an earlier record only from the sa
   put('toolu_a5', { at: now - 2000, session: SA, agent: 'agentY' }, true);
   assert.strictEqual(S.openCommitStart(dir, {}, 600000, now, SB), now - 4000, 'another subagent finishing does not release the main thread');
   assert.strictEqual(S.cleanAgent('a6b0-92_x'), 'a6b0-92_x');
-  assert.strictEqual(S.cleanAgent('../x'), '');
+  assert.match(S.cleanAgent('../x'), /^h-[0-9a-f]{32}$/, 'an odd ID is kept as a hash, not taken for the main thread');
+  assert.notStrictEqual(S.cleanAgent('../x'), S.cleanAgent('../y'));
+  assert.strictEqual(S.cleanAgent(''), '');
   assert.strictEqual(S.cleanAgent(7), '');
+});
+
+test('git checks: a NUL or control character in a pointer file keeps git out, since git reads only up to the NUL (review round 11)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const G = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-nul-');
+  const m = path.join(base, 'm'); repoAt(m);
+  fs.symlinkSync('//evil.invalid/share', path.join(base, 'lnk'));
+  const w = path.join(m, '.git', 'worktrees', 'w'); fs.mkdirSync(w, { recursive: true });
+  fs.writeFileSync(path.join(w, 'HEAD'), 'ref: refs/heads/w\n');
+  fs.writeFileSync(path.join(w, 'commondir'), '../..\n');
+  fs.writeFileSync(path.join(w, 'gitdir'), path.join(base, 'lnk') + '\0/x/.git\n');
+  assert.strictEqual(G.farGitConfig(m), 'network-gitdir', 'a NUL after a link to a share');
+  fs.writeFileSync(path.join(w, 'gitdir'), path.join(base, 'wt\tx', '.git') + '\n');
+  const s2 = path.join(m, 's2'); fs.mkdirSync(s2);
+  assert.strictEqual(G.farGitConfig(s2), 'network-gitdir', 'a control character in a pointer');
+  assert.strictEqual(G.localPath(path.join(base, 'lnk') + '\0/x'), null);
 });

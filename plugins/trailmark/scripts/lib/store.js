@@ -1245,12 +1245,18 @@ function readCommitStart(dir, toolUseId, session = '', now = Date.now()) {
   const sid = cleanSession(session);
   if (sid && rec.session && cleanSession(rec.session) !== sid) return null;
   const sites = Array.isArray(rec.sites) && rec.sites.length <= 4 && rec.sites.every(d => typeof d === 'string' && d.length <= 1024 && path.isAbsolute(d)) ? rec.sites : undefined;
-  return { cwd: rec.cwd, at: rec.at, name: `${toolUseId}.json`, session: cleanSession(rec.session) || '', agent: cleanAgent(rec.agent), ...(sites ? { sites } : {}) };
+  return { cwd: rec.cwd, at: rec.at, name: `${toolUseId}.json`, session: cleanSession(rec.session) || '', agent: typeof rec.agent === 'string' && AGENT_RE.test(rec.agent) ? rec.agent : '', ...(sites ? { sites } : {}) };
 }
 
 // A subagent's ID from a hook payload, or '' (the main thread, or none given).
+// An ID in an unexpected shape is kept as a hash of it, so that subagent
+// still isn't taken for the main thread.
 const AGENT_RE = /^[A-Za-z0-9_.:@-]{1,128}$/;
-function cleanAgent(a) { return typeof a === 'string' && AGENT_RE.test(a) ? a : ''; }
+function cleanAgent(a) {
+  if (typeof a !== 'string' || !a) return '';
+  if (AGENT_RE.test(a)) return a;
+  return a.length <= 4096 ? 'h-' + crypto.createHash('sha256').update(a).digest('hex').slice(0, 32) : 'h-long';
+}
 
 // The other commit commands (other tool calls' records) that ran at the same
 // time as this one: begun no later than now and within the window, not
