@@ -1,6 +1,6 @@
 ---
 name: memory-prune
-description: Shrink this repo's memory so the part loaded into every session stays small. Finds stale, duplicate, dead or finished entries and proposes archiving, deleting, or promoting them into path-scoped .claude/rules files. Use on /memory-prune, when a Trailmark budget warning appears, when MEMORY.md or the handoff nears its limit, or when the user asks to clean up, trim or shrink memory.
+description: Shrink this repo's memory so the part loaded into every session stays small. Finds stale, duplicate, dead or finished entries and proposes archiving, deleting, or promoting them into path-scoped .claude/rules files. Use on /trailmark:memory-prune, when a Trailmark budget warning appears, when MEMORY.md or the handoff nears its limit, or when the user asks to clean up, trim or shrink memory.
 ---
 
 # Memory prune

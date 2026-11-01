@@ -7,11 +7,11 @@ f81f737038bd2de241a3a63161e5921405dd786a885f2325ec1c7928b1405c05  ./.github/ISSU
 2a8cd05372f0ae35b43633c00630c5c4f54e250811830e65d5ac813c1c32ad01  ./.github/tap-annotate.js
 9bff623f70ad2328d0b1458264754187738c324d15684bdac469cbacb59c9ec5  ./.github/workflows/tests.yml
 0c4783ef9495551da26bd242a0cace9f7ad39e46bf1d5af8f51aeb8f338a9112  ./.gitignore
-2e8d1bd6f787aa9dc6b924c63cd56a8ea64787662571042f9c6bb7117006a381  ./CHANGELOG.md
+99a96ec3ea243499b65f1b0a8704c9b2cf7c171d6acaed4a7642bbd47cc75fec  ./CHANGELOG.md
 0d615f2606b0704b20de64f42b7b103410e7764b96cf88d5ad56471af40deb5b  ./CONTRIBUTING.md
 2d172f3f7cebcf8c0ffd6db4720e86ce14fd91a6b152e07dc6102eb3c2f6ffc4  ./LICENSE
 97cfa3c2cb978c9c0b4e9f2726b53b1d9e2767aced8a3d4137c22d72234ec866  ./MANUAL.md
-ddab1509f6ba96a68531fd04e4762c9ef035fb4a81ead24fe2d177580182450b  ./README.md
+2680b023b4a63bda384c176a8c5c57ae8a70ce06cbe88ed8d9ba8c23003f6bea  ./README.md
 2b43c0cb172171f94a2db53cc48114edf588cd1ce6540ef8b053ef743e36e8ca  ./SECURITY.md
 1cff91205eee4e68677dd983cc3cb14aa29f755017adcd74edf02bf2c415f2e1  ./docs/how-it-works.md
 53c222f6021e268dd2bf274fd79f4a96c008931b22977c0260ae7a52682bbe82  ./install.cmd
@@ -20,7 +20,7 @@ ddab1509f6ba96a68531fd04e4762c9ef035fb4a81ead24fe2d177580182450b  ./README.md
 71b690b15ec0b8f77c4cbee65895e1b9cefae06d4effe68e9799e6c9993367bd  ./migrate-from-jb-memory.cmd
 1d50900277d320e6303f36cfb4bdde89a1c55f02d61dd2b0e930a7c38d111eb9  ./plugins/trailmark-codex/.codex-plugin/plugin.json
 2d172f3f7cebcf8c0ffd6db4720e86ce14fd91a6b152e07dc6102eb3c2f6ffc4  ./plugins/trailmark-codex/LICENSE
-d446451a0e446074dcd2c20752264071e948133a9b8a5150259653f97cb28760  ./plugins/trailmark-codex/README.md
+cbd861979825ed6d2c21950173efe9d3ef1c56487bc403a24c37a9cb9569ea8a  ./plugins/trailmark-codex/README.md
 846670429ebebc278f20a05d3a26838af6031455e9457e9eccc72d028d43ec0f  ./plugins/trailmark-codex/hooks/hooks.json
 1d50900277d320e6303f36cfb4bdde89a1c55f02d61dd2b0e930a7c38d111eb9  ./plugins/trailmark-codex/plugin.json
 da40517985d18174306cf1e6199ee9c3f607012bbb5d17a97f4b80166d775f20  ./plugins/trailmark-codex/scripts/hook-commit-start.js
@@ -69,11 +69,11 @@ d2921252a506037f2811758ae9222034038d54dcf5372b6fc5f8bf4897e3cd28  ./plugins/trai
 0f04d5d665f91b1e266725bc205d85c5dc602dbd59607634bbedd15a85f8f1a6  ./plugins/trailmark/scripts/memory.js
 a4883c7be588f91b2607cb698cafccced99756db1b54719b48573593fe882fee  ./plugins/trailmark/scripts/trailmark.js
 32fb0754895acb58b78e400f0269ec8519d80f840fed2578176b9dcdadd83bb3  ./plugins/trailmark/skills/checkpoint/SKILL.md
-056e78c04315bd49b3469ec1e331a9c95fbcd03698d2cb32910641fcd7e2215a  ./plugins/trailmark/skills/memory-prune/SKILL.md
+fff18fdf531d6b4227f3ae2bb04111d2aeafb2da3bd570518cbb31d1bea0c0ca  ./plugins/trailmark/skills/memory-prune/SKILL.md
 2918706f47ce7b5816b7822be02635ff442c4b107a62f17401e53e9b43412e22  ./plugins/trailmark/skills/memory-setup/SKILL.md
-a7b1169f7ad25f4c023680c74927c2878677b2394edbe069daa10a2c066eceb6  ./plugins/trailmark/skills/park/SKILL.md
+a0f27188b6bb03b0316665f98b6eb193509678623a3d604f39c7aac20bdfab8d  ./plugins/trailmark/skills/park/SKILL.md
 400a90486a0d7761aa26aaac702b4c9c5538d2ca5abd97854571ce0cd00d5d67  ./plugins/trailmark/skills/recall/SKILL.md
-1fa04e9c955cf16cd658ae8d63d5721c818d083f514b17313437015041390816  ./plugins/trailmark/skills/session-end/SKILL.md
+b3c91fccd2d47a5834a9efbaf666ffa125a7019fa615d8213e8772b6d0a7deac  ./plugins/trailmark/skills/session-end/SKILL.md
 5b012ed2f151843fca4ba268f99c89cf560097646c9a889e8efae409a6c5c2c0  ./plugins/trailmark/tests/handoff-checks.test.js
 c121b39bac059c9473a834ad52e0c54e1fb949e1a1767227d3069c859aaf388a  ./plugins/trailmark/tests/trailmark.test.js
 fbfb824e44c91d4754c0fdfde7807c0f9b798fa8b8dd635faadcb133a79bb318  ./tools/install-check.js

@@ -2,7 +2,7 @@
 
 ## 0.5.0 (Trailmark and trailmark-codex), 1.7.0 (trailmark-watchdog): 2026-10-31
 
-jb-memory is now Trailmark, and this is the first release under that name. Everything in 0.4.5 below is part of this release too.
+jb-memory is now Trailmark, and this is its first public release. Everything in 0.4.5 below is part of this release too.
 
 ### Names
 
@@ -73,7 +73,7 @@ Before git runs in a folder, Trailmark checks the `.git` git would use for anyth
 - Config is read the way git reads it. Quotes are dropped and escapes undone, continued lines are joined, and pointer text keeps its spaces; a pointer that starts or ends with whitespace is refused. Config files with quotes, backslashes, includes or anything outside printable ASCII are parsed by git itself (`git config --file`, includes off). Values like `path = ""//server/x` or a `gitdir:` spelled `\/server/r` used to get past the check.
 - Includes are followed ten deep, as git does, relative to the including file, and at most 50 files are read. Past either limit git is kept out. A value starting with `%(prefix)` is refused. Alternates are followed six deep, and each alternate's own folders are checked for links.
 - Settings that name a file or folder (`core.attributesFile`, `core.excludesFile`, `core.worktree`, `mailmap.file`, `lfs.storage` and the like) are resolved the way git would, through links, before git runs.
-- The check now also looks where git looks without being told. That means a decoy `.git` git passes over on the way up and a folder whose `HEAD` git would try as a bare repo. It also covers each other worktree's `commondir`, each submodule's `.git` and its gitdir in `.git/modules`, a tracked file that has become a folder with a `.git`, and Git LFS's stores and `.lfsconfig`.
+- The check now also looks where git looks without being told. That means a decoy `.git` git passes over on the way up and a folder whose `HEAD` git would try as a bare repo. It also covers each other worktree's `commondir` and the folder recorded for it in `gitdir` (git 2.56 opens that for `rev-list --all`, relative paths included), each submodule's `.git` and its gitdir in `.git/modules`, a tracked file that has become a folder with a `.git`, and Git LFS's stores and `.lfsconfig`.
 - Links are read as text and followed one step at a time, in the gitdir (except `hooks/`, which never runs) and in the folders of tracked files that `git status` looks through. A link to a local place is followed and what it leads to is checked, so Android `repo` and git-new-workdir layouts work. A link that leads to a share keeps git out. So does a FIFO in place of `HEAD` or a gitdir nested more than 64 folders deep, and so does a pointer or config file that is a link or can't be read.
 - A folder named in a command (`cd vend && git commit`) is checked for links to a share before anything looks into it, and git is never run from a folder inside a `.git`. A session that works on a share may let git reach that share, but no other.
 - Folder paths from the state file, which a session can write, are never resolved through a link that leads to a share, and a forged session folder there keeps git out. A transcript path in the state file is used only when it is this repo's (Claude Code) or carries the session's ID (Codex).
@@ -153,7 +153,7 @@ jb-memory stays 0.4.0 and jb-watchdog 1.6.0: neither changed.
 
 ## 0.4.0 (jb-memory), 0.2.0 (jb-memory-codex), 1.6.0 (jb-watchdog): 2026-10-25
 
-First public release: one folder that is both the Claude Code marketplace (`jb-memory`) and the Codex marketplace (`jb-memory-codex`), with installers and a manual.
+First release: one folder that is both the Claude Code marketplace (`jb-memory`) and the Codex marketplace (`jb-memory-codex`), with installers and a manual.
 
 - Installers for macOS and Linux (`install.sh`) and Windows (`install.ps1`, `install.cmd`). They check Node against the security floors, git and Claude Code, refuse a folder broad groups can write to, run the sandbox check, refuse a second copy of jb-memory from another marketplace, then validate, add the marketplace and install. `--check`, `--uninstall` and opt-in Codex, watchdog and Windows lookup options.
 - Skills speak of "the user" instead of a fixed name. Decision provenance is written `[user YYYY-MM-DD]`; older handoffs with a name in that place still read correctly.

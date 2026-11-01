@@ -1,6 +1,6 @@
 ---
 name: session-end
-description: Close out a work session in a repo set up with Trailmark. Recovers anything missed since the last checkpoint, shows the final handoff for approval, archives finished items and reports memory size. Use on /session-end, or when the user says they're done, wrapping up, stopping for the day, or moving to another project.
+description: Close out a work session in a repo set up with Trailmark. Recovers anything missed since the last checkpoint, shows the final handoff for approval, archives finished items and reports memory size. Use on /trailmark:session-end, or when the user says they're done, wrapping up, stopping for the day, or moving to another project.
 ---
 
 # Session end

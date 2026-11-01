@@ -1,6 +1,6 @@
 ---
 name: park
-description: Save an idea or side task for a later session without derailing the current one. Use on /park, or when the user says park this, save that for later, come back to it, or note this idea, in a repo set up with Trailmark.
+description: Save an idea or side task for a later session without derailing the current one. Use on /trailmark:park, or when the user says park this, save that for later, come back to it, or note this idea, in a repo set up with Trailmark.
 ---
 
 # Park
