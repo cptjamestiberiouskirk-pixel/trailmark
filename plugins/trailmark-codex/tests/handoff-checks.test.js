@@ -1801,3 +1801,73 @@ test('git checks: another worktree recorded through a link to a share, or on one
   fs.writeFileSync(c.gd, EVIL + '/wt/.git\n');
   assert.strictEqual(farGitConfig(c.m), 'network-gitdir', 'a worktree recorded on a share');
 });
+
+test('git checks: a linked worktrees folder, worktree entry or modules folder is resolved before anything is listed or read through it (review round 11)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const G = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-wtln-');
+  const EVIL = '//evil.invalid/share';
+  // Every folder listed and file read, to show nothing goes through a link to the share.
+  const seen = [];
+  const spy = (name) => { const f = fs[name]; fs[name] = function (p, ...a) { seen.push(String(p)); return f.call(this, p, ...a); }; return () => { fs[name] = f; }; };
+  const watched = (fn) => { seen.length = 0; const undo = ['readdirSync', 'readFileSync', 'lstatSync', 'statSync', 'openSync'].map(spy); try { return fn(); } finally { undo.forEach(u => u()); } };
+  // A worktree entry that is a link to a folder holding a gitdir on a share.
+  const m1 = path.join(base, 'm1'); repoAt(m1);
+  const side = path.join(base, 'side', 'wtx'); fs.mkdirSync(side, { recursive: true });
+  fs.writeFileSync(path.join(side, 'HEAD'), 'ref: refs/heads/x\n');
+  fs.writeFileSync(path.join(side, 'commondir'), '../..\n');
+  fs.writeFileSync(path.join(side, 'gitdir'), EVIL + '/wt/.git\n');
+  fs.mkdirSync(path.join(m1, '.git', 'worktrees'));
+  fs.symlinkSync(side, path.join(m1, '.git', 'worktrees', 'wtx'));
+  assert.strictEqual(G.farGitConfig(m1), 'network-gitdir', 'a linked worktree entry is read where it leads');
+  // The same entry, linked, but recording a local worktree, is fine.
+  fs.writeFileSync(path.join(side, 'gitdir'), path.join(base, 'wt-local', '.git') + '\n');
+  const m1b = path.join(m1, 'sub'); fs.mkdirSync(m1b);
+  assert.strictEqual(G.farGitConfig(m1b), '', 'a linked worktree entry to a local worktree');
+  // The worktrees folder itself a link to a share: refused, never listed.
+  const m2 = path.join(base, 'm2'); repoAt(m2);
+  fs.symlinkSync(EVIL, path.join(m2, '.git', 'worktrees'));
+  const r2 = watched(() => G.farGitConfig(m2));
+  assert.strictEqual(r2, 'linked-gitdir');
+  assert.deepStrictEqual(seen.filter(p => p.startsWith(path.join(m2, '.git', 'worktrees') + path.sep) || p.startsWith(EVIL)), [], 'nothing read through the link');
+  // modules/ a link to a share: the submodule walk refuses it without listing it.
+  const m3 = path.join(base, 'm3'); repoAt(m3);
+  fs.symlinkSync(EVIL, path.join(m3, '.git', 'modules'));
+  const r3 = watched(() => G.farModules(m3));
+  assert.strictEqual(r3, 'linked-gitdir');
+  assert.deepStrictEqual(seen.filter(p => p.startsWith(path.join(m3, '.git', 'modules') + path.sep) || p.startsWith(EVIL)), [], 'nothing read through the link');
+});
+
+test('commit-start records: one larger than any real record is never read into memory (review round 11)', () => {
+  const dir = realTemp('jbmem-bigrec-');
+  fs.mkdirSync(path.join(dir, 'pending'));
+  const ok = { cwd: dir, at: Date.now() - 1000, session: SA };
+  fs.writeFileSync(path.join(dir, 'pending', 'toolu_small.json'), JSON.stringify(ok));
+  assert.ok(S.readCommitStart(dir, 'toolu_small'), 'an ordinary record is read');
+  fs.writeFileSync(path.join(dir, 'pending', 'toolu_big.json'), JSON.stringify({ ...ok, pad: 'x'.repeat(5 * 1024 * 1024) }));
+  const reads = [];
+  const f = fs.readFileSync; fs.readFileSync = function (p, ...a) { reads.push(p); return f.call(this, p, ...a); };
+  try { assert.strictEqual(S.readCommitStart(dir, 'toolu_big'), null); } finally { fs.readFileSync = f; }
+  assert.strictEqual(reads.length, 0, 'the big record was not read');
+});
+
+test('sweep: a later finished commit releases an earlier record only from the same thread of its session, since subagents run alongside (review round 11)', () => {
+  const dir = realTemp('jbmem-agent-');
+  const p = path.join(dir, 'pending'); fs.mkdirSync(p);
+  const now = Date.now();
+  const put = (id, rec, done) => { fs.writeFileSync(path.join(p, `${id}.json`), JSON.stringify({ cwd: dir, ...rec })); if (done) fs.writeFileSync(path.join(p, `${id}.done`), ''); };
+  // A subagent's commit command, still running; then the main thread's, finished.
+  put('toolu_a1', { at: now - 10000, session: SA, agent: 'agentX' }, false);
+  put('toolu_a2', { at: now - 5000, session: SA }, true);
+  assert.strictEqual(S.openCommitStart(dir, {}, 600000, now, SB), now - 10000, 'the main thread finishing does not release a subagent');
+  // The same subagent finishes a later one: the earlier one isn't running any more.
+  put('toolu_a3', { at: now - 3000, session: SA, agent: 'agentX' }, true);
+  assert.strictEqual(S.openCommitStart(dir, {}, 600000, now, SB), Infinity, 'the same subagent finishing releases it');
+  // A main-thread record started after the main thread's last finished one
+  // is released by the main thread only, not by another subagent.
+  put('toolu_a4', { at: now - 4000, session: SA }, false);
+  put('toolu_a5', { at: now - 2000, session: SA, agent: 'agentY' }, true);
+  assert.strictEqual(S.openCommitStart(dir, {}, 600000, now, SB), now - 4000, 'another subagent finishing does not release the main thread');
+  assert.strictEqual(S.cleanAgent('a6b0-92_x'), 'a6b0-92_x');
+  assert.strictEqual(S.cleanAgent('../x'), '');
+  assert.strictEqual(S.cleanAgent(7), '');
+});

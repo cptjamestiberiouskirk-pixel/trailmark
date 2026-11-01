@@ -18,7 +18,7 @@ Claude updates the note at milestones (a commit, a merged PR, a subagent's resul
 - Commits made since the handoff are listed, with any next step they may already cover.
 - Reminders to checkpoint after commits, PR merges and subagent results, and a git-state snapshot before each compaction.
 - Version-checked writes, so parallel sessions and worktrees can't overwrite each other's notes.
-- One shared note for Claude Code and Codex in the same repo, each entry tagged with the agent that wrote it.
+- One shared note for Claude Code and Codex in the same repo; its `Updated:` line names the agent that wrote it last.
 - Opt-in per repo. Nothing happens in a repo until you set it up there.
 
 Trailmark runs no background model and makes no network requests, and there's no telemetry. Each hook starts a small launcher that only reads: it runs git with hardened settings to look up commits and status. The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. [SECURITY.md](SECURITY.md) has the full model and its limits.

@@ -140,7 +140,8 @@ function readDirPlain(d, opts) {
   plainSubs(d);
   return opts ? fs.readdirSync(d, opts) : fs.readdirSync(d);
 }
-function readPlain(file) {
+// max (bytes): a bigger file counts as not plain, and isn't read at all.
+function readPlain(file, max = 0) {
   try { plainSubs(path.dirname(file)); } catch { throw notPlain(file); }
   const l = fs.lstatSync(file, { bigint: true });
   if (l.isSymbolicLink() || !l.isFile()) throw notPlain(file);
@@ -148,6 +149,7 @@ function readPlain(file) {
   try {
     const st = fs.fstatSync(fd, { bigint: true });
     if (!st.isFile() || (l.ino && (st.ino !== l.ino || st.dev !== l.dev))) throw notPlain(file);
+    if (max && st.size > BigInt(max)) throw notPlain(file);
     return fs.readFileSync(fd, 'utf8');
   } finally { fs.closeSync(fd); }
 }
@@ -1237,7 +1239,7 @@ function readCommitStart(dir, toolUseId, session = '', now = Date.now()) {
   const f = path.join(dir, PENDING, `${toolUseId}.json`);
   let rec;
   try {
-    const text = readPlain(f);
+    const text = readPlain(f, 32768);
     if (text.length > 8192) return null;
     rec = JSON.parse(text);
   } catch { return null; }
@@ -1246,8 +1248,12 @@ function readCommitStart(dir, toolUseId, session = '', now = Date.now()) {
   const sid = cleanSession(session);
   if (sid && rec.session && cleanSession(rec.session) !== sid) return null;
   const sites = Array.isArray(rec.sites) && rec.sites.length <= 4 && rec.sites.every(d => typeof d === 'string' && d.length <= 1024 && path.isAbsolute(d)) ? rec.sites : undefined;
-  return { cwd: rec.cwd, at: rec.at, name: `${toolUseId}.json`, session: cleanSession(rec.session) || '', ...(sites ? { sites } : {}) };
+  return { cwd: rec.cwd, at: rec.at, name: `${toolUseId}.json`, session: cleanSession(rec.session) || '', agent: cleanAgent(rec.agent), ...(sites ? { sites } : {}) };
 }
+
+// A subagent's ID from a hook payload, or '' (the main thread, or none given).
+const AGENT_RE = /^[A-Za-z0-9_.:@-]{1,128}$/;
+function cleanAgent(a) { return typeof a === 'string' && AGENT_RE.test(a) ? a : ''; }
 
 // The other commit commands (other tool calls' records) that ran at the same
 // time as this one: begun no later than now and within the window, not
@@ -1311,21 +1317,25 @@ function openCommitStart(dir, state, windowMs, now = Date.now(), session = '') {
   for (const n of names) { const d = /^([A-Za-z0-9_-]{1,128})\.done$/.exec(n); if (d) done.add(d[1]); }
   let earliest = Infinity;
   const sid = cleanSession(session);
-  // For each session, when its latest finished commit command started.
+  // For each session and agent (the main thread, or one subagent), when its
+  // latest finished commit command started. One thread runs its commands one
+  // at a time; subagents can run alongside it and each other.
+  const key = (r) => `${r.session}\n${r.agent || ''}`;
   const lastDone = new Map();
   for (const n of names) {
     const m = /^([A-Za-z0-9_-]{1,128})\.json$/.exec(n);
     if (!m || !done.has(m[1])) continue;
     const r = readCommitStart(dir, m[1], '', now);
-    if (r && r.session && !(lastDone.get(r.session) >= r.at)) lastDone.set(r.session, r.at);
+    if (r && r.session && !(lastDone.get(key(r)) >= r.at)) lastDone.set(key(r), r.at);
   }
   for (const { rec } of liveRecords(dir, names, done, windowMs, now)) {
     // The sweeping session's own: a commit of its own command (a subagent's,
     // running in parallel) is its own commit either way.
     if (sid && rec.session === sid) continue;
-    // Its session finished a commit command started after this one: this
-    // one isn't running any more (it was denied, or its hook didn't run).
-    if (rec.session && lastDone.get(rec.session) > rec.at) continue;
+    // The same thread of its session finished a commit command started after
+    // this one: this one isn't running any more (it was denied, or its hook
+    // didn't run).
+    if (rec.session && lastDone.get(key(rec)) > rec.at) continue;
     if (rec.at < earliest) earliest = rec.at;
   }
   return earliest;
@@ -1984,7 +1994,7 @@ module.exports = { addMemoryRoot, plainStat, plainExists, shownName, linkedFiles
   localDate, localTime, estTokens, oneLine, inside, displayPath, fieldText, splitFrontmatter, atomicWrite, readText,
   isEnabled, loadConfig, readState, writeState, init,
   writeHandoff, stampUpdated, undoHandoff, measureHandoff, rotate,
-  note, lastNote, loggedCommitShas, recordCommitStart, readCommitStart, markCommitDone, openCommitStart, concurrentCommitStarts, park, listDir, search, topicFiles,
+  note, lastNote, loggedCommitShas, recordCommitStart, readCommitStart, cleanAgent, markCommitDone, openCommitStart, concurrentCommitStarts, park, listDir, search, topicFiles,
   checkCommitFacts, commitLine, knownCommits, rememberCommits, logFoundCommits, KEEP_SHAS,
   measure, pruneReport, archiveFile, buildInjection,
 };

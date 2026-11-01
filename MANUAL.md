@@ -108,7 +108,7 @@ Exit codes:
 
 #### Folder permissions
 
-The installer refuses the release folder, or any folder above it, when someone other than you can write to it, replace it or owns it.
+The installer refuses the release folder, or any folder above it, when someone other than you can write to it or replace it. A folder above it must belong to you or to root (Administrators and the system accounts on Windows). A file or the release folder owned by another user is refused on Windows and gets a warning on macOS and Linux.
 
 On macOS and Linux, a group named after you counts as yours only while nobody else is in it, either as a listed member or as their main group. Any other group with write access counts as shared. On Linux, access-list entries (setfacl) that let others write are refused as well. Folders above the release may also belong to root.
 
@@ -427,6 +427,8 @@ In short, it:
 - runs this release's installer;
 - checks the result and lists what is left for you, such as installing trailmark-codex in the ChatGPT app.
 
+When Codex's home folder is on a network path, or its `config.toml` can't be read, it leaves every Codex step alone and says so; do those steps by hand ("By hand", below).
+
 It never touches memory folders, handoffs or `.jbmem.json`. The only settings file it changes itself is Codex's `config.toml`, and only with `--clean-codex-trust`. (`claude plugin uninstall` and the installer change Claude Code's settings, and a repo's own settings for a project or local install, as described below.)
 
 Running it again is safe: what is done already is skipped. It refuses to run inside a Claude Code or Codex session, though a `--dry-run` is allowed there.
@@ -502,12 +504,12 @@ Before git runs in a repo, Trailmark checks that nothing in the repo's `.git` se
 | Reason | What it means |
 |---|---|
 | `network-config` | A config value or include leads to a network path. A remote's or submodule's address doesn't count; a Git LFS address on a share does |
-| `network-gitdir` | The `.git` file, `commondir` (the repo's or another worktree's) or alternates lead to a network path |
+| `network-gitdir` | The `.git` file, `commondir` (the repo's or another worktree's), another worktree's recorded folder (its `gitdir` file) or alternates lead to a network path |
 | `linked-gitdir` | A link inside `.git` leads to one |
 | `many-worktrees` | There are more than 10,000 worktrees to check |
 | `deep-gitdir` | `.git` has folders nested more than 64 deep |
 | `odd-config-path` | An include, or a setting that names a file, could be read differently by git and by the check (leading or trailing spaces, `~user/` for someone other than you, `C:x`) |
-| `unreadable-config` | A config or pointer file isn't a plain small file |
+| `unreadable-config` | A config or pointer file isn't a plain small file (a link, a folder, a FIFO, a config file over 8 MB, or a pointer file over 4 KB) |
 | `deep-config` | Includes go more than ten deep |
 | `many-config-files` | Includes reach more than 50 files |
 | `network-folder` | The folder itself is on a network path other than the session's own share |

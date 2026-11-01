@@ -556,26 +556,43 @@ function validGitdir(gitdir, common) {
 }
 // '' when every worktrees/<id>/commondir and gitdir in wt leads to a local
 // place, else the reason. Up to 10,000 worktrees are read; past that, git is kept out.
+// The worktrees folder, or an entry in it, may be a link: git reads through
+// it, so it is resolved a part at a time first (a link to a share is never
+// listed or read through), and the files are read where it leads. A relative
+// commondir or gitdir there is checked from both the link and where it leads.
 const MAX_WORKTREES = 10000;
+function realFolder(p) {
+  let st;
+  try { st = fs.lstatSync(p); } catch { return { dir: '' }; }
+  if (st.isDirectory()) return { dir: p };
+  if (!st.isSymbolicLink()) return { dir: '' };
+  const real = localPath(p);
+  if (!real) return { why: 'linked-gitdir' };
+  try { return { dir: fs.statSync(real).isDirectory() ? real : '' }; } catch { return { dir: '' }; }
+}
 function otherWorktrees(wt) {
+  const top = realFolder(wt);
+  if (top.why) return top.why;
+  if (!top.dir) return '';
   let names;
-  try { names = fs.readdirSync(wt); } catch { return ''; }
+  try { names = fs.readdirSync(top.dir); } catch { return ''; }
   if (names.length > MAX_WORKTREES) return 'many-worktrees';
   for (const n of names) {
     const d = path.join(wt, n);
-    let st;
-    try { st = fs.lstatSync(d); } catch { continue; }
-    if (!st.isDirectory()) continue; // a link there was walked with the gitdir
-    const c = readSmall(path.join(d, 'commondir'), 4096);
+    const r = realFolder(path.join(top.dir, n));
+    if (r.why) return r.why;
+    if (!r.dir) continue;
+    const bases = [...new Set([d, path.join(top.dir, n), r.dir])];
+    const c = readSmall(path.join(r.dir, 'commondir'), 4096);
     if (c === UNSAFE) return 'unreadable-config';
-    if (c !== null && c.replace(/[\r\n]+$/, '') && !gitdirAt(d, c)) return 'network-gitdir';
+    if (c !== null && c.replace(/[\r\n]+$/, '') && bases.some(b => !gitdirAt(b, c))) return 'network-gitdir';
     // The worktree's own folder, as recorded in gitdir: git 2.56 looks it up
     // for rev-list --all (and git worktree list), relative paths included
     // (worktree.useRelativePaths), so one that leads to a network path, or
     // through a link to one, keeps git out too.
-    const g = readSmall(path.join(d, 'gitdir'), 4096);
+    const g = readSmall(path.join(r.dir, 'gitdir'), 4096);
     if (g === UNSAFE) return 'unreadable-config';
-    if (g !== null && g.replace(/[\r\n]+$/, '') && !gitdirAt(d, g)) return 'network-gitdir';
+    if (g !== null && g.replace(/[\r\n]+$/, '') && bases.some(b => !gitdirAt(b, g))) return 'network-gitdir';
   }
   return '';
 }
@@ -752,6 +769,11 @@ function moduleGitdirs(root) {
   const out = [];
   const seen = new Set();
   let why = '';
+  // modules/ itself may be a link: resolved first, never listed through one to a share.
+  const top = realFolder(root);
+  if (top.why) return { list: out, why: top.why };
+  if (!top.dir) return { list: out, why };
+  root = top.dir;
   const walk = (d, depth) => {
     if (why) return;
     if (out.length >= MAX_MODULE_GITDIRS) { why = 'many-submodules'; return; }

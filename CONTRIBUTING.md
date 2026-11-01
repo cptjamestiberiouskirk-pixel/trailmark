@@ -15,9 +15,10 @@ node plugins/trailmark-codex/scripts/trailmark.js --sandbox-check
 
 Running `node --test tests/*.test.js` from inside a plugin folder does the same for that copy.
 
-The tests create throwaway repos in the temp folder and never touch your own Claude Code settings. Set `TMPDIR` (or `TEMP` on Windows) to put them somewhere else. Some tests skip themselves and say why:
+The tests create throwaway repos in the temp folder and never touch your own Claude Code settings. Set `TMPDIR` (or `TEMP` on Windows) to put them somewhere else. Some tests skip themselves, most of them saying why:
 
 - On Windows, tests that need a shell script run in place of git, or that make symbolic links (which needs Developer Mode), are skipped. So are the bash and sh steps when Git's `bin` folder isn't on PATH.
+- Two tests need a filesystem that keeps raw bytes in file names, so they skip on Windows and macOS.
 - The Git LFS test skips when git-lfs isn't installed.
 - One test needs POSIX permissions and a user other than root.
 
@@ -70,4 +71,4 @@ The other files differ on purpose. Codex-specific code is in `scripts/lib/host.j
 
 Write plainly, in short sentences. Say what something does and what it doesn't. When a behavior was seen only on one platform or one version, say which.
 
-Other files point at MANUAL.md by section number (section 3, 8, 9, 10, 11, 15 and 16) and at SECURITY.md's "Known limits", so keep those numbers and headings when you edit, or update the references too.
+Other files point at MANUAL.md by section number (sections 3, 8, 9, 10, 11, 14, 15 and 16) and at SECURITY.md's "Known limits", so keep those numbers and headings when you edit, or update the references too.

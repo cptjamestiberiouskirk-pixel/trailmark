@@ -46,6 +46,11 @@ guard(() => {
     if (!found.unresolved.length && list.length <= 4 && list.every(d => d.length <= 1024)) sites = list;
   } catch { sites = undefined; }
   const rec = { cwd, at, session: S.cleanSession(payload.session_id) };
+  // A subagent's tool calls carry its agent_id: its commit commands can run
+  // alongside the main thread's and other subagents', so the sweep tells
+  // them apart (store.js, openCommitStart).
+  const agent = S.cleanAgent(payload.agent_id);
+  if (agent) rec.agent = agent;
   // The PostToolUse hook reads a record of up to 8 KB; the sites must not
   // push this one past that.
   if (sites && Buffer.byteLength(JSON.stringify({ ...rec, sites }), 'utf8') <= 6000) rec.sites = sites;

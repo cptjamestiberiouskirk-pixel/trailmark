@@ -9,7 +9,7 @@ It's the Codex copy of [Trailmark](https://github.com/cptjamestiberiouskirk-pixe
 - Every new chat in a repo you've set up starts with that repo's handoff, kept under 8,500 characters so Codex doesn't move it out of the chat into a file.
 - After a commit or a merged PR, the agent is reminded to bring the note up to date.
 - Every write is version-checked, so two chats, or a chat and a Claude Code session, can't overwrite each other's notes.
-- If you also use Claude Code with Trailmark in the same repo, both read and write the same note, so either agent can pick up where the other stopped. Each entry says which agent wrote it.
+- If you also use Claude Code with Trailmark in the same repo, both read and write the same note, so either agent can pick up where the other stopped. The note's `Updated:` line names the agent that wrote it last.
 
 ## What it doesn't do
 
@@ -17,7 +17,7 @@ It runs no background model, makes no network requests and sends no telemetry. E
 
 ## Install
 
-You need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines) and the ChatGPT desktop app. Steps 1, 2 and 5 are checked against Codex's documentation and on Windows; step 3 says what hasn't been checked yet.
+You need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines) and the ChatGPT desktop app. Steps 1 and 5 are checked against Codex's documentation and in the ChatGPT app on Windows, step 2 against the documentation only, and step 3 says what hasn't been checked yet. The handoff, its budget, the commit log, parking, pruning and the sandbox work as [docs/how-it-works.md](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/docs/how-it-works.md) describes for Claude Code; the differences are below.
 
 1. **Add the marketplace.** The release folder holds `.agents/plugins/marketplace.json`, which lists this plugin. With the Codex CLI on PATH:
 
