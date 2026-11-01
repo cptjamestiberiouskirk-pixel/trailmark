@@ -169,8 +169,12 @@ guard(() => {
     hint = S.updateState(dir, session, (state, rec) => {
       if (kind === 'commit') {
         const tools = Array.isArray(state.recentTools) ? state.recentTools.filter(x => typeof x === 'string').slice(-50) : [];
-        const again = toolId && tools.includes(toolId);
+        // A command sent to the background is kept apart (recentBg): the
+        // sweep counts recentTools as finished, and this one isn't.
+        const bgs = Array.isArray(state.recentBg) ? state.recentBg.filter(x => typeof x === 'string').slice(-50) : [];
+        const again = toolId && (tools.includes(toolId) || bgs.includes(toolId));
         if (again) unresolvedDone = true;
+        else if (toolId && background) state.recentBg = bgs.concat(toolId);
         else if (toolId) state.recentTools = tools.concat(toolId);
         if (endLine && !again) S.note(dir, endLine, session);
         const fresh = logNew(loggedSet(state));
@@ -218,7 +222,7 @@ guard(() => {
   emit({
     hookSpecificOutput: {
       hookEventName: 'PostToolUse',
-      additionalContext: `[trailmark] ${HINTS[kind]} If this completes a milestone (deliverable produced or updated, decision landed, correction accepted, results that change the plan), run the ${S.CHECKPOINT_SKILL} skill before moving on. Skip it if nothing material changed. ${S.SKILL_RULE}`,
+      additionalContext: `[trailmark] ${kind === 'commit' && background ? 'A commit command was sent to the background; its commits are logged by a later sweep once it finishes.' : HINTS[kind]} If this completes a milestone (deliverable produced or updated, decision landed, correction accepted, results that change the plan), run the ${S.CHECKPOINT_SKILL} skill before moving on. Skip it if nothing material changed. ${S.SKILL_RULE}`,
     },
   });
   leave();

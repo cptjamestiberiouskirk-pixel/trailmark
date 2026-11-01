@@ -90,6 +90,9 @@ How the check reads the repo:
 - Includes are followed ten deep, as git does, relative to the including file's path as git built it. At most 50 files are read. Past either limit, git is kept out.
 - A value starting with `%(prefix)` is refused, since git hands the absolute path after it on unchanged.
 - Alternates are followed six deep, as git 2.43 reads them. Each alternate's own folders are walked for links like the `.git`'s.
+- A gitdir file or folder name that isn't valid UTF-8 keeps git out (`odd-path`): git opens the raw bytes, which Node can't name. So does such a byte in a pointer, a link's target or an alternates line.
+- An alternates file is read entry by entry as git reads it, C-quoting and `\ooo` escapes included. Quoting git would reject, text after a closing quote, and a `#` that isn't at the very start of a line keep git out (`odd-config-path`), since git and the check would read different paths there.
+- A path with a missing folder followed by `..` keeps git out: the check can't look past the missing folder, and `..` taken as text would climb back into folders it never looked at.
 - A setting that names a file or folder (`core.attributesFile`, `core.excludesFile`, `mailmap.file`, `lfs.storage`, or any key whose name ends in file, path, dir, storage, template or worktree) is resolved the way git would. That means relative to the worktree, the gitdir and a `core.worktree`, with links followed and `..` also taken as text, as git-lfs does.
 - `lfs.storage` and git-lfs's own `lfs/objects` folders are walked too, on a budget of their own (the first 10,000 entries), so a large LFS store can't use up the budget for git's own folders.
 - While git-lfs runs as a filter, the repo's `.lfsconfig` must be a plain file with no includes. One that is only in the index or HEAD is read with `git config --blob` and held to the same rules.
@@ -118,8 +121,7 @@ Not covered:
 
 - A mapped drive letter that leads to a share. It can't be told apart from a local drive.
 - A link planted in place of a single loose object file.
-- A link in a Git LFS store past its first 10,000 entries, or among a repo's folders past the first 20,000. A tracked file there that has become a folder with a `.git` isn't looked at either. (A gitdir with more than 20,000 entries, loose objects aside, keeps git out: `many-entries`.)
-- A gitdir file or folder name that isn't valid UTF-8 keeps git out (`odd-path`): git opens the raw bytes, which Node can't name. So does such a byte in a pointer, a link's target or an alternates line.
+- A link in a Git LFS store (the repo's or a submodule's) or a git-annex store past its first 10,000 entries, or among a repo's folders past the first 20,000. A tracked file there that has become a folder with a `.git` isn't looked at either. (A gitdir with more than 20,000 other entries, loose objects aside, keeps git out: `many-entries`.)
 - `~/` in an include is checked against your home folder as Node sees it, which can differ from git's `HOME` on some company machines. A path written as `~user/...` keeps git out (`odd-config-path`) unless `user` is you.
 
 ### Links in the memory folder

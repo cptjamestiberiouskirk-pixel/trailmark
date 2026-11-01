@@ -503,14 +503,14 @@ Before git runs in a repo, Trailmark checks that nothing in the repo's `.git` se
 
 | Reason | What it means |
 |---|---|
-| `network-config` | A config value or include leads to a network path. A remote's or submodule's address doesn't count; a Git LFS address on a share does |
-| `network-gitdir` | The `.git` file, `commondir` (the repo's or another worktree's), another worktree's recorded folder (its `gitdir` file) or alternates lead to a network path, or one of those pointers can't be read the way git reads it (a NUL in it, whitespace at either end, or a drive-relative `C:x` or `\x` on Windows) |
+| `network-config` | A config value or include leads to a network path. A remote's or submodule's address doesn't count; a Git LFS address on a share does. Also a path the check can't follow: a missing folder followed by `..` |
+| `network-gitdir` | The `.git` file, `commondir` (the repo's or another worktree's), another worktree's recorded folder (its `gitdir` file) or alternates lead to a network path, or one of those pointers can't be read the way git reads it (a NUL in it, bytes that aren't valid UTF-8, whitespace at either end, or a drive-relative `C:x` or `\x` on Windows) |
 | `linked-gitdir` | A link inside `.git` leads to one |
 | `many-worktrees` | There are more than 10,000 worktrees to check |
-| `many-entries` | `.git` holds more than 20,000 entries besides loose objects and Git LFS's store, so a link could hide past the ones checked |
+| `many-entries` | `.git` holds more than 20,000 entries besides loose objects and the Git LFS and git-annex stores (the repo's and its submodules'), so a link could hide past the ones checked |
 | `odd-path` | A file or folder name inside `.git` isn't valid UTF-8, so the check can't name the file git opens |
 | `deep-gitdir` | `.git` has folders nested more than 64 deep |
-| `odd-config-path` | An include, or a setting that names a file, could be read differently by git and by the check (leading or trailing spaces, `~user/` for someone other than you, `C:x`) |
+| `odd-config-path` | An include, a setting that names a file, or an `alternates` entry could be read differently by git and by the check (leading or trailing spaces, `~user/` for someone other than you, `C:x`, bytes that aren't valid UTF-8, quoting git would reject) |
 | `unreadable-config` | A config or pointer file isn't a plain small file (for example a link, a folder, a FIFO, a config file over 8 MB, an `alternates` file over 64 KB, or a pointer file over 4 KB) |
 | `deep-config` | Includes go more than ten deep |
 | `many-config-files` | Includes reach more than 50 files |

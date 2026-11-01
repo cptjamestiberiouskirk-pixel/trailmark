@@ -256,7 +256,10 @@ function localPath(p) {
       if (parts[i] === '..') { at = path.dirname(at); continue; }
       const next = path.join(at, parts[i]);
       let st;
-      try { st = fs.lstatSync(next); } catch { return path.resolve(at, ...parts.slice(i)); }
+      // A part that isn't there: the rest can't be looked through. A '..'
+      // after it would climb back by text into folders never checked (the
+      // kernel would stop at the missing part), so that is refused.
+      try { st = fs.lstatSync(next); } catch { return parts.slice(i + 1).includes('..') ? null : path.resolve(at, ...parts.slice(i)); }
       if (st.isSymbolicLink()) {
         let t;
         try { t = fs.readlinkSync(next); } catch { return null; }
@@ -421,25 +424,42 @@ function farConfig(file, depth, st) {
 }
 // An alternates line as git reads it: a line starting with a quote is
 // C-quoted (\\, \", \t and the like, \ooo octal).
-function altLine(line) {
-  const t = line.trim();
-  if (!t.startsWith('"')) return t;
-  const m = /^"((?:[^"\\]|\\.)*)"/.exec(t);
-  const body = m ? m[1] : t.slice(1);
-  const map = { a: '\x07', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v' };
-  // git turns \ooo into the raw byte, so the escapes are put together as
-  // bytes and read as UTF-8; null when they aren't valid UTF-8 (git would
-  // open a name this check can't).
-  const parts = [];
-  let last = 0;
-  body.replace(/\\([0-7]{3}|.)/g, (all, ch, at) => {
-    parts.push(Buffer.from(body.slice(last, at), 'utf8'));
-    parts.push(ch.length === 3 ? Buffer.from([parseInt(ch, 8) & 0xff]) : Buffer.from(map[ch] || ch, 'utf8'));
-    last = at + all.length;
-    return all;
-  });
-  parts.push(Buffer.from(body.slice(last), 'utf8'));
-  try { return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(parts)); } catch { return null; }
+// The entries of an alternates file, read as git reads them
+// (parse_alt_odb_entry, unquote_c_style): one per line; a line starting with
+// '#' is a comment; a line starting with '"' is C-quoted, its \ooo escapes
+// raw bytes. null (keep git out) where git and this check could read
+// different paths: quoting git would reject (it then takes the raw text),
+// text after the closing quote (git reads it as another entry), or escapes
+// that aren't valid UTF-8.
+function altEntries(text) {
+  const out = [];
+  const map = { a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11, '\\': 92, '"': 34 };
+  let i = 0;
+  while (i < text.length) {
+    let nl = text.indexOf('\n', i);
+    if (nl < 0) nl = text.length;
+    const raw = text.slice(i, nl);
+    if (raw[0] === '#' || raw === '') { i = nl + 1; continue; }
+    if (raw[0] !== '"') { out.push({ raw, line: raw }); i = nl + 1; continue; }
+    const bytes = [];
+    let k = i + 1;
+    let closed = false;
+    while (k < text.length) {
+      const ch = text[k];
+      if (ch === '"') { closed = true; k++; break; }
+      if (ch !== '\\') { bytes.push(...Buffer.from(ch, 'utf8')); k++; continue; }
+      const e = text[k + 1];
+      if (e !== undefined && Object.prototype.hasOwnProperty.call(map, e)) { bytes.push(map[e]); k += 2; continue; }
+      if (/^[0-3][0-7][0-7]$/.test(text.slice(k + 1, k + 4))) { bytes.push(parseInt(text.slice(k + 1, k + 4), 8)); k += 4; continue; }
+      return null;
+    }
+    if (!closed || k !== nl) return null;
+    let line;
+    try { line = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(bytes)); } catch { return null; }
+    out.push({ raw, line });
+    i = nl + 1;
+  }
+  return out;
 }
 // The alternates of one objects folder and theirs, as deep as git goes (git
 // 2.43 reads the sixth one's too).
@@ -455,12 +475,12 @@ function farAlternates(objects, depth, seen, tops = []) {
   const alt = readSmall(path.join(real, 'info', 'alternates'), 64 * 1024);
   if (alt === null) return '';
   if (alt === UNSAFE) return 'unreadable-config';
-  for (const raw0 of alt.split('\n')) {
-    const raw = raw0.replace(/\r$/, '');
-    if (!raw.trim() || raw.trim().startsWith('#')) continue;
-    if (/^\s|\s$|[\0\uFFFD]/.test(raw)) return 'odd-config-path';
-    const line = altLine(raw);
-    if (line === null || /[\0\uFFFD]/.test(line)) return 'odd-config-path';
+  // Windows can't name a file with a CR in it, so a CRLF file reads the same
+  // there; elsewhere a CR stays part of the path, as git keeps it.
+  const entries = altEntries(WIN ? alt.replace(/\r\n/g, '\n') : alt);
+  if (!entries) return 'odd-config-path';
+  for (const { raw, line } of entries) {
+    if (/^\s|\s$|[\0\r\n\uFFFD]/.test(line) || /[\0\uFFFD]/.test(raw)) return 'odd-config-path';
     if (netText(raw) || netText(line)) return 'network-config';
     if (oddRelative(line)) return 'odd-config-path';
     // git-lfs looks for an LFS store next to each first-level alternate
@@ -524,6 +544,13 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
       if (x.name.includes('\uFFFD')) return 'odd-path';
       if (!rel && !objectsRoot && x.name === 'hooks') continue;
       if (!rel && !objectsRoot && !lfsStore && x.name === 'lfs' && !lfsLater) { lfsLater = x; continue; }
+      // A submodule gitdir's own LFS store, and git-annex's object store, can
+      // be large too: each is walked on a budget of its own.
+      if (!objectsRoot && !lfsStore && x.isDirectory() && ((x.name === 'lfs' && /^modules\/./.test(rel)) || (x.name === 'annex' && (!rel || /^modules\/./.test(rel))))) {
+        const why = walk(path.join(d, x.name), rel ? rel + '/' + x.name : x.name, depth + 1, { n: LFS_BUDGET, lfs: true });
+        if (why) return why;
+        continue;
+      }
       let sub = path.join(d, x.name);
       let isDir = x.isDirectory();
       if (x.isSymbolicLink()) {

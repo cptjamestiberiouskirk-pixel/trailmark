@@ -195,8 +195,8 @@ function farWorktree(r, cwd) {
     // is checked; elsewhere only those named like a tracked file.
     const want = new Set(names.map(fold));
     for (const nm of subdirs) {
-      if (nm.includes('\uFFFD')) return 'odd-path';
       if (!CASELESS && !want.has(nm)) continue;
+      if (nm.includes('\uFFFD')) return 'odd-path';
       const at = path.join(top.top, dir, nm);
       let g = false;
       try { fs.lstatSync(path.join(at, '.git')); g = true; } catch { g = false; }

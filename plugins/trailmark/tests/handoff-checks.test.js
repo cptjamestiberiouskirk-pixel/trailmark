@@ -1943,3 +1943,39 @@ test('git checks: a NUL in a pointer file keeps git out, since git reads only up
   assert.strictEqual(G.farGitConfig(s2), '', 'a worktree folder whose name has a tab: git opens the same path the check reads');
   assert.strictEqual(G.localPath(path.join(base, 'lnk') + '\0/x'), null);
 });
+
+test('git checks: alternates are read as git reads them, a missing folder followed by .. is refused, and LFS and annex stores in submodules have their own budget (review round 12)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+  const G = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-alt-');
+  const alts = (r) => path.join(r, '.git', 'objects', 'info', 'alternates');
+  let n = 0;
+  const check = (text) => { const r = path.join(base, `a${n++}`); repoAt(r); fs.writeFileSync(alts(r), text); return G.farGitConfig(r); };
+  // git reads the text after a closing quote as another entry.
+  assert.strictEqual(check('"a"///evil.invalid/share/objs\n'), 'odd-config-path');
+  // Quoting git rejects (it then takes the raw line, quote included).
+  assert.strictEqual(check('"\\477x/../../../lk\n'), 'odd-config-path');
+  assert.strictEqual(check('"\\q"\n'), 'odd-config-path');
+  assert.strictEqual(check('"open\n'), 'odd-config-path');
+  // Only a '#' at the very start is a comment; a quoted entry ending past its line is refused.
+  assert.strictEqual(check(' #x\n'), 'odd-config-path');
+  assert.strictEqual(check('"a\nb"\n'), 'odd-config-path');
+  // Ordinary alternates still pass.
+  const store = path.join(base, 'store', 'objects'); fs.mkdirSync(store, { recursive: true });
+  assert.strictEqual(check(store + '\n'), '');
+  assert.strictEqual(check('# a comment\n"' + store + '"\n\n'), '');
+  // A missing folder, then '..', then a link to a share: refused, never looked through.
+  const r = path.join(base, 'dd'); repoAt(r);
+  fs.symlinkSync('//evil.invalid/share', path.join(base, 'lk'));
+  assert.strictEqual(G.localPath(path.join(base, 'nothere', '..', 'lk') ), null);
+  assert.strictEqual(G.localPath(base + '/nothere/../lk/x'), null);
+  assert.strictEqual(G.localPath(path.join(base, 'nothere', 'x')), path.join(base, 'nothere', 'x'), 'a missing path without .. is still local');
+  // A submodule's LFS store and a git-annex store are walked on their own budget.
+  const s = path.join(base, 'sub'); repoAt(s);
+  const lfs = path.join(s, '.git', 'modules', 's1', 'lfs', 'objects', 'aa', 'bb'); fs.mkdirSync(lfs, { recursive: true });
+  for (let i = 0; i < 20500; i++) fs.writeFileSync(path.join(lfs, `o${i}`), '');
+  assert.strictEqual(G.farGitConfig(s), '', 'a big LFS store in a submodule');
+  const an = path.join(base, 'annex'); repoAt(an);
+  const ao = path.join(an, '.git', 'annex', 'objects', 'aa'); fs.mkdirSync(ao, { recursive: true });
+  for (let i = 0; i < 20500; i++) fs.writeFileSync(path.join(ao, `k${i}`), '');
+  assert.strictEqual(G.farGitConfig(an), '', 'a big git-annex store');
+});
