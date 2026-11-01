@@ -1983,14 +1983,29 @@ test('git checks: alternates are read as git reads them, a missing folder follow
   const rf = path.join(base, 'refsannex'); repoAt(rf);
   const big = path.join(rf, '.git', 'modules', 's1', 'refs', 'heads', 'annex', 'big'); fs.mkdirSync(big, { recursive: true });
   fs.writeFileSync(path.join(rf, '.git', 'modules', 's1', 'HEAD'), 'ref: refs/heads/main\n');
+  // A HEAD inside refs doesn't make refs/heads a gitdir.
+  fs.writeFileSync(path.join(rf, '.git', 'modules', 's1', 'refs', 'heads', 'HEAD'), 'ref: refs/heads/main\n');
   for (let i = 0; i < 20500; i++) fs.writeFileSync(path.join(big, `r${i}`), '');
   fs.symlinkSync('//evil.invalid/share', path.join(rf, '.git', 'modules', 's1', 'refs', 'heads', 'annex', 'z'));
   assert.notStrictEqual(G.farGitConfig(rf), '', 'a link past a big refs/heads/annex');
   // A BOM at the start of a quoted entry stays part of the name, as git keeps it.
   const bom = path.join(base, 'bom'); repoAt(bom);
   fs.writeFileSync(alts(bom), '"\\357\\273\\277lk/objects"\n');
-  fs.symlinkSync('//evil.invalid/share', path.join(bom, '.git', 'objects', '\ufefflk'));
+  const inner = path.join(bom, '.git', 'objects', '\ufefflk', 'objects', 'info'); fs.mkdirSync(inner, { recursive: true });
+  fs.writeFileSync(path.join(inner, 'alternates'), '//evil.invalid/share/objects\n');
   assert.notStrictEqual(G.farGitConfig(bom), '', 'a quoted BOM keeps git out');
+  // A submodule whose name is logs, and one whose HEAD is a link, keep the
+  // separate budget for their LFS stores.
+  for (const [name, linkHead] of [['logs', false], ['vendor/objects', false], ['hl', true]]) {
+    const sr = path.join(base, 'sm-' + name.replace('/', '-')); repoAt(sr);
+    const mg = path.join(sr, '.git', 'modules', ...name.split('/'));
+    const lo = path.join(mg, 'lfs', 'objects', 'aa', 'bb'); fs.mkdirSync(lo, { recursive: true });
+    fs.mkdirSync(path.join(mg, 'refs', 'heads'), { recursive: true });
+    if (linkHead) { fs.writeFileSync(path.join(mg, 'refs', 'heads', 'main'), '0'.repeat(40) + '\n'); fs.symlinkSync('refs/heads/main', path.join(mg, 'HEAD')); }
+    else fs.writeFileSync(path.join(mg, 'HEAD'), 'ref: refs/heads/main\n');
+    for (let i = 0; i < 20500; i++) fs.writeFileSync(path.join(lo, `o${i}`), '');
+    assert.strictEqual(G.farGitConfig(sr), '', `a big LFS store in submodule ${name}`);
+  }
   // A character outside the BMP in a quoted entry is read whole.
   const emo = path.join(base, 'st\u{1F600}', 'objects'); fs.mkdirSync(emo, { recursive: true });
   assert.strictEqual(check('"' + emo + '"\n'), '', 'an emoji in a quoted entry');

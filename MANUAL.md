@@ -503,8 +503,8 @@ Before git runs in a repo, Trailmark checks that nothing in the repo's `.git` se
 
 | Reason | What it means |
 |---|---|
-| `network-config` | A config value or include leads to a network path. A remote's or submodule's address doesn't count; a Git LFS address on a share does. Also a path the check can't follow: a missing folder followed by `..` (inside `.git` that shows as `network-gitdir` or `linked-gitdir`) |
-| `network-gitdir` | The `.git` file, `commondir` (the repo's or another worktree's), another worktree's recorded folder (its `gitdir` file) or alternates lead to a network path, or one of those pointers can't be read the way git reads it (a NUL in it, bytes that aren't valid UTF-8, whitespace at either end, or a drive-relative `C:x` or `\x` on Windows) |
+| `network-config` | A config value or include leads to a network path. A remote's or submodule's address doesn't count; a Git LFS address on a share does. Also an alternate on a network path, and a path the check can't follow: a missing folder followed by `..` (for a pointer or a link inside `.git`, that shows as `network-gitdir` or `linked-gitdir` instead) |
+| `network-gitdir` | The `.git` file, `commondir` (the repo's or another worktree's), or another worktree's recorded folder (its `gitdir` file) leads to a network path, or one of those pointers can't be read the way git reads it (a NUL in it, bytes that aren't valid UTF-8, whitespace at either end, or a drive-relative `C:x` or `\x` on Windows) |
 | `linked-gitdir` | A link inside `.git` leads to one |
 | `many-worktrees` | There are more than 10,000 worktrees to check |
 | `many-entries` | `.git` holds more than 20,000 entries besides loose objects and the Git LFS and git-annex stores (the repo's, and those at the top of a submodule's gitdir), so a link could hide past the ones checked |

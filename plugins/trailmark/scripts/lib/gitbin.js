@@ -179,9 +179,9 @@ function gitEnv(base = process.env) {
 //   or worktree's own repo), whatever its Windows spelling (GIT~1, ".git.").
 // - On Windows a drive-relative path (C:x) or a root-relative one (\x) in a
 //   pointer is refused: git and this check would resolve it differently.
-// Not covered: a link planted in place of a single loose object file, or in
-// a Git LFS or git-annex store past its first 10,000 entries. A gitdir past its first
-// 20,000 entries keeps git out.
+// Not covered: a link planted in place of a single loose object file, or
+// in a Git LFS or git-annex store past its first 10,000 entries. A gitdir
+// past its first 20,000 other entries keeps git out.
 const NET_START = /^[\\/]{2}|^[\\/]\?\?[\\/]/;
 const WIN = process.platform === 'win32';
 // The network share the session itself works in (\\server\share), while one
@@ -226,7 +226,8 @@ const UNSAFE = Symbol('unsafe');
 function rawJoin(a, b) {
   if (path.isAbsolute(b)) return WIN ? path.resolve(b) : b;
   if (WIN) return path.resolve(a, b);
-  return /[\\/]$/.test(a) ? a + b : a + path.sep + b;
+  // Not Windows here: only / separates (a backslash is part of a name).
+  return /\/$/.test(a) ? a + b : a + path.sep + b;
 }
 // The pointer text git uses, refused (null) when it starts or ends with
 // whitespace or holds a line break: git keeps such characters, and this
@@ -533,7 +534,11 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
   const main = { n: lfsStore ? LFS_BUDGET : 20000, lfs: lfsStore };
   const seen = new Set();
   let lfsLater = null;
-  const walk = (d, rel, depth, budget) => {
+  // top: the path (below gitdir) of the gitdir d is in, '' for gitdir itself,
+  // or a submodule's under modules/, so a submodule's own refs aren't taken
+  // for one.
+  const walk = (d, rel, depth, budget, top = '') => {
+    const below = top ? rel.slice(top.length + 1) : rel;
     let list;
     try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return ''; }
     for (const x of list) {
@@ -546,11 +551,10 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
       if (!rel && !objectsRoot && x.name === 'hooks') continue;
       if (!rel && !objectsRoot && !lfsStore && x.name === 'lfs' && !lfsLater) { lfsLater = x; continue; }
       // A submodule gitdir's own LFS store, and git-annex's object store, can
-      // be large too: each is walked on a budget of its own. Only at a
-      // gitdir's top (a folder with a HEAD, not inside its refs or logs).
-      const gitdirTop = () => !rel || (/^modules\/./.test(rel) && !rel.split('/').some(q => q === 'refs' || q === 'logs' || q === 'lfs' || q === 'objects' || q === 'annex') && (() => { try { return fs.lstatSync(path.join(d, 'HEAD')).isFile(); } catch { return false; } })());
-      if (!objectsRoot && !lfsStore && x.isDirectory() && ((x.name === 'lfs' && rel) || x.name === 'annex') && gitdirTop()) {
-        const why = walk(path.join(d, x.name), rel ? rel + '/' + x.name : x.name, depth + 1, { n: LFS_BUDGET, lfs: true });
+      // be large too: each is walked on a budget of its own, but only right
+      // at a gitdir's top (rel === top).
+      if (!objectsRoot && !lfsStore && x.isDirectory() && rel === top && ((x.name === 'lfs' && rel) || x.name === 'annex')) {
+        const why = walk(path.join(d, x.name), rel ? rel + '/' + x.name : x.name, depth + 1, { n: LFS_BUDGET, lfs: true }, top);
         if (why) return why;
         continue;
       }
@@ -572,7 +576,15 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
       const k = WIN ? sub.toLowerCase() : sub;
       if (seen.has(k)) continue;
       seen.add(k);
-      const why = walk(sub, rel ? rel + '/' + x.name : x.name, depth + 1, budget);
+      // A folder under this gitdir's modules/ with a HEAD (a file or a link,
+      // as git accepts either) is a submodule's gitdir: the top below it.
+      const childRel = rel ? rel + '/' + x.name : x.name;
+      const childBelow = below ? below + '/' + x.name : x.name;
+      let childTop = top;
+      if (!objectsRoot && !lfsStore && /^modules\/./.test(childBelow)) {
+        try { const h = fs.lstatSync(path.join(sub, 'HEAD')); if (h.isFile() || h.isSymbolicLink()) childTop = childRel; } catch { /* not a gitdir */ }
+      }
+      const why = walk(sub, childRel, depth + 1, budget, childTop);
       if (why) return why;
     }
     return '';
