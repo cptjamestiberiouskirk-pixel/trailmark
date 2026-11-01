@@ -427,7 +427,19 @@ function altLine(line) {
   const m = /^"((?:[^"\\]|\\.)*)"/.exec(t);
   const body = m ? m[1] : t.slice(1);
   const map = { a: '\x07', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v' };
-  return body.replace(/\\([0-7]{3}|.)/g, (_, c) => c.length === 3 ? String.fromCharCode(parseInt(c, 8)) : (map[c] || c));
+  // git turns \ooo into the raw byte, so the escapes are put together as
+  // bytes and read as UTF-8; null when they aren't valid UTF-8 (git would
+  // open a name this check can't).
+  const parts = [];
+  let last = 0;
+  body.replace(/\\([0-7]{3}|.)/g, (all, ch, at) => {
+    parts.push(Buffer.from(body.slice(last, at), 'utf8'));
+    parts.push(ch.length === 3 ? Buffer.from([parseInt(ch, 8) & 0xff]) : Buffer.from(map[ch] || ch, 'utf8'));
+    last = at + all.length;
+    return all;
+  });
+  parts.push(Buffer.from(body.slice(last), 'utf8'));
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(parts)); } catch { return null; }
 }
 // The alternates of one objects folder and theirs, as deep as git goes (git
 // 2.43 reads the sixth one's too).
@@ -448,6 +460,7 @@ function farAlternates(objects, depth, seen, tops = []) {
     if (!raw.trim() || raw.trim().startsWith('#')) continue;
     if (/^\s|\s$|[\0\uFFFD]/.test(raw)) return 'odd-config-path';
     const line = altLine(raw);
+    if (line === null || /[\0\uFFFD]/.test(line)) return 'odd-config-path';
     if (netText(raw) || netText(line)) return 'network-config';
     if (oddRelative(line)) return 'odd-config-path';
     // git-lfs looks for an LFS store next to each first-level alternate

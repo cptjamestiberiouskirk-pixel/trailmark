@@ -1797,6 +1797,18 @@ test('git checks: names and pointers that are not valid UTF-8 keep git out, and 
   const r3 = path.join(base, 'r3'); repoAt(r3);
   fs.writeFileSync(path.join(r3, '.git', 'objects', 'info', 'alternates'), Buffer.concat([Buffer.from(base + '/'), Buffer.from([0xff]), Buffer.from('\n')]));
   assert.strictEqual(G.farGitConfig(r3), 'odd-config-path', 'a non-UTF-8 alternates line');
+  // The same written as a quoted octal escape, which git turns into the raw byte.
+  fs.writeFileSync(path.join(r3, '.git', 'objects', 'info', 'alternates'), '"' + base + '/\\377"\n');
+  const r3b = path.join(r3, 'sub'); fs.mkdirSync(r3b);
+  assert.strictEqual(G.farGitConfig(r3b), 'odd-config-path', 'a quoted escape that is not UTF-8');
+  // A quoted escape that is UTF-8 (\303\251, an e with an accent) names that folder.
+  const acc = path.join(base, 'alt-\u00e9', 'objects'); fs.mkdirSync(acc, { recursive: true });
+  fs.writeFileSync(path.join(r3, '.git', 'objects', 'info', 'alternates'), '"' + base + '/alt-\\303\\251/objects"\n');
+  const r3c = path.join(r3, 'sub2'); fs.mkdirSync(r3c);
+  assert.strictEqual(G.farGitConfig(r3c), '', 'a quoted UTF-8 escape');
+  fs.rmSync(acc, { recursive: true }); fs.symlinkSync('//evil.invalid/share', path.join(base, 'alt-\u00e9', 'objects'));
+  const r3d = path.join(r3, 'sub3'); fs.mkdirSync(r3d);
+  assert.strictEqual(G.farGitConfig(r3d), 'network-config', 'a quoted UTF-8 escape leading to a share');
   // A link whose target has such a byte.
   const r4 = path.join(base, 'r4'); repoAt(r4);
   fs.symlinkSync(raw(base + '/' + ff), path.join(r4, '.git', 'refs', 'heads', 'x'));
