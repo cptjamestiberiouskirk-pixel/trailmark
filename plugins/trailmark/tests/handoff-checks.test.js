@@ -2067,3 +2067,14 @@ test('git checks: includes are told apart as git spells them, a session folder w
   assert.strictEqual(facts.statusSkipped, 'many-folders');
   fs.rmSync(base, { recursive: true, force: true });
 });
+
+test('git checks: on Windows a .git that is a junction keeps git out (review round 13)', { skip: !WIN && 'Windows only' }, () => {
+  const G = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-junc-');
+  const r = path.join(base, 'r'); repoAt(r);
+  const elsewhere = path.join(base, 'elsewhere'); fs.mkdirSync(elsewhere);
+  fs.renameSync(path.join(r, '.git'), path.join(elsewhere, 'gitdir'));
+  fs.symlinkSync(path.join(elsewhere, 'gitdir'), path.join(r, '.git'), 'junction');
+  assert.strictEqual(G.farGitConfig(r), 'linked-gitdir');
+  fs.rmSync(base, { recursive: true, force: true });
+});

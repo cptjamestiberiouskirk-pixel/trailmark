@@ -149,7 +149,7 @@ function farWorktree(r, cwd) {
       const f = parts.slice(0, i).join('/');
       if (!folders.has(f)) { if (folders.size >= MAX_TREE_FOLDERS) return 'many-folders'; folders.add(f); }
     }
-    entries.push({ rel, link: e.startsWith('160000 '), seen: true });
+    entries.push({ rel, link: e.startsWith('160000 ') });
   }
   // The folders first, parents before their subfolders: nothing below looks
   // into one until it is known not to be a link to a network path.
@@ -167,8 +167,8 @@ function farWorktree(r, cwd) {
   // with one listing per folder of tracked files rather than a lookup per
   // file.
   const byFolder = new Map();
-  for (const { rel, link, seen } of entries) {
-    if (link || !seen) continue;
+  for (const { rel, link } of entries) {
+    if (link) continue;
     const i = rel.lastIndexOf('/');
     const dir = i < 0 ? '' : rel.slice(0, i);
     if (!byFolder.has(dir)) byFolder.set(dir, []);

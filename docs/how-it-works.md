@@ -248,6 +248,8 @@ Git LFS also runs extension programs named in config (`lfs.extension.<name>.clea
 | `filter-check` | Listing the filters failed |
 | `git-error`, `git-timeout` | git failed or ran out of time |
 | `odd-path` | A tracked path is absolute, holds `..`, or isn't valid UTF-8 (git keeps such a path as raw bytes, which the checks can't name exactly) |
+| `many-folders` | The tracked files are in more than 20,000 folders, too many to check for links |
+| `linked-folder`, `submodule-pointer`, `many-submodules`, `outside-worktree` | A folder of tracked files, a submodule or `core.worktree` leads where the check can't follow (MANUAL.md, section 16) |
 | `lfs-config` | While git-lfs runs, the repo's `.lfsconfig` (the worktree's, else the index's or HEAD's copy) has includes, or the worktree's copy is a link (a value there that leads to a share gives `network-config`) |
 
 What is left: a filter program the user installed (global or system config) runs as usual and reads the repo's config as it chooses. git-lfs itself is one.
