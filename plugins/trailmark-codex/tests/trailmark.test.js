@@ -20,6 +20,13 @@ const dp = p => require(path.join(__dirname, '..', 'scripts', 'lib', 'store.js')
 // can't run on Windows: trailmark starts git.exe only, and Node won't start a
 // .cmd file without a shell.
 const POSIX_ONLY = WIN && 'needs a shell script run in place of git or by git, which Windows cannot do';
+// Making a symlink on Windows needs Developer Mode or admin rights: CI's
+// runners have them, an ordinary desktop account may not. Junctions need
+// neither, so tests that make only junctions run either way.
+const NO_LINKS = WIN && (() => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-linkprobe-'));
+  try { fs.symlinkSync('missing', path.join(d, 'l'), 'file'); return false; } catch { return 'making symlinks needs Developer Mode on Windows'; } finally { fs.rmSync(d, { recursive: true, force: true }); }
+})();
 // Bash syntax in a command: on Windows the Codex copy reads commands as
 // PowerShell unless JBMEM_CODEX_SHELL=bash, so such a test asks for bash.
 function bashSyntax(t) {
@@ -1090,7 +1097,7 @@ test('git path: a git program in the repo is never run, even with "." on PATH', 
   assert.match(fs.readFileSync(path.join(s.memdir, 'snapshots', `${SA}.md`), 'utf8'), /HEAD: [0-9a-f]{7}/);
 });
 
-test('drop files: --from removes only incoming-*.md drop files; handoff.md, .jbmem.json and links out are safe', () => {
+test('drop files: --from removes only incoming-*.md drop files; handoff.md, .jbmem.json and links out are safe', { skip: NO_LINKS }, () => {
   const s = sandbox();
   jbm(s, ['init']);
   const handoffFile = path.join(s.memdir, 'handoff.md');
@@ -1490,7 +1497,7 @@ test('archive-file: handoff and MEMORY.md are refused whatever the case of the n
   assert.strictEqual(jbm(s, ['archive-file', 'topic_x.MD']).status, 0);
 });
 
-test('atomic writes: a link planted at a predictable temp name is never written through', () => {
+test('atomic writes: a link planted at a predictable temp name is never written through', { skip: NO_LINKS }, () => {
   const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
   const base = realTemp('jbmem-tmpname-');
   const target = path.join(base, 'handoff.md');
@@ -1637,7 +1644,7 @@ test('options: a lone -- ends them, so a note can start with -- and --from after
 
 // ---------- 0.3.2 review follow-ups ----------
 
-test('--from works when the memory folder is reached through a link (junction, mapped drive, 8.3 name)', () => {
+test('--from works when the memory folder is reached through a link (junction, mapped drive, 8.3 name)', { skip: NO_LINKS }, () => {
   const s = sandbox();
   const linkedCfg = path.join(s.base, 'cfg-link');
   fs.symlinkSync(s.cfg, linkedCfg);
@@ -1687,7 +1694,7 @@ test('Updated line: one stamp whatever the layout around the title, after severa
   }
 });
 
-test('links planted in the memory folder: the notes file, the notes folder and the bad-state copy are never written through', () => {
+test('links planted in the memory folder: the notes file, the notes folder and the bad-state copy are never written through', { skip: NO_LINKS }, () => {
   const s = sandbox();
   jbm(s, ['init']);
   const outside = path.join(s.base, 'outside.txt');
@@ -2266,7 +2273,7 @@ test('0.3.3 commits: only commits made while the command ran; a rebase in the sa
   assert.ok(commitLines(s).some(l => l.includes(`COMMIT ${head(clone)} in="${dp(clone)}" second try session=`)), notesOf(s));
 });
 
-test('0.3.3 commits: a command that runs the hook twice (git commit and git -C in one) logs nothing twice; the PreToolUse hook prints nothing', () => {
+test('0.3.3 commits: a command that runs the hook twice (git commit and git -C in one) logs nothing twice; the PreToolUse hook prints nothing', { skip: NO_LINKS }, () => {
   const { s, wt, clone, gClone, gWt, hook } = multiFolder();
   gWt('commit', '-q', '--allow-empty', '-m', 'own');
   gClone('commit', '-q', '--allow-empty', '-m', 'other');
@@ -2298,7 +2305,7 @@ test('0.3.3 commits: a command that runs the hook twice (git commit and git -C i
   assert.deepStrictEqual(fs.readdirSync(outside), []);
 });
 
-test('0.3.3 Updated line: a main checkout reached through another spelling (a link) gets no folder; a % in a folder is encoded once', () => {
+test('0.3.3 Updated line: a main checkout reached through another spelling (a link) gets no folder; a % in a folder is encoded once', { skip: NO_LINKS }, () => {
   const { s, head, hook } = multiFolder();
   const link = path.join(s.base, 'repolink');
   fs.symlinkSync(s.repo, link);
@@ -3161,7 +3168,7 @@ test('session start: odd cache folder names stay out of the context, an incomple
   const out = JSON.parse(jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SA })).stdout);
   assert.doesNotMatch(out.hookSpecificOutput.additionalContext, /SYSTEM NOTICE/);
   assert.doesNotMatch(out.systemMessage, /SYSTEM NOTICE/);
-  assert.match(out.systemMessage, /stopped early \(the plugin cache has too many folders\)/);
+  assert.match(out.systemMessage, /stopped early \((?:[^)]*; )?the plugin cache has too many folders[;)]/);
 });
 
 test('session start: a huge handoff plus the copies note still fits the size cap', () => {

@@ -68,7 +68,8 @@ done
 
 run_suite() { # name, files...
   local name="$1"; shift
-  local out; out="$(node --test "$@" 2>&1)"
+  # TAP named: newer Node prints the spec reporter even into a pipe.
+  local out; out="$(node --test --test-reporter=tap "$@" 2>&1)"
   local tests pass fail skip
   tests="$(sed -n 's/^# tests //p' <<<"$out" | tail -1)"; pass="$(sed -n 's/^# pass //p' <<<"$out" | tail -1)"
   fail="$(sed -n 's/^# fail //p' <<<"$out" | tail -1)"; skip="$(sed -n 's/^# skipped //p' <<<"$out" | tail -1)"

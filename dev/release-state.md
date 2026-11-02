@@ -6,10 +6,11 @@ Last updated 2026-11-02.
 
 - Release commit: see the newest commit on `main` that `dev/release-check.sh --zip` was run on; the zip and its `.sha256` were copied to `D:\UserFiles\Downloads`, with the release notes as `trailmark-0.5.0-release-notes.md`.
 - Review rounds 1 to 13 are done. The last round's follow-up review found nothing blocking. CI was green on all 9 jobs.
+- After that, a test-only change (2026-11-02): six `trailmark.test.js` tests that make symlinks skip on a Windows account that can't (no Developer Mode), and the cache-warning test accepts a second stop reason on a slow run. `dev/release-check.sh` names the TAP reporter, since Node 26 prints spec into a pipe. One Opus review found nothing. `SHA256SUMS` changed, so **the zip in Downloads is stale**: rebuild it with `dev/release-check.sh --zip D:\UserFiles\Downloads` from the new `main`.
 
 ### Still to do by hand
 
-1. Check the zip hash, then publish (from Downloads):
+1. Rebuild the zip (above), check its hash, then publish (from Downloads):
 
    ```powershell
    gh release create v0.5.0 trailmark-0.5.0.zip trailmark-0.5.0.zip.sha256 --repo cptjamestiberiouskirk-pixel/trailmark --target <release commit> --title "Trailmark 0.5.0" --notes-file trailmark-0.5.0-release-notes.md
@@ -21,9 +22,9 @@ Last updated 2026-11-02.
 3. Submit to the plugin directory: https://claude.ai/directory/manage (Submit new, Plugin bundle). Checklist: https://claude.com/docs/plugins/pre-submission-checklist.md
 4. Delete `C:\Users\willi\Documents\claude-plugins\tm-sandbox-test` (old build and sandbox scripts) and the leftovers of an early test run, after checking their contents: `C:\tmtest`, `C:\tmcfg`, `C:\fx`, `C:\shareroot`, `C:\tm`, and `%TEMP%\h1.txt`, `h2.txt`, `a b`.
 
-### Not confirmed
+### Confirmed since review
 
-- INFERRED: Git for Windows takes `..` in relative includes and pointers as text from a `.git` that is a junction, so the check (which starts where the junction leads) and git could read different files. Trailmark now keeps git out of such a repo on Windows, and a Windows CI test confirms that refusal. Confirming git's side needs a Windows PC: `mklink /J .git D:\elsewhere\gitdir`, add `[include] path = ../x` to that gitdir's config, put a config file at `<top>\x`, and watch which `x` git opens with Process Monitor while running `git config --list --show-origin`.
+- CONFIRMED (2026-11-02, git 2.56.0.windows.2): Git for Windows takes `..` as text from a `.git` that is a junction. With `top\.git` a junction to `elsewhere\gitdir`, both `include.path = ../x` and a `commondir` of `../common` were read from `top\`, not `elsewhere\`. That held when git found `.git` itself (it reported the origin as `.git/../x`) and when it was given `--git-dir`. A copy without a junction read the same files, which shows the probe worked. The check would start where the junction leads, so the two would read different files, and the `linked-gitdir` refusal on Windows (`gitbin.js`) is needed. Not tested: other pointers (`objects/info/alternates`, a worktree's `gitdir` file) and directory symlinks as opposed to junctions.
 
 ## Deferred to 0.5.1
 
