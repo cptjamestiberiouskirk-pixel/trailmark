@@ -94,6 +94,8 @@ How the check reads the repo:
 - An alternates file is read entry by entry as git reads it, C-quoting and `\ooo` escapes included. Quoting git would reject, text after a closing quote, and a line starting with a space keep git out (`odd-config-path`), since git and the check would read different paths there. Only a `#` at the very start of a line is a comment, as for git. A BOM at the start of a quoted entry keeps git out; characters outside the Basic Multilingual Plane are read as git reads them.
 - On macOS and Linux a backslash is part of a name, as it is for git, not a separator.
 - A path with a missing folder followed by `..` keeps git out: the check can't look past the missing folder, and `..` taken as text would climb back into folders it never looked at.
+- On macOS and Linux, a session folder whose path has a `..` after a link is refused (`odd-path`) when that `..` would lead somewhere else than it does as text. An include reached by two spellings that collapse to the same text is read under each.
+- On Windows, a `.git` that is itself a link or junction keeps git out (`linked-gitdir`): git takes `..` in its relative pointers and includes as text from the `.git` it was given.
 - A setting that names a file or folder (`core.attributesFile`, `core.excludesFile`, `mailmap.file`, `lfs.storage`, or any key whose name ends in file, path, dir, storage, template or worktree) is resolved the way git would. That means relative to the worktree, the gitdir and a `core.worktree`, with links followed and `..` also taken as text, as git-lfs does.
 - `lfs.storage` and git-lfs's own `lfs/objects` folders are walked too, on a budget of their own (the first 10,000 entries), so a large LFS store can't use up the budget for git's own folders.
 - While git-lfs runs as a filter, the repo's `.lfsconfig` must be a plain file with no includes. One that is only in the index or HEAD is read with `git config --blob` and held to the same rules.
@@ -122,7 +124,7 @@ Not covered:
 
 - A mapped drive letter that leads to a share. It can't be told apart from a local drive.
 - A link planted in place of a single loose object file.
-- A link in a Git LFS store (the repo's or a submodule's) or a git-annex store past its first 10,000 entries, or among a repo's folders past the first 20,000. A tracked file there that has become a folder with a `.git` isn't looked at either. (A gitdir with more than 20,000 other entries, loose objects aside, keeps git out: `many-entries`.)
+- A link in a Git LFS store (the repo's or a submodule's) or a git-annex store past its first 10,000 entries. (A repo with more than 20,000 tracked folders has its file list skipped before a compaction: `many-folders`.) (A gitdir with more than 100,000 other entries, loose objects aside, keeps git out: `many-entries`.)
 - `~/` in an include is checked against your home folder as Node sees it, which can differ from git's `HOME` on some company machines. A path written as `~user/...` keeps git out (`odd-config-path`) unless `user` is you.
 
 ### Links in the memory folder

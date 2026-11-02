@@ -141,15 +141,15 @@ function farWorktree(r, cwd) {
     const rel = e.slice(e.indexOf('\t') + 1);
     if (!rel || e.indexOf('\t') < 0) continue;
     if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes('..')) return 'odd-path';
-    // Every folder on the way to the file (past MAX_TREE_FOLDERS the rest
-    // isn't looked at, so a very large repo still gets a snapshot).
+    // Every folder on the way to the file. Past MAX_TREE_FOLDERS the rest
+    // can't be looked at, and git status would go through them, so the file
+    // list isn't read (the rest of the snapshot still is).
     const parts = rel.split('/');
-    let seen = true;
     for (let i = 1; i < parts.length; i++) {
       const f = parts.slice(0, i).join('/');
-      if (!folders.has(f)) { if (folders.size < MAX_TREE_FOLDERS) folders.add(f); else seen = false; }
+      if (!folders.has(f)) { if (folders.size >= MAX_TREE_FOLDERS) return 'many-folders'; folders.add(f); }
     }
-    entries.push({ rel, link: e.startsWith('160000 '), seen });
+    entries.push({ rel, link: e.startsWith('160000 '), seen: true });
   }
   // The folders first, parents before their subfolders: nothing below looks
   // into one until it is known not to be a link to a network path.
@@ -165,7 +165,7 @@ function farWorktree(r, cwd) {
   // A tracked file whose path is now a folder: git status looks for a repo
   // there (as for a submodule), so one there is checked the same way. Found
   // with one listing per folder of tracked files rather than a lookup per
-  // file; a file under a folder past MAX_TREE_FOLDERS isn't looked up at all.
+  // file.
   const byFolder = new Map();
   for (const { rel, link, seen } of entries) {
     if (link || !seen) continue;

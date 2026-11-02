@@ -181,7 +181,7 @@ function gitEnv(base = process.env) {
 //   pointer is refused: git and this check would resolve it differently.
 // Not covered: a link planted in place of a single loose object file, or
 // in a Git LFS or git-annex store past its first 10,000 entries. A gitdir
-// past its first 20,000 other entries keeps git out.
+// past its first 100,000 other entries keeps git out.
 const NET_START = /^[\\/]{2}|^[\\/]\?\?[\\/]/;
 const WIN = process.platform === 'win32';
 // The network share the session itself works in (\\server\share), while one
@@ -393,8 +393,11 @@ function farConfig(file, depth, st) {
   const real = localPath(file);
   if (!real) return 'network-config';
   // Each path as git builds it, not each real file: a file reached two ways
-  // has relative includes that differ by the way.
-  const seenKey = WIN ? path.resolve(file).toLowerCase() : path.resolve(file);
+  // has relative includes that differ by the way. On Windows git takes '..'
+  // as text first; elsewhere '..' goes up from where a link led, so the path
+  // is kept as written (two spellings that collapse to the same text may be
+  // different files).
+  const seenKey = WIN ? path.resolve(file).toLowerCase() : file;
   if (st.seen.has(seenKey)) return '';
   st.seen.add(seenKey);
   if (++st.files > MAX_CONFIG_FILES) return 'many-config-files';
@@ -517,7 +520,7 @@ function gitdirAt(base, t) {
 // and what it leads to is walked too (tools such as git-new-workdir and
 // Android's repo link a gitdir's entries). hooks/ is left out: hooks never
 // run (core.hooksPath is set). Loose object files (objects/xx/...) aren't
-// walked, as there can be very many; past 20,000 other entries git is kept
+// walked, as there can be very many; past 100,000 other entries git is kept
 // out (many-entries), since a link could hide past them.
 // '' when nothing in the gitdir is a link to a network path, else the reason.
 // Folders deeper than MAX_GITDIR_DEPTH (far past nested submodules with deep
@@ -531,8 +534,14 @@ const MAX_GITDIR_DEPTH = 64;
 // is walked last, on a budget of its own (LFS_BUDGET), so a large LFS store
 // can't use up the budget for git's own folders.
 const LFS_BUDGET = 10000;
+// A gitdir's own entries (loose objects and the LFS and annex stores aside):
+// about 50,000 unpacked branches with their reflogs, walked in well under a
+// second.
+const GITDIR_BUDGET = 100000;
 function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
-  const main = { n: lfsStore ? LFS_BUDGET : 20000, lfs: lfsStore };
+  // JBMEM_TEST_GITDIR_BUDGET can only lower it (the tests use 20,000).
+  const low = Number(process.env.JBMEM_TEST_GITDIR_BUDGET);
+  const main = { n: lfsStore ? LFS_BUDGET : (low > 0 && low < GITDIR_BUDGET ? low : GITDIR_BUDGET), lfs: lfsStore };
   const seen = new Set();
   let lfsLater = null;
   // top: the path (below gitdir) of the gitdir d is in, '' for gitdir itself,
@@ -736,6 +745,10 @@ function farGit(gitEntry, out = {}, { light = false } = {}) {
   try { st = fs.lstatSync(gitEntry); } catch { return ''; }
   let gitdir = gitEntry;
   if (st.isSymbolicLink()) {
+    // On Windows git takes '..' in a relative pointer or include as text from
+    // the .git it was given, while the check would start where the link led:
+    // a .git that is a link or junction there keeps git out.
+    if (WIN) return 'linked-gitdir';
     gitdir = localPath(gitEntry);
     if (!gitdir) return 'network-gitdir';
     try { st = fs.statSync(gitdir); } catch { return ''; }
@@ -892,6 +905,15 @@ function farGitConfig(cwd) {
 }
 let CHECK_CWD = '';
 function farGitConfigIn(cwd) {
+  // Outside Windows, '..' after a link goes up from where the link led, while
+  // path.resolve takes it as text: a folder where the two differ is refused,
+  // since the check would look at a different folder than git runs in.
+  if (!WIN && String(cwd || '').split('/').includes('..')) {
+    const raw = String(cwd);
+    const a = localPath(path.isAbsolute(raw) ? raw : rawJoin(process.cwd(), raw));
+    const b = localPath(path.resolve(raw));
+    if (a !== b) return 'odd-path';
+  }
   const key = path.resolve(String(cwd || '.'));
   CHECK_CWD = key;
   if (farCache.has(key)) return farCache.get(key);

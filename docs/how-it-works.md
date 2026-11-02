@@ -12,7 +12,7 @@ Once Trailmark is installed at user scope, the hooks act only in repos set up wi
 | Resumed session | Injects one line with the handoff's age, not the whole file. If another session wrote the handoff since this one last saw it, the line says so and asks for a re-read |
 | `git commit`, including `git -C <path> commit`, run through the Bash or PowerShell tool | Logs the commit to `notes/`, read from the folder it ran in (see "Where a commit ran"), and may remind Claude to checkpoint |
 | `gh pr merge` (Bash or PowerShell tool; a `--help` or `-h` call doesn't count), subagent finished | The same reminder, with the same throttle |
-| Before a `git commit` or `git -C` command (Bash or PowerShell tool) | Records the folder the command starts in, and the folders its commits go to as read from the text, for the commit hooks. Prints nothing, runs no git |
+| Before a `git commit` or `git -C` command (Bash or PowerShell tool) | Records the folder the command starts in, and the folders its commits go to as read from the text, for the commit hooks. Prints nothing; the only git it runs is the launcher's one-second lookup of the memory folder |
 | Before compaction | Writes `snapshots/<session id>.md` (see "Before compaction") |
 
 ### Session start
@@ -100,7 +100,7 @@ In each folder a commit ran in, the hook reads the reflog and logs the entries w
 
 The window opens at the earlier of two times: the PreToolUse record's time less a second, and the command's `duration_ms` (which Claude Code passes to PostToolUse) counted back from when the hook's process started, less two seconds. It opens no more than a minute before the time `duration_ms` alone gives, since the record can be older than the command when a permission prompt waited in between. The hook starts after the command ends, sometimes more than a second after on a busy Windows machine, so `duration_ms` alone would open the window after the command's first commit.
 
-Without a record, the window is `duration_ms` back from the hook's start, less five seconds. With a record but no `duration_ms` (the hook for a failed command gets none), it opens at the record's time less a second. With neither, it takes entries no older than a command can run (11 minutes: Claude Code's 10-minute limit plus one, or `BASH_MAX_TIMEOUT_MS` plus one), at most one per commit in the command, or all of them for a commit in a loop.
+Without a record, the window is `duration_ms` back from the hook's start, less five seconds. With a record but no `duration_ms` (the hook for a failed command gets none), it opens at the record's time less a second. With neither, it takes entries no older than a command can run (11 minutes: Claude Code's 10-minute limit plus one, or `BASH_MAX_TIMEOUT_MS` plus one, at most two hours and one minute), at most one per commit in the command, or all of them for a commit in a loop.
 
 A pull, checkout, merge or reset moves HEAD too and isn't logged as a commit. Without a reflog (`core.logAllRefUpdates` off), HEAD counts when its commit time is in the window.
 
@@ -159,7 +159,7 @@ Someone else working in the same folder (by hand, or a tool) is not told apart f
 
 A folder that has a memory folder of its own (another clone set up for Trailmark) is swept past the commits logged there and the commit commands still running there, since those belong to its sessions. That memory folder is found by Claude Code's usual project-folder name only. One that Trailmark finds only by searching other transcripts isn't looked for here (the search has no time limit), so that clone's commits get no such exclusion.
 
-Another session's commit command that may still be running is left alone. The sweep stops a second before the start of the earliest PreToolUse record younger than 11 minutes whose PostToolUse hook hasn't logged it, and the next sweep starts there. Each commit hook (PostToolUse, or PostToolUseFailure for a command that failed) marks its command done when it finishes (`pending/<tool call ID>.done`), whether it logged anything or not. The sweeping session's own records don't hold it back: a commit by its own command, or by its subagent running in parallel, is its own either way. Another session's command whose hook never ran (denied at the permission prompt, stopped with Esc, a hook that timed out) holds the sweep back until its 11 minutes pass, or until the same thread of that session (its main conversation, or the one subagent, told apart by the hook's `agent_id`) finishes a commit command it started later. One thread runs its commands one at a time, but subagents can run alongside it. A record from Codex, which gives no subagent ID, holds the sweep until its 11 minutes pass whichever copy sweeps, and so does a command sent to the background (`run_in_background`), which returns before it has run, so its hook neither marks it done nor counts it as finished; the hook's note says its commits are picked up by a later sweep.
+Another session's commit command that may still be running is left alone. The sweep stops a second before the start of the earliest PreToolUse record younger than 11 minutes whose PostToolUse hook hasn't logged it, and the next sweep starts there. Each commit hook (PostToolUse, or PostToolUseFailure for a command that failed) marks its command done when it finishes (`pending/<tool call ID>.done`), whether it logged anything or not. The sweeping session's own records don't hold it back: a commit by its own command, or by its subagent running in parallel, is its own either way. Another session's command whose hook never ran (denied at the permission prompt, stopped with Esc, a hook that timed out) holds the sweep back until its 11 minutes pass, or until the same thread of that session (its main conversation, or the one subagent, told apart by the hook's `agent_id`) finishes a commit command it started later. One thread runs its commands one at a time, but subagents can run alongside it. A record from Codex, which gives no subagent ID, holds the sweep until its 11 minutes pass whichever copy sweeps, and so does a command sent to the background (`run_in_background`), which returns before it has run, so its hook neither marks it done nor counts it as finished. When the hook does print a note for it, the note says its commits are picked up by a later sweep.
 
 ### Sessions that work in another repo
 
@@ -248,7 +248,7 @@ Git LFS also runs extension programs named in config (`lfs.extension.<name>.clea
 | `filter-check` | Listing the filters failed |
 | `git-error`, `git-timeout` | git failed or ran out of time |
 | `odd-path` | A tracked path is absolute, holds `..`, or isn't valid UTF-8 (git keeps such a path as raw bytes, which the checks can't name exactly) |
-| `lfs-config` | While git-lfs runs, the repo's `.lfsconfig` (the worktree's, else the index's or HEAD's copy) has includes or something that leads to a share, or the worktree's copy is a link |
+| `lfs-config` | While git-lfs runs, the repo's `.lfsconfig` (the worktree's, else the index's or HEAD's copy) has includes, or the worktree's copy is a link (a value there that leads to a share gives `network-config`) |
 
 What is left: a filter program the user installed (global or system config) runs as usual and reads the repo's config as it chooses. git-lfs itself is one.
 
@@ -291,7 +291,7 @@ All of this happens only in repos set up with `/trailmark:memory-setup`. In any 
 | Hook | Runs | Writes, in the memory folder |
 |---|---|---|
 | SessionStart | git: branch, top-level folder, HEAD's history since the handoff, commits in this session's folders | One log line, the state file |
-| PreToolUse (Bash and PowerShell, `git commit` and `git -C`) | Nothing | `pending/`: where the command starts |
+| PreToolUse (Bash and PowerShell, `git commit` and `git -C`) | The launcher's `git rev-parse` to find the memory folder (one second) | `pending/`: where the command starts |
 | PostToolUse (the same commands, and `gh pr merge`) and PostToolUseFailure (the same commands, without `gh pr merge`) | git: the commits the command made | Log lines, the state file |
 | PostToolUse (Agent, Task) | Nothing | The reminder time in the state file |
 | PreCompact | git: branch, HEAD, status | `snapshots/<session>.md`, one log line |

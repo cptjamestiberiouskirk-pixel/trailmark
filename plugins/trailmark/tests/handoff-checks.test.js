@@ -22,6 +22,9 @@ process.env.JBMEM_CODEX_INIT = '1';
 delete process.env.CODEX_THREAD_ID;
 
 const ROOT = path.join(__dirname, '..');
+// The git checks' gitdir budget, lowered from 100,000 so the budget tests
+// stay small (it can only be lowered).
+process.env.JBMEM_TEST_GITDIR_BUDGET = '20000';
 const JBM = path.join(ROOT, 'scripts', 'trailmark.js');
 const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
 const WIN = process.platform === 'win32';
@@ -2033,5 +2036,34 @@ test('git checks: alternates are read as git reads them, a missing folder follow
     fs.appendFileSync(path.join(tb, '.git', 'config'), '[include]\n\tpath = x\\\\/inc\n');
     assert.strictEqual(G.farGitConfig(tb), 'network-config', 'a name ending in a backslash');
   }
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test('git checks: includes are told apart as git spells them, a session folder with .. after a link is refused, and too many tracked folders skip the file list (review round 13)', { skip: WIN && 'links and .. after a link behave differently on Windows' }, () => {
+  const G = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const F = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-r13-');
+  // Two include spellings that collapse to the same text but name different files.
+  const r1 = path.join(base, 'r1'); repoAt(r1);
+  const other = path.join(base, 'other'); fs.mkdirSync(other);
+  fs.writeFileSync(path.join(base, 'x'), '[core]\n\tbare = false\n');
+  fs.symlinkSync(other, path.join(r1, '.git', 'l'));
+  fs.writeFileSync(path.join(r1, '.git', 'x'), '[core]\n\tattributesFile = //evil.invalid/share/attrs\n');
+  fs.appendFileSync(path.join(r1, '.git', 'config'), '[include]\n\tpath = l/../x\n\tpath = x\n');
+  assert.strictEqual(G.farGitConfig(r1), 'network-config', 'the second include is read too');
+  // A session folder with '..' after a link, leading elsewhere than as text.
+  const deep = path.join(base, 'deep', 'inner'); fs.mkdirSync(deep, { recursive: true });
+  repoAt(path.join(base, 'deep', 'r4'));
+  repoAt(path.join(base, 'r4'));
+  fs.symlinkSync(deep, path.join(base, 'lnk'));
+  assert.strictEqual(G.farGitConfig(base + '/lnk/../r4'), 'odd-path');
+  assert.strictEqual(G.farGitConfig(base + '/deep/../r4'), '', 'a .. with no link before it');
+  // More tracked folders than can be checked: the file list isn't read.
+  const r5 = path.join(base, 'r5'); const g5 = repoAt(r5);
+  const blob = g5('hash-object', '-w', 'a');
+  const lines = []; for (let i = 0; i < 20001; i++) lines.push(`100644 ${blob}\td${i}/f`);
+  execFileSync('git', ['update-index', '--index-info'], { cwd: r5, input: lines.join('\n') + '\n' });
+  const facts = F.gitFacts(r5, ['status']);
+  assert.strictEqual(facts.statusSkipped, 'many-folders');
   fs.rmSync(base, { recursive: true, force: true });
 });

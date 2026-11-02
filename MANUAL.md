@@ -233,7 +233,7 @@ Keep the evidence labels unless you have a reason to drop them. They let the nex
 |---|---|---|---|
 | `budgets.handoffChars` | 7000 | 500 to 100000 | Handoff size limit in characters |
 | `budgets.handoffLines` | 120 | 10 to 5000 | Handoff size limit in lines |
-| `budgets.injectChars` | 8500 | 2000 to 9500 (8500 in the Codex copy) | Most the session-start injection may hold. Claude Code cuts hook output over 10,000 characters; Codex moves output past about 9,000 to a file |
+| `budgets.injectChars` | 8500 | 2000 to 9500 (8500 in the Codex copy) | Most the session-start injection may hold. Claude Code cuts hook output over 10,000 characters; Codex moves hook output past about 2,500 tokens (roughly 10,000 characters) to a file, so the Codex copy caps all its hook output at 9,000 characters |
 | `budgets.memoryMdLines` | 150 | 10 to 1000 | Warning level for Claude Code's own MEMORY.md |
 | `budgets.memoryMdBytes` | 20000 | 1000 to 200000 | Same, in bytes |
 | `hints.minMinutesBetween` | 20 | 0 to 1440 | Least time between checkpoint reminders |
@@ -260,7 +260,7 @@ The Codex copy keeps the same handoff in the same folder as the Claude Code plug
 2. Restart the ChatGPT desktop app, open Plugins, choose the `trailmark-codex` marketplace and install `trailmark-codex`. The Codex CLI only manages marketplaces. Installing happens in the app, and Codex runs a plugin's hooks only when it was installed there.
 3. Review and trust the hooks when the app asks. Each should read `node -e "...PLUGIN_ROOT..." trailmark --hook <name>`. Codex asks again after any change to them.
 4. Checkpoints write outside the workspace, so Codex's sandbox refuses the first try and the skill asks you to approve the write. That is the safer default. `plugins/trailmark-codex/README.md`, step 3, explains how to skip the prompts with a writable root and what that costs.
-5. On Windows, set `NoDefaultCurrentDirectoryInExePath` (section 9) before restarting the app.
+5. On Windows, set `NoDefaultCurrentDirectoryInExePath` (section 9), then restart the app once more so Codex's commands get it.
 6. Set the repo up, if Claude Code hasn't. For a repo used only from Codex, run this yourself in a terminal outside Codex, from the repo's top folder (add `--public` for a public repo):
 
    ```powershell
@@ -505,12 +505,12 @@ Before git runs in a repo, Trailmark checks that nothing in the repo's `.git` se
 |---|---|
 | `network-config` | A config value or include leads to a network path. A remote's or submodule's address doesn't count; a Git LFS address on a share does. Also an alternate on a network path, and a path the check can't follow: a missing folder followed by `..` (for a pointer or a link inside `.git`, that shows as `network-gitdir` or `linked-gitdir` instead) |
 | `network-gitdir` | The `.git` file, `commondir` (the repo's or another worktree's), or another worktree's recorded folder (its `gitdir` file) leads to a network path, or one of those pointers can't be read the way git reads it (a NUL in it, bytes that aren't valid UTF-8, whitespace at either end, or a drive-relative `C:x` or `\x` on Windows) |
-| `linked-gitdir` | A link inside `.git` leads to one |
+| `linked-gitdir` | A link inside `.git` leads to one. On Windows, also a `.git` that is itself a link or junction |
 | `many-worktrees` | There are more than 10,000 worktrees to check |
-| `many-entries` | `.git` holds more than 20,000 entries besides loose objects and the Git LFS and git-annex stores (the repo's, and those at the top of a submodule's gitdir), so a link could hide past the ones checked |
-| `odd-path` | A file or folder name inside `.git` isn't valid UTF-8, so the check can't name the file git opens |
+| `many-entries` | `.git` holds more than 100,000 entries besides loose objects and the Git LFS and git-annex stores (the repo's, and those at the top of a submodule's gitdir), so a link could hide past the ones checked. Unpacked branches and their reflogs count: `git pack-refs --all` packs the branches, and git drops old reflogs itself when they expire (90 days by default) |
+| `odd-path` | A file or folder name inside `.git` isn't valid UTF-8, so the check can't name the file git opens; or (macOS, Linux) the session's folder has a `..` after a link that leads somewhere else than it does as text |
 | `deep-gitdir` | `.git` has folders nested more than 64 deep |
-| `odd-config-path` | An include, a setting that names a file, or an `alternates` entry could be read differently by git and by the check (leading or trailing spaces, `~user/` for someone other than you, `C:x`, bytes that aren't valid UTF-8, quoting git would reject) |
+| `odd-config-path` | An include, a setting that names a file, or an `alternates` entry could be read differently by git and by the check (leading or trailing spaces, `~user/` for someone other than you, `C:x` or `\x` on Windows, bytes that aren't valid UTF-8, quoting git would reject) |
 | `unreadable-config` | A config or pointer file isn't a plain small file (for example a link, a folder, a FIFO, a config file over 8 MB, an `alternates` file over 64 KB, or a pointer file over 4 KB) |
 | `deep-config` | Includes go more than ten deep |
 | `many-config-files` | Includes reach more than 50 files |
@@ -530,8 +530,10 @@ Before a compaction, the snapshot runs `git status` to list changed files. When 
 | `many-submodules` | More than 2,000 submodules, or more than 2,000 submodule gitdirs in `.git/modules` |
 | `outside-worktree` | The repo's `core.worktree` names a folder that isn't the session's folder or above it |
 | `lfs-config` | Git LFS runs as a filter and the repo's `.lfsconfig` (the worktree's, else the index's or HEAD's) is a link or includes another file |
+| `network-config`, `odd-config-path` | A value in the repo's `.lfsconfig` leads to a network path, or could be read differently by git-lfs and the check (see the table above) |
 | `lfs-extension` | Git LFS runs and the repo's own config names an LFS extension program |
 | `odd-path` | A tracked path is absolute, holds `..`, or isn't valid UTF-8, or a folder name among the tracked files' folders isn't |
+| `many-folders` | The tracked files are in more than 20,000 folders, too many to check for links before `git status` |
 | `odd-filter-name` | A filter name has characters other than letters, digits, `.`, `_` and `-` |
 | `many-filters` | Tracked files use more than 32 filters |
 | `filter-check` | Listing the filters tracked files use failed |

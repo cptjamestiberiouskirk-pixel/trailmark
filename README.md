@@ -57,7 +57,7 @@ The `trailmark-codex` copy brings the same handoff to Codex. It is tested with t
 
 ## Optional: the Windows watchdog
 
-`tools/windows` holds trailmark-watchdog, a separate tool that watches the release folder, and what Claude Code's settings run, for changes and for content that looks malicious. It runs as a scheduled task under your account, needs no admin rights, and never changes anything it watches. Neither plugin installs it. See [MANUAL.md](MANUAL.md), section 10.
+`tools/windows` in the downloaded release (not the GitHub marketplace install, which has no release folder of its own) holds trailmark-watchdog, a separate tool that watches the release folder, and what Claude Code's settings run, for changes and for content that looks malicious. It runs as a scheduled task under your account, needs no admin rights, and never changes anything it watches. Neither plugin installs it. See [MANUAL.md](MANUAL.md), section 10.
 
 ## Documentation
 
