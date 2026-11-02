@@ -1,3 +1,7 @@
 # Store every file byte for byte: the PowerShell and cmd scripts keep CRLF,
 # install.sh keeps LF, and SHA256SUMS stays valid on every platform.
 * -text
+# Notes and scripts for working on the repo; not part of the release zip
+# (git archive), and left out of SHA256SUMS so the zip's own list verifies.
+/CLAUDE.md export-ignore
+/dev export-ignore

@@ -62,8 +62,10 @@ The other files differ on purpose. Codex-specific code is in `scripts/lib/host.j
 - Regenerate `SHA256SUMS` from the repository root, after your change is staged or committed so that `git ls-files` lists every file:
 
   ```text
-  git ls-files | grep -v '^SHA256SUMS$' | sort | sed 's|^|./|' | xargs sha256sum > SHA256SUMS
+  git ls-files | grep -v '^SHA256SUMS$' | git check-attr --stdin export-ignore | grep -v ': export-ignore: set$' | sed 's/: export-ignore: .*$//' | sort | sed 's|^|./|' | xargs sha256sum > SHA256SUMS
   ```
+
+  `dev/release-check.sh --sums` does this and then runs every check CI runs, with one summary at the end (`--quick` skips the two long suites). `CLAUDE.md` and `dev/` are kept out of the release zip and out of `SHA256SUMS`.
 
 - Keep the sandbox rule: the launcher (`scripts/trailmark.js`) only reads, and only the script it starts under Node's permission model writes, inside the repo's memory folder. Anything new that reads a path from the memory folder or from command text treats it as untrusted, as SECURITY.md describes.
 
