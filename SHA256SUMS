@@ -1,6 +1,6 @@
 002b8d6188e032dc96a5cf818f38a872cd57c2d4c51f6793b9bb4e0a1300e210  ./.agents/plugins/marketplace.json
 eaaab81e68d95dd9fe1a4a88970e019282c961928ace328213f60ea9025ca257  ./.claude-plugin/marketplace.json
-13df2f27827152f4d821dc8bb15b324b44d23d5bebde74b3853b04593b58f03e  ./.gitattributes
+70c90a0b052beec95f9dc54e2e1aa0e0b4e0530a992aae10c2a349744fb39a36  ./.gitattributes
 4cde21996082945121be34d0afab3735dbd95644b17ef242a241bcbbbe3bed88  ./.github/ISSUE_TEMPLATE/bug_report.md
 f81f737038bd2de241a3a63161e5921405dd786a885f2325ec1c7928b1405c05  ./.github/ISSUE_TEMPLATE/config.yml
 57e80bb102e6ac1936e1c4498da9added34688cc00fd0b37a1b5b59d65fe6b98  ./.github/pull_request_template.md
@@ -13,8 +13,6 @@ b1d29c22e3d045bcd578000e62dda7a20fb4afd6c27f95be3fce7324caae2a5d  ./CONTRIBUTING
 fe0c4401d17e8550ea77085e04ddf40c6960806f528fac1406d650a10d1b5bc6  ./MANUAL.md
 24cc229031325c33572d80ed8af88eb32f60d51ae050b5c86be9868c10865772  ./README.md
 60bbccaebdd4f18e44fe272f878b2853cd0b7c64903803ec7bfc9edc183f9eb2  ./SECURITY.md
-bb52c74f435b45842d1f3cc47fa312886999363eb03ff97bacd5e906a533347e  ./dev/release-check.sh
-198e67111a75842e938d4b27df570f89c7ec75a30358b306de0e53be267b9872  ./dev/release-state.md
 582622f829974e877b4bec85818fd0de7acf4708f2b72a58e54f11514e9cf626  ./docs/how-it-works.md
 53c222f6021e268dd2bf274fd79f4a96c008931b22977c0260ae7a52682bbe82  ./install.cmd
 06c1f76c849c59a57c19ba2d107ef119aea12d4013f32389e413b94da2dddcbe  ./install.ps1
