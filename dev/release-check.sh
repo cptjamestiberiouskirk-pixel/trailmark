@@ -26,6 +26,8 @@ while [ $# -gt 0 ]; do
 done
 
 T="$(mktemp -d 2>/dev/null || mktemp -d -t tmcheck)"
+# Never go on without a temp folder: the cleanup below removes inside it.
+[ -n "$T" ] && [ -d "$T" ] || { echo "no temp folder"; exit 2; }
 trap 'rm -rf "$T"' EXIT
 export TMPDIR="$T"
 RESULTS=()
