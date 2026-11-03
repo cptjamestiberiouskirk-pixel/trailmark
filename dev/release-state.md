@@ -94,7 +94,7 @@ Superseded on 2026-11-03: 0.5.0 is not published. Don't run step 1 for 0.5.0. St
 - CONFIRMED: 10 passing `launcher:` tests left 9 `jbmem-*` folders in `%TEMP%` (2,897 were already there from earlier runs; not removed, since some may be kept on purpose, such as `jbmem-4hucLT` below). `release-check.sh` set only `TMPDIR`, which Node ignores on Windows.
 - Now `realTemp` (all four test files) records each folder, and an `afterEach` removes them when the test ends, unless it failed (named as `# kept <dir>`) or `JBMEM_TEST_KEEP=1`; an `after` removes any made outside a test. `release-check.sh` also sets `TEMP` and `TMP` to its folder when `cygpath` is there (Git Bash).
 - Checked: with TEMP pointed at an empty folder, 21 passing tests across both files left 0 folders.
-- Not changed: CLAUDE.md still says the suites leave throwaway repos behind (its "Conventions" line on `TMPDIR`); a session shouldn't edit it on its own, so that is for the user.
+- CLAUDE.md's "Conventions" line on test temp folders now matches (2026-11-03, the user: "Yes, update it").
 
 ### Done: the module gitdir walk under load (2026-11-03)
 
