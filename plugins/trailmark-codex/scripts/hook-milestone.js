@@ -50,6 +50,7 @@ const { readPayload, memoryDirOrExit, emit, guard } = require('./lib/hookio');
 const { isMilestoneCommand, commitSites } = require('./lib/commands');
 const { commitFacts } = require('./lib/gitfacts');
 
+const BG_NOTE = 'A commit command was sent to the background; its commits are logged by a later sweep once it finishes.';
 const HINTS = {
   commit: 'Commit landed.',
   'pr-merge': 'PR merge command finished.',
@@ -131,7 +132,21 @@ guard(() => {
     commits = S.checkCommitFacts(raw);
     // Nothing new in any folder the command committed in, no commit whose
     // folder is unknown, and nothing to report: no log line and no reminder.
-    if (!commits.entries.length && !commits.unresolved.length && !endLine) leave();
+    // A command sent to the background has usually not run yet: Claude is
+    // told once (recentBg) where its commits will be logged.
+    if (!commits.entries.length && !commits.unresolved.length && !endLine) {
+      if (background && toolId && !afterFailure) {
+        let first = false;
+        try {
+          S.updateState(dir, session, (state) => {
+            const bgs = Array.isArray(state.recentBg) ? state.recentBg.filter(x => typeof x === 'string').slice(-50) : [];
+            if (!bgs.includes(toolId)) { state.recentBg = bgs.concat(toolId); first = true; }
+          });
+        } catch (e) { if (e && e.code === 'ERR_ACCESS_DENIED') throw e; }
+        if (first) emit({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: `[trailmark] ${BG_NOTE}` } });
+      }
+      leave();
+    }
   }
 
   // Already logged: see store.knownCommits.
@@ -234,7 +249,7 @@ guard(() => {
     : '';
   if (afterFailure || (!hint && !slowText)) leave();
   const hintText = hint
-    ? `[trailmark] ${kind === 'commit' && background ? 'A commit command was sent to the background; its commits are logged by a later sweep once it finishes.' : HINTS[kind]} If this completes a milestone (deliverable produced or updated, decision landed, correction accepted, results that change the plan), run the ${S.CHECKPOINT_SKILL} skill before moving on. Skip it if nothing material changed. ${S.SKILL_RULE}`
+    ? `[trailmark] ${kind === 'commit' && background ? BG_NOTE : HINTS[kind]} If this completes a milestone (deliverable produced or updated, decision landed, correction accepted, results that change the plan), run the ${S.CHECKPOINT_SKILL} skill before moving on. Skip it if nothing material changed. ${S.SKILL_RULE}`
     : '';
   emit({
     hookSpecificOutput: {

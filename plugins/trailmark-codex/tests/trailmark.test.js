@@ -3938,3 +3938,25 @@ test('0.5.1 commit hook: when git times out, Claude is told the commit isn\'t lo
   assert.ok(lines.some(l => l.includes(`in="${dp(other)}" other while slow (found later)`)), lines.join('\n'));
   assert.ok(!lines.some(l => l.includes('before the session')), lines.join('\n'));
 }));
+
+test('0.5.1 commit hook: a commit command sent to the background gets its note when nothing is committed yet, once per tool call, and its record stays open', () => {
+  const s = sandbox();
+  jbm(s, ['init']);
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  tick(); tick();
+  const id = `toolu_bg${++toolSeq}x${process.pid}`;
+  const base = { session_id: SA, tool_name: 'Bash', tool_input: { command: 'git commit -m later', run_in_background: true }, tool_use_id: id };
+  assert.strictEqual(jbm(s, ['--hook', 'commit-start'], JSON.stringify({ ...base, cwd: s.repo, hook_event_name: 'PreToolUse' })).status, 0);
+  // The command returns at once, before it has committed anything.
+  const post = () => jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ ...base, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 40 }));
+  const first = post();
+  assert.strictEqual(first.status, 0, first.stdout + first.stderr);
+  assert.match(JSON.parse(first.stdout).hookSpecificOutput.additionalContext, /A commit command was sent to the background; its commits are logged by a later sweep once it finishes\./);
+  // The same tool call's hook again (a command matching two `if` patterns): no second note.
+  const again = post();
+  assert.strictEqual(again.status, 0, again.stdout + again.stderr);
+  assert.strictEqual(again.stdout, '');
+  assert.strictEqual(commitLines(s).length, 0, notesOf(s));
+  // Still running as far as the sweep knows: not marked done.
+  assert.ok(!fs.existsSync(path.join(s.memdir, 'pending', `${id}.done`)), 'a background command was marked done');
+});
