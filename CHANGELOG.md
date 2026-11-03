@@ -17,7 +17,7 @@
 - A branch whose name isn't valid UTF-8 (possible on Linux) kept git out of the repo (`odd-path`), though git handles it. A plain file with such a name is now passed over; a folder or link with one still keeps git out.
 - A folder left in `.git/modules` by a removed submodule, with no `HEAD`, had its loose objects counted, so a large one kept git out (`many-entries`). They are now passed over, as for a real submodule's.
 
-## 0.5.0 (Trailmark and trailmark-codex), 1.7.0 (trailmark-watchdog): 2026-10-31
+## 0.5.0 (Trailmark and trailmark-codex), 1.7.0 (trailmark-watchdog): never published, shipped as part of 0.5.1
 
 jb-memory is now Trailmark, and this is its first public release. Everything in 0.4.5 below is part of this release too.
 
