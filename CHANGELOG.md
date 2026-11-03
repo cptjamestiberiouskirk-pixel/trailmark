@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.1 (Trailmark and trailmark-codex): unreleased
+## 0.5.1 (Trailmark and trailmark-codex): 2026-11-03
 
 ### Commit sweep
 

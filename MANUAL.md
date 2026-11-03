@@ -4,7 +4,7 @@ Trailmark keeps one short state file per repo, the handoff, and gives it to ever
 
 Sections 2 to 7 get you installed and working. The rest covers the Codex copy for the ChatGPT desktop app, the optional Windows tools, updating, troubleshooting, uninstalling and moving from jb-memory. The internals are in [docs/how-it-works.md](docs/how-it-works.md) and the security model is in [SECURITY.md](SECURITY.md).
 
-Version 0.5.0, for both Claude Code and the Codex copy (trailmark-watchdog 1.7.0). MIT licensed.
+Version 0.5.1, for both Claude Code and the Codex copy (trailmark-watchdog 1.7.0). MIT licensed.
 
 ## Contents
 
