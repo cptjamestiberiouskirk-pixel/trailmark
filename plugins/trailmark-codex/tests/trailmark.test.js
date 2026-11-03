@@ -2922,6 +2922,56 @@ test('0.5.1 sweep: gitfacts.sweepCommits with less than 800 ms left reads no fol
   assert.strictEqual(sweepCommits([], { homeCwd: s.repo, budgetMs: 700 }).stopped, undefined);
 });
 
+// A preload (node -r) that makes every git rev-parse fail the way a git
+// slower than its timeout does, for the launcher process only (the sandboxed
+// script it starts gets no -r). Other programs and git commands run as usual.
+const GIT_TIMEOUT_STUB = `const cp = require('child_process');
+const path = require('path');
+const real = cp.execFileSync;
+cp.execFileSync = function (file, args, ...rest) {
+  if (/^git(\.exe)?$/i.test(path.basename(String(file))) && Array.isArray(args) && args.includes('rev-parse')) {
+    const e = new Error('spawnSync git ETIMEDOUT');
+    e.code = 'ETIMEDOUT';
+    throw e;
+  }
+  return real.call(this, file, args, ...rest);
+};
+`;
+
+test('0.5.1 paths: when git times out in a linked worktree or a subfolder, the main checkout\'s memory folder is still the one used (dir, init, the commit-start record)', () => {
+  const s = sandbox();
+  const wt = path.join(s.repo, '.claude', 'worktrees', 'wb');
+  s.g('worktree', 'add', '-q', '-b', 'wb', wt);
+  const sub = path.join(s.repo, 'src');
+  fs.mkdirSync(sub);
+  // Claude Code makes a project folder for each folder a session runs in, so
+  // the worktree has one of its own: a lookup from the worktree itself takes
+  // it as verified.
+  const wtProject = path.join(s.cfg, 'projects', wt.replace(/[^a-zA-Z0-9]/g, '-'));
+  fs.mkdirSync(wtProject, { recursive: true });
+  const stub = path.join(s.base, 'git-timeout.js');
+  fs.writeFileSync(stub, GIT_TIMEOUT_STUB);
+  const slow = (cwd, args, input) => spawnSync(process.execPath, ['-r', stub, JBM, ...args], { cwd, env: s.env, input, encoding: 'utf8' });
+  // The stub works: git rev-parse fails with ETIMEDOUT under it.
+  const probe = spawnSync(process.execPath, ['-r', stub, '-e', "try { require('child_process').execFileSync('git', ['rev-parse', '--show-toplevel']); console.log('ran'); } catch (e) { console.log(e.code); }"], { cwd: wt, encoding: 'utf8' });
+  assert.strictEqual(probe.stdout.trim(), 'ETIMEDOUT', probe.stdout + probe.stderr);
+  for (const cwd of [wt, sub]) {
+    const d = slow(cwd, ['dir', '--json']);
+    assert.strictEqual(d.status, 0, d.stdout + d.stderr);
+    assert.strictEqual(path.resolve(JSON.parse(d.stdout).dir), path.resolve(s.memdir), d.stdout);
+  }
+  // Set up from the worktree while git times out: the main checkout's folder, not the worktree's.
+  const init = slow(wt, ['init']);
+  assert.strictEqual(init.status, 0, init.stdout + init.stderr);
+  assert.ok(fs.existsSync(path.join(s.memdir, 'handoff.md')), init.stdout);
+  assert.ok(!fs.existsSync(path.join(wtProject, 'memory')), 'the worktree\'s own folder was set up');
+  // A commit command's PreToolUse record is written where the sweep reads it.
+  const id = `toolu_slow${process.pid}`;
+  const pre = slow(wt, ['--hook', 'commit-start'], JSON.stringify({ session_id: SA, tool_name: 'Bash', tool_input: { command: 'git commit -m x' }, tool_use_id: id, cwd: wt, hook_event_name: 'PreToolUse' }));
+  assert.strictEqual(pre.status, 0, pre.stdout + pre.stderr);
+  assert.ok(fs.existsSync(path.join(s.memdir, 'pending', `${id}.json`)), 'no commit-start record');
+});
+
 test('0.3.4 sweep: another clone with its own memory folder: what its sessions logged, or are still committing, stays theirs', () => {
   const { s, wt, clone, gClone, head, hook } = multiFolder();
   const start = (sid, cwd) => jbmIn(s, cwd, ['--hook', 'session-start'], JSON.stringify({ cwd, session_id: sid, source: 'startup', hook_event_name: 'SessionStart' }));

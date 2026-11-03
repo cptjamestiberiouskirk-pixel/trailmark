@@ -317,7 +317,7 @@ The plugin works from its own folder alone. The hooks need only `node` on PATH; 
 
 ## Where files live
 
-In Claude Code's auto-memory folder for the repo (`~/.claude/projects/<project>/memory/`). Every worktree of the repo shares it, except the worktrees of a bare repo, which each have their own.
+In Claude Code's auto-memory folder for the repo (`~/.claude/projects/<project>/memory/`). Every worktree of the repo shares it, except the worktrees of a bare repo, which each have their own. When git is too slow to say where the repo starts (it times out), trailmark finds the repo the way it does when git is kept out, from the `.git` entries on disk, so a worktree or subfolder still gets the shared folder.
 
 ```text
 .jbmem.json        opt-in marker and budgets

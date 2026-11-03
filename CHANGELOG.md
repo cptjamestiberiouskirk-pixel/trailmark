@@ -5,6 +5,7 @@
 ### Commit sweep
 
 - A commit sweep that runs out of time now says so: "commit sweep skipped: out of time" after a checkpoint, and as a warning at session start. Before, it was skipped without a trace. It runs out when git is slow, for example while other work keeps every core busy. Nothing is lost either way: the folders it didn't read keep their start, and the next sweep logs the commits it missed. The time limits are unchanged.
+- When git was too slow to answer (it timed out) in a linked worktree or a subfolder, trailmark looked for the memory folder from that folder instead of the main checkout. Hooks then found nothing set up and did nothing, so a commit command's start went unrecorded. Setup (`init`) in a worktree could set up the worktree's own folder in place of the repo's. Now the repo is found from the `.git` entries on disk, as when git is kept out.
 - Tests: the sweep test no longer depends on how fast git is. It repeats a sweep that ran out of time, for up to 90 s, and checks what all of them logged. If git stays too slow for any sweep to finish in that time, the test is skipped and says why. Two new tests run a sweep out of time on purpose (`JBMEM_TEST_SWEEP_MS`, which can only lower the time a sweep gets) and check the report, that nothing is logged and no start moves, and that the next sweep logs the commit.
 
 ## 0.5.0 (Trailmark and trailmark-codex), 1.7.0 (trailmark-watchdog): 2026-10-31
