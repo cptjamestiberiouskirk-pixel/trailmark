@@ -411,17 +411,24 @@ function endCheck(found, start, cwd, home, shell) {
 // The commit sweep for one session: its own folder and every folder its
 // commits went to, each from where its last sweep ended (or the session's
 // start, at most a day back). Needs a session record with a start time;
-// returns undefined otherwise or when too little of the time budget is left.
+// returns undefined otherwise. When too little of the time budget is left to
+// read every folder, the result says so (stopped: 'out-of-time', reported to
+// the user) and the folders not read keep their start for the next sweep.
+// JBMEM_TEST_SWEEP_MS can only lower the budget (the tests' way to run out).
 // A folder with a memory folder of its own (another clone set up for
 // trailmark) is swept only past the commits logged there and the commit
 // commands still running there: those belong to that folder's sessions.
 function sweepFacts(loc, session, homeCwd, budgetMs) {
-  if (!session || !(budgetMs >= 1500)) return undefined;
+  if (!session) return undefined;
+  const low = Number(process.env.JBMEM_TEST_SWEEP_MS);
+  if (low > 0) budgetMs = Math.min(budgetMs, low);
   const deadline = Date.now() + budgetMs - 500;
   let rec = null;
   try { rec = S.sessionRecord(loc.dir, session); } catch { rec = null; }
   if (!rec || !Number.isFinite(rec.start)) return undefined;
   const now = Date.now();
+  const late = () => ({ at: Math.floor(now / 1000) * 1000, folders: [], read: [], stopped: 'out-of-time' });
+  if (!(budgetMs >= 1500)) return late();
   const win = windowMs();
   // A commit command still running (another session's, most likely) logs its
   // own commits with its session; the sweep stops short of when it started.
@@ -447,9 +454,10 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   for (const d of Array.isArray(rec.commitDirs) ? rec.commitDirs : []) add(d);
   add(rec.commitDir);
   const items = [];
+  let short = false;
   for (const d of dirs.slice(0, 8)) {
     const left = deadline - Date.now();
-    if (left < 1300) break;
+    if (left < 1300) { short = true; break; }
     let other = null;
     try {
       const l2 = findMemoryDir({ cwd: d, gitTimeoutMs: Math.min(500, left - 800), noScan: true });
@@ -465,11 +473,14 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   }
   items.sort((a, b) => a.since - b.since);
   const left = deadline - Date.now();
-  if (!items.length || left < 1000) return undefined;
+  if (left < 1000 || (!items.length && short)) return late();
+  if (!items.length) return undefined;
   // rec.home comes from the state file, which a session can write: it is
   // used only when it is a local path (git runs there).
   const recHome = typeof rec.home === 'string' && rec.home && path.isAbsolute(rec.home) && !farNetwork(rec.home, homeCwd) && localPathFrom(homeCwd, rec.home) ? rec.home : homeCwd;
-  return sweepCommits(items, { homeCwd: recHome, budgetMs: Math.min(left, 3000), now });
+  const out = sweepCommits(items, { homeCwd: recHome, budgetMs: Math.min(left, 3000), now });
+  if (short) out.stopped = 'out-of-time';
+  return out;
 }
 
 // Whether init got --force, read the way memory.js reads its flags: options

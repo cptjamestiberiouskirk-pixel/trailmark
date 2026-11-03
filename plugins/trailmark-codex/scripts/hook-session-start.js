@@ -91,6 +91,9 @@ guard(() => {
   } catch (e) {
     if (e && e.code === 'ERR_ACCESS_DENIED') throw e;
   }
+  // A sweep cut short by the time budget (git was slow): the folders it
+  // didn't read keep their start, and the next sweep logs what it missed.
+  if (f.sweep && f.sweep.stopped === 'out-of-time') warn.push('commit sweep skipped: out of time (git was slow). Commits no hook logged are found by the next sweep, at a checkpoint or the next session start');
   // Codex shows systemMessage as a warning, so it is sent only for one: a
   // handoff cut short is one.
   if (/TRUNCATED/.test(summary)) warn.push('the handoff was cut short to fit; run the tm-memory-prune skill');

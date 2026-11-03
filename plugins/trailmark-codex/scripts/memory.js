@@ -240,6 +240,9 @@ switch (cmd) {
     let found = 0;
     try { found = S.logFoundCommits(dir, session, gitNow && gitNow.sweep); } catch (e) { if (e && e.code === 'ERR_ACCESS_DENIED') throw e; found = 0; }
     if (found) console.log(`[trailmark] logged ${found} commit(s) found in this session's folders that no hook had logged, as COMMIT ... (found later). A script or a git command the hooks don't see made them, or someone working in the same folder.`);
+    // A sweep cut short by the time budget: the folders it didn't read keep
+    // their start, and the next sweep logs what it missed.
+    if (gitNow && gitNow.sweep && gitNow.sweep.stopped === 'out-of-time') console.log('[trailmark] commit sweep skipped: out of time (git was slow). Commits no hook logged are found by the next sweep, at a checkpoint or the next session start.');
     const a = m.archived;
     if (a && (a.moved || a.already)) {
       console.log(`[done] items: ${a.moved} archived verbatim to ${path.relative(dir, a.archive)}${a.already ? `, ${a.already} already archived today (not added twice)` : ''}; they are out of the handoff.`);

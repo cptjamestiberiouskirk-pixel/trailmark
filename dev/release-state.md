@@ -27,6 +27,15 @@ Last updated 2026-11-03.
 
 - CONFIRMED (2026-11-02, git 2.56.0.windows.2): Git for Windows takes `..` as text from a `.git` that is a junction. With `top\.git` a junction to `elsewhere\gitdir`, both `include.path = ../x` and a `commondir` of `../common` were read from `top\`, not `elsewhere\`. That held when git found `.git` itself (it reported the origin as `.git/../x`) and when it was given `--git-dir`. A copy without a junction read the same files, which shows the probe worked. The check would start where the junction leads, so the two would read different files, and the `linked-gitdir` refusal on Windows (`gitbin.js`) is needed. Not tested: other pointers (`objects/info/alternates`, a worktree's `gitdir` file) and directory symlinks as opposed to junctions.
 
+## 0.5.1 (in progress)
+
+### Done: the silent sweep skip (2026-11-03, branch `claude/loving-cannon-9abde1`)
+
+- A sweep that runs out of time sets `stopped: 'out-of-time'` (`trailmark.js` `sweepFacts` at each budget gate; `gitfacts.js` `sweepCommits` when a folder is left unread because of the 800 ms gate or a git call refused or timed out). `write-handoff` prints "commit sweep skipped: out of time ..." and session start adds it to the warnings. Only fixed text is printed. `swept` moves only for folders read, as before. Timer values unchanged. `JBMEM_TEST_SWEEP_MS` can only lower the sweep's budget.
+- Tests (each copy): the 0.3.4 sweep test repeats a sweep that reports the skip, for up to 90 s, and counts what all of them logged. If every sweep in that window runs out of time it is skipped with the reason, since nothing a finished sweep logs can be checked then. Two new 0.5.1 tests force the out-of-time path (launcher gates, and `sweepCommits` with 700 ms). Both fail on 4182717 for the intended reason (CONFIRMED).
+- Under load (CONFIRMED, 2026-11-03, 32 busy threads): old code failed the 0.3.4 test 3 of 3. New code with a 20 s burst during the run: 7 of 7 sweep tests passed in 4 runs (one run repeated a skipped sweep once and then logged the commits). New code with every core busy for the whole run: no sweep finished in 90 s (6 and 7 skips in a row), so the 0.3.4 test and the 0.5.1 launcher test's last step were skipped with that reason; the 0.5.1 launcher test's out-of-time checks passed before that.
+- Review: Fable, round 1 found one CONFIRMED test defect (an empty folder list could report `stopped` when the first git call timed out); fixed in code, `stopped` now needs a folder left unread. Round 2 found nothing CONFIRMED. Noted there: a bug that made every sweep report out-of-time would show as two skipped tests (90 s each) rather than failures, so a skip on an idle machine needs reading; and an invalid folder that the time gate passes over counts as unread (a harmless extra report).
+
 ## Deferred to 0.5.1
 
 Found in review, fail closed or harmless, left for the next version:
@@ -37,7 +46,10 @@ Found in review, fail closed or harmless, left for the next version:
 - A pending commit-start record written by trailmark-codex 0.4.5 has no `host` field and can be released early, within 11 minutes of upgrading.
 - A background commit's hook note is rarely printed, since the hook usually runs before the commit exists.
 - The two test files don't remove their temp folders (about 150 MB a full run). On Windows they write to `%TEMP%`: Node ignores `TMPDIR` there, so `release-check.sh`'s own cleanup misses them.
-- The `0.3.4 sweep` test fails when git is slow, because a sweep that runs out of time is skipped without a trace. CONFIRMED (2026-11-02):
+- Found while fixing the sweep (2026-11-03), not fixed yet:
+  - With every core busy, four other sweep tests failed in both suites ("another clone with its own memory folder", "a commit made after the sweep started", "the sweeping session's own open records", "a commit command still running"). They passed idle and with a 20 s burst. INFERRED: the same out-of-time skip; their output under load wasn't read. Fix: use `settle` / `sweepTest` as the 0.3.4 test does.
+  - CONFIRMED in code (`lib/paths.js` `repoRoot`): when a git call times out (3 s), the repo root falls back to the folder itself, so in a linked worktree the launcher picks the worktree's own memory folder and fails with "not set up for this repo". It fails closed. The Fable review saw this happen to the 0.5.1 launcher test under constant load.
+- (Fixed in 0.5.1, see above.) The `0.3.4 sweep` test fails when git is slow, because a sweep that runs out of time is skipped without a trace. CONFIRMED (2026-11-02):
   - The one failure (zip build, 16:36) left its sandbox in `%TEMP%\jbmem-4hucLT`: `swept` never moved past the first write (21:36:41), and the resume hook took 7.8 s (p50 3.7 s over 62 runs) and logged nothing.
   - Defender's log shows another workload (a starflight test audit: python, node, pwsh) writing files from 16:36:42.4 to at least 16:36:58, which covers both sweeps that recorded nothing and none of those that worked.
   - Reproduced: with every core busy (`burn.js`, 32 threads), 3 of 3 runs failed and the 5 runs after the load passed. Under load each git call took 0.6 to 1.3 s (normally about 0.1 s), and the write-handoff sweep never reached `git log -g`: the budget gates (`trailmark.js` `sweepFacts`: 1300, 1000 ms; `gitfacts.js` `sweepCommits`: 800 ms) stopped it first.

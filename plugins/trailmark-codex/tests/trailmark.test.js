@@ -2769,15 +2769,52 @@ test('0.3.4 commits: another session\'s commit in the same folder while a comman
 // second is the next sweep's. Tests wait that second out.
 const tick = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1100);
 
-test('0.3.4 sweep: a commit no hook saw is logged once as (found later) at write-handoff and at a resume; an amended one, one already logged and another folder\'s are not', () => {
+// A sweep that runs out of time (git slowed by other work on the machine)
+// says so and reads nothing more; the folders it didn't read keep their
+// start, so a later sweep logs what it missed. The tests accept that: each
+// sweep is repeated until one finishes, and what they all logged is counted.
+// While every git call takes about a second (every core kept busy) no sweep
+// can finish in its fixed time; after 90 s of that the test is skipped with
+// the reason, since what a finished sweep logs can't be checked then.
+const SWEEP_SKIP = /commit sweep skipped: out of time/;
+class SweepsOutOfTime extends Error {}
+let sweepRepeats = 0;
+const settle = (once, waitMs = 90000) => {
+  const until = Date.now() + waitMs;
+  let logged = 0, skips = 0, out = '';
+  for (;;) {
+    out = once();
+    const m = /logged (\d+) commit\(s\) found/.exec(out);
+    if (m) logged += Number(m[1]);
+    if (!SWEEP_SKIP.test(out)) return { logged, skips, out };
+    skips++;
+    sweepRepeats++;
+    if (Date.now() > until) throw new SweepsOutOfTime(`every sweep for ${waitMs / 1000} s ran out of time (${skips} in a row): git is too slow on this machine now`);
+    tick();
+  }
+};
+const sweepTest = (fn) => (t) => {
+  try { fn(t); } catch (e) {
+    if (!(e instanceof SweepsOutOfTime)) throw e;
+    t.diagnostic(`sweeps that ran out of time and were repeated: ${sweepRepeats}`);
+    t.skip(e.message);
+  }
+};
+
+test('0.3.4 sweep: a commit no hook saw is logged once as (found later) at write-handoff and at a resume; an amended one, one already logged and another folder\'s are not', sweepTest((t) => {
+  const repeats0 = sweepRepeats;
   const { s, wt, clone, gClone, gWt, head, hook } = multiFolder();
-  const start = (sid, cwd, source) => jbmIn(s, cwd, ['--hook', 'session-start'], JSON.stringify({ cwd, session_id: sid, source, hook_event_name: 'SessionStart' }));
-  const write = (sid, cwd) => {
+  const start = (sid, cwd, source) => settle(() => {
+    const r = jbmIn(s, cwd, ['--hook', 'session-start'], JSON.stringify({ cwd, session_id: sid, source, hook_event_name: 'SessionStart' }));
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    return r.stdout;
+  });
+  const write = (sid, cwd) => settle(() => {
     const r = jbmIn(s, cwd, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${sid}`], `# H\n- by ${sid.slice(0, 8)}\n`);
     assert.strictEqual(r.status, 0, r.stdout + r.stderr);
     return r.stdout;
-  };
-  assert.strictEqual(start(SA, wt, 'startup').status, 0);
+  });
+  start(SA, wt, 'startup');
   // Through the hook, in the clone: logged with the session as usual, and the clone becomes one of its folders.
   gClone('commit', '-q', '--allow-empty', '-m', 'hooked');
   hook(wt, SA, `git -C "${clone}" commit -q -m hooked`);
@@ -2789,8 +2826,8 @@ test('0.3.4 sweep: a commit no hook saw is logged once as (found later) at write
   // A commit in a folder that isn't this session's.
   s.g('commit', '-q', '--allow-empty', '-m', 'main by hand');
   tick();
-  const out = write(SA, wt);
-  assert.match(out, /logged 2 commit\(s\) found in this session's folders that no hook had logged/, out);
+  const w = write(SA, wt);
+  assert.strictEqual(w.logged, 2, w.out);
   let lines = commitLines(s).map(l => l.slice(8));
   assert.ok(lines.includes(`COMMIT ${scripted} by a script (found later) session=11111111`), lines.join('\n'));
   assert.ok(lines.includes(`COMMIT ${head(clone)} in="${dp(clone)}" fixed typo (found later) session=11111111`), lines.join('\n'));
@@ -2799,12 +2836,12 @@ test('0.3.4 sweep: a commit no hook saw is logged once as (found later) at write
   assert.ok(!notesOf(s).includes('main by hand'), notesOf(s));
   // Again: nothing new.
   tick();
-  assert.ok(!/logged \d+ commit/.test(write(SA, wt)));
+  assert.strictEqual(write(SA, wt).logged, 0);
   assert.strictEqual(commitLines(s).length, lines.length);
   // A resume finds a commit made while the session was away, once.
   gWt('commit', '-q', '--allow-empty', '-m', 'while away');
   tick();
-  assert.strictEqual(start(SA, wt, 'resume').status, 0);
+  start(SA, wt, 'resume');
   assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(wt)} while away (found later) session=11111111`)), notesOf(s));
   start(SA, wt, 'resume');
   assert.strictEqual(commitLines(s).filter(l => / while away /.test(l)).length, 1);
@@ -2825,8 +2862,54 @@ test('0.3.4 sweep: a commit no hook saw is logged once as (found later) at write
   // A session the hooks never saw start isn't swept.
   gWt('commit', '-q', '--allow-empty', '-m', 'unrecorded');
   tick();
-  assert.ok(!/logged \d+ commit/.test(write(SC, wt)));
+  assert.strictEqual(write(SC, wt).logged, 0);
   assert.ok(!notesOf(s).includes('unrecorded (found later) session=33333333'));
+  t.diagnostic(`sweeps that ran out of time and were repeated: ${sweepRepeats - repeats0}`);
+}));
+
+test('0.5.1 sweep: one that runs out of time says so, logs nothing and moves no start; the next sweep logs what it missed', sweepTest(() => {
+  const { s, wt, gWt, head } = multiFolder();
+  const start = (env) => jbmIn(s, wt, ['--hook', 'session-start'], JSON.stringify({ cwd: wt, session_id: SA, source: 'resume', hook_event_name: 'SessionStart' }), env);
+  const write = (env) => {
+    const r = jbmIn(s, wt, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], `# H\n- by A\n`, env);
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    return r.stdout;
+  };
+  // The first start records the session (its start time), whether its sweep finishes or not.
+  assert.strictEqual(start({}).status, 0);
+  const swept0 = JSON.stringify(stateOf(s).sessions[SA].swept || {});
+  gWt('commit', '-q', '--allow-empty', '-m', 'by a script');
+  const scripted = head(wt);
+  tick();
+  // Too little time to read any folder: 1600 ms leaves 1100 at the
+  // launcher's first gate, under the 1300 a folder needs; 1000 is below the
+  // 1500 a sweep needs at all.
+  for (const ms of ['1600', '1000']) {
+    const out = write({ JBMEM_TEST_SWEEP_MS: ms });
+    assert.match(out, SWEEP_SKIP, out);
+    assert.doesNotMatch(out, /logged \d+ commit/, out);
+    const r = start({ JBMEM_TEST_SWEEP_MS: ms });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.match(JSON.parse(r.stdout).systemMessage, SWEEP_SKIP, r.stdout);
+    assert.ok(!notesOf(s).includes('by a script'), notesOf(s));
+    assert.strictEqual(JSON.stringify(stateOf(s).sessions[SA].swept || {}), swept0, 'swept moved on a skipped sweep');
+  }
+  // The next sweep with its full time logs the commit, once.
+  const w = settle(() => write({}));
+  assert.strictEqual(w.logged, 1, w.out);
+  assert.strictEqual(commitLines(s).filter(l => l.endsWith(`COMMIT ${scripted} by a script (found later) session=11111111`)).length, 1, notesOf(s));
+  assert.ok(stateOf(s).sessions[SA].swept[wt] > 0, JSON.stringify(stateOf(s).sessions[SA]));
+}));
+
+test('0.5.1 sweep: gitfacts.sweepCommits with less than 800 ms left reads no folder and says it ran out of time', () => {
+  const s = sandbox();
+  const { sweepCommits } = require('../scripts/lib/gitfacts');
+  const r = sweepCommits([{ dir: s.repo, since: Date.now() - 3600000 }], { homeCwd: s.repo, budgetMs: 700 });
+  assert.strictEqual(r.stopped, 'out-of-time', JSON.stringify(r));
+  assert.deepStrictEqual(r.read, []);
+  assert.deepStrictEqual(r.folders, []);
+  // No folders to read: nothing was cut short.
+  assert.strictEqual(sweepCommits([], { homeCwd: s.repo, budgetMs: 700 }).stopped, undefined);
 });
 
 test('0.3.4 sweep: another clone with its own memory folder: what its sessions logged, or are still committing, stays theirs', () => {

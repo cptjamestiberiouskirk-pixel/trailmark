@@ -153,7 +153,7 @@ The sweep reads the reflog of each folder the session used: the folder it starte
 - still reachable from a ref (a branch, a tag, a remote, the stash, another worktree's `HEAD` or any other ref) and not amended away;
 - not already in a COMMIT line or the state file.
 
-They are logged as `COMMIT <sha> [in="<folder>"] <subject> (found later)`, and `write-handoff` says how many. Each folder keeps its own start in the session's record (`swept`), so a folder that couldn't be read (gone for a while, slow, or past the time budget) is read from where it was when it is back, up to a day.
+They are logged as `COMMIT <sha> [in="<folder>"] <subject> (found later)`, and `write-handoff` says how many. Each folder keeps its own start in the session's record (`swept`), so a folder that couldn't be read (gone for a while, slow, or past the time budget) is read from where it was when it is back, up to a day. A sweep that runs out of time before it has read every folder (git slowed by other work on the machine) says so: `write-handoff` prints "commit sweep skipped: out of time", and session start shows it as a warning. The folders it didn't read keep their start for the next sweep.
 
 Someone else working in the same folder (by hand, or a tool) is not told apart from the session, so "found later" means found in its folders, not proved to be its own.
 

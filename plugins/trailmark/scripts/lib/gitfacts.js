@@ -34,12 +34,13 @@ function branchToken(text, max = 80) {
 // are skipped: a git that hung once will hang again.
 function runner(budgetMs) {
   const deadline = Date.now() + budgetMs;
-  const r = { hung: false };
+  // late: a call was refused or stopped for lack of time.
+  const r = { hung: false, late: false };
   r.left = () => deadline - Date.now();
   // input: text for git's stdin (check-attr --stdin).
   r.run = (cwd, args, input) => {
     const left = Math.min(4000, deadline - Date.now());
-    if (r.hung || left < 250) return { ok: false, out: '', why: 'timeout' };
+    if (r.hung || left < 250) { r.late = true; return { ok: false, out: '', why: 'timeout' }; }
     const far = farGitConfig(cwd);
     if (far) { r.refused = r.refused || far; return { ok: false, out: '', why: far }; }
     const bin = gitPath(cwd);
@@ -52,7 +53,7 @@ function runner(budgetMs) {
       });
       return { ok: true, out };
     } catch (e) {
-      if (e && e.code === 'ETIMEDOUT') { r.hung = true; return { ok: false, out: '', why: 'timeout' }; }
+      if (e && e.code === 'ETIMEDOUT') { r.hung = r.late = true; return { ok: false, out: '', why: 'timeout' }; }
       return { ok: false, out: '', why: 'error', status: e && typeof e.status === 'number' ? e.status : null };
     }
   };
@@ -616,9 +617,11 @@ function fitCommitFacts(c, limit = 30000) {
 // MAX_PER_FOLDER a folder, MAX_SWEEP_FOLDERS folders. The caller passes the
 // folders whose sweep is oldest first. homeCwd: the session's own folder (no
 // in=). The caller drops the ones already logged.
-// Returns { at, folders: [{ dir, display, own, entries }], read: [{ dir, at }] }:
-// `read` lists each folder read to the end, with where its next sweep starts.
-// A folder not read (missing, slow, out of time) keeps its old start.
+// Returns { at, folders: [{ dir, display, own, entries }], read: [{ dir, at }],
+// stopped? }: `read` lists each folder read to the end, with where its next
+// sweep starts. A folder not read (missing, slow, out of time) keeps its old
+// start. stopped is 'out-of-time' when time ran out (the budget, or a git
+// call that timed out) before every folder was read, so the skip is reported.
 const MAX_SWEEP_FOLDERS = 6;
 // A network folder (\\\\server\\share, //server/share, or a device path) named in
 // command text is never touched unless the session itself works under it:
@@ -642,7 +645,8 @@ function sweepCommits(folders, { homeCwd, budgetMs = 3000, now = Date.now() } = 
   const seen = new Map(); // top level -> { lo, hi } of its read
   for (const item of folders || []) {
     if (!item || typeof item.dir !== 'string' || !Number.isFinite(item.since)) continue;
-    if (out.read.length >= MAX_SWEEP_FOLDERS || r.left() < 800) break;
+    if (out.read.length >= MAX_SWEEP_FOLDERS) break;
+    if (r.left() < 800) { r.late = true; break; }
     const dir = item.dir;
     // The launcher passes only folders it checked; checked here too, so no
     // caller can have a link to a share stat-ed.
@@ -681,6 +685,9 @@ function sweepCommits(folders, { homeCwd, budgetMs = 3000, now = Date.now() } = 
     seen.set(key, { lo, hi });
   }
   if (r.hung) out.gitTimedOut = true;
+  // Only when a folder was left unread: a git call that timed out before the
+  // first folder, with none to read, cut nothing short.
+  if (r.late && out.read.length < (folders || []).length) out.stopped = 'out-of-time';
   return out;
 }
 
