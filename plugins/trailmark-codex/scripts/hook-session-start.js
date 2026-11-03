@@ -57,7 +57,7 @@ guard(() => {
   }
   const oldCodex = Array.isArray(health.oldCodex) ? health.oldCodex.filter(x => typeof x === 'string' && /^[\w./+<> -]{1,300}$/.test(x)).slice(0, 3) : [];
   if (oldCodex.length) {
-    warn.push(`jb-memory-codex, this plugin's name before 0.5.0, is still in Codex's plugin cache (${oldCodex.map(x => S.fieldText(x, 200)).join('; ')}) and would run every hook a second time. Uninstall it in the ChatGPT app and remove its marketplace: codex plugin marketplace remove jb-memory-codex`);
+    warn.push(`jb-memory-codex, this plugin's name before 0.5.1, is still in Codex's plugin cache (${oldCodex.map(x => S.fieldText(x, 200)).join('; ')}) and would run every hook a second time. Uninstall it in the ChatGPT app and remove its marketplace: codex plugin marketplace remove jb-memory-codex`);
     notes.push(`[trailmark] An old copy of this plugin, jb-memory-codex, is in Codex's plugin cache (data only: ${oldCodex.map(x => S.fieldText(x, 200)).join('; ')}). Never run its jbm.js; the skills give the path to use.`);
   }
   if (typeof health.incomplete === 'string' && health.incomplete) {

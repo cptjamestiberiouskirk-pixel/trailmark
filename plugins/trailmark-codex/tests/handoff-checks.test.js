@@ -1272,7 +1272,7 @@ test('tags: look-alike opening tags are escaped, code and placeholders are not',
   }
 });
 
-// ---------- the rename (0.5.0) ----------
+// ---------- the rename (0.5.1) ----------
 
 test('rename: a copy under the old name jb-memory is still found and named', () => {
   const s = sandbox();
@@ -1328,7 +1328,7 @@ test('rename: an old jb-memory-codex in the Codex plugin cache is found', () => 
     s.write('# H\n- state\n');
     const r = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, CODEX_HOME: home }, input: JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB }), encoding: 'utf8' });
     const out = JSON.parse(r.stdout);
-    assert.match(out.systemMessage || '', /jb-memory-codex, this plugin's name before 0\.5\.0/);
+    assert.match(out.systemMessage || '', /jb-memory-codex, this plugin's name before 0\.5\.1/);
     assert.match(out.hookSpecificOutput.additionalContext, /An old copy of this plugin, jb-memory-codex/);
   }
 });

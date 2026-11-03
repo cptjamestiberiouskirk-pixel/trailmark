@@ -157,7 +157,7 @@ function Find-Layout([string]$RootFull) {
 }
 $KnownPlugins = @('trailmark', 'trailmark-codex', 'jb-memory', 'jb-memory-codex')
 # Copies in the plugin cache under these names are watched; jb-memory is the
-# name before 0.5.0, and a copy left from then would run every hook again.
+# name before 0.5.1, and a copy left from then would run every hook again.
 $CopyNames = @('trailmark', 'jb-memory')
 $Launchers = @('trailmark.js', 'jbm.js')
 function Test-HasLauncher([string]$Dir) {
