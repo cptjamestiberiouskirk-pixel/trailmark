@@ -16,6 +16,7 @@
 
 - A branch whose name isn't valid UTF-8 (possible on Linux) kept git out of the repo (`odd-path`), though git handles it. A plain file with such a name is now passed over; a folder or link with one still keeps git out.
 - A folder left in `.git/modules` by a removed submodule, with no `HEAD`, had its loose objects counted, so a large one kept git out (`many-entries`). They are now passed over, as for a real submodule's.
+- In a repo with many submodules, the check of their gitdirs in `.git/modules` looked at the same folders again for every path (about 26,000 lookups for 200 submodules, 2 to 4 s of a hook's 5 s). Each folder is now looked at once per check: for 200 submodules, 2.1 to 2.4 s became about 0.4 s on an idle machine, and 17 to 27 s became 2.4 to 3.0 s with every core busy. So status is skipped with `git-timeout` less often. What one check found is never kept for the next.
 
 ## 0.5.0 (Trailmark and trailmark-codex), 1.7.0 (trailmark-watchdog): never published, shipped as part of 0.5.1
 

@@ -1073,10 +1073,48 @@ test('superprojects: many module gitdirs stay fast, one on a share skips only st
   assert.strictEqual(farGitConfig(sp), '');
   assert.ok(Date.now() - t0 < 2000, `farGitConfig took ${Date.now() - t0} ms`);
   fs.writeFileSync(path.join(sp, '.git', 'modules', 's7', 'objects', 'info', 'alternates'), '//evil.invalid/share/cache/objects\n');
-  const f = gitFacts(sp, ['branch', 'head', 'status']);
+  // A larger budget than a hook's: this test is about which module gitdir
+  // is found, and a busy machine ran the hook's 5 s out first (0.5.1).
+  const f = gitFacts(sp, ['branch', 'head', 'status'], { budgetMs: 60000 });
   assert.strictEqual(f.gitRefused, undefined, 'one module gitdir kept git out of the superproject');
   assert.ok(f.head, 'HEAD still read');
   assert.strictEqual(f.statusSkipped, 'submodule-pointer');
+});
+
+test('0.5.1 superprojects: the module gitdir walk looks at each folder once per check', () => {
+  const { farModules } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-walk1-');
+  const sp = path.join(base, 'sp'); repoAt(sp);
+  for (let i = 0; i < 200; i++) {
+    const d = path.join(sp, '.git', 'modules', 's' + i);
+    fs.mkdirSync(path.join(d, 'objects', 'info'), { recursive: true }); fs.mkdirSync(path.join(d, 'refs'));
+    fs.writeFileSync(path.join(d, 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(d, 'config'), `[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = ../../../s${i}\n`);
+  }
+  const real = fs.lstatSync;
+  let n = 0;
+  fs.lstatSync = (...a) => { n++; return real(...a); };
+  let why;
+  try { why = farModules(sp); } finally { fs.lstatSync = real; }
+  assert.strictEqual(why, '');
+  // 26,403 calls before 0.5.1 (each part of each path looked at again), 2,412 now.
+  assert.ok(n < 6000, `${n} lstat calls for 200 module gitdirs`);
+  fs.writeFileSync(path.join(sp, '.git', 'modules', 's199', 'objects', 'info', 'alternates'), '//evil.invalid/share/cache/objects\n');
+  assert.strictEqual(farModules(sp), 'network-config', 'the last module gitdir is still checked');
+});
+
+test('0.5.1 superprojects: what one check found is not kept for the next', () => {
+  const { localPathFrom } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-walk2-');
+  fs.mkdirSync(path.join(base, 'a', 'x'), { recursive: true });
+  fs.mkdirSync(path.join(base, 'b', 'x'), { recursive: true });
+  const p = path.join(base, 'a', 'x');
+  assert.strictEqual(localPathFrom(base, p), p);
+  // The folder is swapped for a link (a junction on Windows, which needs no
+  // Developer Mode) between two checks.
+  fs.rmSync(path.join(base, 'a'), { recursive: true });
+  fs.symlinkSync(path.join(base, 'b'), path.join(base, 'a'), 'junction');
+  assert.strictEqual(localPathFrom(base, p), path.join(base, 'b', 'x'), 'the second check used the first one\'s lookup');
 });
 
 test('memory folder: a linked subfolder is never listed or stat-ed through (loop round 2)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {

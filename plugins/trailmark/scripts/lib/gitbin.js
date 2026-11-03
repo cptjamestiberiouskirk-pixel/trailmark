@@ -199,8 +199,28 @@ function blocked(p) {
 }
 function withShare(cwd, fn) {
   const prev = ALLOW_SHARE;
+  const prevSeen = LSTAT_SEEN;
   ALLOW_SHARE = NET_START.test(String(cwd || '')) ? shareRoot(cwd) : '';
-  try { return fn(); } finally { ALLOW_SHARE = prev; }
+  if (!LSTAT_SEEN) LSTAT_SEEN = new Map();
+  try { return fn(); } finally { ALLOW_SHARE = prev; LSTAT_SEEN = prevSeen; }
+}
+// What localPath found for each part of a path, while one check runs (the
+// outermost withShare call): every path it resolves starts with the same
+// folders, so a superproject with 200 module gitdirs looked at each of them
+// about 15 times. Dropped when that check returns, since a folder can be
+// swapped for a link between two checks.
+let LSTAT_SEEN = null;
+const MAX_LSTAT_SEEN = 20000;
+function lstatPart(p) {
+  if (!LSTAT_SEEN) return fs.lstatSync(p);
+  let r = LSTAT_SEEN.get(p);
+  if (r === undefined) {
+    try { r = fs.lstatSync(p); } catch (e) { r = e instanceof Error ? e : new Error('lstat'); }
+    if (LSTAT_SEEN.size >= MAX_LSTAT_SEEN) LSTAT_SEEN.clear();
+    LSTAT_SEEN.set(p, r);
+  }
+  if (r instanceof Error) throw r;
+  return r;
 }
 const farCache = new Map();
 // A value as git might read it: quotes dropped and escapes undone. Both the
@@ -261,7 +281,7 @@ function localPath(p) {
       // A part that isn't there: the rest can't be looked through. A '..'
       // after it would climb back by text into folders never checked (the
       // kernel would stop at the missing part), so that is refused.
-      try { st = fs.lstatSync(next); } catch { return parts.slice(i + 1).includes('..') ? null : path.resolve(at, ...parts.slice(i)); }
+      try { st = lstatPart(next); } catch { return parts.slice(i + 1).includes('..') ? null : path.resolve(at, ...parts.slice(i)); }
       if (st.isSymbolicLink()) {
         let t;
         try { t = fs.readlinkSync(next); } catch { return null; }
