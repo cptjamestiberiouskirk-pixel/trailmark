@@ -2078,3 +2078,93 @@ test('git checks: on Windows a .git that is a junction keeps git out (review rou
   assert.strictEqual(G.farGitConfig(r), 'linked-gitdir');
   fs.rmSync(base, { recursive: true, force: true });
 });
+
+// ---------- 0.5.1: the root lookup without git, odd names, module leftovers ----------
+
+test('0.5.1 git checks: after git rev-parse times out, the root is found from .git on disk with no further git call, a config holding // included', () => {
+  const base = realTemp('jbmem-root-');
+  const repo = path.join(base, 'repo');
+  repoAt(repo);
+  execFileSync('git', ['remote', 'add', 'origin', 'https://example.invalid/x.git'], { cwd: repo });
+  execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'i'], { cwd: repo });
+  const wt = path.join(repo, 'wt');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'wb', wt], { cwd: repo });
+  // In this process only: git rev-parse times out, and every git call is listed.
+  const log = path.join(base, 'calls.txt');
+  const stub = path.join(base, 'stub.js');
+  fs.writeFileSync(stub, `const cp = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const real = cp.execFileSync;
+cp.execFileSync = function (file, args, ...rest) {
+  if (/^git(\\.exe)?$/i.test(path.basename(String(file))) && Array.isArray(args)) {
+    const sub = args.find(a => /^(rev-parse|config|status|log|ls-files)$/.test(a)) || '?';
+    fs.appendFileSync(${JSON.stringify(log)}, sub + '\\n');
+    if (sub === 'rev-parse') { const e = new Error('spawnSync git ETIMEDOUT'); e.code = 'ETIMEDOUT'; throw e; }
+  }
+  return real.call(this, file, args, ...rest);
+};
+`);
+  const r = spawnSync(process.execPath, ['-r', stub, '-e', 'console.log(require(process.argv[1]).repoRoot(process.argv[2], 1000))', path.join(ROOT, 'scripts', 'lib', 'paths.js'), wt], { encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.strictEqual(path.resolve(r.stdout.trim()), path.resolve(repo), r.stdout);
+  const calls = fs.readFileSync(log, 'utf8').split(/\r?\n/).filter(Boolean);
+  // The check before git runs may read the config with git; after the timeout, nothing more.
+  assert.strictEqual(calls[calls.length - 1], 'rev-parse', calls.join(', '));
+  assert.strictEqual(calls.filter(c => c === 'rev-parse').length, 1, calls.join(', '));
+});
+
+// A file name that isn't valid UTF-8 (POSIX file systems that allow one;
+// macOS's APFS refuses it).
+const ODD_NAME = (() => {
+  if (WIN) return 'Windows file names are UTF-16';
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-oddprobe-'));
+  try { fs.writeFileSync(Buffer.concat([Buffer.from(d + '/'), Buffer.from([0x62, 0xff])]), ''); return false; } catch { return 'this file system refuses names that aren\'t valid UTF-8'; } finally { fs.rmSync(d, { recursive: true, force: true }); }
+})();
+test('0.5.1 git checks: a branch whose name isn\'t valid UTF-8 (a plain file) doesn\'t keep git out; a folder with such a name still does', { skip: ODD_NAME }, () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-odd-');
+  const odd = Buffer.from([0x62, 0xff]);
+  const a = path.join(base, 'a');
+  repoAt(a);
+  execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'i'], { cwd: a });
+  // git makes the branch and its reflog, and works with them.
+  execFileSync('sh', ['-c', 'git branch "$(printf "b\\377")"'], { cwd: a });
+  assert.ok(fs.readdirSync(path.join(a, '.git', 'refs', 'heads'), { encoding: 'buffer' }).some(n => n.equals(odd)), 'no branch file');
+  assert.strictEqual(spawnSync('git', ['status', '-s'], { cwd: a }).status, 0);
+  assert.strictEqual(farGitConfig(a), '');
+  const b = path.join(base, 'b');
+  repoAt(b);
+  fs.mkdirSync(Buffer.concat([Buffer.from(path.join(b, '.git', 'refs', 'heads') + '/'), odd]));
+  assert.strictEqual(farGitConfig(b), 'odd-path');
+});
+
+test('0.5.1 git checks: a folder left in .git/modules with no HEAD doesn\'t have its loose objects counted; a real one\'s aren\'t either, and other entries still are', () => {
+  const low = process.env.JBMEM_TEST_GITDIR_BUDGET;
+  process.env.JBMEM_TEST_GITDIR_BUDGET = '1000';
+  try {
+    const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+    const base = realTemp('jbmem-mods-');
+    const fill = (dir, n, sub) => {
+      for (let i = 0; i < n; i++) {
+        const d = path.join(dir, sub((i % 256).toString(16).padStart(2, '0')));
+        fs.mkdirSync(d, { recursive: true });
+        fs.writeFileSync(path.join(d, `o${i}`), '');
+      }
+    };
+    const left = path.join(base, 'left'); repoAt(left);
+    fill(path.join(left, '.git', 'modules', 'gone'), 1500, (h) => path.join('objects', h));
+    assert.strictEqual(farGitConfig(left), '');
+    const real = path.join(base, 'real'); repoAt(real);
+    const m = path.join(real, '.git', 'modules', 'sub');
+    fill(m, 1500, (h) => path.join('objects', h));
+    fs.writeFileSync(path.join(m, 'HEAD'), 'ref: refs/heads/main\n');
+    assert.strictEqual(farGitConfig(real), '');
+    // Past the budget anywhere else in the leftover, git is still kept out.
+    const many = path.join(base, 'many'); repoAt(many);
+    fill(path.join(many, '.git', 'modules', 'gone'), 1500, (h) => path.join('refs', h));
+    assert.strictEqual(farGitConfig(many), 'many-entries');
+  } finally {
+    if (low === undefined) delete process.env.JBMEM_TEST_GITDIR_BUDGET; else process.env.JBMEM_TEST_GITDIR_BUDGET = low;
+  }
+});

@@ -556,8 +556,10 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
       // folders that keeps git out, since a link could hide past it; a big
       // LFS store (its own budget) is let through.
       if (--budget.n < 0) return budget.lfs ? '' : 'many-entries';
-      // A name that isn't valid UTF-8 can't be looked up by the name Node gives.
-      if (x.name.includes('\uFFFD')) return 'odd-path';
+      // A name that isn't valid UTF-8 can't be looked up by the name Node
+      // gives. A plain file (a branch or its reflog, say) is never followed,
+      // so it is passed over; a folder or link with one keeps git out.
+      if (x.name.includes('\uFFFD')) { if (x.isFile()) continue; return 'odd-path'; }
       if (!rel && !objectsRoot && x.name === 'hooks') continue;
       if (!rel && !objectsRoot && !lfsStore && x.name === 'lfs' && !lfsLater) { lfsLater = x; continue; }
       // A submodule gitdir's own LFS store, and git-annex's object store, can
@@ -580,7 +582,10 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
       // Loose-object folders of git's own object stores only (objects/ and a
       // submodule's modules/.../objects/): a branch may be named objects/ab
       // (refs/heads/objects/ab/...), and git-lfs keeps lfs/objects/ab/cd.
-      const store = lfsStore ? false : objectsRoot ? rel === '' : rel === (top ? top + '/objects' : 'objects');
+      // A folder under modules/ with no HEAD (left behind by a removed
+      // submodule) isn't a gitdir git opens: its objects/ is skipped the same
+      // way, so a large one can't use up the budget.
+      const store = lfsStore ? false : objectsRoot ? rel === '' : rel === (top ? top + '/objects' : 'objects') || /^modules\/.+\/objects$/.test(below);
       if (store && /^[0-9a-f]{2}$/i.test(x.name)) continue;
       if (depth >= MAX_GITDIR_DEPTH) return 'deep-gitdir';
       const k = WIN ? sub.toLowerCase() : sub;
@@ -740,7 +745,9 @@ function farBareProbe(d) {
 }
 // light: for a submodule gitdir in modules/ (its links were walked with the
 // repo's gitdir); the rest of the checks are the same.
-function farGit(gitEntry, out = {}, { light = false } = {}) {
+// locate: only find the gitdir and commondir (out), for localRepoRoot; '' or
+// a reason found on the way there, and no config read, so no git call.
+function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
   let st;
   try { st = fs.lstatSync(gitEntry); } catch { return ''; }
   let gitdir = gitEntry;
@@ -772,6 +779,7 @@ function farGit(gitEntry, out = {}, { light = false } = {}) {
   }
   out.gitdir = gitdir;
   out.common = dirs[1] || '';
+  if (locate) return '';
   // Each other worktree's commondir: git reads the refs there for --all (and
   // a later git version may for more), so one that leads to a network path
   // keeps git out like the repo's own.
@@ -983,8 +991,10 @@ function farNestedIn(dir) {
 
 // The main checkout's root found without running git, the way git would:
 // the first repo it accepts from cwd up; for a worktree, the folder holding
-// the shared .git. '' when there is none. Used when git is kept out, so the
-// memory folder is still the one every worktree shares.
+// the shared .git. '' when there is none. Used when git is kept out or timed
+// out, so the memory folder is still the one every worktree shares. It reads
+// only the .git entries and pointer files (farGit locate), never a config
+// file, so it starts no git and keeps within the caller's time.
 function localRepoRoot(cwd) {
   return withShare(cwd, () => {
     let d = localPath(path.resolve(String(cwd || '.')));
@@ -994,7 +1004,7 @@ function localRepoRoot(cwd) {
       try { fs.lstatSync(g); found = true; } catch { found = false; }
       if (found) {
         const at = {};
-        farGit(g, at);
+        farGit(g, at, { locate: true });
         if (at.gitdir && validGitdir(at.gitdir, at.common)) {
           if (at.common && path.basename(at.common) === '.git') return path.dirname(at.common);
           return d;

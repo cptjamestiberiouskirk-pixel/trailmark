@@ -85,8 +85,8 @@ function repoRoot(cwd = process.cwd(), timeoutMs = 3000) {
   // The folder itself would put a worktree or subfolder on a memory folder
   // of its own, where hooks find nothing set up and init sets up the wrong
   // one. A git that timed out once will time out again, so no second
-  // rev-parse; localRepoRoot can still read a config file with git
-  // (gitbin.js, configEntries), which has its own 3 s limit.
+  // rev-parse, and localRepoRoot starts no git (it reads only the .git
+  // entries and pointer files).
   const slow = () => { try { return localRepoRoot(cwd) || path.resolve(cwd); } catch { return path.resolve(cwd); } };
   try {
     const common = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'], t);
