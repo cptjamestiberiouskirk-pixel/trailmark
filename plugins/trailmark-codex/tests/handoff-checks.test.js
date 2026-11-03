@@ -15,7 +15,23 @@ const { execFileSync, spawnSync } = require('child_process');
 // Temp folders by their real path: on macOS the temp folder is reached
 // through a link (/var -> /private/var), and on Windows through an 8.3 short
 // name (RUNNER~1), while git and trailmark report the real one.
-const realTemp = (prefix) => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+// Every temp folder a test makes is removed when the test ends, unless it
+// failed (the folder is named, to look at) or JBMEM_TEST_KEEP=1 is set.
+// Folders made outside a test go when the file's tests are done.
+const tempMade = [];
+const realTemp = (prefix) => {
+  const d = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  tempMade.push(d);
+  return d;
+};
+const clearTemp = (keep) => {
+  for (const d of tempMade.splice(0)) {
+    if (keep) { console.log(`# kept ${d}`); continue; }
+    try { fs.rmSync(d, { recursive: true, force: true, maxRetries: 3 }); } catch { /* left for the OS */ }
+  }
+};
+test.afterEach((t) => clearTemp(process.env.JBMEM_TEST_KEEP === '1' || t.passed === false));
+test.after(() => clearTemp(process.env.JBMEM_TEST_KEEP === '1'));
 
 // The Codex copy refuses init unless this is set (scripts/trailmark.js).
 process.env.JBMEM_CODEX_INIT = '1';

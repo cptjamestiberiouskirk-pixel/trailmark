@@ -11,7 +11,23 @@ const { execFileSync, spawnSync } = require('child_process');
 // Temp folders by their real path: on macOS the temp folder is reached
 // through a link (/var -> /private/var), and on Windows through an 8.3 short
 // name (RUNNER~1), while git and trailmark report the real one.
-const realTemp = (prefix) => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+// Every temp folder a test makes is removed when the test ends, unless it
+// failed (the folder is named, to look at) or JBMEM_TEST_KEEP=1 is set.
+// Folders made outside a test go when the file's tests are done.
+const tempMade = [];
+const realTemp = (prefix) => {
+  const d = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  tempMade.push(d);
+  return d;
+};
+const clearTemp = (keep) => {
+  for (const d of tempMade.splice(0)) {
+    if (keep) { console.log(`# kept ${d}`); continue; }
+    try { fs.rmSync(d, { recursive: true, force: true, maxRetries: 3 }); } catch { /* left for the OS */ }
+  }
+};
+test.afterEach((t) => clearTemp(process.env.JBMEM_TEST_KEEP === '1' || t.passed === false));
+test.after(() => clearTemp(process.env.JBMEM_TEST_KEEP === '1'));
 const WIN = process.platform === 'win32';
 // How trailmark writes a folder in the log and on the Updated line (forward
 // slashes on Windows; lib/store.js, displayPath).
@@ -3753,4 +3769,14 @@ test('0.5.1 commit hook: a commit command sent to the background gets its note w
   assert.strictEqual(commitLines(s).length, 0, notesOf(s));
   // Still running as far as the sweep knows: not marked done.
   assert.ok(!fs.existsSync(path.join(s.memdir, 'pending', `${id}.done`)), 'a background command was marked done');
+  // The commit lands, and a later run for the same tool call finds git too
+  // slow: the timeout is still logged and reported.
+  s.g('commit', '-q', '--allow-empty', '-m', 'later');
+  const stub = path.join(s.base, 'git-timeout.js');
+  fs.writeFileSync(stub, GIT_TIMEOUT_STUB);
+  const slow = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', 'milestone', 'commit'], { cwd: s.repo, env: s.env, encoding: 'utf8',
+    input: JSON.stringify({ ...base, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 40 }) });
+  assert.strictEqual(slow.status, 0, slow.stdout + slow.stderr);
+  assert.match(notesOf(s), /COMMIT_UNRESOLVED why=git-timeout/, notesOf(s));
+  assert.match(JSON.parse(slow.stdout).hookSpecificOutput.additionalContext, /not logged yet: git was too slow/);
 });

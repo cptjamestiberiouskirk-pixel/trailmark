@@ -30,6 +30,8 @@ T="$(mktemp -d 2>/dev/null || mktemp -d -t tmcheck)"
 [ -n "$T" ] && [ -d "$T" ] || { echo "no temp folder"; exit 2; }
 trap 'rm -rf "$T"' EXIT
 export TMPDIR="$T"
+# Node on Windows takes its temp folder from TEMP and TMP, not TMPDIR.
+if command -v cygpath >/dev/null 2>&1; then TW="$(cygpath -w "$T")"; export TEMP="$TW" TMP="$TW"; fi
 RESULTS=()
 FAILED=0
 record() { RESULTS+=("$(printf '%-4s  %s' "$1" "$2")"); if [ "$1" = FAIL ]; then FAILED=1; fi; return 0; }

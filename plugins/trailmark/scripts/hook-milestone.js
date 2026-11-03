@@ -133,14 +133,15 @@ guard(() => {
     // Nothing new in any folder the command committed in, no commit whose
     // folder is unknown, and nothing to report: no log line and no reminder.
     // A command sent to the background has usually not run yet: Claude is
-    // told once (recentBg) where its commits will be logged.
+    // told once (bgNoted, kept apart from recentBg, which marks a run that
+    // logged) where its commits will be logged.
     if (!commits.entries.length && !commits.unresolved.length && !endLine) {
       if (background && toolId && !afterFailure) {
         let first = false;
         try {
           S.updateState(dir, session, (state) => {
-            const bgs = Array.isArray(state.recentBg) ? state.recentBg.filter(x => typeof x === 'string').slice(-50) : [];
-            if (!bgs.includes(toolId)) { state.recentBg = bgs.concat(toolId); first = true; }
+            const noted = Array.isArray(state.bgNoted) ? state.bgNoted.filter(x => typeof x === 'string').slice(-50) : [];
+            if (!noted.includes(toolId)) { state.bgNoted = noted.concat(toolId); first = true; }
           });
         } catch (e) { if (e && e.code === 'ERR_ACCESS_DENIED') throw e; }
         if (first) emit({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: `[trailmark] ${BG_NOTE}` } });
