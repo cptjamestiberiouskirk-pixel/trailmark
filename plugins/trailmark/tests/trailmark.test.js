@@ -2947,6 +2947,16 @@ const settle = (once, waitMs = 90000) => {
     tick();
   }
 };
+const settleCall = (call, waitMs = 90000) => {
+  const until = Date.now() + waitMs;
+  for (let skips = 1; ; skips++) {
+    const r = call();
+    if (r.stopped !== 'out-of-time') return r;
+    sweepRepeats++;
+    if (Date.now() > until) throw new SweepsOutOfTime(`every sweep for ${waitMs / 1000} s ran out of time (${skips} in a row): git is too slow on this machine now`);
+    tick();
+  }
+};
 const sweepTest = (fn) => (t) => {
   try { fn(t); } catch (e) {
     if (!(e instanceof SweepsOutOfTime)) throw e;
@@ -3109,24 +3119,24 @@ test('0.3.4 sweep: another clone with its own memory folder: what its sessions l
   assert.ok(!mine.includes('B at home') && !mine.includes('B running'), mine);
 });
 
-test('0.3.4 sweep: a commit made after the sweep started is the next sweep\'s', () => {
+test('0.3.4 sweep: a commit made after the sweep started is the next sweep\'s', sweepTest(() => {
   const s = sandbox();
   const { sweepCommits } = require('../scripts/lib/gitfacts');
   tick();
   const t0 = Date.now();
   tick();
   s.g('commit', '-q', '--allow-empty', '-m', 'after the sweep began');
-  const first = sweepCommits([{ dir: s.repo, since: t0 }], { homeCwd: s.repo, now: t0 });
+  const first = settleCall(() => sweepCommits([{ dir: s.repo, since: t0 }], { homeCwd: s.repo, now: t0 }));
   assert.deepStrictEqual(first.folders, []);
   assert.deepStrictEqual(first.read, [{ dir: s.repo, at: Math.floor(t0 / 1000) * 1000 }]);
-  const second = sweepCommits([{ dir: s.repo, since: first.read[0].at }], { homeCwd: s.repo, now: Date.now() + 1000 });
+  const second = settleCall(() => sweepCommits([{ dir: s.repo, since: first.read[0].at }], { homeCwd: s.repo, now: Date.now() + 1000 }));
   assert.deepStrictEqual(second.folders.map(f => f.entries.map(e => e.subject)), [['after the sweep began']]);
   // An excluded SHA (logged in another memory folder) is left out; a folder that isn't there isn't read.
   const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: s.repo, encoding: 'utf8' }).trim();
-  const third = sweepCommits([{ dir: s.repo, since: first.read[0].at, exclude: [sha.slice(0, 7)] }, { dir: path.join(s.base, 'gone'), since: 0 }], { homeCwd: s.repo, now: Date.now() + 1000 });
+  const third = settleCall(() => sweepCommits([{ dir: s.repo, since: first.read[0].at, exclude: [sha.slice(0, 7)] }, { dir: path.join(s.base, 'gone'), since: 0 }], { homeCwd: s.repo, now: Date.now() + 1000 }));
   assert.deepStrictEqual(third.folders, []);
   assert.deepStrictEqual(third.read.map(r => r.dir), [s.repo]);
-});
+}));
 
 const HAVE_LFS = spawnSync('git', ['lfs', 'version'], { stdio: 'ignore' }).status === 0;
 test('0.3.4 hardening: Git LFS set up in the repo\'s own config still runs for status; an LFS extension the repo defines skips status', { skip: POSIX_ONLY || (!HAVE_LFS && 'git-lfs is not installed') }, () => {
@@ -3201,7 +3211,7 @@ test('0.3.4 commits: a command that commits and then fails (PostToolUseFailure) 
   assert.strictEqual(commitLines(s).filter(l => / then the push failed /.test(l)).length, 1);
 });
 
-test('0.3.4 sweep: the sweeping session\'s own open records (a command denied at the prompt, a subagent still committing) hold nothing back', () => {
+test('0.3.4 sweep: the sweeping session\'s own open records (a command denied at the prompt, a subagent still committing) hold nothing back', sweepTest(() => {
   const { s, wt, gWt } = multiFolder();
   const start = (sid, cwd) => jbmIn(s, cwd, ['--hook', 'session-start'], JSON.stringify({ cwd, session_id: sid, source: 'startup', hook_event_name: 'SessionStart' }));
   start(SA, wt);
@@ -3211,11 +3221,15 @@ test('0.3.4 sweep: the sweeping session\'s own open records (a command denied at
   gWt('commit', '-q', '--allow-empty', '-m', 'by the subagent');
   gWt('commit', '-q', '--allow-empty', '-m', 'by a script');
   tick();
-  jbmIn(s, wt, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], '# H\n- x\n');
+  settle(() => {
+    const r = jbmIn(s, wt, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], '# H\n- x\n');
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    return r.stdout;
+  });
   // Both are A's, so A's sweep logs them.
   const lines = commitLines(s);
   assert.ok(lines.some(l => l.endsWith(' by a script (found later) session=11111111')) && lines.some(l => l.endsWith(' by the subagent (found later) session=11111111')), lines.join('\n'));
-});
+}));
 
 test('0.3.4 commits: a failed command with no PreToolUse record logs only what git printed; the printed rule reads a failed command\'s error text', () => {
   const { s, wt, gWt, head, hook } = multiFolder();
@@ -3250,10 +3264,14 @@ test('0.3.4 commits: a failed command with no PreToolUse record logs only what g
   assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${shaB} B meanwhile session=22222222`)), notesOf(s));
 });
 
-test('0.3.4 sweep: a commit command still running (its PostToolUse hook hasn\'t run) keeps its commits for its own session', () => {
+test('0.3.4 sweep: a commit command still running (its PostToolUse hook hasn\'t run) keeps its commits for its own session', sweepTest(() => {
   const { s, wt, gWt, head, hook } = multiFolder();
   const start = (sid, cwd) => jbmIn(s, cwd, ['--hook', 'session-start'], JSON.stringify({ cwd, session_id: sid, source: 'startup', hook_event_name: 'SessionStart' }));
-  const write = (sid) => jbmIn(s, wt, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${sid}`], `# H\n- by ${sid.slice(0, 8)}\n`);
+  const write = (sid) => settle(() => {
+    const r = jbmIn(s, wt, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${sid}`], `# H\n- by ${sid.slice(0, 8)}\n`);
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    return r.stdout;
+  });
   start(SA, wt); start(SB, wt);
   gWt('commit', '-q', '--allow-empty', '-m', 'before B started');
   const early = head(wt);
@@ -3264,8 +3282,7 @@ test('0.3.4 sweep: a commit command still running (its PostToolUse hook hasn\'t 
   b.pre(wt);
   gWt('commit', '-q', '--allow-empty', '-m', 'B running');
   const shaB = head(wt);
-  const w = write(SA);
-  assert.strictEqual(w.status, 0, w.stderr);
+  write(SA);
   let lines = commitLines(s).map(l => l.slice(8));
   // What came before B's command started is swept; B's commit isn't.
   assert.ok(lines.includes(`COMMIT ${early} before B started (found later) session=11111111`), lines.join('\n'));
@@ -3290,7 +3307,7 @@ test('0.3.4 sweep: a commit command still running (its PostToolUse hook hasn\'t 
   tick();
   write(SA);
   assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${head(wt)} after B (found later) session=11111111`)), notesOf(s));
-});
+}));
 
 // ---------- 0.3.7: Node version and other copies of trailmark ----------
 
