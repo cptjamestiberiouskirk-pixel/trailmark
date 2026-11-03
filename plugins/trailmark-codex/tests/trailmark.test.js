@@ -1833,7 +1833,7 @@ test('0.3.3 Updated line: branch and HEAD come from where the session\'s last co
   gClone('commit', '-q', '--allow-empty', '-m', 'audit work');
   hook(wt, SA, `cd "${clone}" && git commit -q -m "audit work"`);
   const run = (cwd, sid) => {
-    const r = jbmIn(s, cwd, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${sid}`], `# H\n- by ${sid.slice(0, 8)}\n`);
+    const r = jbmIn(s, cwd, ['write-handoff', `--base=${versionNow((a, i) => jbmIn(s, cwd, a, i))}`, `--session=${sid}`], `# H\n- by ${sid.slice(0, 8)}\n`);
     assert.strictEqual(r.status, 0, r.stdout + r.stderr);
     return /^Updated: .*$/m.exec(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8'))[0];
   };
@@ -2972,7 +2972,7 @@ test('0.5.1 paths: when git times out in a linked worktree or a subfolder, the m
   assert.ok(fs.existsSync(path.join(s.memdir, 'pending', `${id}.json`)), 'no commit-start record');
 });
 
-test('0.3.4 sweep: another clone with its own memory folder: what its sessions logged, or are still committing, stays theirs', () => {
+test('0.3.4 sweep: another clone with its own memory folder: what its sessions logged, or are still committing, stays theirs', sweepTest(() => {
   const { s, wt, clone, gClone, head, hook } = multiFolder();
   const start = (sid, cwd) => jbmIn(s, cwd, ['--hook', 'session-start'], JSON.stringify({ cwd, session_id: sid, source: 'startup', hook_event_name: 'SessionStart' }));
   const write = (sid, cwd) => {
@@ -2995,7 +2995,10 @@ test('0.3.4 sweep: another clone with its own memory folder: what its sessions l
   // B, whose session is in the clone, commits there; its hook logs it in the clone's memory.
   gClone('commit', '-q', '--allow-empty', '-m', 'B at home');
   const shaB = head(clone);
-  hook(clone, SB, 'git commit -q -m "B at home"');
+  const bHook = hook(clone, SB, 'git commit -q -m "B at home"');
+  // With git slowed by other work, B's hook can run out of time: it says so,
+  // and B's own sweep logs the commit, in the clone's memory.
+  if (/not logged yet: git was too slow/.test(bHook.stdout)) settle(() => write(SB, clone));
   assert.match(cloneNotes(), new RegExp(`COMMIT ${shaB} B at home session=22222222`));
   // A commit nobody logged anywhere, before B's next command starts.
   gClone('commit', '-q', '--allow-empty', '-m', 'nobody logged');
@@ -3007,13 +3010,13 @@ test('0.3.4 sweep: another clone with its own memory folder: what its sessions l
   gClone('commit', '-q', '--allow-empty', '-m', 'B running');
   const shaB2 = head(clone);
   tick();
-  write(SA, wt);
+  settle(() => write(SA, wt));
   const mine = notesOf(s);
   assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${shaN} in="${dp(clone)}" nobody logged (found later) session=11111111`)), mine);
   assert.ok(!mine.includes(shaB), 'B\'s logged commit: ' + mine);
   assert.ok(!mine.includes(shaB2), 'B\'s running command\'s commit: ' + mine);
   assert.ok(!mine.includes('B at home') && !mine.includes('B running'), mine);
-});
+}));
 
 test('0.3.4 sweep: a commit made after the sweep started is the next sweep\'s', sweepTest(() => {
   const s = sandbox();
@@ -3892,3 +3895,46 @@ test('0.4.0 round 2: markup escaping leaves code alone; merge notes drop secrets
   assert.match(notes, /PR_MERGE gh pr merge 5 --squash --body <value>/);
   assert.doesNotMatch(notes, /SECRET|Bearer/);
 });
+
+test('0.5.1 commit hook: when git times out, Claude is told the commit isn\'t logged yet, and a later sweep logs it, in another folder too', sweepTest(() => {
+  const s = sandbox();
+  jbm(s, ['init']);
+  const stub = path.join(s.base, 'git-timeout.js');
+  fs.writeFileSync(stub, GIT_TIMEOUT_STUB);
+  const other = path.join(s.base, 'other');
+  fs.mkdirSync(other);
+  const go = (...a) => execFileSync('git', a, { cwd: other, stdio: 'ignore' });
+  go('init', '-q'); go('config', 'user.email', 't@t'); go('config', 'user.name', 't'); go('commit', '-q', '--allow-empty', '-m', 'before the session');
+  tick();
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  tick();
+  // The PostToolUse hook with every git rev-parse timing out.
+  const slowHook = (command) => {
+    const r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', 'milestone', 'commit'], { cwd: s.repo, env: s.env, encoding: 'utf8',
+      input: JSON.stringify({ session_id: SA, tool_name: 'Bash', tool_input: { command }, tool_use_id: `toolu_slow${++toolSeq}x${process.pid}`, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 3000 }) });
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    return r.stdout;
+  };
+  s.g('commit', '-q', '--allow-empty', '-m', 'home while slow');
+  const home = slowHook('git commit -m "home while slow"');
+  go('commit', '-q', '--allow-empty', '-m', 'other while slow');
+  const away = slowHook(`git -C "${other}" commit -m "other while slow"`);
+  for (const [out, where] of [[home, s.repo], [away, other]]) {
+    const ctx = JSON.parse(out).hookSpecificOutput.additionalContext;
+    assert.match(ctx, /A commit was not logged yet: git was too slow \(it timed out\)/, ctx);
+    assert.ok(ctx.includes(dp(where)), ctx);
+  }
+  assert.strictEqual(commitLines(s).length, 0, notesOf(s));
+  assert.strictEqual((notesOf(s).match(/COMMIT_UNRESOLVED why=git-timeout/g) || []).length, 2, notesOf(s));
+  // The next checkpoint's sweep logs both, the other folder's too.
+  tick();
+  settle(() => {
+    const w = wh(J(s), '# H\n', [`--session=${SA}`]);
+    assert.strictEqual(w.status, 0, w.stdout + w.stderr);
+    return w.stdout;
+  });
+  const lines = commitLines(s);
+  assert.ok(lines.some(l => / home while slow \(found later\)/.test(l)), lines.join('\n'));
+  assert.ok(lines.some(l => l.includes(`in="${dp(other)}" other while slow (found later)`)), lines.join('\n'));
+  assert.ok(!lines.some(l => l.includes('before the session')), lines.join('\n'));
+}));

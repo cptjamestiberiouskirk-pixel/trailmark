@@ -132,7 +132,7 @@ Otherwise all of them stay. A quiet `git commit -q`, output cut short, or a comm
 | `network-folder` | A folder on a network path, or a link to one, other than the session's own share |
 | `no-repo` | git found no repo there, or git couldn't run |
 | `git-kept-out` | git is kept out of that repo (SECURITY.md, "Known limits") |
-| `git-timeout` | git ran out of time |
+| `git-timeout` | git ran out of time. Claude is told the commit isn't logged yet, and the folder joins the session's commit folders, so the next sweep logs it |
 | `too-many-folders` | More than 4 folders in one command |
 | `too-many-commits` | More than 30 commits in one folder |
 | `too-long` | The command took over 1.5 seconds to read |

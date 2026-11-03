@@ -512,11 +512,13 @@ function commitFacts(found, cwd, { budgetMs = 5000, now = Date.now(), window = w
     if (!isDir) { out.unresolved.push({ why: 'missing-folder', dir: displayPath(g.dir) }); continue; }
     const t = topLevel(r, g.dir);
     // A why other than these is the reason git was kept out of the folder.
-    if (!t.ok) { out.unresolved.push({ why: t.why === 'timeout' ? 'git-timeout' : t.why === 'error' || t.why === 'no-git' ? 'no-repo' : 'git-kept-out', dir: displayPath(g.dir) }); continue; }
+    // A folder git timed out in goes back to the hook (folder), which hands it
+    // to the commit sweep: the commit is logged later, not lost.
+    if (!t.ok) { out.unresolved.push(t.why === 'timeout' ? { why: 'git-timeout', dir: displayPath(g.dir), folder: g.dir } : { why: t.why === 'error' || t.why === 'no-git' ? 'no-repo' : 'git-kept-out', dir: displayPath(g.dir) }); continue; }
     const many = timed || g.loop;
     const want = many ? MAX_PER_FOLDER : Math.min(g.n, MAX_PER_FOLDER);
     const lg = r.run(g.dir, ['log', '-g', `-n${many ? 120 : 4 * want + 8}`, '--date=unix', '--no-show-signature', '--no-color', '--format=%H%x1f%h%x1f%gd%x1f%gs%x1f%s']);
-    if (!lg.ok && lg.why === 'timeout') { out.unresolved.push({ why: 'git-timeout', dir: displayPath(t.top) }); continue; }
+    if (!lg.ok && lg.why === 'timeout') { out.unresolved.push({ why: 'git-timeout', dir: displayPath(t.top), folder: g.dir }); continue; }
     let entries = lg.ok ? parseEntries(lg.out, 'reflog') : [];
     if (!entries.length) {
       const h = r.run(g.dir, ['log', '-1', '--no-show-signature', '--no-color', '--format=%H%x1f%h%x1f%ct%x1f%x1f%s']);

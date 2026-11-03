@@ -8,8 +8,11 @@ Last updated 2026-11-03.
 - Review rounds 1 to 13 are done. The last round's follow-up review found nothing blocking.
 - After that, a test-only change (2026-11-02): six `trailmark.test.js` tests that make symlinks skip on a Windows account that can't (no Developer Mode), and the cache-warning test accepts a second stop reason on a slow run. `dev/release-check.sh` names the TAP reporter, since Node 26 prints spec into a pipe. One Opus review found nothing. CI was green on all 9 jobs for the release commit, and its Windows jobs ran the six link tests (6 more passing than a local run without links).
 - Decision (2026-11-03): ship 0.5.0 as built. The silent sweep skip (see the deferred list) is fixed in 0.5.1, since that code wasn't changed in this round.
+- Decision (2026-11-03, later, the user): 0.5.0 is not published. 0.5.1 is released instead, since 0.5.0 has the confirmed worktree setup bug (see "repoRoot when git times out" under 0.5.1). The 0.5.0 zip in `D:\UserFiles\Downloads` (`trailmark-0.5.0.zip` and its `.sha256`) must not be uploaded.
 
-### Still to do by hand
+### Still to do by hand (superseded)
+
+Superseded on 2026-11-03: 0.5.0 is not published. Don't run step 1 for 0.5.0. Steps 2 to 4 move to the 0.5.1 checklist below, for 0.5.1.
 
 1. Check the zip hash, then publish (from Downloads):
 
@@ -29,6 +32,23 @@ Last updated 2026-11-03.
 
 ## 0.5.1 (in progress)
 
+### Release checklist (don't start until the nine items from 2026-11-03 are done, and ask the user first)
+
+1. Version bumps to 0.5.1: `plugins/trailmark/.claude-plugin/plugin.json`, `plugins/trailmark-codex/.codex-plugin/plugin.json`, `plugins/trailmark-codex/plugin.json`, and MANUAL.md's "Version 0.5.0" line. `claude plugin validate --strict` (3 manifests) and the tests must still pass. Check with `grep -rn "0\.5\.0"` for anything else naming the current version. The test fixtures in `handoff-checks.test.js` that use `0.5.0` as a cache folder name are data, not the version.
+2. The rename from jb-memory first ships in 0.5.1 now. Decide whether the text "before 0.5.0" (README, MANUAL sections 15 and the install notes, `tools/migrate-from-jb-memory.js`, `tools/install-check.js`, the watchdog scripts, the Codex session-start warning and `health.js`) should say "before 0.5.1". The Codex warning and `health.js` are shared or plugin files: both copies, then SHA256SUMS.
+3. CHANGELOG: the 0.5.1 heading gets a date in place of "unreleased". The 0.5.0 heading, which has a date but was never published, needs a note that it shipped as part of 0.5.1 (or the two merge).
+4. Release notes: `trailmark-0.5.1-release-notes.md`, covering 0.5.0's changes too, since 0.5.0 was never published.
+5. Full `dev/release-check.sh` on the final commit, CI green on all 9 jobs, then `dev/release-check.sh --zip D:\UserFiles\Downloads` from a clean tree at that commit (builds `trailmark-0.5.1.zip` and its `.sha256` from HEAD and verifies them). Record the commit and the zip hash here.
+6. Publish (from Downloads), with the commit from step 5:
+
+   ```powershell
+   gh release create v0.5.1 trailmark-0.5.1.zip trailmark-0.5.1.zip.sha256 --repo cptjamestiberiouskirk-pixel/trailmark --target <release commit> --title "Trailmark 0.5.1" --notes-file trailmark-0.5.1-release-notes.md
+   gh repo edit cptjamestiberiouskirk-pixel/trailmark --visibility public --accept-visibility-change-consequences
+   gh api -X PUT repos/cptjamestiberiouskirk-pixel/trailmark/private-vulnerability-reporting
+   ```
+
+7. Then 0.5.0's steps 2 to 4 above, with 0.5.1 in place of 0.5.0 (installed copy, plugin directory, cleanup).
+
 ### Done: the silent sweep skip (2026-11-03, branch `claude/loving-cannon-9abde1`)
 
 - A sweep that runs out of time sets `stopped: 'out-of-time'` (`trailmark.js` `sweepFacts` at each budget gate; `gitfacts.js` `sweepCommits` when a folder is left unread because of the 800 ms gate or a git call refused or timed out). `write-handoff` prints "commit sweep skipped: out of time ..." and session start adds it to the warnings. Only fixed text is printed. `swept` moves only for folders read, as before. Timer values unchanged. `JBMEM_TEST_SWEEP_MS` can only lower the sweep's budget.
@@ -46,6 +66,13 @@ Last updated 2026-11-03.
 - Test (each copy): "0.5.1 paths: when git times out in a linked worktree or a subfolder..." runs the launcher with that stub: `dir` from a worktree and a subfolder, `init` from a worktree, and the commit-start record. Fails on 4182717 at `dir` (the worktree's folder) in both copies; passes now. The stub fails every `rev-parse`, so only the first timeout branch runs; the second (after `--show-toplevel`) is reached only with git older than 2.31 and is untested.
 - Reviews: Opus on the test commit d01ccd4 found nothing (it checked by mutation that the wrapped tests still fail on a real bug). Fable on the repoRoot change: safe to ship. `localRepoRoot` gives the root git would give for a main checkout, linked worktree, subfolder and bare-repo worktree; a `.git` file planted to point straight at another repo's `.git` gives the planted folder (git gives the other repo), as on the kept-out path; the memory folder stays under the projects folder whatever root is chosen. One CONFIRMED finding, reproduced here: after the timeout, `localRepoRoot` can run `git config --file` once more (3000 ms limit) when `.git/config` holds `//` (an https remote). The comment that said "no second call" is corrected; the time budget is deferred below.
 
+### Done: the commit hook when git times out (2026-11-03)
+
+- What a user saw, CONFIRMED (test with the `node -r` stub that times out `git rev-parse` in the launcher, HEAD 9471aeb): a commit in the session's folder got "Commit landed." and `COMMIT_UNRESOLVED why=git-timeout`; the next checkpoint's sweep logged it `(found later)`. A commit in another folder (`git -C other commit`) got no output at all and the same log line, and was never logged: the sweep reads only the session's home and `commitDirs`, and that folder wasn't added.
+- The fix: `gitfacts.commitFacts` returns the folder git timed out in (`folder`, absolute, git-timeout only); `store.checkCommitFacts` keeps it only when it is an absolute path under 4096 characters; the milestone hook adds it to the session record's `commitDirs` (as for a logged commit, last 6) and tells Claude "A commit was not logged yet: git was too slow (it timed out) in ... The next commit sweep logs it, at a checkpoint or the next session start.", whether or not a reminder is due.
+- Test (each copy): "0.5.1 commit hook: when git times out, ..." Fails on 4182717 at the message (both copies) and, with the message checks taken out, at the other folder's commit (never logged). Passes now.
+- The clone test ("another clone with its own memory folder") accepts B's hook reporting the timeout, then has B's sweep log the commit in the clone's memory; both checkpoints use `settle`. Under full load (32 busy threads), each test alone, 2 rounds per copy: 8 of 8 passed, none skipped (before: the clone test failed 4 of 4). Whether a given run hit the timeout branch wasn't recorded.
+
 ## Deferred to 0.5.1
 
 Found in review, fail closed or harmless, left for the next version:
@@ -61,11 +88,10 @@ Found in review, fail closed or harmless, left for the next version:
     - "a commit made after the sweep started": 4 of 4 failed. `sweepCommits` returned `stopped: out-of-time`, read 0 of 1 folders, in 2.9 to 3.3 s. CONFIRMED out-of-time skip.
     - "the sweeping session's own open records": 4 of 4 failed. write-handoff took 8.8 to 14 s and printed the skip; no COMMIT lines; `swept` empty. CONFIRMED out-of-time skip.
     - "a commit command still running": 4 of 4 failed the same way. CONFIRMED out-of-time skip.
-    - "another clone with its own memory folder": 1 of 4 failed on the skip. 3 of 4 failed earlier, where B's commit hook ran 9.8 to 11.8 s, its git calls ran out of its 5 s budget, and it logged `COMMIT_UNRESOLVED why=git-timeout` instead of the commit. A different cause (the commit hook's own budget, which does report itself), so this test is left as it was. Still open.
+    - "another clone with its own memory folder": 1 of 4 failed on the skip. 3 of 4 failed earlier, where B's commit hook ran 9.8 to 11.8 s, its git calls ran out of its 5 s budget, and it logged `COMMIT_UNRESOLVED why=git-timeout` instead of the commit. A different cause (the commit hook's own budget). Fixed in 0.5.1, see "the commit hook when git times out" above.
     - The first three now use `settle` / `sweepTest` (`settleCall` for the direct `sweepCommits` calls). Rerun with each test alone, 2 rounds per suite: full load, 10 skipped with the reason and 2 passed; 20 s bursts, 15 of 16 passed; idle, 16 of 16 passed.
     - The one burst failure ("a commit command still running", Codex copy): B's commit-start record was never written (no `pending/` folder), so A's sweep took B's commit. The hook resolves the memory folder with a 1000 ms git timeout; it timed out, `repoRoot` fell back to the worktree, and the hook found nothing set up and exited silently. CONFIRMED with a stub that times out `git rev-parse` (`node -r`): on 4182717, both copies, commit-start in a linked worktree writes its record when git is normal and none when git times out. This is the `repoRoot` item below.
   - After a `git rev-parse` timeout, `repoRoot` calls `localRepoRoot`, which can read `.git/config` with `git config --file` (gitbin.js `configEntries`, fixed 3000 ms limit) when the file holds `//`. CONFIRMED (stub, worktree with an https remote): one extra call, about 70 ms when git is fast. When git is slow enough to time out, this can add up to 3 s per config file, past the caller's budget (1000 ms for commit-start, up to 500 ms in the sweep). A hook that runs over is stopped and says so. Fix: pass the caller's time limit through `localRepoRoot` to `configEntries` (gitbin.js, a security file: Fable review).
-  - The "another clone with its own memory folder" test still fails under full load, mostly through the commit hook's own git budget (see above).
   - (Fixed in 0.5.1, see "repoRoot when git times out" above.) `lib/paths.js` `repoRoot` fell back to the folder itself when git timed out.
 - (Fixed in 0.5.1, see above.) The `0.3.4 sweep` test fails when git is slow, because a sweep that runs out of time is skipped without a trace. CONFIRMED (2026-11-02):
   - The one failure (zip build, 16:36) left its sandbox in `%TEMP%\jbmem-4hucLT`: `swept` never moved past the first write (21:36:41), and the resume hook took 7.8 s (p50 3.7 s over 62 runs) and logged nothing.

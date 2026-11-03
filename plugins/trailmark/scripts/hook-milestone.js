@@ -147,6 +147,11 @@ guard(() => {
   const done = new Set();
   let unresolvedDone = false;
   let mergeDone = false;
+  // Folders git timed out in: the commit there isn't logged yet. They join
+  // this session's commit folders, so the next sweep reads them, and Claude
+  // is told so even when no reminder is due.
+  const slow = commits.unresolved.filter(u => u.why === 'git-timeout');
+  let slowNote = false;
   const logNew = (known) => {
     const fresh = [];
     for (const e of commits.entries) {
@@ -159,6 +164,7 @@ guard(() => {
     if (!unresolvedDone) {
       for (const u of commits.unresolved) S.note(dir, unresolvedLine(u), session);
       unresolvedDone = true;
+      slowNote = slow.length > 0;
     }
     return fresh;
   };
@@ -191,6 +197,11 @@ guard(() => {
             rec.commitDirs = dirs.slice(-6);
           }
         }
+        if (rec && slowNote) {
+          const dirs = Array.isArray(rec.commitDirs) ? rec.commitDirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
+          for (const u of slow) if (u.folder && !dirs.includes(u.folder)) dirs.push(u.folder);
+          rec.commitDirs = dirs.slice(-6);
+        }
         if (!fresh.length && !commits.unresolved.length) return false; // nothing new was committed
       } else if (kind === 'pr-merge') {
         S.note(dir, `PR_MERGE ${mergeText(command)}`, session);
@@ -218,11 +229,17 @@ guard(() => {
     } catch (e2) { if (e2 && e2.code === 'ERR_ACCESS_DENIED') throw e2; }
     leave();
   }
-  if (!hint || afterFailure) leave();
+  const slowText = slowNote
+    ? `[trailmark] A commit was not logged yet: git was too slow (it timed out) in ${slow.map(u => `"${u.dir || 'the folder'}"`).join(', ')}. The next commit sweep logs it, at a checkpoint or the next session start.`
+    : '';
+  if (afterFailure || (!hint && !slowText)) leave();
+  const hintText = hint
+    ? `[trailmark] ${kind === 'commit' && background ? 'A commit command was sent to the background; its commits are logged by a later sweep once it finishes.' : HINTS[kind]} If this completes a milestone (deliverable produced or updated, decision landed, correction accepted, results that change the plan), run the ${S.CHECKPOINT_SKILL} skill before moving on. Skip it if nothing material changed. ${S.SKILL_RULE}`
+    : '';
   emit({
     hookSpecificOutput: {
       hookEventName: 'PostToolUse',
-      additionalContext: `[trailmark] ${kind === 'commit' && background ? 'A commit command was sent to the background; its commits are logged by a later sweep once it finishes.' : HINTS[kind]} If this completes a milestone (deliverable produced or updated, decision landed, correction accepted, results that change the plan), run the ${S.CHECKPOINT_SKILL} skill before moving on. Skip it if nothing material changed. ${S.SKILL_RULE}`,
+      additionalContext: [slowText, hintText].filter(Boolean).join(' '),
     },
   });
   leave();

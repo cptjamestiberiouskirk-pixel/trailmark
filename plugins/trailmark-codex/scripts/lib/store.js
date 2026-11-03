@@ -1142,7 +1142,9 @@ function checkCommitFacts(raw) {
   const unresolved = [];
   for (const u of Array.isArray(c.unresolved) ? c.unresolved.slice(0, 12) : []) {
     if (!isPlainObject(u) || !WHY_WORD.test(String(u.why))) continue;
-    unresolved.push({ why: u.why, dir: typeof u.dir === 'string' && u.dir ? fieldText(u.dir) : '' });
+    // folder: where git timed out, for the commit sweep; used only as a path.
+    const folder = u.why === 'git-timeout' && typeof u.folder === 'string' && u.folder.length < 4096 && path.isAbsolute(u.folder) ? u.folder : '';
+    unresolved.push({ why: u.why, dir: typeof u.dir === 'string' && u.dir ? fieldText(u.dir) : '', folder });
   }
   return { entries, unresolved };
 }
