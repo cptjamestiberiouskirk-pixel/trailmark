@@ -10,7 +10,7 @@ Read `dev/release-state.md` first: where the release stands, what is open, and w
 - Before handing over a file or script, check it for destructive operations and anything that looks malicious, and say what you found.
 - `plugins/trailmark` and `plugins/trailmark-codex` share files word for word (the `for f in` list in `.github/workflows/tests.yml`). Change both copies together.
 - After any change, regenerate `SHA256SUMS` (`dev/release-check.sh --sums`); CI fails on a stale one.
-- Tests write to the temp folder. On a small disk set `TMPDIR` to a folder you clear afterwards; the suites leave throwaway repos behind.
+- Tests write to the temp folder and remove what they made when each test ends; a failed test keeps its folders and names them (`JBMEM_TEST_KEEP=1` keeps all). `dev/release-check.sh` points `TMPDIR`, `TEMP` and `TMP` at its own folder and clears it.
 
 ## Checking a change
 

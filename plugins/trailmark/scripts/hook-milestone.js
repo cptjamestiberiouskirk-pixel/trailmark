@@ -50,6 +50,7 @@ const { readPayload, memoryDirOrExit, emit, guard } = require('./lib/hookio');
 const { isMilestoneCommand, commitSites } = require('./lib/commands');
 const { commitFacts } = require('./lib/gitfacts');
 
+const BG_NOTE = 'A commit command was sent to the background; its commits are logged by a later sweep once it finishes.';
 const HINTS = {
   commit: 'Commit landed.',
   'pr-merge': 'PR merge command finished.',
@@ -113,6 +114,15 @@ guard(() => {
   const handoff = path.join(dir, S.HANDOFF);
 
   let commits = { entries: [], unresolved: [] };
+  // The folders the command was checked in, outside the session's own repo,
+  // join its commit folders, so a later sweep reads them.
+  const addOthers = (rec) => {
+    const others = (commits.folders || []).filter(f => !f.own).map(f => f.dir);
+    if (!others.length) return;
+    const dirs = Array.isArray(rec.commitDirs) ? rec.commitDirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
+    for (const d of others) if (!dirs.includes(d)) dirs.push(d);
+    rec.commitDirs = dirs.slice(-6);
+  };
   let endLine = '';
   if (kind === 'commit') {
     let raw = null;
@@ -131,7 +141,24 @@ guard(() => {
     commits = S.checkCommitFacts(raw);
     // Nothing new in any folder the command committed in, no commit whose
     // folder is unknown, and nothing to report: no log line and no reminder.
-    if (!commits.entries.length && !commits.unresolved.length && !endLine) leave();
+    // A command sent to the background has usually not run yet: Claude is
+    // told once (bgNoted, kept apart from recentBg, which marks a run that
+    // logged) where its commits will be logged. The other folders it commits
+    // in join this session's commit folders, so that sweep reads them.
+    if (!commits.entries.length && !commits.unresolved.length && !endLine) {
+      if (background && toolId && !afterFailure) {
+        let first = false;
+        try {
+          S.updateState(dir, session, (state, rec) => {
+            const noted = Array.isArray(state.bgNoted) ? state.bgNoted.filter(x => typeof x === 'string').slice(-50) : [];
+            if (!noted.includes(toolId)) { state.bgNoted = noted.concat(toolId); first = true; }
+            if (rec) addOthers(rec);
+          });
+        } catch (e) { if (e && e.code === 'ERR_ACCESS_DENIED') throw e; }
+        if (first) emit({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: `[trailmark] ${BG_NOTE}` } });
+      }
+      leave();
+    }
   }
 
   // Already logged: see store.knownCommits.
@@ -147,6 +174,11 @@ guard(() => {
   const done = new Set();
   let unresolvedDone = false;
   let mergeDone = false;
+  // Folders git timed out in: the commit there isn't logged yet. They join
+  // this session's commit folders, so the next sweep reads them, and Claude
+  // is told so even when no reminder is due.
+  const slow = commits.unresolved.filter(u => u.why === 'git-timeout');
+  let slowNote = false;
   const logNew = (known) => {
     const fresh = [];
     for (const e of commits.entries) {
@@ -159,6 +191,7 @@ guard(() => {
     if (!unresolvedDone) {
       for (const u of commits.unresolved) S.note(dir, unresolvedLine(u), session);
       unresolvedDone = true;
+      slowNote = slow.length > 0;
     }
     return fresh;
   };
@@ -191,6 +224,14 @@ guard(() => {
             rec.commitDirs = dirs.slice(-6);
           }
         }
+        if (rec && slowNote) {
+          const dirs = Array.isArray(rec.commitDirs) ? rec.commitDirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
+          for (const u of slow) if (u.folder && !dirs.includes(u.folder)) dirs.push(u.folder);
+          rec.commitDirs = dirs.slice(-6);
+        }
+        // A command sent to the background may still commit in its other
+        // folders, the ones it hasn't committed in yet among them.
+        if (rec && background) addOthers(rec);
         if (!fresh.length && !commits.unresolved.length) return false; // nothing new was committed
       } else if (kind === 'pr-merge') {
         S.note(dir, `PR_MERGE ${mergeText(command)}`, session);
@@ -218,11 +259,17 @@ guard(() => {
     } catch (e2) { if (e2 && e2.code === 'ERR_ACCESS_DENIED') throw e2; }
     leave();
   }
-  if (!hint || afterFailure) leave();
+  const slowText = slowNote
+    ? `[trailmark] A commit was not logged yet: git was too slow (it timed out) in ${slow.length === 1 ? 'one folder' : `${slow.length} folders`}. The next commit sweep logs it, at a checkpoint or the next session start.`
+    : '';
+  if (afterFailure || (!hint && !slowText)) leave();
+  const hintText = hint
+    ? `[trailmark] ${kind === 'commit' && background ? BG_NOTE : HINTS[kind]} If this completes a milestone (deliverable produced or updated, decision landed, correction accepted, results that change the plan), run the ${S.CHECKPOINT_SKILL} skill before moving on. Skip it if nothing material changed. ${S.SKILL_RULE}`
+    : '';
   emit({
     hookSpecificOutput: {
       hookEventName: 'PostToolUse',
-      additionalContext: `[trailmark] ${kind === 'commit' && background ? 'A commit command was sent to the background; its commits are logged by a later sweep once it finishes.' : HINTS[kind]} If this completes a milestone (deliverable produced or updated, decision landed, correction accepted, results that change the plan), run the ${S.CHECKPOINT_SKILL} skill before moving on. Skip it if nothing material changed. ${S.SKILL_RULE}`,
+      additionalContext: [slowText, hintText].filter(Boolean).join(' '),
     },
   });
   leave();

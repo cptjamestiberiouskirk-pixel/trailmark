@@ -4,7 +4,7 @@ Trailmark keeps one short state file per repo, the handoff, and gives it to ever
 
 Sections 2 to 7 get you installed and working. The rest covers the Codex copy for the ChatGPT desktop app, the optional Windows tools, updating, troubleshooting, uninstalling and moving from jb-memory. The internals are in [docs/how-it-works.md](docs/how-it-works.md) and the security model is in [SECURITY.md](SECURITY.md).
 
-Version 0.5.0, for both Claude Code and the Codex copy (trailmark-watchdog 1.7.0). MIT licensed.
+Version 0.5.1, for both Claude Code and the Codex copy (trailmark-watchdog 1.7.0). MIT licensed.
 
 ## Contents
 
@@ -375,7 +375,7 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 | The line says `sandbox off` or warns about the sandbox | `JBMEM_SANDBOX=off` is set in user or repo settings | Remove it unless you set it on purpose |
 | "Sandbox check failed" or "SANDBOX UNAVAILABLE" | Node is too old or was built without the permission model | Install a current Node LTS and rerun the check. Only if that's impossible, set `JBMEM_SANDBOX=off` (section 7) |
 | Warning that Node is older than the security release | Node is below its line's floor | Update Node |
-| Warning naming another copy of Trailmark | A stale copy in Claude Code's plugin cache | Remove the named folder, or uninstall the other install (section 15) |
+| Warning about another copy of Trailmark | A stale copy in Claude Code's plugin cache | Remove that folder (the warning says where to look; Claude has the folder names), or uninstall the other install (section 15) |
 | `/checkpoint` opens the rewind menu | Claude Code's `/rewind` has that alias | Use `/trailmark:checkpoint` |
 | A checkpoint write is refused with exit code 3 | Another session wrote the handoff first | Nothing: the skill merges and writes again. Three refusals in a row means two sessions are checkpointing at the same moment |
 | Exit code 2 | Over budget | The skill tightens the text and writes again |
@@ -507,8 +507,8 @@ Before git runs in a repo, Trailmark checks that nothing in the repo's `.git` se
 | `network-gitdir` | The `.git` file, `commondir` (the repo's or another worktree's), or another worktree's recorded folder (its `gitdir` file) leads to a network path, or one of those pointers can't be read the way git reads it (a NUL in it, bytes that aren't valid UTF-8, whitespace at either end, or a drive-relative `C:x` or `\x` on Windows) |
 | `linked-gitdir` | A link inside `.git` leads to one. On Windows, also a `.git` that is itself a link or junction |
 | `many-worktrees` | There are more than 10,000 worktrees to check |
-| `many-entries` | `.git` holds more than 100,000 entries besides loose objects and the Git LFS and git-annex stores (the repo's, and those at the top of a submodule's gitdir), so a link could hide past the ones checked. Unpacked branches and their reflogs count: `git pack-refs --all` packs the branches, and git drops old reflogs itself when they expire (90 days by default) |
-| `odd-path` | A file or folder name inside `.git` isn't valid UTF-8, so the check can't name the file git opens; or (macOS, Linux) the session's folder has a `..` after a link that leads somewhere else than it does as text |
+| `many-entries` | `.git` holds more than 100,000 entries besides loose objects and the Git LFS and git-annex stores (the repo's, and those at the top of a submodule's gitdir; loose objects in a folder left in `.git/modules` without a `HEAD` don't count either), so a link could hide past the ones checked. Unpacked branches and their reflogs count: `git pack-refs --all` packs the branches, and git drops old reflogs itself when they expire (90 days by default) |
+| `odd-path` | A folder or link name inside `.git` isn't valid UTF-8, so the check can't name what git opens (a plain file with such a name, a branch for example, is passed over); or (macOS, Linux) the session's folder has a `..` after a link that leads somewhere else than it does as text |
 | `deep-gitdir` | `.git` has folders nested more than 64 deep |
 | `odd-config-path` | An include, a setting that names a file, or an `alternates` entry could be read differently by git and by the check (leading or trailing spaces, `~user/` for someone other than you, `C:x` or `\x` on Windows, bytes that aren't valid UTF-8, quoting git would reject) |
 | `unreadable-config` | A config or pointer file isn't a plain small file (for example a link, a folder, a FIFO, a config file over 8 MB, an `alternates` file over 64 KB, or a pointer file over 4 KB) |

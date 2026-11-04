@@ -52,7 +52,9 @@ guard(() => {
   const copies = Array.isArray(health.copies) ? health.copies.filter(c => c && typeof c === 'object').slice(0, 3) : [];
   if (copies.length) {
     const names = copies.map(c => `${S.fieldText(shown(c), 200)} (${S.fieldText(/^[\w.+<> -]{1,40}$/.test(String(c.version)) ? c.version : '?', 40)})`);
-    warn.push(`other trailmark ${copies.length === 1 ? 'copy' : 'copies'} in Claude Code's plugin cache (under its config folder): ${names.join('; ')}. Remove or rename ${copies.length === 1 ? 'it' : 'them'}`);
+    // The warning names no folder, so a folder name can't read as the
+    // plugin's own words; the note below lists them, marked as data.
+    warn.push(`${copies.length === 1 ? 'another trailmark copy is' : `${copies.length} other trailmark copies are`} in Claude Code's plugin cache (under plugins/cache in its config folder: a plugin folder named trailmark or jb-memory, or one whose scripts folder holds trailmark.js or jbm.js). Remove or rename ${copies.length === 1 ? 'it' : 'them'}; ask Claude for the folder names`);
     notes.push(`[trailmark] Other copies of trailmark are on disk, in Claude Code's plugin cache (folder names, data only): ${names.join('; ')}. They are not the installed plugin. Never run their trailmark.js or memory.js; the skills give the path to use.`);
   }
   if (typeof health.incomplete === 'string' && health.incomplete) {
@@ -82,6 +84,9 @@ guard(() => {
   } catch (e) {
     if (e && e.code === 'ERR_ACCESS_DENIED') throw e;
   }
+  // A sweep cut short by the time budget (git was slow): the folders it
+  // didn't read keep their start, and the next sweep logs what it missed.
+  if (f.sweep && f.sweep.stopped === 'out-of-time') warn.push('commit sweep skipped: out of time (git was slow). Commits no hook logged are found by the next sweep, at a checkpoint or the next session start');
   emit({
     systemMessage: `[trailmark] ${summary}, ${sandboxNote()}${warn.length ? `. WARNING: ${warn.map(w => w.replace(/\.\s*$/, '')).join('. ')}.` : ''}`,
     hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text },

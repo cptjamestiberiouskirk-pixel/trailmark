@@ -90,7 +90,7 @@ How the check reads the repo:
 - Includes are followed ten deep, as git does, relative to the including file's path as git built it. At most 50 files are read. Past either limit, git is kept out.
 - A value starting with `%(prefix)` is refused, since git hands the absolute path after it on unchanged.
 - Alternates are followed six deep, as git 2.43 reads them. Each alternate's own folders are walked for links like the `.git`'s.
-- A gitdir file or folder name that isn't valid UTF-8 keeps git out (`odd-path`): git opens the raw bytes, which Node can't name. So does such a byte in a pointer, a link's target or an alternates line.
+- A gitdir folder or link name that isn't valid UTF-8 keeps git out (`odd-path`): git opens the raw bytes, which Node can't name. A plain file with such a name (a branch or its reflog) is passed over, since the check never follows a file. So does such a byte in a pointer, a link's target or an alternates line.
 - An alternates file is read entry by entry as git reads it, C-quoting and `\ooo` escapes included. Quoting git would reject, text after a closing quote, and a line starting with a space keep git out (`odd-config-path`), since git and the check would read different paths there. Only a `#` at the very start of a line is a comment, as for git. A BOM at the start of a quoted entry keeps git out; characters outside the Basic Multilingual Plane are read as git reads them.
 - On macOS and Linux a backslash is part of a name, as it is for git, not a separator.
 - A path with a missing folder followed by `..` keeps git out: the check can't look past the missing folder, and `..` taken as text would climb back into folders it never looked at.
@@ -124,7 +124,7 @@ Not covered:
 
 - A mapped drive letter that leads to a share. It can't be told apart from a local drive.
 - A link planted in place of a single loose object file.
-- A link in a Git LFS store (the repo's or a submodule's) or a git-annex store past its first 10,000 entries. (A repo with more than 20,000 tracked folders has its file list skipped before a compaction: `many-folders`.) (A gitdir with more than 100,000 other entries, loose objects aside, keeps git out: `many-entries`.)
+- A link in a Git LFS store (the repo's or a submodule's) or a git-annex store past its first 10,000 entries. (A repo with more than 20,000 tracked folders has its file list skipped before a compaction: `many-folders`.) (A gitdir with more than 100,000 other entries, loose objects aside, keeps git out: `many-entries`. Loose objects in a folder left in `.git/modules` without a `HEAD`, which git doesn't open, are passed over the same way.)
 - `~/` in an include is checked against your home folder as Node sees it, which can differ from git's `HOME` on some company machines. A path written as `~user/...` keeps git out (`odd-config-path`) unless `user` is you.
 
 ### Links in the memory folder

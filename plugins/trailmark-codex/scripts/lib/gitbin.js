@@ -199,8 +199,28 @@ function blocked(p) {
 }
 function withShare(cwd, fn) {
   const prev = ALLOW_SHARE;
+  const prevSeen = LSTAT_SEEN;
   ALLOW_SHARE = NET_START.test(String(cwd || '')) ? shareRoot(cwd) : '';
-  try { return fn(); } finally { ALLOW_SHARE = prev; }
+  if (!LSTAT_SEEN) LSTAT_SEEN = new Map();
+  try { return fn(); } finally { ALLOW_SHARE = prev; LSTAT_SEEN = prevSeen; }
+}
+// What localPath found for each part of a path, while one check runs (the
+// outermost withShare call): every path it resolves starts with the same
+// folders, so a superproject with 200 module gitdirs looked at each of them
+// about 15 times. Dropped when that check returns, since a folder can be
+// swapped for a link between two checks.
+let LSTAT_SEEN = null;
+const MAX_LSTAT_SEEN = 20000;
+function lstatPart(p) {
+  if (!LSTAT_SEEN) return fs.lstatSync(p);
+  let r = LSTAT_SEEN.get(p);
+  if (r === undefined) {
+    try { r = fs.lstatSync(p); } catch (e) { r = e instanceof Error ? e : new Error('lstat'); }
+    if (LSTAT_SEEN.size >= MAX_LSTAT_SEEN) LSTAT_SEEN.clear();
+    LSTAT_SEEN.set(p, r);
+  }
+  if (r instanceof Error) throw r;
+  return r;
 }
 const farCache = new Map();
 // A value as git might read it: quotes dropped and escapes undone. Both the
@@ -261,7 +281,7 @@ function localPath(p) {
       // A part that isn't there: the rest can't be looked through. A '..'
       // after it would climb back by text into folders never checked (the
       // kernel would stop at the missing part), so that is refused.
-      try { st = fs.lstatSync(next); } catch { return parts.slice(i + 1).includes('..') ? null : path.resolve(at, ...parts.slice(i)); }
+      try { st = lstatPart(next); } catch { return parts.slice(i + 1).includes('..') ? null : path.resolve(at, ...parts.slice(i)); }
       if (st.isSymbolicLink()) {
         let t;
         try { t = fs.readlinkSync(next); } catch { return null; }
@@ -538,6 +558,15 @@ const LFS_BUDGET = 10000;
 // about 50,000 unpacked branches with their reflogs, walked in well under a
 // second.
 const GITDIR_BUDGET = 100000;
+// A HEAD in d (a file or a link, as git accepts either).
+function headAt(d) {
+  try { const h = fs.lstatSync(path.join(d, 'HEAD')); return h.isFile() || h.isSymbolicLink(); } catch { return false; }
+}
+// Only plain files in d, as in a loose-object folder (no folder, link or
+// anything else that could hide a gitdir); false when d can't be listed.
+function onlyFiles(d) {
+  try { return fs.readdirSync(d, { withFileTypes: true }).every(x => x.isFile()); } catch { return false; }
+}
 function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
   // JBMEM_TEST_GITDIR_BUDGET can only lower it (the tests use 20,000).
   const low = Number(process.env.JBMEM_TEST_GITDIR_BUDGET);
@@ -556,8 +585,10 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
       // folders that keeps git out, since a link could hide past it; a big
       // LFS store (its own budget) is let through.
       if (--budget.n < 0) return budget.lfs ? '' : 'many-entries';
-      // A name that isn't valid UTF-8 can't be looked up by the name Node gives.
-      if (x.name.includes('\uFFFD')) return 'odd-path';
+      // A name that isn't valid UTF-8 can't be looked up by the name Node
+      // gives. A plain file (a branch or its reflog, say) is never followed,
+      // so it is passed over; a folder or link with one keeps git out.
+      if (x.name.includes('\uFFFD')) { if (x.isFile()) continue; return 'odd-path'; }
       if (!rel && !objectsRoot && x.name === 'hooks') continue;
       if (!rel && !objectsRoot && !lfsStore && x.name === 'lfs' && !lfsLater) { lfsLater = x; continue; }
       // A submodule gitdir's own LFS store, and git-annex's object store, can
@@ -580,8 +611,16 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
       // Loose-object folders of git's own object stores only (objects/ and a
       // submodule's modules/.../objects/): a branch may be named objects/ab
       // (refs/heads/objects/ab/...), and git-lfs keeps lfs/objects/ab/cd.
-      const store = lfsStore ? false : objectsRoot ? rel === '' : rel === (top ? top + '/objects' : 'objects');
-      if (store && /^[0-9a-f]{2}$/i.test(x.name)) continue;
+      // A folder under modules/ with no HEAD (left behind by a removed
+      // submodule) isn't a gitdir git opens: its objects/ is skipped the same
+      // way, so a large one can't use up the budget.
+      // A submodule may also be named like vendor/objects/ab (or
+      // vendor/objects/ab/child): its gitdir is then inside such a leftover's
+      // objects/, so there a folder is passed over only when it has no HEAD
+      // and holds plain files only, as loose objects do; else it is walked.
+      const own = lfsStore ? false : objectsRoot ? rel === '' : rel === (top ? top + '/objects' : 'objects');
+      const leftover = !lfsStore && !objectsRoot && !own && /^modules\/.+\/objects$/.test(below);
+      if ((own || leftover) && /^[0-9a-f]{2}$/i.test(x.name) && !(leftover && (headAt(sub) || !onlyFiles(sub)))) continue;
       if (depth >= MAX_GITDIR_DEPTH) return 'deep-gitdir';
       const k = WIN ? sub.toLowerCase() : sub;
       if (seen.has(k)) continue;
@@ -592,7 +631,7 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
       const childBelow = below ? below + '/' + x.name : x.name;
       let childTop = top;
       if (!objectsRoot && !lfsStore && /^modules\/./.test(childBelow)) {
-        try { const h = fs.lstatSync(path.join(sub, 'HEAD')); if (h.isFile() || h.isSymbolicLink()) childTop = childRel; } catch { /* not a gitdir */ }
+        if (headAt(sub)) childTop = childRel;
       }
       const why = walk(sub, childRel, depth + 1, budget, childTop);
       if (why) return why;
@@ -740,7 +779,9 @@ function farBareProbe(d) {
 }
 // light: for a submodule gitdir in modules/ (its links were walked with the
 // repo's gitdir); the rest of the checks are the same.
-function farGit(gitEntry, out = {}, { light = false } = {}) {
+// locate: only find the gitdir and commondir (out), for localRepoRoot; '' or
+// a reason found on the way there, and no config read, so no git call.
+function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
   let st;
   try { st = fs.lstatSync(gitEntry); } catch { return ''; }
   let gitdir = gitEntry;
@@ -772,6 +813,7 @@ function farGit(gitEntry, out = {}, { light = false } = {}) {
   }
   out.gitdir = gitdir;
   out.common = dirs[1] || '';
+  if (locate) return '';
   // Each other worktree's commondir: git reads the refs there for --all (and
   // a later git version may for more), so one that leads to a network path
   // keeps git out like the repo's own.
@@ -983,8 +1025,10 @@ function farNestedIn(dir) {
 
 // The main checkout's root found without running git, the way git would:
 // the first repo it accepts from cwd up; for a worktree, the folder holding
-// the shared .git. '' when there is none. Used when git is kept out, so the
-// memory folder is still the one every worktree shares.
+// the shared .git. '' when there is none. Used when git is kept out or timed
+// out, so the memory folder is still the one every worktree shares. It reads
+// only the .git entries and pointer files (farGit locate), never a config
+// file, so it starts no git and keeps within the caller's time.
 function localRepoRoot(cwd) {
   return withShare(cwd, () => {
     let d = localPath(path.resolve(String(cwd || '.')));
@@ -994,7 +1038,7 @@ function localRepoRoot(cwd) {
       try { fs.lstatSync(g); found = true; } catch { found = false; }
       if (found) {
         const at = {};
-        farGit(g, at);
+        farGit(g, at, { locate: true });
         if (at.gitdir && validGitdir(at.gitdir, at.common)) {
           if (at.common && path.basename(at.common) === '.git') return path.dirname(at.common);
           return d;

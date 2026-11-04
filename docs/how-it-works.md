@@ -132,7 +132,7 @@ Otherwise all of them stay. A quiet `git commit -q`, output cut short, or a comm
 | `network-folder` | A folder on a network path, or a link to one, other than the session's own share |
 | `no-repo` | git found no repo there, or git couldn't run |
 | `git-kept-out` | git is kept out of that repo (SECURITY.md, "Known limits") |
-| `git-timeout` | git ran out of time |
+| `git-timeout` | git ran out of time. Claude is told the commit isn't logged yet, and the folder joins the session's commit folders, so the next sweep logs it (unless another command holds the state file for more than 2 s) |
 | `too-many-folders` | More than 4 folders in one command |
 | `too-many-commits` | More than 30 commits in one folder |
 | `too-long` | The command took over 1.5 seconds to read |
@@ -153,13 +153,13 @@ The sweep reads the reflog of each folder the session used: the folder it starte
 - still reachable from a ref (a branch, a tag, a remote, the stash, another worktree's `HEAD` or any other ref) and not amended away;
 - not already in a COMMIT line or the state file.
 
-They are logged as `COMMIT <sha> [in="<folder>"] <subject> (found later)`, and `write-handoff` says how many. Each folder keeps its own start in the session's record (`swept`), so a folder that couldn't be read (gone for a while, slow, or past the time budget) is read from where it was when it is back, up to a day.
+They are logged as `COMMIT <sha> [in="<folder>"] <subject> (found later)`, and `write-handoff` says how many. Each folder keeps its own start in the session's record (`swept`), so a folder that couldn't be read (gone for a while, slow, or past the time budget) is read from where it was when it is back, up to a day. A sweep that runs out of time before it has read every folder (git slowed by other work on the machine) says so: `write-handoff` prints "commit sweep skipped: out of time", and session start shows it as a warning. The folders it didn't read keep their start for the next sweep.
 
 Someone else working in the same folder (by hand, or a tool) is not told apart from the session, so "found later" means found in its folders, not proved to be its own.
 
 A folder that has a memory folder of its own (another clone set up for Trailmark) is swept past the commits logged there and the commit commands still running there, since those belong to its sessions. That memory folder is found by Claude Code's usual project-folder name only. One that Trailmark finds only by searching other transcripts isn't looked for here (the search has no time limit), so that clone's commits get no such exclusion.
 
-Another session's commit command that may still be running is left alone. The sweep stops a second before the start of the earliest PreToolUse record younger than 11 minutes whose PostToolUse hook hasn't logged it, and the next sweep starts there. Each commit hook (PostToolUse, or PostToolUseFailure for a command that failed) marks its command done when it finishes (`pending/<tool call ID>.done`), whether it logged anything or not. The sweeping session's own records don't hold it back: a commit by its own command, or by its subagent running in parallel, is its own either way. Another session's command whose hook never ran (denied at the permission prompt, stopped with Esc, a hook that timed out) holds the sweep back until its 11 minutes pass, or until the same thread of that session (its main conversation, or the one subagent, told apart by the hook's `agent_id`) finishes a commit command it started later. One thread runs its commands one at a time, but subagents can run alongside it. A record from Codex, which gives no subagent ID, holds the sweep until its 11 minutes pass whichever copy sweeps, and so does a command sent to the background (`run_in_background`), which returns before it has run, so its hook neither marks it done nor counts it as finished. When the hook does print a note for it, the note says its commits are picked up by a later sweep.
+Another session's commit command that may still be running is left alone. The sweep stops a second before the start of the earliest PreToolUse record younger than 11 minutes whose PostToolUse hook hasn't logged it, and the next sweep starts there. Each commit hook (PostToolUse, or PostToolUseFailure for a command that failed) marks its command done when it finishes (`pending/<tool call ID>.done`), whether it logged anything or not. The sweeping session's own records don't hold it back: a commit by its own command, or by its subagent running in parallel, is its own either way. Another session's command whose hook never ran (denied at the permission prompt, stopped with Esc, a hook that timed out) holds the sweep back until its 11 minutes pass, or until the same thread of that session (its main conversation, or the one subagent, told apart by the hook's `agent_id`) finishes a commit command it started later. One thread runs its commands one at a time, but subagents can run alongside it. A record from Codex, which gives no subagent ID, holds the sweep until its 11 minutes pass whichever copy sweeps, and so does a command sent to the background (`run_in_background`), which returns before it has run, so its hook neither marks it done nor counts it as finished. Its hook, which usually runs before the commit exists, tells Claude once that its commits are picked up by a later sweep (not while another command holds the state file for more than 2 s, and not when the commit already exists and no reminder is due). Each other folder it commits in (`git -C`) joins the session's commit folders when its hook runs, whether or not it has committed there yet, so that sweep reads it.
 
 ### Sessions that work in another repo
 
@@ -317,7 +317,7 @@ The plugin works from its own folder alone. The hooks need only `node` on PATH; 
 
 ## Where files live
 
-In Claude Code's auto-memory folder for the repo (`~/.claude/projects/<project>/memory/`). Every worktree of the repo shares it, except the worktrees of a bare repo, which each have their own.
+In Claude Code's auto-memory folder for the repo (`~/.claude/projects/<project>/memory/`). Every worktree of the repo shares it, except the worktrees of a bare repo, which each have their own. When git is too slow to say where the repo starts (it times out), trailmark finds the repo the way it does when git is kept out, from the `.git` entries on disk, so a worktree or subfolder still gets the shared folder.
 
 ```text
 .jbmem.json        opt-in marker and budgets
