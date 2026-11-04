@@ -2,6 +2,10 @@
 
 Last updated 2026-11-04.
 
+## Next feature: the context watch (brief written 2026-11-04)
+
+`dev/context-watch-prompt.md` is the brief for a new hook that asks Claude to run trailmark:checkpoint before Claude Code's auto-compaction. It was written from a user-level prototype and the facts measured with it. `dev/release-0.6.0-prompt.md` (saved 2026-11-04 at the user's request) is the prompt that starts the release: this hook and every open item of the two deferred lists, in 0.6.0, with the list confirmed by the user before any code. Not started.
+
 ## 0.5.0
 
 - Release commit: `418271766f54972443b131ff7a7edd1fbc4ee179`. Later commits touch only `dev/`, which the zip leaves out. The zip was built from it on 2026-11-02 into `D:\UserFiles\Downloads`: sha256 `00f2459a207bf4b38ae0ae9673c38b5f1d2200992fa903e1c1a245089a418898`, inner sums verified, no links. The release notes there are `trailmark-0.5.0-release-notes.md`.
