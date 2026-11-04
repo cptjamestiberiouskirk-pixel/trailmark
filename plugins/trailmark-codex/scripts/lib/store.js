@@ -1128,8 +1128,13 @@ const COMMIT_NOTES = { rebased: ' (rebased in the same command)', 'not-on-head':
 function checkCommitFacts(raw) {
   const c = isPlainObject(raw) ? raw : {};
   const entries = [];
+  // Every folder the command committed in that commitFacts checked, new
+  // commits or not (a command sent to the background has usually made none
+  // yet); own: the session's own repo. Used only as paths, for the sweep.
+  const folders = [];
   for (const fo of Array.isArray(c.folders) ? c.folders.slice(0, 8) : []) {
     if (!isPlainObject(fo) || typeof fo.dir !== 'string' || !path.isAbsolute(fo.dir)) continue;
+    if (fo.dir.length < 4096) folders.push({ dir: fo.dir, own: fo.own === true });
     // display is displayPath's output already; fieldText only makes sure.
     const folder = { dir: fo.dir, display: fieldText(typeof fo.display === 'string' && fo.display ? fo.display : displayPath(fo.dir)), own: fo.own === true };
     for (const e of Array.isArray(fo.entries) ? fo.entries.slice(0, 40) : []) {
@@ -1146,7 +1151,7 @@ function checkCommitFacts(raw) {
     const folder = u.why === 'git-timeout' && typeof u.folder === 'string' && u.folder.length < 4096 && path.isAbsolute(u.folder) ? u.folder : '';
     unresolved.push({ why: u.why, dir: typeof u.dir === 'string' && u.dir ? fieldText(u.dir) : '', folder });
   }
-  return { entries, unresolved };
+  return { entries, unresolved, folders };
 }
 
 function commitLine(e) {

@@ -3755,7 +3755,10 @@ test('0.5.1 commit hook: a commit command sent to the background gets its note w
   const s = sandbox();
   jbm(s, ['init']);
   jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
-  tick(); tick();
+  // The sandbox's first commit happened ten minutes ago, as far as the
+  // reflog says: a command's window opens up to 3 s before it, which two
+  // ticks didn't always clear on a fast machine.
+  ageReflogs(path.join(s.repo, '.git'), 600);
   const id = `toolu_bg${++toolSeq}x${process.pid}`;
   const base = { session_id: SA, tool_name: 'Bash', tool_input: { command: 'git commit -m later', run_in_background: true }, tool_use_id: id };
   assert.strictEqual(jbm(s, ['--hook', 'commit-start'], JSON.stringify({ ...base, cwd: s.repo, hook_event_name: 'PreToolUse' })).status, 0);
@@ -3782,3 +3785,26 @@ test('0.5.1 commit hook: a commit command sent to the background gets its note w
   assert.match(notesOf(s), /COMMIT_UNRESOLVED why=git-timeout/, notesOf(s));
   assert.match(JSON.parse(slow.stdout).hookSpecificOutput.additionalContext, /not logged yet: git was too slow/);
 });
+
+test('0.5.1 commit hook: a commit command sent to the background in another folder adds that folder to the session\'s commit folders, so a later sweep logs its commit', sweepTest(() => {
+  const { s, clone, gClone, head } = multiFolder();
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  const id = `toolu_bgo${++toolSeq}x${process.pid}`;
+  const command = `git -C "${clone}" commit -q --allow-empty -m "bg elsewhere"`;
+  const base = { session_id: SA, tool_name: 'Bash', tool_input: { command, run_in_background: true }, tool_use_id: id };
+  assert.strictEqual(jbm(s, ['--hook', 'commit-start'], JSON.stringify({ ...base, cwd: s.repo, hook_event_name: 'PreToolUse' })).status, 0);
+  // The hook runs before the command has committed anything.
+  const post = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ ...base, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 40 }));
+  assert.strictEqual(post.status, 0, post.stdout + post.stderr);
+  assert.match(JSON.parse(post.stdout).hookSpecificOutput.additionalContext, /sent to the background; its commits are logged by a later sweep/);
+  // Then it commits in the other folder, which this session never committed in before.
+  gClone('commit', '-q', '--allow-empty', '-m', 'bg elsewhere');
+  const sha = head(clone);
+  tick();
+  settle(() => {
+    const r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], '# H\n- by A\n');
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    return r.stdout;
+  });
+  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${sha} in="${dp(clone)}" bg elsewhere (found later) session=11111111`)), notesOf(s));
+}));
