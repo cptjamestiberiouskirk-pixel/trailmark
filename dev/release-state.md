@@ -134,6 +134,7 @@ Step 1 was in fact run on 2026-11-02: the release is published and the repo is p
   - The user chose option (a): the "before 0.5.1" wording from 545e992 and the CHANGELOG retitle from 8bf4652 are reverted, so the docs say jb-memory was renamed in 0.5.0. The release notes draft is changed to match.
 - Nested module gitdirs (Copilot asked for a human security assessment four times): the user left it to the session's recommendation, which is 0.5.2. Reasons: the skip is older than this PR (on origin/main, `linkedEntries` passes over two-hex folders in a submodule gitdir's own `objects/`: CONFIRMED in code); git 2.56 refuses such a gitdir by submodule name and the one route it opens, a worktree `.git` pointer, is fully checked (CONFIRMED by Fable); the cheap fix costs about 51,000 lookups for 200 submodules. A git too old to refuse such names is untested (INFERRED). The entry is in the list below.
 - Merge and zip: held overnight for these two decisions, then done once they were made, after one more Copilot finding was fixed (e26f148; see the 0.5.1 checklist, step 5). Not done: the release, which stays with the user.
+- `main` requires the 9 test jobs, and PRs merge by GitHub auto-merge with a merge commit (the user's choice, 16:20 UTC, during a GitHub Actions outage). Settings: the jobs pinned to GitHub Actions (app 15368), admins exempt, branches need not be up to date, no force-push or deletion of `main`, "Allow auto-merge" on. CLAUDE.md's Conventions has the rule.
 
 ## Decided not to fix (2026-11-03, the user: "Leave both")
 
