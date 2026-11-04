@@ -2235,15 +2235,15 @@ test('0.5.1 git checks: a folder left in .git/modules with no HEAD doesn\'t have
   }
 });
 
-test('0.5.1 git checks: a submodule named like vendor/objects/ab has its gitdir walked, not passed over as loose objects of the leftover vendor/', () => {
+test('0.5.1 git checks: a submodule named like vendor/objects/ab or vendor/objects/ab/child has its gitdir walked, not passed over as loose objects of the leftover vendor/', () => {
   const low = process.env.JBMEM_TEST_GITDIR_BUDGET;
   process.env.JBMEM_TEST_GITDIR_BUDGET = '1000';
   try {
     const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
     const base = realTemp('jbmem-objmod-');
-    const make = (name, head) => {
+    const make = (name, below, head) => {
       const r = path.join(base, name); repoAt(r);
-      const m = path.join(r, '.git', 'modules', 'vendor', 'objects', 'ab');
+      const m = path.join(r, '.git', 'modules', 'vendor', 'objects', 'ab', ...below);
       fs.mkdirSync(path.join(m, 'refs', 'heads'), { recursive: true });
       if (head) fs.writeFileSync(path.join(m, 'HEAD'), 'ref: refs/heads/main\n');
       for (let i = 0; i < 1500; i++) fs.writeFileSync(path.join(m, 'refs', 'heads', `b${i}`), '');
@@ -2251,9 +2251,19 @@ test('0.5.1 git checks: a submodule named like vendor/objects/ab has its gitdir 
     };
     // With a HEAD it is a submodule's gitdir: walked, and past the budget in
     // its refs git is kept out.
-    assert.strictEqual(farGitConfig(make('mod', true)), 'many-entries');
-    // With no HEAD it is loose objects of the leftover vendor/, passed over.
-    assert.strictEqual(farGitConfig(make('left', false)), '');
+    assert.strictEqual(farGitConfig(make('mod', [], true)), 'many-entries');
+    // A submodule named vendor/objects/ab/child: its gitdir is below ab, which
+    // has no HEAD, and is walked too.
+    assert.strictEqual(farGitConfig(make('child', ['child'], true)), 'many-entries');
+    // A folder below ab with no HEAD anywhere is not loose objects either.
+    assert.strictEqual(farGitConfig(make('nohead', [], false)), 'many-entries');
+    // Plain files only, with no HEAD: loose objects of the leftover vendor/,
+    // passed over however many there are.
+    const left = path.join(base, 'left'); repoAt(left);
+    const ab = path.join(left, '.git', 'modules', 'vendor', 'objects', 'ab');
+    fs.mkdirSync(ab, { recursive: true });
+    for (let i = 0; i < 1500; i++) fs.writeFileSync(path.join(ab, i.toString(16).padStart(38, '0')), '');
+    assert.strictEqual(farGitConfig(left), '');
   } finally {
     if (low === undefined) delete process.env.JBMEM_TEST_GITDIR_BUDGET; else process.env.JBMEM_TEST_GITDIR_BUDGET = low;
   }
