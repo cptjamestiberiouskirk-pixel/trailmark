@@ -5,6 +5,7 @@ Read `dev/release-state.md` first: where the release stands, what is open, and w
 ## Conventions
 
 - Commits: author and committer `Jim Burke <249854027+cptjamestiberiouskirk-pixel@users.noreply.github.com>`. No AI attribution or co-author lines in commits, code or docs. Before pushing: `git remote set-url origin https://github.com/cptjamestiberiouskirk-pixel/trailmark.git`.
+- Merging: since 2026-11-04, `main` requires the 9 jobs of `.github/workflows/tests.yml` to pass before a PR can merge (admins are exempt from the check). Merge only when the user says so, with GitHub auto-merge and a merge commit: `gh pr merge <n> --auto --merge`. Auto-merge then waits for the jobs, so nobody has to watch CI.
 - Writing: no em or en dashes (use `--` or rewrite). No tricolons. User-facing text is plain and direct.
 - Evidence: label claims CONFIRMED (reproduced or seen in code), INFERRED (follows from what was seen) or HYPOTHESIZED. Say what a test showed and what it didn't.
 - Before handing over a file or script, check it for destructive operations and anything that looks malicious, and say what you found.
