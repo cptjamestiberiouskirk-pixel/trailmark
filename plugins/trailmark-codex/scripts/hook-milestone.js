@@ -114,6 +114,15 @@ guard(() => {
   const handoff = path.join(dir, S.HANDOFF);
 
   let commits = { entries: [], unresolved: [] };
+  // The folders the command was checked in, outside the session's own repo,
+  // join its commit folders, so a later sweep reads them.
+  const addOthers = (rec) => {
+    const others = (commits.folders || []).filter(f => !f.own).map(f => f.dir);
+    if (!others.length) return;
+    const dirs = Array.isArray(rec.commitDirs) ? rec.commitDirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
+    for (const d of others) if (!dirs.includes(d)) dirs.push(d);
+    rec.commitDirs = dirs.slice(-6);
+  };
   let endLine = '';
   if (kind === 'commit') {
     let raw = null;
@@ -143,12 +152,7 @@ guard(() => {
           S.updateState(dir, session, (state, rec) => {
             const noted = Array.isArray(state.bgNoted) ? state.bgNoted.filter(x => typeof x === 'string').slice(-50) : [];
             if (!noted.includes(toolId)) { state.bgNoted = noted.concat(toolId); first = true; }
-            const others = (commits.folders || []).filter(f => !f.own).map(f => f.dir);
-            if (rec && others.length) {
-              const dirs = Array.isArray(rec.commitDirs) ? rec.commitDirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
-              for (const d of others) if (!dirs.includes(d)) dirs.push(d);
-              rec.commitDirs = dirs.slice(-6);
-            }
+            if (rec) addOthers(rec);
           });
         } catch (e) { if (e && e.code === 'ERR_ACCESS_DENIED') throw e; }
         if (first) emit({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: `[trailmark] ${BG_NOTE}` } });
@@ -225,6 +229,9 @@ guard(() => {
           for (const u of slow) if (u.folder && !dirs.includes(u.folder)) dirs.push(u.folder);
           rec.commitDirs = dirs.slice(-6);
         }
+        // A command sent to the background may still commit in its other
+        // folders, the ones it hasn't committed in yet among them.
+        if (rec && background) addOthers(rec);
         if (!fresh.length && !commits.unresolved.length) return false; // nothing new was committed
       } else if (kind === 'pr-merge') {
         S.note(dir, `PR_MERGE ${mergeText(command)}`, session);
@@ -253,7 +260,7 @@ guard(() => {
     leave();
   }
   const slowText = slowNote
-    ? `[trailmark] A commit was not logged yet: git was too slow (it timed out) in ${slow.map(u => `"${u.dir || 'the folder'}"`).join(', ')}. The next commit sweep logs it, at a checkpoint or the next session start.`
+    ? `[trailmark] A commit was not logged yet: git was too slow (it timed out) in ${slow.length === 1 ? 'one folder' : `${slow.length} folders`}. The next commit sweep logs it, at a checkpoint or the next session start.`
     : '';
   if (afterFailure || (!hint && !slowText)) leave();
   const hintText = hint

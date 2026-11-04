@@ -558,6 +558,10 @@ const LFS_BUDGET = 10000;
 // about 50,000 unpacked branches with their reflogs, walked in well under a
 // second.
 const GITDIR_BUDGET = 100000;
+// A HEAD in d (a file or a link, as git accepts either).
+function headAt(d) {
+  try { const h = fs.lstatSync(path.join(d, 'HEAD')); return h.isFile() || h.isSymbolicLink(); } catch { return false; }
+}
 function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
   // JBMEM_TEST_GITDIR_BUDGET can only lower it (the tests use 20,000).
   const low = Number(process.env.JBMEM_TEST_GITDIR_BUDGET);
@@ -605,8 +609,12 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
       // A folder under modules/ with no HEAD (left behind by a removed
       // submodule) isn't a gitdir git opens: its objects/ is skipped the same
       // way, so a large one can't use up the budget.
-      const store = lfsStore ? false : objectsRoot ? rel === '' : rel === (top ? top + '/objects' : 'objects') || /^modules\/.+\/objects$/.test(below);
-      if (store && /^[0-9a-f]{2}$/i.test(x.name)) continue;
+      // A submodule may also be named like vendor/objects/ab: its gitdir is
+      // then modules/vendor/objects/ab, inside such a leftover's objects/,
+      // so there a folder with a HEAD is walked as the gitdir it is.
+      const own = lfsStore ? false : objectsRoot ? rel === '' : rel === (top ? top + '/objects' : 'objects');
+      const leftover = !lfsStore && !objectsRoot && !own && /^modules\/.+\/objects$/.test(below);
+      if ((own || leftover) && /^[0-9a-f]{2}$/i.test(x.name) && !(leftover && headAt(sub))) continue;
       if (depth >= MAX_GITDIR_DEPTH) return 'deep-gitdir';
       const k = WIN ? sub.toLowerCase() : sub;
       if (seen.has(k)) continue;
@@ -617,7 +625,7 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
       const childBelow = below ? below + '/' + x.name : x.name;
       let childTop = top;
       if (!objectsRoot && !lfsStore && /^modules\/./.test(childBelow)) {
-        try { const h = fs.lstatSync(path.join(sub, 'HEAD')); if (h.isFile() || h.isSymbolicLink()) childTop = childRel; } catch { /* not a gitdir */ }
+        if (headAt(sub)) childTop = childRel;
       }
       const why = walk(sub, childRel, depth + 1, budget, childTop);
       if (why) return why;
