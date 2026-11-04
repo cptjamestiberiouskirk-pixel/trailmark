@@ -3146,7 +3146,8 @@ test('0.3.4 sweep: another clone with its own memory folder: what its sessions l
   const { s, wt, clone, gClone, head, hook } = multiFolder();
   const start = (sid, cwd) => jbmIn(s, cwd, ['--hook', 'session-start'], JSON.stringify({ cwd, session_id: sid, source: 'startup', hook_event_name: 'SessionStart' }));
   const write = (sid, cwd) => {
-    const r = jbmIn(s, cwd, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${sid}`], `# H\n- by ${sid.slice(0, 8)}\n`);
+    // The version read in the folder written: the clone has a handoff of its own.
+    const r = jbmIn(s, cwd, ['write-handoff', `--base=${versionNow((a, i) => jbmIn(s, cwd, a, i))}`, `--session=${sid}`], `# H\n- by ${sid.slice(0, 8)}\n`);
     assert.strictEqual(r.status, 0, r.stdout + r.stderr);
     return r.stdout;
   };
@@ -3169,7 +3170,8 @@ test('0.3.4 sweep: another clone with its own memory folder: what its sessions l
   // With git slowed by other work, B's hook can run out of time: it says so,
   // and B's own sweep logs the commit, in the clone's memory.
   if (/not logged yet: git was too slow/.test(bHook.stdout)) settle(() => write(SB, clone));
-  assert.match(cloneNotes(), new RegExp(`COMMIT ${shaB} B at home session=22222222`));
+  // Logged by B's hook, or by B's sweep, which marks it (found later).
+  assert.match(cloneNotes(), new RegExp(`COMMIT ${shaB} B at home (?:\\(found later\\) )?session=22222222`));
   // A commit nobody logged anywhere, before B's next command starts.
   gClone('commit', '-q', '--allow-empty', '-m', 'nobody logged');
   const shaN = head(clone);

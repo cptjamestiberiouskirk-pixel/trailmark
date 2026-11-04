@@ -1067,6 +1067,10 @@ test('superprojects: many module gitdirs stay fast, one on a share skips only st
     fs.mkdirSync(path.join(d, 'objects', 'info'), { recursive: true }); fs.mkdirSync(path.join(d, 'refs'));
     fs.writeFileSync(path.join(d, 'HEAD'), 'ref: refs/heads/main\n');
     fs.writeFileSync(path.join(d, 'config'), `[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = ../../../s${i}\n`);
+    // Each submodule's folder, as a checkout has it. Without it, outside
+    // Windows, s0's worktree (a '..' after a missing folder) gave
+    // network-config, so s7 was never reached (0.5.1).
+    fs.mkdirSync(path.join(sp, 's' + i));
   }
   g('update-index', '--add', '--cacheinfo', `160000,${head},s0`); g('commit', '-qm', 'sub');
   const t0 = Date.now();
@@ -1082,7 +1086,7 @@ test('superprojects: many module gitdirs stay fast, one on a share skips only st
 });
 
 test('0.5.1 superprojects: the module gitdir walk looks at each folder once per check', () => {
-  const { farModules } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const { farGitConfig, farModules } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-walk1-');
   const sp = path.join(base, 'sp'); repoAt(sp);
   for (let i = 0; i < 200; i++) {
@@ -1090,7 +1094,12 @@ test('0.5.1 superprojects: the module gitdir walk looks at each folder once per 
     fs.mkdirSync(path.join(d, 'objects', 'info'), { recursive: true }); fs.mkdirSync(path.join(d, 'refs'));
     fs.writeFileSync(path.join(d, 'HEAD'), 'ref: refs/heads/main\n');
     fs.writeFileSync(path.join(d, 'config'), `[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = ../../../s${i}\n`);
+    fs.mkdirSync(path.join(sp, 's' + i));
   }
+  // As in gitFacts: the folder itself is checked first. A relative setting
+  // is also read from the folder of the last check, which an earlier test
+  // may have left on a share.
+  assert.strictEqual(farGitConfig(sp), '');
   const real = fs.lstatSync;
   let n = 0;
   fs.lstatSync = (...a) => { n++; return real(...a); };
@@ -1100,7 +1109,7 @@ test('0.5.1 superprojects: the module gitdir walk looks at each folder once per 
   // 26,403 calls before 0.5.1 (each part of each path looked at again), 2,412 now.
   assert.ok(n < 6000, `${n} lstat calls for 200 module gitdirs`);
   fs.writeFileSync(path.join(sp, '.git', 'modules', 's199', 'objects', 'info', 'alternates'), '//evil.invalid/share/cache/objects\n');
-  assert.strictEqual(farModules(sp), 'network-config', 'the last module gitdir is still checked');
+  assert.strictEqual(farModules(sp), 'network-config', 's199 is still checked');
 });
 
 test('0.5.1 superprojects: what one check found is not kept for the next', () => {
