@@ -42,7 +42,7 @@ if (cmd === 'node-advice') {
 } else if (cmd === 'others' || cmd === 'others-new') {
   // others-new, for the migration's preflight: jb-memory is about to be
   // removed, so only another Trailmark install counts. Each id once, with the
-  // scopes it is installed at (jb-memory: the name before 0.5.1).
+  // scopes it is installed at (jb-memory: the name before 0.5.0).
   const want = cmd === 'others' ? /^(?:trailmark|jb-memory)@/i : /^trailmark@/i;
   const by = new Map();
   for (const p of readList()) {

@@ -85,7 +85,7 @@ The note lives in Claude Code's memory folder for the repo, under `~/.claude/pro
 
 Outside the memory folder, this copy:
 
-- reads folder names in Codex's plugin cache (`%USERPROFILE%\.codex\plugins\cache`, or under `CODEX_HOME`), three levels down, to warn about a leftover `jb-memory-codex`, this plugin's name before 0.5.1. It opens no files there.
+- reads folder names in Codex's plugin cache (`%USERPROFILE%\.codex\plugins\cache`, or under `CODEX_HOME`), three levels down, to warn about a leftover `jb-memory-codex`, this plugin's name before 0.5.0. It opens no files there.
 - reads Codex's own chat records (`%USERPROFILE%\.codex\sessions` and `archived_sessions`) by session ID only, and only for a chat that started in this repo, for the exit code of a commit command and for the checkpoint skill. It never reads a Claude Code transcript.
 - writes `payload-shapes.log` in the plugin's data folder (see below).
 

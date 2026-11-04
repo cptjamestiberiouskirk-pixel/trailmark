@@ -9,7 +9,7 @@
 #      and type yes. If a known-good list already exists, it shows what changed
 #      instead and asks again.
 #   3. Removes the tasks and installed copy of jb-watchdog, its name before
-#      0.5.1, if they are there (their log and known-good list stay), then
+#      0.5.0, if they are there (their log and known-good list stay), then
 #      adds two scheduled tasks, as you, with no admin rights. They run only
 #      while you're logged on, which is what lets them show notifications.
 #        trailmark-watchdog           scans every 15 minutes
@@ -52,7 +52,7 @@ $here     = Split-Path -Parent $MyInvocation.MyCommand.Path
 $src      = Join-Path $here 'trailmark-watchdog.ps1'
 $stateDir = Join-Path $env:LOCALAPPDATA 'trailmark-watchdog'
 $dest     = Join-Path $stateDir 'trailmark-watchdog.ps1'
-# Before 0.5.1 the watchdog was jb-watchdog. Its tasks are removed here, since
+# Before 0.5.0 the watchdog was jb-watchdog. Its tasks are removed here, since
 # left running they would report every renamed file in the release folder.
 $legacyTasks = @('jb-watchdog', 'jb-watchdog-reminder')
 $legacyDest  = Join-Path (Join-Path $env:LOCALAPPDATA 'jb-watchdog') 'jb-watchdog.ps1'

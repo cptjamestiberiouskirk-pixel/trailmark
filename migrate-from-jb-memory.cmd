@@ -1,7 +1,7 @@
 @echo off
 rem setlocal: the change to PSModulePath below stays in this script.
 setlocal
-rem Moves an install of jb-memory (Trailmark before 0.5.1) to Trailmark, for
+rem Moves an install of jb-memory (Trailmark before 0.5.0) to Trailmark, for
 rem Claude Code and Codex. PowerShell by full path: cmd.exe looks in the
 rem current folder first, so a powershell.exe there would otherwise run.
 rem Options pass through, for example: migrate-from-jb-memory.cmd --dry-run

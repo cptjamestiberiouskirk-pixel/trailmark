@@ -31,7 +31,7 @@ Version 0.5.1, for both Claude Code and the Codex copy (trailmark-watchdog 1.7.0
 |---|---|
 | `install.sh` | Installer for macOS and Linux |
 | `install.ps1`, `install.cmd` | Installer for Windows (`install.cmd` runs the `.ps1` without changing the execution policy) |
-| `migrate-from-jb-memory.cmd`, `tools/migrate-from-jb-memory.*` | Moves an install of jb-memory, the name before 0.5.1, to Trailmark (section 15) |
+| `migrate-from-jb-memory.cmd`, `tools/migrate-from-jb-memory.*` | Moves an install of jb-memory, the name before 0.5.0, to Trailmark (section 15) |
 | `.claude-plugin/marketplace.json` | The Claude Code marketplace, named `trailmark` |
 | `plugins/trailmark/` | The Claude Code plugin: hooks, six skills, the launcher and its tests |
 | `.agents/plugins/marketplace.json` | The Codex marketplace, named `trailmark-codex` |
@@ -81,7 +81,7 @@ It works through these steps in order:
 2. It refuses a release folder that someone else could change, and a release that holds links. The exact rules are under "Folder permissions" below.
 3. On Windows, it checks `NoDefaultCurrentDirectoryInExePath` (section 9).
 4. It runs the sandbox check.
-5. It refuses while jb-memory, the name before 0.5.1, is installed at any scope. It also refuses if Trailmark is already installed from another marketplace, or if a marketplace named `trailmark` points at another folder. Two copies would each run every hook.
+5. It refuses while jb-memory, the name before 0.5.0, is installed at any scope. It also refuses if Trailmark is already installed from another marketplace, or if a marketplace named `trailmark` points at another folder. Two copies would each run every hook.
 6. It runs `claude plugin validate` (part of `--check` and `--preflight` too), then `claude plugin marketplace add <folder>` and `claude plugin install trailmark@trailmark` (user scope).
 
 Options:
@@ -403,7 +403,7 @@ Nothing in your repos or memory folders is deleted. Each repo's handoff, archive
 
 ## 15. Moving from an older install
 
-### From jb-memory (before 0.5.1)
+### From jb-memory (before 0.5.0)
 
 Trailmark was called jb-memory up to 0.4.5. The memory folders, handoffs and `.jbmem.json` settings carry over unchanged: they keep their file names, and so do the `JBMEM_*` environment variables. What changes is the plugin, marketplace and skill names, so the move is one uninstall and one install.
 

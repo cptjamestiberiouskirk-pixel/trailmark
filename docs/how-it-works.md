@@ -264,7 +264,7 @@ The whole injection is cut to fit Claude Code's 10,000-character limit whatever 
 
 ## Skills and other copies
 
-At session start the launcher looks in Claude Code's plugin cache (`<config>/plugins/cache/<marketplace>/<plugin>/<version>`) for other copies of Trailmark. A copy is a folder named `trailmark` or `jb-memory` (the name before 0.5.1), or one holding `scripts/trailmark.js` or the old `scripts/jbm.js`, other than the running copy and the Trailmark that Claude Code lists as installed in `plugins/installed_plugins.json`. An installed copy under the old name is named too, since it runs every hook next to Trailmark.
+At session start the launcher looks in Claude Code's plugin cache (`<config>/plugins/cache/<marketplace>/<plugin>/<version>`) for other copies of Trailmark. A copy is a folder named `trailmark` or `jb-memory` (the name before 0.5.0), or one holding `scripts/trailmark.js` or the old `scripts/jbm.js`, other than the running copy and the Trailmark that Claude Code lists as installed in `plugins/installed_plugins.json`. An installed copy under the old name is named too, since it runs every hook next to Trailmark.
 
 The start message names each one, so you can remove it, and tells Claude never to run it. Without that, a session could find an old cached copy by searching the disk and write the handoff with it, skipping the version check.
 

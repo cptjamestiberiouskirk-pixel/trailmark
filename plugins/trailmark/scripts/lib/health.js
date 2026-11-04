@@ -280,7 +280,7 @@ function nodeInside(execPath, folders, platform = process.platform) {
   return '';
 }
 
-// jb-memory-codex, the Codex copy's name before 0.5.1, in Codex's own plugin
+// jb-memory-codex, the Codex copy's name before 0.5.0, in Codex's own plugin
 // cache: left installed, it would run every hook next to trailmark-codex.
 // Codex doesn't document the cache's layout, so the folders are searched by
 // name, three levels down, local folders only. Returns their display paths.

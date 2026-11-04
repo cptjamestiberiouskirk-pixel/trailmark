@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // migrate-from-jb-memory.js -- moves an install of jb-memory (Trailmark's name
-// before 0.5.1) to Trailmark, for Claude Code and for Codex, and installs this
+// before 0.5.0) to Trailmark, for Claude Code and for Codex, and installs this
 // release with its own installer.
 //
 //   node tools/migrate-from-jb-memory.js            show the plan, ask, then do it

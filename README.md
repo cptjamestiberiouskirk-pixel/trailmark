@@ -43,7 +43,7 @@ Or [download a release](https://github.com/cptjamestiberiouskirk-pixel/trailmark
 
 `--check` (`-Check` on Windows) runs the checks without changing anything.
 
-Coming from jb-memory, Trailmark's name before 0.5.1? Run `node tools/migrate-from-jb-memory.js --dry-run` from the release folder (or `migrate-from-jb-memory.cmd --dry-run` on Windows) to see the plan, then run it without `--dry-run` instead of the installer. It removes jb-memory, installs Trailmark and leaves your notes where they are. [MANUAL.md](MANUAL.md), section 15, has the details.
+Coming from jb-memory, Trailmark's name before 0.5.0? Run `node tools/migrate-from-jb-memory.js --dry-run` from the release folder (or `migrate-from-jb-memory.cmd --dry-run` on Windows) to see the plan, then run it without `--dry-run` instead of the installer. It removes jb-memory, installs Trailmark and leaves your notes where they are. [MANUAL.md](MANUAL.md), section 15, has the details.
 
 ## Quick start
 
