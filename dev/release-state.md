@@ -4,7 +4,7 @@ Last updated 2026-11-04.
 
 ## Next feature: the context watch (brief written 2026-11-04)
 
-`dev/context-watch-prompt.md` is the brief for a new hook that asks Claude to run trailmark:checkpoint before Claude Code's auto-compaction. It was written from a user-level prototype and the facts measured with it. The user expects 0.6.0 and decides whether the 0.5.2 deferred list ships first. Not started.
+`dev/context-watch-prompt.md` is the brief for a new hook that asks Claude to run trailmark:checkpoint before Claude Code's auto-compaction. It was written from a user-level prototype and the facts measured with it. `dev/release-0.6.0-prompt.md` (saved 2026-11-04 at the user's request) is the prompt that starts the release: this hook and the 0.5.2 items together, in 0.6.0. Not started.
 
 ## 0.5.0
 
