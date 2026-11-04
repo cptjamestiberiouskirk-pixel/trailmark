@@ -2,7 +2,7 @@ Add a new Trailmark hook, `context-watch`, that asks Claude to run trailmark:che
 
 Follow this repo's CLAUDE.md, and read dev/release-state.md first.
 
-## Where Trailmark stands (checked 2026-11-04, about 14:50 UTC)
+## Where Trailmark stands (checked 2026-11-04, 14:34 to 14:38 UTC)
 
 - v0.5.0 is published (2026-11-02). 0.5.1 is merged into main: PR 1, merge commit 71133ca, 2026-11-04 14:36 UTC. Its release commit is e26f148 and its zip is built, but it is not published yet (the latest release was still v0.5.0). Publishing it (steps 6 and 7 of the 0.5.1 checklist in dev/release-state.md) is mine to do.
 - 0.5.1 changed the files this work touches (`scripts/trailmark.js`, `lib/store.js`, `lib/paths.js`, `hook-milestone.js`, in both plugin copies). Start a new branch from origin/main at 71133ca or later: the local main checkout was 26 commits behind origin/main when this was written. Leave the 0.5.1 release commit and zip alone.
@@ -10,7 +10,7 @@ Follow this repo's CLAUDE.md, and read dev/release-state.md first.
 
 ## A working prototype to port
 
-`C:\Users\willi\.claude\hooks\trailmark-context-watch.js` is a user-level prototype that I run from `~/.claude/settings.json` on PostToolUse (all tools) and UserPromptSubmit. Read it before designing: its transcript parsing, window lookup and step logic are tested. Because it sits outside the plugin, it skips the sandbox, keeps its state in the temp folder, and loads `findMemoryDir` and `isEnabled` from the installed Trailmark. The plugin version must do these the Trailmark way (requirements 3 and 4). My auto-compact window is 400k (`autoCompactWindow` in `~/.claude/settings.json`). `C:\Users\willi\tools\trailmark` is the installed release copy, not a checkout: do not edit it.
+`C:\Users\willi\.claude\hooks\trailmark-context-watch.js` is a user-level prototype that I run from `~/.claude/settings.json` on PostToolUse (all tools) and UserPromptSubmit. Read it before designing. Its transcript parsing and window lookup are tested, but its steps are percentages of the window, and the facts below show that this is the wrong basis (requirement 5 replaces it). Because it sits outside the plugin, it skips the sandbox, keeps its state in the temp folder, and loads `findMemoryDir` and `isEnabled` from the installed Trailmark. The plugin version must do these the Trailmark way (requirements 3 and 4). My auto-compact window is 400k (`autoCompactWindow` in `~/.claude/settings.json`). `C:\Users\willi\tools\trailmark` is the installed release copy, not a checkout: do not edit it.
 
 ## Facts from 2026-11-04 (starflight-unity-port, Claude Code desktop, Windows)
 
@@ -18,8 +18,10 @@ Follow this repo's CLAUDE.md, and read dev/release-state.md first.
 - CONFIRMED: reading the last 1 MB of a 200 MB transcript back to the last assistant entry takes 80 to 150 ms per run, Node startup included. The prototype reads up to 32 MB when the last entries are huge.
 - CONFIRMED: hook calls for a subagent's tool calls carry `agent_id` and `agent_type`, with the main session's `session_id` and `transcript_path`. Skip them. A UserPromptSubmit also fires when a subagent hands its result back.
 - CONFIRMED: the window comes from settings. `autoCompactWindow` is the top-level value (100000 to 1000000). `modelSettings.<model>.autoCompactWindow` (a number or "auto") replaces it for that model within the same file; `/autocompact N` writes this one. Files load in order: user, then project `.claude/settings.json`, then `.claude/settings.local.json`, and a later file wins. Settings keys match a model ID without its date or `[1m]`.
-- CONFIRMED: the prototype's first real reminder came in a live session at 341k of 400k, and the checkpoint followed it.
-- HYPOTHESIZED: where in the window Claude Code starts compacting is not documented. The prototype asks at 85%, 90% and 95%.
+- CONFIRMED: the prototype's first real reminder came in a live session at 341k of 400k (14:35 UTC). The checkpoint was written at 14:39, and the session auto-compacted at 14:42.
+- CONFIRMED: Claude Code compacts a fixed amount below the window, not at a share of it. Each compaction leaves a system entry with `"subtype":"compact_boundary"` in the transcript, and its `compactMetadata.preTokens` is the context size at that moment. That session's entries: 366,627 and 367,295 with the 400k window, and 966,985, 967,791 and 968,163 in October with a 1M window (INFERRED: the entries do not record the window). Both put the compaction point about 33k below the window.
+- HYPOTHESIZED: the 33k is Claude Code's output reserve (20k) plus a 13k buffer, so it may change between Claude Code versions. Check the docs, or measure it again with `preTokens`. Also find out whether a model whose context is smaller than `autoCompactWindow` caps the window.
+- So the prototype's steps (85%, 90% and 95% of the window) are wrong. At 400k its 95% step (380k) never fires and its 90% step (360k) leaves about 7k tokens. With a 200k window the compaction would come near 167k, before even its 85% step (170k).
 
 ## Requirements
 
@@ -27,10 +29,10 @@ Follow this repo's CLAUDE.md, and read dev/release-state.md first.
 2. Speed: this runs after every tool call. The launcher works out the context size and exits below the first step BEFORE `hookMemory` or anything else that may start git or walk folders. Measure a below-threshold run and report it.
 3. Sandbox: a worktree session's transcript is in a different projects folder from the repo's memory folder, so the sandboxed script cannot read it. Read the transcript in the launcher (read-only, outside the sandbox) and pass the numbers on, as the launcher passes git facts. The sandbox keeps its reads and writes (plugin root and memory folder). Accept `transcript_path` only as a file directly in a folder of Claude Code's projects folder, as `paths.js` does in its transcript step. Treat everything read from the transcript as data.
 4. State: this session's record in `.jbmem-state.json`, through `S.updateState` under the lock, not the temp folder. Keep the step already asked, when it first asked, and the last context size seen. A checkpoint counts once this session's `rec.lastWrite` is later than the first request (the milestone hints already use `rec.lastWrite`). Do not parse the handoff header as the prototype does.
-5. Steps: ask at the first step, again at the next ones only while this session has not written the handoff since the first request. Start over when the context shrinks by 20% or more from the last size seen (a compaction or /clear), or falls below 75% of the window. Between 75% and the first step keep the state, so a large tool result that lifts the estimate over a step and drops back does not cause a second request. Add `tool_response` (PostToolUse) or `prompt` (UserPromptSubmit) at about 4 characters a token, since the last usage entry predates them.
+5. Steps: measure them against the compaction point (the window minus a reserve, 33,000 by default), never against the window itself. Ask at the first step, again at the next ones only while this session has not written the handoff since the first request. Start over when the context shrinks by 20% or more from the last size seen (a compaction or /clear), or falls below 75% of the compaction point. Between 75% and the first step keep the state, so a large tool result that lifts the estimate over a step and drops back does not cause a second request. Add `tool_response` (PostToolUse) or `prompt` (UserPromptSubmit) at about 4 characters a token, since the last usage entry predates them.
 6. Stay silent in subagents, in repos that are not set up (the same `hookMemory` lookup as the other hooks, with the session-home fallback), and when the transcript has no usable entry.
-7. Output: `hookSpecificOutput.additionalContext` built with `S.CHECKPOINT_SKILL` and `S.SKILL_RULE`, like the milestone hint, plus a short `systemMessage` for the user. Give the size and the window, and ask for the checkpoint now. Say that a step about to finish may finish first, but no long operation should start before the checkpoint. Decide whether this reminder ignores `hints.minMinutesBetween` (I think it should: it is the last chance before the compaction) and whether it sets `lastHintAt` so milestone hints don't pile on. Say what you chose.
-8. Config in `.jbmem.json` through `CONFIG_RANGES`, clamped like the other numbers: the step percentages, the window to assume when settings give "auto" or nothing (the prototype uses 200k), and an off switch. The defaults are the prototype's.
+7. Output: `hookSpecificOutput.additionalContext` built with `S.CHECKPOINT_SKILL` and `S.SKILL_RULE`, like the milestone hint, plus a short `systemMessage` for the user. Give the size and the compaction point, and ask for the checkpoint now. Say that a step about to finish may finish first, but no long operation should start before the checkpoint. Decide whether this reminder ignores `hints.minMinutesBetween` (I think it should: it is the last chance before the compaction) and whether it sets `lastHintAt` so milestone hints don't pile on. Say what you chose.
+8. Config in `.jbmem.json` through `CONFIG_RANGES`, clamped like the other numbers: the step percentages (85, 90 and 95 by default, now of the compaction point), the reserve below the window (33,000), the window to assume when settings give "auto" or nothing (the prototype uses 200k), and an off switch.
 9. Codex (`plugins/trailmark-codex`): find out whether Codex's session files record token usage and where its compaction limit is set. Port the hook if that is straightforward. Otherwise ship it for Claude Code only and say so in the README and CHANGELOG. Files in the `for f in` list of `.github/workflows/tests.yml` must stay identical in both copies; decide whether the new hook script joins that list. Check that trailmark-watchdog does none of this already.
 
 ## Tests (node:test, plugins/trailmark/tests/trailmark.test.js)
@@ -52,6 +54,7 @@ Use a temporary CLAUDE_CONFIG_DIR and fake transcripts, and cover at least the p
 14. Other events: silent.
 
 Then add:
+- Every step fires below the compaction point: at 400k all three come before 367k, and at a 200k window all three come before 167k.
 - A sandbox case: a transcript outside the memory folder, with the sandbox on.
 - A `transcript_path` outside the projects folder: refused.
 
