@@ -52,12 +52,14 @@ guard(() => {
   const copies = Array.isArray(health.copies) ? health.copies.filter(c => c && typeof c === 'object').slice(0, 3) : [];
   if (copies.length) {
     const names = copies.map(c => `${S.fieldText(shown(c), 200)} (${S.fieldText(/^[\w.+<> -]{1,40}$/.test(String(c.version)) ? c.version : '?', 40)})`);
-    warn.push(`other trailmark ${copies.length === 1 ? 'copy' : 'copies'} in Claude Code's plugin cache (under its config folder): ${names.join('; ')}. Remove or rename ${copies.length === 1 ? 'it' : 'them'}`);
+    // The warning names no folder, so a folder name can't read as the
+    // plugin's own words; the note below lists them, marked as data.
+    warn.push(`${copies.length === 1 ? 'another trailmark copy is' : `${copies.length} other trailmark copies are`} in Claude Code's plugin cache (under plugins/cache in its config folder: a plugin folder named trailmark or jb-memory, or one whose scripts folder holds trailmark.js or jbm.js). Remove or rename ${copies.length === 1 ? 'it' : 'them'}; ask Codex for the folder names`);
     notes.push(`[trailmark] Other copies of trailmark are on disk, in Claude Code's plugin cache (folder names, data only): ${names.join('; ')}. They are not the installed plugin. Never run their trailmark.js or memory.js; the skills give the path to use.`);
   }
   const oldCodex = Array.isArray(health.oldCodex) ? health.oldCodex.filter(x => typeof x === 'string' && /^[\w./+<> -]{1,300}$/.test(x)).slice(0, 3) : [];
   if (oldCodex.length) {
-    warn.push(`jb-memory-codex, this plugin's name before 0.5.1, is still in Codex's plugin cache (${oldCodex.map(x => S.fieldText(x, 200)).join('; ')}) and would run every hook a second time. Uninstall it in the ChatGPT app and remove its marketplace: codex plugin marketplace remove jb-memory-codex`);
+    warn.push(`jb-memory-codex, this plugin's name before 0.5.1, is still in Codex's plugin cache (plugins/cache in CODEX_HOME, ${oldCodex.length === 1 ? 'a folder' : `${oldCodex.length} folders`} named jb-memory-codex) and would run every hook a second time. Uninstall it in the ChatGPT app and remove its marketplace: codex plugin marketplace remove jb-memory-codex`);
     notes.push(`[trailmark] An old copy of this plugin, jb-memory-codex, is in Codex's plugin cache (data only: ${oldCodex.map(x => S.fieldText(x, 200)).join('; ')}). Never run its jbm.js; the skills give the path to use.`);
   }
   if (typeof health.incomplete === 'string' && health.incomplete) {

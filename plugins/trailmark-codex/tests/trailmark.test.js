@@ -3279,7 +3279,7 @@ test('health: other trailmark copies in the plugin cache are found, the running 
   assert.ok(!H.otherCopies(path.join(base, 'cfg'), mine).copies.some(f => f.path === old), 'installed copy left out');
 });
 
-test('session start: names an old cached copy to the user and to Claude, inside the size cap', () => {
+test('session start: warns of an old cached copy without naming its folder, and names it to Claude as data, inside the size cap', () => {
   const s = sandbox();
   jbm(s, ['init']);
   wh(J(s), '# H\n- state\n');
@@ -3289,8 +3289,9 @@ test('session start: names an old cached copy to the user and to Claude, inside 
   const r = jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SA }));
   assert.strictEqual(r.status, 0, r.stderr);
   const out = JSON.parse(r.stdout);
-  assert.match(out.systemMessage, /WARNING: .*other trailmark copy in Claude Code's plugin cache .*plugins\/cache\/old-local\/trailmark\/0\.2\.0/);
-  assert.match(out.hookSpecificOutput.additionalContext, /Other copies of trailmark are on disk.*Never run their trailmark\.js or memory\.js/);
+  assert.match(out.systemMessage, /WARNING: .*another trailmark copy is in Claude Code's plugin cache/);
+  assert.doesNotMatch(out.systemMessage, /old-local/, 'the warning names no folder');
+  assert.match(out.hookSpecificOutput.additionalContext, /Other copies of trailmark are on disk.*plugins\/cache\/old-local\/trailmark\/0\.2\.0.*Never run their trailmark\.js or memory\.js/);
   assert.ok(out.hookSpecificOutput.additionalContext.length <= 9900);
   // Gone: no warning.
   fs.rmSync(old, { recursive: true, force: true });

@@ -375,7 +375,7 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 | The line says `sandbox off` or warns about the sandbox | `JBMEM_SANDBOX=off` is set in user or repo settings | Remove it unless you set it on purpose |
 | "Sandbox check failed" or "SANDBOX UNAVAILABLE" | Node is too old or was built without the permission model | Install a current Node LTS and rerun the check. Only if that's impossible, set `JBMEM_SANDBOX=off` (section 7) |
 | Warning that Node is older than the security release | Node is below its line's floor | Update Node |
-| Warning naming another copy of Trailmark | A stale copy in Claude Code's plugin cache | Remove the named folder, or uninstall the other install (section 15) |
+| Warning about another copy of Trailmark | A stale copy in Claude Code's plugin cache | Remove that folder (the warning says where to look; Claude has the folder names), or uninstall the other install (section 15) |
 | `/checkpoint` opens the rewind menu | Claude Code's `/rewind` has that alias | Use `/trailmark:checkpoint` |
 | A checkpoint write is refused with exit code 3 | Another session wrote the handoff first | Nothing: the skill merges and writes again. Three refusals in a row means two sessions are checkpointing at the same moment |
 | Exit code 2 | Over budget | The skill tightens the text and writes again |
