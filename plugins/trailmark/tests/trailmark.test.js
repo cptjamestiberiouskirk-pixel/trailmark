@@ -4347,3 +4347,16 @@ test('0.6.0 context watch: a call with no new request since the ask (a parallel 
   e.usage(315000);
   assert.match(askText(e.run()), /about 315k tokens.*about 367k/);
 });
+
+test('0.6.0 context watch: a window that flips between two sizes starts the steps over once, not on every call', () => {
+  // claude-sonnet-4-5 is 200k by its name; a request over that proves the
+  // 250k window the setting allows (compaction near 167k and near 217k).
+  const c = contextWatchSetup({ model: 'claude-sonnet-4-5', settings: { autoCompactWindow: 250000 } });
+  for (const n of [145000, 152000, 160000]) { c.usage(n); assert.ok(c.run(), `asks at ${n / 1000}k`); }
+  assert.strictEqual(wh((a2, i) => jbm(c.s, a2, i), '# H\n## Next\n- x\n', [`--session=${SA}`]).status, 0);
+  const asked = [];
+  for (const n of [202000, 198000, 203000, 199000, 204000, 197000]) { c.usage(n); asked.push(askText(c.run()) ? `${n / 1000}k` : '-'); }
+  // The bigger window's first step asks once, and its repeat once (no write
+  // since that ask); flipping back and forth after that is silent.
+  assert.deepStrictEqual(asked, ['202k', '198k', '-', '-', '-', '-']);
+});

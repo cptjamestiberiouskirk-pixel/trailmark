@@ -17,8 +17,10 @@
 //   - It starts over after a compaction, or when the context has shrunk by a
 //     fifth from the last size seen, or fell below 75% of the compaction point
 //     (the launcher reads that from the transcript since the last request),
-//     or when the compaction point grew with the window, since the steps it
-//     passed were the smaller point's. A point that shrinks keeps the state: its steps come sooner.
+//     or when the compaction point grew past the biggest one it asked under,
+//     since the steps it passed were a smaller point's. A point that shrinks
+//     keeps the state: its steps come sooner. Keeping the biggest point means
+//     a window that flips back and forth starts the steps over only once.
 //     Between 75% and the first step nothing changes, so a large tool result
 //     that lifts the estimate over a step and drops back asks only once.
 //   - An ask made while the transcript's own size (before the estimate for
@@ -72,9 +74,9 @@ function decide(prev, rec, ctx, cfg, now) {
   const seen = count(w.seen);
   const pt = Math.round(point);
   // Start over: a compaction since the last request, a shrink, a fall below
-  // 75% of the compaction point, a compaction point that grew, or a
-  // transcript that couldn't be read back that far (asking once more is the
-  // safe side).
+  // 75% of the compaction point, a compaction point bigger than any asked
+  // under, or a transcript that couldn't be read back that far (asking once
+  // more is the safe side).
   if (w.level) {
     const s = ctx.since;
     const low = Math.min(ctx.base, s && Number.isFinite(s.min) ? s.min : Infinity);
@@ -92,7 +94,10 @@ function decide(prev, rec, ctx, cfg, now) {
     return { w, ask: null, point, changed: JSON.stringify(w) !== JSON.stringify(isObj(prev) ? prev : {}) };
   }
   const repeat = count(w.level) > 0;
-  return { w: { level, firstAt: firstAt > 0 ? firstAt : now, seen: ctx.base, seenAt: now, point: pt }, ask: { repeat, level }, point, changed: true };
+  // The biggest point asked under: a smaller one kept here would let the next
+  // flip back to the bigger window start the steps over again.
+  const keep = Math.max(pt, count(w.point) || 0);
+  return { w: { level, firstAt: firstAt > 0 ? firstAt : now, seen: ctx.base, seenAt: now, point: keep }, ask: { repeat, level }, point, changed: true };
 }
 
 const k = n => `${Math.round(n / 1000)}k`;
