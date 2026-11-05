@@ -4383,3 +4383,30 @@ test('0.6.0 context watch: a prompt after /compact, before the next request, doe
   assert.match(askText(d), /about 316k tokens/);
   assert.doesNotMatch(askText(d), /has not written/, 'the steps started over at the compaction');
 });
+
+test('0.6.0 commit folders: a folder already swept keeps its sweep start when another commit command runs there, so a script\'s commit in between is found', sweepTest(() => {
+  const { s, clone, gClone, head, hook } = multiFolder();
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  const write = () => settle(() => {
+    const r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], '# H\n- by A\n');
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    return r.stdout;
+  });
+  const commitHere = (msg) => hook(s.repo, SA, `git -C "${clone}" commit -q --allow-empty -m "${msg}"`, { between: () => gClone('commit', '-q', '--allow-empty', '-m', msg), duration_ms: 500 });
+  // A commit command joins the clone, and a checkpoint sweeps it past that command.
+  assert.strictEqual(commitHere('one').status, 0);
+  tick();
+  write();
+  tick();
+  // A script commits there with no hook; then a commit command runs there again.
+  gClone('commit', '-q', '--allow-empty', '-m', 'by a script');
+  const sha = head(clone);
+  // Past the slack the hook's window reaches back before a command starts
+  // (about 2 s, gitfacts.windowStart), so the hook doesn't take it as its own.
+  for (let i = 0; i < 4; i++) tick();
+  assert.strictEqual(commitHere('two').status, 0);
+  assert.ok(!commitLines(s).some(l => l.includes(`COMMIT ${sha} `)), `the hook logged the script's commit: ${notesOf(s)}`);
+  tick();
+  write();
+  assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${sha} in="${dp(clone)}" by a script (found later) session=11111111`)), notesOf(s));
+}));

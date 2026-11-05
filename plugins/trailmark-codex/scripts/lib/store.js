@@ -1181,12 +1181,14 @@ function rememberCommits(state, shas) {
 // committed in without a log line yet (git timed out, a command sent to the
 // background), at most MAX_COMMIT_DIRS; the commit sweep reads them.
 // rec.commitDirsAt keeps [from, settled] for each. The sweep starts there no
-// earlier than `from`, the window of the first command that added it since
-// a sweep last read it past `settled`: commits another session made there
-// before are not this session's. `settled` is when the latest of those
-// commands was done (for one sent to the background, when its time is up);
-// a sweep read past it means nothing of this session's is left there
-// unlogged. Past the limit, such a folder is dropped first (oldest first),
+// earlier than `from`, the window of the command that added it: commits
+// another session made there before are not this session's. A later command
+// there moves only `settled`, so the sweep reads on from where it last
+// stopped and still finds a commit made there in between (by a script, say).
+// `settled` is when the latest of those commands was done (for one sent to
+// the background, when its time is up); a sweep read past it means nothing
+// of this session's is left there unlogged. Past the limit, such a folder is
+// dropped first (oldest first),
 // then the oldest; a folder this call adds stays. With no time given (NaN)
 // a folder has no entry and is swept from the session's start, as before.
 const MAX_COMMIT_DIRS = 6;
@@ -1209,7 +1211,7 @@ function addCommitDirs(rec, dirs, from, settled = from) {
     const fresh = !list.includes(d);
     if (fresh) list.push(d);
     if (!timed) delete at[d];
-    else if (fresh || done(d)) at[d] = [from, settled];
+    else if (fresh) at[d] = [from, settled];
     else if (at[d]) at[d] = [Math.min(at[d][0], from), Math.max(at[d][1], settled)];
   }
   while (list.length > MAX_COMMIT_DIRS) {
