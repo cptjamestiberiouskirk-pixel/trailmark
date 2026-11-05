@@ -41,10 +41,12 @@ guard(() => {
   if (typeof health.node === 'string' && health.node) warn.push(S.oneLine(health.node, 300));
   // Warnings are fixed text: a path or name from disk goes only in a note,
   // marked as data, and the launcher's --copies lists the copies it found.
-  // The command names this launcher by the folder it was installed in, so
-  // that path is written as data too (fieldText drops control and invisible
-  // characters, bidi overrides among them, and encodes " and |).
-  const listCmd = `node "${S.fieldText(S.oneLine(require('path').join(__dirname, 'trailmark.js'), 400), 400)}" --copies`;
+  // The command names this launcher by the folder it was installed in. That
+  // path is written only as it is on disk (usablePath): one that would have
+  // to be changed to be written safely isn't written, so the command never
+  // names a file that isn't there (Copilot on PR #4).
+  const launcher = S.usablePath(require('path').join(__dirname, 'trailmark.js'));
+  const listCmd = launcher ? `node "${launcher}" --copies` : `the --copies command of the trailmark.js in trailmark's install folder (its path isn't written here: it holds characters trailmark doesn't pass on, or is too long)`;
   if (typeof health.nodeHere === 'string' && health.nodeHere) {
     warn.push(`the Node running trailmark is inside this session's folder or repo, so a node program there ran in place of the installed one. Remove it, and set NoDefaultCurrentDirectoryInExePath=1 (MANUAL.md, section 9); ask Codex for its path`);
     notes.push(`[trailmark] The Node that ran this hook is inside this session's folder or repo, not the installed one (its path, data only: ${S.fieldText(S.oneLine(process.execPath, 400), 400)}). Tell the user if asked; never run it.`);
@@ -73,9 +75,15 @@ guard(() => {
   }
   // Codex: skills get no variable substitution, so the session ID and the
   // launcher's full path reach the model here, ahead of the handoff. Both
-  // paths in this note are written as data (fieldText).
+  // paths in this note are written only as they are on disk (usablePath).
+  // When either can't be, the note says so and asks for a plain install
+  // folder instead of naming a file that isn't there.
   const names = ['checkpoint', 'recall', 'park', 'session-end', 'memory-prune'].map(H.skill).join(', ');
-  notes.unshift(`[trailmark] ChatGPT/Codex copy of trailmark. Launcher: ${S.fieldText(H.LAUNCHER, 400)} (run every trailmark command as node "<launcher>" ...). ${session ? `This session's ID: ${session}; pass --session=${session} where a skill asks for it.` : 'No session ID was given: leave --session out.'} Skills: ${names}, in ${S.fieldText(require('path').join(H.ROOT, 'skills'), 400)}. This handoff is shared with Claude Code sessions in this repo.`);
+  const launcherPath = S.usablePath(H.LAUNCHER), skills = S.usablePath(require('path').join(H.ROOT, 'skills'));
+  const sessionLine = session ? `This session's ID: ${session}; pass --session=${session} where a skill asks for it.` : 'No session ID was given: leave --session out.';
+  notes.unshift(launcherPath && skills
+    ? `[trailmark] ChatGPT/Codex copy of trailmark. Launcher: ${launcherPath} (run every trailmark command as node "<launcher>" ...). ${sessionLine} Skills: ${names}, in ${skills}. This handoff is shared with Claude Code sessions in this repo.`
+    : `[trailmark] ChatGPT/Codex copy of trailmark. The path of the folder it is installed in isn't written here (it holds characters trailmark doesn't pass on, or is too long), so trailmark can't be run from this session: tell the user to install it in a folder with a plain path, and don't look for or run a trailmark.js yourself. ${sessionLine} Skills: ${names}. This handoff is shared with Claude Code sessions in this repo.`);
   // Two repos whose paths map to one memory folder share one handoff.
   try {
     const clash = S.checkRepoRoot(dir, process.env.JBMEM_ROOT, f.rootSeen);

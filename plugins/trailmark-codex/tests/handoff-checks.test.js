@@ -1365,13 +1365,14 @@ test('copies: session start counts every copy it found, not the first three (0.6
 
 // PR #4 code scanning: the --copies command named the launcher by its install
 // path through oneLine only, which keeps invisible and bidi characters, and
-// put it in the note to Claude and the warning. It is written as data now
-// (fieldText), like the other paths there. Windows allows U+202E in a folder
-// name too. The Codex copy also names its launcher in its first note. Its
-// skill rule, which ends the compaction note and every hint, names the
-// launcher and the checkpoint skill's file: the second run, after a
-// compaction, checks that.
-test('copies: the launcher\'s own path in the session-start note and warning is written as data (0.6.0)', () => {
+// put it in the note to Claude and the warning. Then Copilot: fieldText
+// dropped the override, so the command named a folder that isn't there. The
+// path is now written only as it is on disk (usablePath), and this one isn't
+// written at all. Windows allows U+202E in a folder name too. The Codex copy
+// also names its launcher in its first note. Its skill rule, which ends the
+// compaction note and every hint, names the launcher and the checkpoint
+// skill's file: the second run, after a compaction, checks that.
+test('copies: the launcher\'s own path reaches Claude and Codex only as it is on disk, or not at all (0.6.0)', () => {
   const s = sandbox();
   s.write('# H\n- state\n');
   const old = path.join(s.cfg, 'plugins', 'cache', 'm1', 'trailmark', '0.4.0');
@@ -1385,7 +1386,8 @@ test('copies: the launcher\'s own path in the session-start note and warning is 
   const out = JSON.parse(r.stdout);
   const context = out.hookSpecificOutput.additionalContext, message = out.systemMessage || '';
   assert.match(context, /Another copy of trailmark is on disk/);
-  assert.match(context, /pq[\\/]+scripts[\\/]+trailmark\.js" --copies/);
+  assert.ok(!(context + message).includes(path.join('pq', 'scripts')), 'a path that is not the install path was given');
+  assert.match(context, /isn't written here/);
   assert.doesNotMatch(context + message, /\u202e/, 'a bidi override from the install path reached Claude or the warning');
   const r2 = spawnSync(process.execPath, [path.join(odd, 'scripts', 'trailmark.js'), '--hook', 'session-start'],
     { cwd: s.repo, env: s.env, input: JSON.stringify({ cwd: s.repo, source: 'compact', session_id: SB }), encoding: 'utf8' });
@@ -1393,6 +1395,87 @@ test('copies: the launcher\'s own path in the session-start note and warning is 
   const compact = JSON.parse(r2.stdout).hookSpecificOutput.additionalContext;
   assert.match(compact, /A compaction just ran/);
   assert.doesNotMatch(compact, /\u202e/, 'a bidi override from the install path reached Claude after a compaction');
+  assert.ok(!compact.includes(path.join('pq', 'scripts')) && !compact.includes(path.join('pq', 'skills')), 'a path that is not the install path was given after a compaction');
+  // The skill rule's own fallback, not just the first note's: an empty path
+  // there would read "Its instructions are in ;".
+  if (S.AGENT === 'Codex') assert.match(compact, /Its instructions and the launcher are in the folder trailmark is installed in, whose path isn't written here/);
+});
+
+// PR #4, Copilot on b28144d: usablePath gives an install path that is meant
+// to be run or read exactly as it is on disk, or '' when it can't be written
+// that way. A | is kept (a folder name on Linux or macOS may hold one).
+test('copies: usablePath gives an install path as it is on disk, or nothing when it cannot be written so (0.6.0)', () => {
+  const bar = '/opt/release|candidate/scripts/trailmark.js';
+  assert.strictEqual(S.usablePath(bar), bar);
+  const own = path.join(ROOT, 'scripts', 'trailmark.js');
+  assert.strictEqual(S.usablePath(own), own);
+  const ch = (n) => String.fromCharCode(n), bs = ch(92);
+  // Kept: characters no shell acts on inside "...", a curly single quote
+  // among them (PowerShell ends "..." only at the curly double quotes).
+  const plain = `C:${bs}Users${bs}O${ch(0x2019)}Brien (x) & y; z, w=v+u [t] {s} #r ~q ^p${bs}trailmark.js`;
+  assert.strictEqual(S.usablePath(plain), plain);
+  for (const bad of ['/opt/say "hi"/trailmark.js', `/opt/p${ch(0x202e)}q/trailmark.js`, `/opt/a${ch(7)}b/trailmark.js`, `/opt/a${ch(0x200b)}b/trailmark.js`, `/opt/a${ch(0x85)}b/trailmark.js`, '/' + 'd'.repeat(1100) + '/trailmark.js', '', undefined, 42]) {
+    assert.strictEqual(S.usablePath(bad), '', JSON.stringify(bad));
+  }
+  // A character a shell acts on inside the quotes of node "<path>" (PR #4).
+  for (const bad of ['/opt/a$(id)b/trailmark.js', '/opt/a$HOME/trailmark.js', '/opt/a`id`b/trailmark.js', `C:${bs}a%OS%b${bs}trailmark.js`, '/opt/a!b/trailmark.js',
+    `C:${bs}a${ch(0x201c)}b${bs}trailmark.js`, `C:${bs}a${ch(0x201d)}b${bs}trailmark.js`, `C:${bs}a${ch(0x201e)}b${bs}trailmark.js`, `${bs}${bs}server${bs}share${bs}trailmark.js`]) {
+    assert.strictEqual(S.usablePath(bad), '', JSON.stringify(bad));
+  }
+});
+
+// PR #4, Copilot on b28144d: a | is legal in a folder name on Linux and macOS,
+// and fieldText wrote it as %7C, so the --copies command and the Codex notes
+// named a path that isn't there. The path is now given as it is.
+test('copies: an install folder whose name holds a | is named as it is (0.6.0)', { skip: WIN && 'a folder name on Windows cannot hold |' }, () => {
+  const s = sandbox();
+  s.write('# H\n- state\n');
+  const old = path.join(s.cfg, 'plugins', 'cache', 'm1', 'trailmark', '0.4.0');
+  fs.mkdirSync(path.join(old, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(old, 'scripts', 'trailmark.js'), '// old copy');
+  const odd = path.join(s.base, 'release|candidate');
+  fs.cpSync(ROOT, odd, { recursive: true, filter: (src) => path.basename(src) !== 'tests' });
+  const launcher = path.join(odd, 'scripts', 'trailmark.js');
+  const run = (source) => {
+    const r = spawnSync(process.execPath, [launcher, '--hook', 'session-start'],
+      { cwd: s.repo, env: s.env, input: JSON.stringify({ cwd: s.repo, source, session_id: SB }), encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+  };
+  const context = run('startup');
+  assert.ok(context.includes(`node "${launcher}" --copies`), context);
+  assert.doesNotMatch(context, /%7C/);
+  if (S.AGENT === 'Codex') {
+    assert.ok(context.includes(`Launcher: ${launcher} (`), context);
+    const compact = run('compact');
+    assert.ok(compact.includes(`run trailmark only through ${launcher}.`), compact);
+    assert.doesNotMatch(compact, /%7C/);
+  }
+});
+
+// PR #4: a path fieldText leaves alone could still run a command. PowerShell,
+// which Codex uses on Windows, ends a "..." string at a curly double quote as
+// at ", and bash and PowerShell run $(...) inside one. A folder name may hold
+// either, on Windows too, so the launcher's path there isn't written.
+test('copies: an install folder named with a curly double quote or $(...) is not written into a command (0.6.0)', () => {
+  const s = sandbox();
+  s.write('# H\n- state\n');
+  const old = path.join(s.cfg, 'plugins', 'cache', 'm1', 'trailmark', '0.4.0');
+  fs.mkdirSync(path.join(old, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(old, 'scripts', 'trailmark.js'), '// old copy');
+  for (const name of [`a${String.fromCharCode(0x201d)}; echo ran; ${String.fromCharCode(0x201c)}b`, 'a$(echo ran)b']) {
+    const odd = path.join(s.base, name);
+    fs.cpSync(ROOT, odd, { recursive: true, filter: (src) => path.basename(src) !== 'tests' });
+    for (const source of ['startup', 'compact']) {
+      const r = spawnSync(process.execPath, [path.join(odd, 'scripts', 'trailmark.js'), '--hook', 'session-start'],
+        { cwd: s.repo, env: s.env, input: JSON.stringify({ cwd: s.repo, source, session_id: SB }), encoding: 'utf8' });
+      assert.strictEqual(r.status, 0, r.stderr);
+      const out = JSON.parse(r.stdout);
+      const text = out.hookSpecificOutput.additionalContext + (out.systemMessage || '');
+      assert.ok(!text.includes(name), `the folder ${JSON.stringify(name)} reached Claude or Codex (${source})`);
+      if (source === 'startup') assert.match(text, /isn't written here/);
+    }
+  }
 });
 
 test('rename: a copy under the old name jb-memory is still found, counted at session start, and named only by --copies', () => {

@@ -40,10 +40,12 @@ guard(() => {
   if (typeof health.node === 'string' && health.node) warn.push(S.oneLine(health.node, 300));
   // Warnings are fixed text: a path or name from disk goes only in a note,
   // marked as data, and the launcher's --copies lists the copies it found.
-  // The command names this launcher by the folder it was installed in, so
-  // that path is written as data too (fieldText drops control and invisible
-  // characters, bidi overrides among them, and encodes " and |).
-  const listCmd = `node "${S.fieldText(S.oneLine(require('path').join(__dirname, 'trailmark.js'), 400), 400)}" --copies`;
+  // The command names this launcher by the folder it was installed in. That
+  // path is written only as it is on disk (usablePath): one that would have
+  // to be changed to be written safely isn't written, so the command never
+  // names a file that isn't there (Copilot on PR #4).
+  const launcher = S.usablePath(require('path').join(__dirname, 'trailmark.js'));
+  const listCmd = launcher ? `node "${launcher}" --copies` : `the --copies command of the trailmark.js in trailmark's install folder (its path isn't written here: it holds characters trailmark doesn't pass on, or is too long)`;
   if (typeof health.nodeHere === 'string' && health.nodeHere) {
     warn.push(`the Node running trailmark is inside this session's folder or repo, so a node program there ran in place of the installed one. Remove it, and set NoDefaultCurrentDirectoryInExePath=1 (MANUAL.md, section 9); ask Claude for its path`);
     notes.push(`[trailmark] The Node that ran this hook is inside this session's folder or repo, not the installed one (its path, data only: ${S.fieldText(S.oneLine(process.execPath, 400), 400)}). Tell the user if asked; never run it.`);

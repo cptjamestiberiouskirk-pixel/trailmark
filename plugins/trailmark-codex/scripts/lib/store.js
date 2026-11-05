@@ -39,8 +39,8 @@ const RESERVED = new Set(['MEMORY.md', HANDOFF, HANDOFF_PREV, PRECOMPACT, 'MEMOR
 // the skill text never loads.
 const H = require('./host');
 const CHECKPOINT_SKILL = H.CHECKPOINT_SKILL;
-// fieldText is a function declaration further down, so it is ready here.
-const SKILL_RULE = H.skillRule((p) => fieldText(p, 400));
+// usablePath is a function declaration further down, so it is ready here.
+const SKILL_RULE = H.skillRule((p) => usablePath(p));
 // Which agent this copy runs in, written on the handoff's Updated line.
 const AGENT = H.AGENT;
 
@@ -469,6 +469,27 @@ function fieldText(t, max = 160) {
   let v = String(t || '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, '').replace(/\p{Cf}+/gu, '');
   v = v.replace(/"/g, '%22').replace(/\|/g, '%7C');
   return v.length > max ? '...' + v.slice(-(max - 3)) : v;
+}
+
+// An install path meant to be run or read (the launcher, a skill's file), for
+// text that reaches Claude or Codex: the path exactly as it is on disk, or ''
+// when it can't be written that way. fieldText would drop or encode
+// characters and so name a file that isn't there (Copilot on PR #4). '' comes
+// back when the path holds a character fieldText changes, other than |, and
+// for a path over max characters. A | stays: inside the quotes of a command
+// it is only a character, and a folder name on Linux or macOS may hold one.
+// '' also comes back for a path holding a character a shell acts on inside
+// the quotes of node "<path>", tried in bash, cmd and PowerShell (PR #4): $
+// and ` (bash and PowerShell run $(...) and `...` and expand $name), % (cmd
+// expands %name%), ! (an interactive bash expands history, and cmd does with
+// delayed expansion), U+201C to U+201E (PowerShell ends "..." at these curly
+// quotes as at ", so what follows runs) and \\ (bash reads it as one \, so
+// a network path \\server\share names another file). The pattern is written
+// here, not in a const: the Codex copy calls this while store.js loads.
+function usablePath(p, max = 1024) {
+  const v = typeof p === 'string' ? p : '';
+  const w = v.split('|').join('');
+  return v && v.length <= max && fieldText(w, max) === w && !/[$`%!\u201c-\u201e]|\\\\/.test(v) ? v : '';
 }
 
 // A folder as it appears in a log line (COMMIT ... in="<folder>") and on the
@@ -2089,7 +2110,7 @@ module.exports = { addCommitDirs, MAX_COMMIT_DIRS, addMemoryRoot, plainStat, pla
   findVersionText, lineDiff, snapshotPath, writeSnapshot, listSnapshots, retryWin, splitDone, lockInfo,
   recordSessionStart, checkpointTime, ageText,
   CC_MEMORY_MD_LINES, CC_MEMORY_MD_BYTES, CC_CONTEXT_CHARS,
-  localDate, localTime, estTokens, oneLine, inside, displayPath, fieldText, splitFrontmatter, atomicWrite, readText,
+  localDate, localTime, estTokens, oneLine, inside, displayPath, fieldText, usablePath, splitFrontmatter, atomicWrite, readText,
   isEnabled, loadConfig, readState, writeState, init,
   writeHandoff, stampUpdated, undoHandoff, measureHandoff, rotate,
   note, lastNote, loggedCommitShas, recordCommitStart, readCommitStart, cleanAgent, markCommitDone, openCommitStart, concurrentCommitStarts, park, listDir, search, topicFiles,
