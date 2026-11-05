@@ -4179,7 +4179,7 @@ test('0.6.0 commit hook: when git times out and another command holds the state 
   assert.match(notesOf(s), /COMMIT_UNRESOLVED why=git-timeout/, notesOf(s));
   assert.ok(r.stdout, 'nothing was said to Claude');
   const ctx = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
-  assert.match(ctx, /A commit was not logged: git was too slow \(it timed out\) in one folder, and another command held trailmark's state file, so a later sweep may miss it\./, ctx);
+  assert.match(ctx, /A commit was not logged: git was too slow \(it timed out\) in one folder, and trailmark's state file couldn't be updated, so a later sweep may miss it\./, ctx);
   assert.ok(!ctx.includes(dp(s.repo)), ctx);
 });
 
@@ -4209,7 +4209,7 @@ test('0.6.0 commit folders: a folder\'s join time is measured from the launcher\
   assert.ok(from <= before - 5000, `the join time is ${from - before} ms from the launcher's start`);
 });
 
-test('0.6.0 commit hook: when git times out and the state file can\'t be updated for another reason, Claude isn\'t told another command held it', () => {
+test('0.6.0 commit hook: when git times out and the state file can\'t be updated for another reason (the state file or the lock is a folder), Claude isn\'t told another command held it', () => {
   const s = sandbox();
   jbm(s, ['init']);
   jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
@@ -4232,4 +4232,20 @@ test('0.6.0 commit hook: when git times out and the state file can\'t be updated
   const ctx = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
   assert.match(ctx, /A commit was not logged: git was too slow \(it timed out\) in one folder, and trailmark's state file couldn't be updated, so a later sweep may miss it\./, ctx);
   assert.doesNotMatch(ctx, /another command held/, ctx);
+  // A folder where the lock file goes: the lock code (JBMEM_LOCKED) without
+  // another command holding anything.
+  s.g('commit', '-q', '--allow-empty', '-m', 'slow, lock path a folder');
+  const lock = path.join(s.memdir, '.jbmem.lock');
+  fs.mkdirSync(lock);
+  try {
+    r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', 'milestone', 'commit'], { cwd: s.repo, env: s.env, encoding: 'utf8',
+      input: JSON.stringify({ session_id: SA, tool_name: 'Bash', tool_input: { command: 'git commit -m "slow, lock path a folder"' }, tool_use_id: `toolu_lf${++toolSeq}x${process.pid}`, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 3000 }) });
+  } finally {
+    fs.rmSync(lock, { recursive: true, force: true });
+  }
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.ok(r.stdout, 'nothing was said to Claude about the lock folder');
+  const ctx2 = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+  assert.match(ctx2, /in one folder, and trailmark's state file couldn't be updated, so a later sweep may miss it\./, ctx2);
+  assert.doesNotMatch(ctx2, /another command held/, ctx2);
 });

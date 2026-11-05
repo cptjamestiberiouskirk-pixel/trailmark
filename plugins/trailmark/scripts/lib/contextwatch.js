@@ -182,8 +182,9 @@ function usageOf(o) {
 
 // Read from the end of the transcript. Without `since`: the last main-thread
 // request's context size and model. With `since` (ms): also the smallest size
-// and any compaction after that time, and whether the read got back that far.
-// null when no usable entry was found.
+// and any compaction after that time, and whether the read got back that far;
+// read back to `since` with no request after it, `min` is null. null when no
+// usable entry was found, or with `since` when the read didn't get back to it.
 function readUsage(file, { since = 0 } = {}) {
   let fd;
   let last = null;
@@ -217,15 +218,17 @@ function readUsage(file, { since = 0 } = {}) {
         if (!last) { last = u; if (!since) break; }
         if (u.tokens < min) min = u.tokens;
       }
-      if ((last && reached) || len >= size) break;
+      if ((reached && (last || since)) || len >= size) break;
     }
   } catch {
     return null;
   } finally {
     if (fd !== undefined) try { fs.closeSync(fd); } catch { /* ignore */ }
   }
-  if (!last) return null;
   if (!since) return last;
+  // Read back to `since` with no request after it (a parallel tool call's
+  // sibling, say): reached, with no size of its own.
+  if (!last) return reached ? { min: null, boundary, reached } : null;
   return { ...last, min: Number.isFinite(min) ? min : last.tokens, boundary, reached };
 }
 
@@ -241,7 +244,7 @@ const MAX_EXTRA = 25000;
 // An image costs ceil(width / 28) x ceil(height / 28) tokens, at most 1,568
 // on the standard tier and 4,784 on the high-resolution tier of Claude 4.7
 // and later (Claude's vision docs, read 2026-11-05); the most is counted,
-// and hook-context-watch.js keeps a high count from asking more than once.
+// and hook-context-watch.js keeps a high count from asking on every call.
 // An image is base64 under "base64" or "data" in an object whose type,
 // media_type or mimeType is image/...: a Read's result ({ file: { base64,
 // type } }), an API content block's source, MCP output.

@@ -4174,7 +4174,7 @@ test('0.6.0 commit hook: when git times out and another command holds the state 
   assert.match(notesOf(s), /COMMIT_UNRESOLVED why=git-timeout/, notesOf(s));
   assert.ok(r.stdout, 'nothing was said to Claude');
   const ctx = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
-  assert.match(ctx, /A commit was not logged: git was too slow \(it timed out\) in one folder, and another command held trailmark's state file, so a later sweep may miss it\./, ctx);
+  assert.match(ctx, /A commit was not logged: git was too slow \(it timed out\) in one folder, and trailmark's state file couldn't be updated, so a later sweep may miss it\./, ctx);
   assert.ok(!ctx.includes(dp(s.repo)), ctx);
 });
 
@@ -4280,7 +4280,7 @@ test('0.6.0 context watch: a prompt counts in full, and an image counts as much 
   assert.match(askText(d.run({ tool_name: 'Read', tool_response: image })), /about 313k tokens/);
 });
 
-test('0.6.0 commit hook: when git times out and the state file can\'t be updated for another reason, Claude isn\'t told another command held it', () => {
+test('0.6.0 commit hook: when git times out and the state file can\'t be updated for another reason (the state file or the lock is a folder), Claude isn\'t told another command held it', () => {
   const s = sandbox();
   jbm(s, ['init']);
   jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
@@ -4303,4 +4303,47 @@ test('0.6.0 commit hook: when git times out and the state file can\'t be updated
   const ctx = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
   assert.match(ctx, /A commit was not logged: git was too slow \(it timed out\) in one folder, and trailmark's state file couldn't be updated, so a later sweep may miss it\./, ctx);
   assert.doesNotMatch(ctx, /another command held/, ctx);
+  // A folder where the lock file goes: the lock code (JBMEM_LOCKED) without
+  // another command holding anything.
+  s.g('commit', '-q', '--allow-empty', '-m', 'slow, lock path a folder');
+  const lock = path.join(s.memdir, '.jbmem.lock');
+  fs.mkdirSync(lock);
+  try {
+    r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', 'milestone', 'commit'], { cwd: s.repo, env: s.env, encoding: 'utf8',
+      input: JSON.stringify({ session_id: SA, tool_name: 'Bash', tool_input: { command: 'git commit -m "slow, lock path a folder"' }, tool_use_id: `toolu_lf${++toolSeq}x${process.pid}`, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 3000 }) });
+  } finally {
+    fs.rmSync(lock, { recursive: true, force: true });
+  }
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.ok(r.stdout, 'nothing was said to Claude about the lock folder');
+  const ctx2 = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+  assert.match(ctx2, /in one folder, and trailmark's state file couldn't be updated, so a later sweep may miss it\./, ctx2);
+  assert.doesNotMatch(ctx2, /another command held/, ctx2);
+});
+
+test('0.6.0 context watch: a call with no new request since the ask (a parallel sibling) doesn\'t start over, and a window that grows does', () => {
+  // A real-size ask, then a sibling call: the transcript has no request newer
+  // than the ask, which is not a transcript that couldn't be read back.
+  const c = contextWatchSetup({ model: 'claude-haiku-4-5' }); // compaction near 167k, first step near 142k
+  c.usage(145000);
+  assert.ok(c.run(), 'asks at 145k');
+  assert.strictEqual(c.run(), null, 'a sibling call: silent');
+  // An ask from the estimate, carried on at the first step, then a sibling.
+  const edit = { tool_name: 'Edit', tool_response: { filePath: 'x', originalFile: 'y'.repeat(400000) } };
+  const d = contextWatchSetup({ model: 'claude-haiku-4-5' });
+  d.usage(124000);
+  assert.ok(d.run(edit), 'an early ask');
+  d.usage(143000);
+  assert.strictEqual(d.run(), null, '143k, no write: carried on');
+  assert.strictEqual(d.run(), null, 'a sibling call: silent');
+  // Three asks under a 200k window with no write, then the window grows to
+  // 400k (compaction near 367k, steps near 312k, 330k and 349k): the steps
+  // of the new window ask again.
+  const e = contextWatchSetup({ settings: { autoCompactWindow: 200000 } });
+  for (const n of [145000, 152000, 160000]) { e.usage(n); assert.ok(e.run(), `asks at ${n / 1000}k`); }
+  fs.writeFileSync(path.join(e.s.cfg, 'settings.json'), JSON.stringify({ autoCompactWindow: 400000 }));
+  e.usage(200000);
+  assert.strictEqual(e.run(), null, '200k in the 400k window: under its first step');
+  e.usage(315000);
+  assert.match(askText(e.run()), /about 315k tokens.*about 367k/);
 });

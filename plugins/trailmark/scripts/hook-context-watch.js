@@ -16,13 +16,15 @@
 //     (rec.lastWrite, as the milestone hints use it).
 //   - It starts over after a compaction, or when the context has shrunk by a
 //     fifth from the last size seen, or fell below 75% of the compaction point
-//     (the launcher reads that from the transcript since the last request).
+//     (the launcher reads that from the transcript since the last request),
+//     or when the compaction point grew with the window, since the steps it
+//     passed were the smaller point's. A point that shrinks keeps the state: its steps come sooner.
 //     Between 75% and the first step nothing changes, so a large tool result
 //     that lifts the estimate over a step and drops back asks only once.
 //   - An ask made while the transcript's own size (before the estimate for
 //     what came after it) is under the first step came from the estimate,
-//     and is kept until the transcript itself reaches that step: being
-//     under 75% doesn't clear it (a compaction or a shrink still does), so
+//     and is kept until the transcript itself reaches that step: the 75%
+//     rule above doesn't clear it (a compaction or a shrink still does), so
 //     an estimate that runs high can't ask again and again. At the first
 //     step the steps start over if the handoff was written since that ask,
 //     so the request that ends them is made from the real size; otherwise
@@ -68,13 +70,15 @@ function decide(prev, rec, ctx, cfg, now) {
   const first = cfg.steps.length ? point * Math.min(...cfg.steps) / 100 : Infinity;
   const level = cfg.steps.filter(s => ctx.tokens >= point * s / 100).length;
   const seen = count(w.seen);
+  const pt = Math.round(point);
   // Start over: a compaction since the last request, a shrink, a fall below
-  // 75% of the compaction point, or a transcript that couldn't be read back
-  // that far (asking once more is the safe side).
+  // 75% of the compaction point, a compaction point that grew, or a
+  // transcript that couldn't be read back that far (asking once more is the
+  // safe side).
   if (w.level) {
     const s = ctx.since;
     const low = Math.min(ctx.base, s && Number.isFinite(s.min) ? s.min : Infinity);
-    if (!s || s.boundary || !s.reached || (seen > 0 && low < seen * SHRINK)) w = {};
+    if (!s || s.boundary || !s.reached || (seen > 0 && low < seen * SHRINK) || pt > count(w.point)) w = {};
     else if (seen > 0 && seen < first) {
       // Asked from an estimate: kept until the transcript reaches the first
       // step; there, start over if the handoff was written since, else carry
@@ -88,7 +92,7 @@ function decide(prev, rec, ctx, cfg, now) {
     return { w, ask: null, point, changed: JSON.stringify(w) !== JSON.stringify(isObj(prev) ? prev : {}) };
   }
   const repeat = count(w.level) > 0;
-  return { w: { level, firstAt: firstAt > 0 ? firstAt : now, seen: ctx.base, seenAt: now }, ask: { repeat, level }, point, changed: true };
+  return { w: { level, firstAt: firstAt > 0 ? firstAt : now, seen: ctx.base, seenAt: now, point: pt }, ask: { repeat, level }, point, changed: true };
 }
 
 const k = n => `${Math.round(n / 1000)}k`;
