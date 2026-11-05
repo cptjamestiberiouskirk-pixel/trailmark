@@ -15,16 +15,21 @@
 # run only in the clone, and the real repo is only read (git clone). Each
 # release-check.sh run gets TMPDIR=argv[2]/tmp, so it keeps its output under
 # there and prunes nothing in the kept-output folder of the system temp
-# (review round 8). On Windows argv[2] must be 80 characters or fewer: the
-# folder that holds a test's memory folder is about twice its length plus 83,
-# and the sandbox refuses one past about 260 (dev/release-state.md, the
-# long-path entry in the deferred list). Delete argv[2] yourself when done.
+# (review round 8). On Windows argv[2] must be 80 characters or fewer as
+# cygpath -m writes it (C:/...): the folder that holds a test's memory
+# folder is about twice that length plus 83, and the sandbox refuses one
+# past about 260 (dev/release-state.md, the long-path entry in the deferred
+# list). Delete argv[2] yourself when done.
 # Usage: bash dev/repro-git-timeout.sh <repo root> <new scratch folder>
 set -u
 REPO="$1"; W="$2"
 [ -e "$W" ] && { echo "$W exists already"; exit 2; }
 case "$W" in /*|[A-Za-z]:*) A="$W" ;; *) A="$PWD/$W" ;; esac
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*)
+  # Measured in its Windows form (/tmp/x is C:/Users/<you>/AppData/Local/Temp/x),
+  # the form the tests' paths are built from; as given where cygpath is
+  # missing (round 8 on 91ca5c8).
+  M=$(cygpath -m "$A" 2>/dev/null) && [ -n "$M" ] && A="$M"
   [ ${#A} -le 80 ] || { echo "$A is ${#A} characters: on Windows give a scratch folder of 80 or fewer"; exit 2; } ;;
 esac
 mkdir -p "$W/tree" "$W/out" "$W/tmp" || exit 2
