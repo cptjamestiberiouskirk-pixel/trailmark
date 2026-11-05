@@ -13,7 +13,7 @@ b1d29c22e3d045bcd578000e62dda7a20fb4afd6c27f95be3fce7324caae2a5d *./CONTRIBUTING
 c1001a285f356fc7287f85b1dcc34beb80c7e3d8b17d5c976dbc25fd508e3f1d *./MANUAL.md
 ac41959746ec265208a98ce70458fb596737baaed84ae066d684425b7c253577 *./README.md
 812a3b1ec377ff78aa3bd026f00e79a5cec2daeaf8c3aa127b7f751a2bdcb5ed *./SECURITY.md
-6dccaf031d8a72ee9eff60c0d98ee0e5172f47ae2d4e3a020d212188bf0a0307 *./docs/how-it-works.md
+0e011ae9260aeb0c81649db8c6cbe3463c77bc284a55462e3acba0722f8b64f4 *./docs/how-it-works.md
 53c222f6021e268dd2bf274fd79f4a96c008931b22977c0260ae7a52682bbe82 *./install.cmd
 06c1f76c849c59a57c19ba2d107ef119aea12d4013f32389e413b94da2dddcbe *./install.ps1
 3f806bcd82345561c3a48ede8a0d5d6c5df37740a058859e997404c9191d8a5b *./install.sh
@@ -59,7 +59,7 @@ f766e56215274b399e7f2dce156a5e5fbfbdf197ffd54e903bcef41937c6a06f *./plugins/trai
 831b1615a07d44cd93379d9200d369456178738bc302cbcebc575203bb62a3ae *./plugins/trailmark/scripts/hook-precompact.js
 adca2ac9ab6f43730682e639b6ae73b27017ccb6a6bddcd2fd25595ff42d502b *./plugins/trailmark/scripts/hook-session-start.js
 4b3891fe9f5a110ee55e594e36556ccb7ab45404014dee23998080c4efe3c156 *./plugins/trailmark/scripts/lib/commands.js
-2b643d20d06b7d8091ef6c1d865ce7f5dcbb0cf97c6fb00d968155640ba8de4e *./plugins/trailmark/scripts/lib/contextwatch.js
+5c6c48c78430f187502d198bcb404e3cc50de483911c27bfc7526926050e8430 *./plugins/trailmark/scripts/lib/contextwatch.js
 2bf5b09e63e0d273e7070167a70322c89b9ca78f339eebbde5f56722b4649020 *./plugins/trailmark/scripts/lib/gitbin.js
 470017233e7a64c1f80d0eb8cde40c3783b08e1907cf07b535c2dd13d646c1b5 *./plugins/trailmark/scripts/lib/gitfacts.js
 70916ee1f331794322658ca49e8886c4c3c7bf38b9a90390b00cce3888720886 *./plugins/trailmark/scripts/lib/health.js
@@ -77,7 +77,7 @@ a0f27188b6bb03b0316665f98b6eb193509678623a3d604f39c7aac20bdfab8d *./plugins/trai
 400a90486a0d7761aa26aaac702b4c9c5538d2ca5abd97854571ce0cd00d5d67 *./plugins/trailmark/skills/recall/SKILL.md
 b3c91fccd2d47a5834a9efbaf666ffa125a7019fa615d8213e8772b6d0a7deac *./plugins/trailmark/skills/session-end/SKILL.md
 f96d7790af0f208bbc3875b64d0a8e1a82c72fd75633beda4f9c1bf716099081 *./plugins/trailmark/tests/handoff-checks.test.js
-53947b40447eefccead349440204641629600c95aa35fc668b8a4c2570289b88 *./plugins/trailmark/tests/trailmark.test.js
+93c75d3c20a55a6e5bc2fd163603a67111877f7fa55278d200110dd7d267cf96 *./plugins/trailmark/tests/trailmark.test.js
 fbfb824e44c91d4754c0fdfde7807c0f9b798fa8b8dd635faadcb133a79bb318 *./tools/install-check.js
 081feba44aebf054e9e39fb4aa2577caa633d6d79f32107b74ea0e529e5eb966 *./tools/migrate-from-jb-memory.js
 c8c129ca3b71358d6e96a270e1401b02c39c942c99a63b096cb2397b988a9496 *./tools/migrate-from-jb-memory.ps1

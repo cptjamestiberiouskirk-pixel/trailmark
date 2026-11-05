@@ -181,10 +181,13 @@ function usageOf(o) {
 }
 
 // Read from the end of the transcript. Without `since`: the last main-thread
-// request's context size and model. With `since` (ms): also the smallest size
-// and any compaction after that time, and whether the read got back that far;
-// read back to `since` with no request after it, `min` is null. null when no
-// usable entry was found, or with `since` when the read didn't get back to it.
+// request's context size and model, or null when a compaction came after it
+// (after /compact the next prompt comes before the next request, and the size
+// from before the compaction says nothing about the context now). With
+// `since` (ms): also the smallest size and any compaction after that time,
+// and whether the read got back that far; read back to `since` with no
+// request after it, `min` is null. null when no usable entry was found, or
+// with `since` when the read didn't get back to it.
 function readUsage(file, { since = 0 } = {}) {
   let fd;
   let last = null;
@@ -205,14 +208,20 @@ function readUsage(file, { since = 0 } = {}) {
         const line = lines[i];
         // Quotes inside JSON strings are escaped, so these match only real fields.
         const isAsst = line.includes('"type":"assistant"') && line.includes('"usage"');
-        const isBoundary = since && line.includes('"compact_boundary"');
+        const isBoundary = line.includes('"compact_boundary"');
         if (!isAsst && !isBoundary) continue;
         let o;
         try { o = JSON.parse(line); } catch { continue; }
         if (!o || typeof o !== 'object') continue;
         const at = since ? Date.parse(o.timestamp) : NaN;
         if (since && Number.isFinite(at) && at <= since) { reached = true; break; }
-        if (isBoundary && o.type === 'system' && o.subtype === 'compact_boundary' && !o.isSidechain) { boundary = true; continue; }
+        if (isBoundary && o.type === 'system' && o.subtype === 'compact_boundary' && !o.isSidechain) {
+          // Without `since` the read stops at the last request, so this
+          // compaction came after it.
+          if (!since) return null;
+          boundary = true;
+          continue;
+        }
         const u = usageOf(o);
         if (!u) continue;
         if (!last) { last = u; if (!since) break; }

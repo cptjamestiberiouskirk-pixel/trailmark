@@ -4361,3 +4361,25 @@ test('0.6.0 context watch: a window that flips between two sizes starts the step
   // silent.
   assert.deepStrictEqual(asked, ['202k', '198k', '-', '-', '-', '-']);
 });
+
+test('0.6.0 context watch: a prompt after /compact, before the next request, doesn\'t ask with the size from before the compaction', () => {
+  const c = contextWatchSetup(); // 400k window: compaction near 367k
+  c.usage(315000);
+  // A subagent's compaction is a sidechain entry: the main thread's size stands.
+  c.add({ type: 'system', subtype: 'compact_boundary', isSidechain: true, compactMetadata: { trigger: 'auto', preTokens: 180000 } });
+  assert.ok(c.run(), 'asks at 315k');
+  assert.strictEqual(wh((a2, i) => jbm(c.s, a2, i), '# H\n## Next\n- x\n', [`--session=${SA}`]).status, 0);
+  // /compact writes the boundary and the summary; the next request comes
+  // after the next prompt.
+  c.add({ type: 'system', subtype: 'compact_boundary', isSidechain: false, compactMetadata: { trigger: 'manual', preTokens: 316000 } });
+  c.add({ type: 'user', isSidechain: false, sessionId: SA, cwd: c.s.repo, isCompactSummary: true, message: { role: 'user', content: 'This session is being continued from a previous conversation.' } });
+  assert.strictEqual(c.run({ hook_event_name: 'UserPromptSubmit', prompt: 'next' }), null, 'the last request is from before the compaction: silent');
+  assert.strictEqual(c.run(), null, 'a tool call before the next request: silent too');
+  c.usage(40000);
+  assert.strictEqual(c.run(), null, 'the first request after the compaction is small');
+  c.usage(316000);
+  const d = c.run();
+  assert.ok(d, 'crossing the first step again asks');
+  assert.match(askText(d), /about 316k tokens/);
+  assert.doesNotMatch(askText(d), /has not written/, 'the steps started over at the compaction');
+});
