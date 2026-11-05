@@ -17,6 +17,7 @@ Claude updates the note at milestones (a commit, a merged PR, a subagent's resul
 - A handoff in every new session, kept under 8,500 characters so it fits inside Claude Code's 10,000-character hook limit. A cut note says which sections were left out.
 - Commits made since the handoff are listed, with any next step they may already cover.
 - Reminders to checkpoint after commits, PR merges and subagent results, and a git-state snapshot before each compaction.
+- A request to checkpoint as the session nears auto-compaction, so the note is current before Claude Code summarizes the session (Claude Code only).
 - Version-checked writes, so parallel sessions and worktrees can't overwrite each other's notes.
 - One shared note for Claude Code and Codex in the same repo; its `Updated:` line names the agent that wrote it last.
 - Opt-in per repo. Nothing happens in a repo until you set it up there.

@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.0 (Trailmark and trailmark-codex): unreleased
+
+### Context watch (Claude Code only)
+
+- New: as a session's context nears the point where Claude Code auto-compacts it, Claude is asked to run `/trailmark:checkpoint` first, so the session's decisions and next steps are in the handoff before the compaction summarizes them. It asks at 85% of that point, and again at 90% and 95% only if no checkpoint was written since. You see `[trailmark] Context about ...` when it asks. After a compaction it starts over.
+- The launcher reads the context size from the end of the session's transcript. It takes the window from `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, then the settings files (their `env` block, then `modelSettings` or `autoCompactWindow`), then the model's own (1M or 200k), and honors `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`. What came after the last request is estimated from the tool's result or the prompt; an image counts as 4,784 tokens, the most one costs. One tool call adds at most 25,000, while a prompt counts in full. Below 80% of the earliest point any setting allows, it exits before loading the rest of its code, and starts no git.
+- `"contextWatch"` in `.jbmem.json` sets `on`, `steps` and `reserve` (MANUAL.md, section 7).
+- The Codex copy has none: where Codex compacts by default isn't established, and its hooks have no prompt event.
+
+### Session start
+
+- The warning shown to you is now fixed text for each case: Node inside the repo, the sandbox state, a copies check cut short, two repos sharing one memory folder. Details read from disk (paths, reasons) go only in the note to Claude, marked as data.
+- No warning or note names a cached copy's folder any more. Both give a count and `node "<launcher>" --copies`, a new launcher command that lists the copies by full path. The Codex copy's note about an old jb-memory-codex does the same. The count takes in every copy found, up to 10; it used to stop at three.
+
+### Commit folders
+
+- A folder a commit command commits in joins the session's commit folders with the time that command started, and a sweep reads it from then. Before, it was read from the session's start, so another session's earlier commit there could be logged as this session's.
+- Past six folders, one that a sweep has read since its last commit command finished goes first. Before, the oldest went, which could be a background command's folder whose commit no sweep had read yet.
+- When git timed out in a commit hook and the state file couldn't be updated (for example, another command held it for over 2 s), Claude was told nothing. Now Claude is told the commit wasn't logged and to name it in the handoff at the next checkpoint. The folder still can't join the commit folders then.
+
+### Git checks
+
+- A submodule gitdir inside another submodule gitdir's `objects/`, under a name that isn't two hex digits (`vendor/objects/evil`, or deeper), was passed over. Its config is now checked. Two-hex names (`vendor/objects/ab`) are still passed over: looking into each took seconds on Windows with 200 submodules, and git 2.56 opens a gitdir there only through a submodule's `.git` file, which is checked before git runs (an older git may also open it by name).
+- Outside Windows, a removed submodule's leftover `core.worktree` kept git out of the repo (`network-config`), since the folder its relative path starts from is gone. A relative value read from a folder that isn't there is now taken as text.
+- A relative setting in a submodule's config was read from the folder of whichever check ran last. It is now read from the repo's top, where `git status` runs.
+- On a file system that doesn't report entry types, a folder holding a name that isn't valid UTF-8 can't be listed, and it was passed over. It now keeps git out (`odd-path`).
+
+### Tests
+
+- 30 link tests that skipped on every Windows machine now run wherever links can be made, as on CI's Windows runners, and two hard-link tests run everywhere. The POSIX-only ones that still skip on Windows say why. On Windows, a test link to a network path is made without looking the share up.
+- A POSIX test for a link inside a leftover module folder's `objects/ab`.
+
 ## 0.5.1 (Trailmark and trailmark-codex): 2026-11-03
 
 ### Commit sweep

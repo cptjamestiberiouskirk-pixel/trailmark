@@ -14,6 +14,7 @@ Once Trailmark is installed at user scope, the hooks act only in repos set up wi
 | `gh pr merge` (Bash or PowerShell tool; a `--help` or `-h` call doesn't count), subagent finished | The same reminder, with the same throttle |
 | Before a `git commit` or `git -C` command (Bash or PowerShell tool) | Records the folder the command starts in, and the folders its commits go to as read from the text, for the commit hooks. Prints nothing; the only git it runs is the launcher's one-second lookup of the memory folder |
 | Before compaction | Writes `snapshots/<session id>.md` (see "Before compaction") |
+| After each tool call and prompt, as the context nears auto-compaction (Claude Code only) | Asks Claude to run the checkpoint skill before the compaction (see "Context watch") |
 
 ### Session start
 
@@ -42,6 +43,18 @@ A command that commits and then fails (`git commit && git push`, with the push f
 The PreCompact hook writes `snapshots/<session id>.md` with the branch, HEAD and changed tracked files. Untracked files aren't listed (SECURITY.md says why), and there are no commit subjects. Snapshots older than 7 days are removed.
 
 `git status` runs with any filter the repo itself defines switched off (see "git hardening"). When that can't be done, the count reads `not read (<reason>)`.
+
+### Context watch
+
+Claude Code only. After each tool call and each prompt, the launcher reads the session's context size from the end of its transcript: the tokens of the last main-thread request, plus about one token per four characters of the tool result or prompt that came after it. A tool's result can hold far more than the model is given (an image's base64, an Edit's whole file), so an image counts as 4,784 tokens, the most one costs on Claude's high-resolution tier, and one tool call adds at most 25,000, Claude Code's own limit for a Read or an MCP tool's output. A prompt has no such limit and counts in full. A subagent's calls are left alone.
+
+It then works out where Claude Code will auto-compact. MANUAL.md, section 7, lists where the window comes from. Compaction comes a fixed amount below the window, about 33k tokens in the transcripts measured (`compact_boundary` entries at 366k and 367k with a 400k window, 967k and 968k with 1M), or at `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` percent of it when that is earlier.
+
+Below 80% of the earliest point any setting allows, the launcher exits before it loads the rest of its code or looks for the memory folder. Most calls cost one read of the transcript's end and the settings files, and start no git. Past that, the sandboxed hook compares the size with the steps (85%, 90% and 95% of the compaction point by default). At the first step it reaches, it asks Claude to run `trailmark:checkpoint` and shows you `[trailmark] Context about ...`. A request made while the transcript's own size is under 75% of the compaction point (the estimate for a large result can reach a step from there) doesn't start over at that line, so an estimate that runs high can't ask on every call. Once the transcript reaches the line, the steps start over if the handoff was written since that request, so an early checkpoint doesn't end the requests. It asks again at a later step only if this session hasn't written the handoff since the first request. The request ignores the reminder throttle and restarts it, so a commit reminder doesn't follow straight away.
+
+It starts over after a compaction, or once the context has shrunk by a fifth or fallen below 75% of the compaction point (after a request made above that line); the launcher reads that from the transcript since the last request. Its state is kept in the session's record in the state file. Nothing is written until a step is reached, except to clear an earlier request when it starts over, or to note that the handoff was written since the first request. `"contextWatch": {"on": false}` in `.jbmem.json` turns it off.
+
+The Codex copy has no context watch: Codex records token counts, but where it compacts by default isn't established, and its hooks have no prompt event.
 
 ### Writing the handoff
 
@@ -132,7 +145,7 @@ Otherwise all of them stay. A quiet `git commit -q`, output cut short, or a comm
 | `network-folder` | A folder on a network path, or a link to one, other than the session's own share |
 | `no-repo` | git found no repo there, or git couldn't run |
 | `git-kept-out` | git is kept out of that repo (SECURITY.md, "Known limits") |
-| `git-timeout` | git ran out of time. Claude is told the commit isn't logged yet, and the folder joins the session's commit folders, so the next sweep logs it (unless another command holds the state file for more than 2 s) |
+| `git-timeout` | git ran out of time. The folder joins the session's commit folders, so the next sweep logs the commit, and Claude is told it isn't logged yet (not after a command that failed). While the state file can't be updated (for example, another command holds it for more than 2 s), the folder can't join: Claude is told that a later sweep may miss the commit, and to name it in the handoff |
 | `too-many-folders` | More than 4 folders in one command |
 | `too-many-commits` | More than 30 commits in one folder |
 | `too-long` | The command took over 1.5 seconds to read |
@@ -147,15 +160,17 @@ This line changes nothing. It counts how often the reading of a command, or the 
 
 A commit made by a script the command didn't write, by a git command the hooks' `if` filter doesn't match, or while a hook didn't run, leaves no COMMIT line. The launcher sweeps for these at `write-handoff` with `--session`, and when a session resumes or compacts.
 
-The sweep reads the reflog of each folder the session used: the folder it started in, the one it is in, and the folders its logged commits went to (up to six). It logs entries that meet all of these:
+The sweep reads the reflog of each folder the session used: the folder it started in, the one it is in, and the session's commit folders (up to six): those its logged commits went to, and those a commit may still be logged from (git timed out there, or a command sent to the background commits there). It logs entries that meet all of these:
 
-- written by `git commit` since that folder's last sweep (or the session's start, at most a day back), and before the second the sweep started;
+- written by `git commit` since that folder's last sweep, and before the second the sweep started. A folder not read yet starts at the session's start for the folders the session started in and is in, and for a commit folder at the start of the command that made it one (its window, as for a commit hook, or the session's start when neither a record nor `duration_ms` gives one); never more than a day back;
 - still reachable from a ref (a branch, a tag, a remote, the stash, another worktree's `HEAD` or any other ref) and not amended away;
 - not already in a COMMIT line or the state file.
 
 They are logged as `COMMIT <sha> [in="<folder>"] <subject> (found later)`, and `write-handoff` says how many. Each folder keeps its own start in the session's record (`swept`), so a folder that couldn't be read (gone for a while, slow, or past the time budget) is read from where it was when it is back, up to a day. A sweep that runs out of time before it has read every folder (git slowed by other work on the machine) says so: `write-handoff` prints "commit sweep skipped: out of time", and session start shows it as a warning. The folders it didn't read keep their start for the next sweep.
 
 Someone else working in the same folder (by hand, or a tool) is not told apart from the session, so "found later" means found in its folders, not proved to be its own.
+
+Past six commit folders, one that a sweep has read since the last command that made it one finished goes first, the oldest such; for a command sent to the background, finished means its time is up (the 11 minutes above). Only when none has been read that far does the oldest go.
 
 A folder that has a memory folder of its own (another clone set up for Trailmark) is swept past the commits logged there and the commit commands still running there, since those belong to its sessions. That memory folder is found by Claude Code's usual project-folder name only. One that Trailmark finds only by searching other transcripts isn't looked for here (the search has no time limit), so that clone's commits get no such exclusion.
 
@@ -266,7 +281,7 @@ The whole injection is cut to fit Claude Code's 10,000-character limit whatever 
 
 At session start the launcher looks in Claude Code's plugin cache (`<config>/plugins/cache/<marketplace>/<plugin>/<version>`) for other copies of Trailmark. A copy is a folder named `trailmark` or `jb-memory` (the name before 0.5.0), or one holding `scripts/trailmark.js` or the old `scripts/jbm.js`, other than the running copy and the Trailmark that Claude Code lists as installed in `plugins/installed_plugins.json`. An installed copy under the old name is named too, since it runs every hook next to Trailmark.
 
-The start message names each one, so you can remove it, and tells Claude never to run it. Without that, a session could find an old cached copy by searching the disk and write the handoff with it, skipping the version check.
+The start message gives how many it found, in fixed text, and a command that lists them by full path: `node "<launcher>" --copies`, with the launcher's path filled in. It names no folder, since a folder's name is text whoever made it chose. It tells Claude never to run another copy's scripts. Without that, a session could find an old cached copy by searching the disk and write the handoff with it, skipping the version check.
 
 Call a skill by its full name: `/trailmark:checkpoint`, and `trailmark:checkpoint` for the Skill tool. Claude Code's built-in `/rewind` has the alias `checkpoint`, and the Skill tool refuses that name as a built-in command. In the code of Claude Code 2.1.306 and 2.1.309, the alias list is `checkpoint` and `undo`, and the Skill tool takes a command whose name matches exactly before any alias. So the full name reaches Trailmark's skill, and a bare name goes to the first command with that alias. A typed `/checkpoint` most likely opens `/rewind`; that has not been tested. The hook reminders give the full skill name, and say what to do if it won't load.
 
@@ -297,6 +312,7 @@ All of this happens only in repos set up with `/trailmark:memory-setup`. In any 
 | PostToolUse (the same commands, and `gh pr merge`) and PostToolUseFailure (the same commands, without `gh pr merge`) | git: the commits the command made | Log lines, the state file |
 | PostToolUse (Agent, Task) | Nothing | The reminder time in the state file |
 | PreCompact | git: branch, HEAD, status | `snapshots/<session>.md`, one log line |
+| PostToolUse (every tool) and UserPromptSubmit | Nothing below 80% of the earliest compaction point. Past it, the launcher's `git rev-parse` to find the memory folder | The session's context-watch state in the state file, when it changes |
 
 Every hook goes through `scripts/trailmark.js`, which only reads. It runs git by full path, without a shell, with timeouts, and with every repo setting that could start a program switched off (`lib/gitbin.js` lists them). The git subcommands it uses are `rev-parse`, `branch`, `log` (also over the reflog), `rev-list`, `merge-base`, `status`, `ls-files`, `check-attr`, `config --show-scope`, and `config --file` to read a repo's own config files before git runs there. Then it starts the script that writes, under Node's permission model: that script can write only in the repo's memory folder, and can't start programs.
 
@@ -307,6 +323,7 @@ Besides the repo, which it reads through git, it reads:
 - the memory folder;
 - Claude Code's `settings.json` (for `autoMemoryDirectory`) and the first lines of transcripts in its projects folder, to find the memory folder;
 - `installed_plugins.json` and the plugin cache, to warn about other Trailmark copies;
+- for the context watch, the end of the session's own transcript (1 MB, up to 32 MB when it has to look further back) and Claude Code's settings files (its `settings.json`, and the project's `.claude/settings.json` and `.claude/settings.local.json`, up to 1 MB each);
 - the session's own transcript, when the checkpoint skill asks for it.
 
 It sends nothing. No script opens a network connection (a test checks that none loads Node's network modules), there is no telemetry, and no model is called outside the session you're in.

@@ -44,6 +44,22 @@ process.env.JBMEM_TEST_GITDIR_BUDGET = '20000';
 const JBM = path.join(ROOT, 'scripts', 'trailmark.js');
 const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
 const WIN = process.platform === 'win32';
+// Making a symlink on Windows needs Developer Mode or admin rights: CI's
+// runners have them, an ordinary desktop account may not.
+const NO_LINKS = WIN && (() => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-linkprobe-'));
+  try { fs.symlinkSync('missing', path.join(d, 'l'), 'file'); return false; } catch { return 'making symlinks needs Developer Mode on Windows'; } finally { fs.rmSync(d, { recursive: true, force: true }); }
+})();
+// Given no type, Node on Windows looks at a link's target to choose a file
+// or a folder link. For a network target that would look the share up (and
+// could send the user's credentials) before the code under test runs, so
+// such a link is made as a file link without looking.
+if (WIN) {
+  const makeLink = fs.symlinkSync;
+  fs.symlinkSync = function (target, at, type) {
+    return makeLink.call(this, target, at, type === undefined && /^[\\/]{2}/.test(String(target)) ? 'file' : type);
+  };
+}
 const SA = '11111111-1111-4111-8111-111111111111';
 const SB = '22222222-2222-4222-8222-222222222222';
 
@@ -400,7 +416,7 @@ test('git pointers: config is read as git reads it, and alternates are followed'
   assert.strictEqual(farGitConfig(ok), '');
 });
 
-test('git pointers: a linked config is followed and checked where it leads', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git pointers: a linked config is followed and checked where it leads', { skip: NO_LINKS }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far3-');
   const r = path.join(base, 'r'); repoAt(r);
@@ -451,7 +467,7 @@ test('git pointers: second review cases (prefix, deep includes, decoy .git, many
   assert.strictEqual(shareRoot('\\\\?\\UNC\\srv\\s'), '');
 });
 
-test('git pointers: links on the way to a gitdir, config or include', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git pointers: links on the way to a gitdir, config or include', { skip: NO_LINKS }, () => {
   const { farGitConfig, localPath } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far6-');
   const a = path.join(base, 'a'); fs.mkdirSync(a);
@@ -475,7 +491,7 @@ test('git pointers: links on the way to a gitdir, config or include', { skip: WI
   assert.strictEqual(localPath(path.join(base, 'alias', 'x')), path.join(ok, 'x'), 'a local link is followed');
 });
 
-test('git pointers: whitespace git keeps, and links deep in the gitdir (loop round 1)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git pointers: whitespace git keeps, and links deep in the gitdir (loop round 1)', { skip: NO_LINKS }, () => {
   const { farGitConfig, localPath } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far7-');
   const sp = path.join(base, 'sp'); repoAt(sp);
@@ -495,10 +511,12 @@ test('git pointers: whitespace git keeps, and links deep in the gitdir (loop rou
   }
   const real = path.join(base, 'realdir'); fs.mkdirSync(path.join(real, 'inner'), { recursive: true });
   fs.symlinkSync(path.join(real, 'inner'), path.join(base, 'lnk'));
-  assert.strictEqual(localPath(path.join(base, 'lnk') + '/../x'), path.join(real, 'x'), "'..' after a link goes up from where it led");
+  // Outside Windows '..' after a link goes up from where it led; Windows
+  // takes it as text, as git for Windows does.
+  assert.strictEqual(localPath(path.join(base, 'lnk') + '/../x'), WIN ? path.join(base, 'x') : path.join(real, 'x'), "'..' after a link");
 });
 
-test('git status: a folder of tracked files that links to a share stops status', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git status: a folder of tracked files that links to a share stops status', { skip: NO_LINKS }, () => {
   const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = realTemp('jbmem-wt-');
   const r = path.join(base, 'r'); repoAt(r);
@@ -535,7 +553,7 @@ test('git checks: quotes in a value, a deep gitdir, a FIFO HEAD (loop round 2)',
   }
 });
 
-test('git status: checked over the whole worktree, not only below cwd (loop round 2)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git status: checked over the whole worktree, not only below cwd (loop round 2)', { skip: NO_LINKS }, () => {
   const { gitFacts, commitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = realTemp('jbmem-wt2-');
   // A filter the repo defines, on a file outside cwd.
@@ -590,7 +608,7 @@ test('a session on a share: its own share may be looked up from the launcher (lo
   }
 });
 
-test('sweep: a folder that links to a share is never stat-ed (loop round 3)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('sweep: a folder that links to a share is never stat-ed (loop round 3)', { skip: NO_LINKS }, () => {
   const { sweepCommits } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = realTemp('jbmem-sweep3-');
   const lnk = path.join(base, 'lnk');
@@ -602,7 +620,7 @@ test('sweep: a folder that links to a share is never stat-ed (loop round 3)', { 
   assert.ok(!seen.includes(lnk), 'stat through a link to a share');
 });
 
-test('transcripts: never read through a link to a share, never a FIFO (loop round 3)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('transcripts: never read through a link to a share, never a FIFO (loop round 3)', { skip: WIN && 'a link to "/" + a path is a network path only outside Windows' }, () => {
   const base = realTemp('jbmem-tx3-');
   const cfg = path.join(base, 'cfg');
   const repo = path.join(base, 'repo'); repoAt(repo);
@@ -633,7 +651,7 @@ test('transcripts: never read through a link to a share, never a FIFO (loop roun
   assert.doesNotMatch(s.jbm(['transcript', '--session=' + SB]).stdout, /FROM THE SHARE/);
 });
 
-test('memory folder: MEMORY.md links through a linked folder, conflict output, names and tags (loop round 3)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('memory folder: MEMORY.md links through a linked folder, conflict output, names and tags (loop round 3)', { skip: NO_LINKS }, () => {
   const s = sandbox();
   const d = path.join(s.base, 'elsewhere'); fs.mkdirSync(d); fs.writeFileSync(path.join(d, 'x.md'), 'x\n');
   fs.symlinkSync(d, path.join(s.memdir, 'evil'));
@@ -656,7 +674,7 @@ test('memory folder: MEMORY.md links through a linked folder, conflict output, n
   assert.ok(S.escapeTags('see </').endsWith('<\\/'));
 });
 
-test('regressions: ordinary setups the round 2 checks refused (loop round 3)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('regressions: ordinary setups the round 2 checks refused (loop round 3)', { skip: NO_LINKS }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = realTemp('jbmem-reg3-');
@@ -672,10 +690,13 @@ test('regressions: ordinary setups the round 2 checks refused (loop round 3)', {
   const lf = path.join(base, 'lf'); repoAt(lf);
   fs.appendFileSync(path.join(lf, '.git', 'config'), '[lfs]\n  url = //nas.invalid/share/lfs\n');
   assert.strictEqual(farGitConfig(lf), 'network-config');
-  // A repo whose path is over 400 characters.
-  let long = base; while (long.length < 450) long = path.join(long, 'd'.repeat(40));
-  repoAt(long);
-  assert.strictEqual(gitFacts(long, ['status']).statusSkipped, undefined, 'status skipped for a long path');
+  // A repo whose path is over 400 characters (outside Windows: a process
+  // can't start in a folder past MAX_PATH there).
+  if (!WIN) {
+    let long = base; while (long.length < 450) long = path.join(long, 'd'.repeat(40));
+    repoAt(long);
+    assert.strictEqual(gitFacts(long, ['status']).statusSkipped, undefined, 'status skipped for a long path');
+  }
   // A stow-linked MEMORY.md doesn't block init; skills say to indent a marker line.
   const s = sandbox();
   const elsewhere = path.join(s.base, 'MEMORY.real.md'); fs.writeFileSync(elsewhere, '# Memory\n');
@@ -693,7 +714,7 @@ test('regressions: ordinary setups the round 2 checks refused (loop round 3)', {
   assert.strictEqual(t.jbm(['archive-file', 'notes (old).md']).status, 0);
 });
 
-test('git checks: settings that name a file, the sixth alternate, includes by path, objects-named refs, decoys (loop round 4)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git checks: settings that name a file, the sixth alternate, includes by path, objects-named refs, decoys (loop round 4)', { skip: NO_LINKS }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const P = require(path.join(ROOT, 'scripts', 'lib', 'paths.js'));
   const base = realTemp('jbmem-far9-');
@@ -778,7 +799,7 @@ test('memory folder: hard links are never written or read through; transcript --
   for (const t of ['<śystem-reminder>', '<́/system-reminder>', '＜／system-reminder＞', '<∕system-reminder>']) assert.ok(S.escapeTags(t).includes('\\'), JSON.stringify(t));
 });
 
-test('prune: links through a linked folder and a linked MEMORY.md are reported as not checked (loop round 4)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('prune: links through a linked folder and a linked MEMORY.md are reported as not checked (loop round 4)', { skip: NO_LINKS }, () => {
   const s = sandbox();
   const shared = path.join(s.base, 'shared'); fs.mkdirSync(shared); fs.writeFileSync(path.join(shared, 'b.md'), 'b\n');
   fs.symlinkSync(shared, path.join(s.memdir, 'linked'));
@@ -808,7 +829,7 @@ test('prune: links through a linked folder and a linked MEMORY.md are reported a
   }
 });
 
-test('git checks: alternates\' own folders, core.worktree as a base, git-lfs folders and .lfsconfig (loop round 5)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git checks: alternates\' own folders, core.worktree as a base, git-lfs folders and .lfsconfig (loop round 5)', { skip: NO_LINKS }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = realTemp('jbmem-far10-');
@@ -876,7 +897,7 @@ test('git checks: alternates\' own folders, core.worktree as a base, git-lfs fol
   assert.strictEqual(lfsRepo(r => fs.writeFileSync(path.join(r, '.lfsconfig'), '[lfs]\n  batch = true\n')), undefined, 'a plain .lfsconfig');
 });
 
-test('memory folder and transcripts: hard links, record cwd, prune outcomes, settings forms (loop round 5)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('memory folder and transcripts: hard links, record cwd, prune outcomes, settings forms (loop round 5)', () => {
   const { recordCwds } = require(path.join(ROOT, 'scripts', 'lib', 'plainfile.js'));
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   // Only a record's own top-level cwd, never one inside a tool call.
@@ -915,7 +936,7 @@ test('memory folder and transcripts: hard links, record cwd, prune outcomes, set
   assert.strictEqual(farGitConfig(t), '');
 });
 
-test('lock, day log and state copy: hard links and races (loop round 6)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('lock, day log and state copy: hard links and races (loop round 6)', () => {
   const base = realTemp('jbmem-r6-');
   // A fresh live-looking lock with a second hard link is not broken at once.
   const d1 = path.join(base, 'd1'); fs.mkdirSync(d1);
@@ -934,7 +955,7 @@ test('lock, day log and state copy: hard links and races (loop round 6)', { skip
   if (bad) assert.strictEqual(fs.readFileSync(path.join(d2, bad), 'utf8'), '{not json');
 });
 
-test('git checks: submodule gitdirs in modules/, .gitmodules, alternates from core.worktree (loop round 6)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git checks: submodule gitdirs in modules/, .gitmodules, alternates from core.worktree (loop round 6)', { skip: NO_LINKS }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = realTemp('jbmem-far11-');
@@ -976,7 +997,7 @@ test('git checks: submodule gitdirs in modules/, .gitmodules, alternates from co
   assert.strictEqual(farGitConfig(ok), '');
 });
 
-test('LFS stores, long transcript lines (loop round 6)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('LFS stores, long transcript lines (loop round 6)', { skip: NO_LINKS }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const { recordCwds } = require(path.join(ROOT, 'scripts', 'lib', 'plainfile.js'));
   const base = realTemp('jbmem-r6b-');
@@ -1000,7 +1021,7 @@ test('LFS stores, long transcript lines (loop round 6)', { skip: WIN && 'making 
   assert.deepStrictEqual(recordCwds(tool.slice(0, 65536)), [], 'a cwd inside a tool call');
 });
 
-test('git checks: folders git tries as bare repos, tracked files turned folders, module gitdirs git still finds (loop round 7)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git checks: folders git tries as bare repos, tracked files turned folders, module gitdirs git still finds (loop round 7)', { skip: NO_LINKS }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = realTemp('jbmem-far12-');
@@ -1041,7 +1062,7 @@ test('git checks: folders git tries as bare repos, tracked files turned folders,
   assert.strictEqual(mods('m4', md => { for (const n of ['libs/one', 'libs/two']) { const d = path.join(md, n); fs.mkdirSync(path.join(d, 'objects'), { recursive: true }); fs.mkdirSync(path.join(d, 'refs')); fs.writeFileSync(path.join(d, 'HEAD'), 'ref: refs/heads/main\n'); } }), '');
 });
 
-test('scan: only the folder a session started in counts; a memory folder named notes (loop round 7)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('scan: only the folder a session started in counts; a memory folder named notes (loop round 7)', { skip: NO_LINKS }, () => {
   const base = realTemp('jbmem-r7-');
   const cfg = path.join(base, 'cfg');
   const R = path.join(base, 'R'); repoAt(R); fs.mkdirSync(path.join(R, 'sub'));
@@ -1131,7 +1152,7 @@ test('0.5.1 superprojects: what one check found is not kept for the next', () =>
   assert.strictEqual(localPathFrom(base, p), path.join(base, 'b', 'x'), 'the second check used the first one\'s lookup');
 });
 
-test('memory folder: a linked subfolder is never listed or stat-ed through (loop round 2)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('memory folder: a linked subfolder is never listed or stat-ed through (loop round 2)', { skip: NO_LINKS }, () => {
   const base = realTemp('jbmem-sub2-');
   const mem = path.join(base, 'memory'); fs.mkdirSync(mem);
   const out = path.join(base, 'elsewhere'); fs.mkdirSync(out);
@@ -1195,7 +1216,7 @@ test('skills: the heredoc end marker and shell characters in names (loop round 2
   assert.ok(fs.existsSync(path.join(s.memdir, 'parked', odd)));
 });
 
-test('memory folder: links are never stat-ed through, state paths through a link to a share are not resolved (loop round 1)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('memory folder: links are never stat-ed through, state paths through a link to a share are not resolved (loop round 1)', { skip: NO_LINKS }, () => {
   const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
   const gf = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = realTemp('jbmem-links2-');
@@ -1207,8 +1228,10 @@ test('memory folder: links are never stat-ed through, state paths through a link
   fs.writeFileSync(path.join(dir, 'parked', 'plain.md'), '# y\n');
   const names = S.listDir(dir, 'parked').map(r => r.name || r.file || String(r));
   assert.ok(!names.some(n => /linked/.test(n)), 'a linked parked file is not listed: ' + names.join(','));
-  fs.writeFileSync(path.join(dir, 'snapshots', 'bad\nname.md'), 'x');
-  assert.ok(!S.listSnapshots(dir).some(x => /\n/.test(x.session)), 'a snapshot name that is not a session id is ignored');
+  if (!WIN) { // Windows allows no line break in a name
+    fs.writeFileSync(path.join(dir, 'snapshots', 'bad\nname.md'), 'x');
+    assert.ok(!S.listSnapshots(dir).some(x => /\n/.test(x.session)), 'a snapshot name that is not a session id is ignored');
+  }
   fs.symlinkSync('//evil.invalid/share/d', path.join(base, 'lnk'));
   assert.strictEqual(gf.sameFolder(path.join(base, 'lnk'), path.join(base, 'lnk2')), false);
   fs.symlinkSync(path.join(base, 'nowhere'), path.join(dir, S.LOCK || '.jbmem.lock'));
@@ -1217,7 +1240,7 @@ test('memory folder: links are never stat-ed through, state paths through a link
   assert.ok(ran, 'a linked lock file is removed, not waited on');
 });
 
-test('regressions: common setups still work when they should (loop round 1)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('regressions: common setups still work when they should (loop round 1)', { skip: NO_LINKS }, () => {
   const { farGitConfig, localRepoRoot } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const P = require(path.join(ROOT, 'scripts', 'lib', 'paths.js'));
   const base = realTemp('jbmem-reg-');
@@ -1278,7 +1301,7 @@ test('git status: submodule folders are checked first, untracked repos are not l
   assert.ok(!(f.status || []).some(l => /x\//.test(l)), 'untracked folders are not listed');
 });
 
-test('links: the launcher and hooks never read through a link in the memory folder', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('links: the launcher and hooks never read through a link in the memory folder', { skip: NO_LINKS }, () => {
   const s = sandbox();
   s.write('# H\n- real state\n');
   const secret = path.join(s.base, 'outside.md');
@@ -1325,6 +1348,19 @@ test('tags: look-alike opening tags are escaped, code and placeholders are not',
 });
 
 // ---------- the rename (0.5.0) ----------
+
+test('copies: session start counts every copy it found, not the first three (0.6.0)', () => {
+  const s = sandbox();
+  s.write('# H\n- state\n');
+  for (const m of ['m1', 'm2', 'm3', 'm4']) {
+    const d = path.join(s.cfg, 'plugins', 'cache', m, 'trailmark', '0.4.0');
+    fs.mkdirSync(path.join(d, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(d, 'scripts', 'trailmark.js'), '// old copy');
+  }
+  const { context, message } = s.start(SB);
+  assert.match(context, /4 other copies of trailmark are on disk/);
+  assert.match(message, /4 other trailmark copies are in Claude Code's plugin cache/);
+});
 
 test('rename: a copy under the old name jb-memory is still found, counted at session start, and named only by --copies', () => {
   const s = sandbox();
@@ -1398,7 +1434,20 @@ test('rename: an old jb-memory-codex in the Codex plugin cache is found', () => 
   }
 });
 
-test('launcher: a memory folder named notes, reached through a link, still starts the session (loop round 8)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('copies: every old jb-memory-codex folder is counted, not the first three (0.6.0)', () => {
+  const { oldCodexCopies } = require(path.join(ROOT, 'scripts', 'lib', 'health.js'));
+  const home = realTemp('jbmem-codexfive-');
+  for (let i = 1; i <= 5; i++) fs.mkdirSync(path.join(home, 'plugins', 'cache', `m${i}`, 'jb-memory-codex', '0.2.3'), { recursive: true });
+  assert.strictEqual(oldCodexCopies(home).length, 5);
+  if (S.AGENT === 'Codex') {
+    const s = sandbox();
+    s.write('# H\n- state\n');
+    const r = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, CODEX_HOME: home }, input: JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB }), encoding: 'utf8' });
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /jb-memory-codex, is in Codex's plugin cache \(5 folders\)/);
+  }
+});
+
+test('launcher: a memory folder named notes, reached through a link, still starts the session (loop round 8)', { skip: NO_LINKS }, () => {
   const s = sandbox();
   const realMem = path.join(s.base, 'realnotes'); fs.mkdirSync(realMem);
   const mem = path.join(s.base, 'notes');
@@ -1410,7 +1459,7 @@ test('launcher: a memory folder named notes, reached through a link, still start
   assert.match(context, /the notes-named folder works/, 'session start was silent for a linked ~/notes memory folder');
 });
 
-test('lock: a link in place of the lock is removed under the .break lock (loop round 8)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('lock: a link in place of the lock is removed under the .break lock (loop round 8)', { skip: NO_LINKS }, () => {
   const base = realTemp('jbmem-lock8-');
   const target = path.join(base, 'elsewhere'); fs.writeFileSync(target, 'keep');
   const lock = path.join(base, S.LOCK);
@@ -1427,7 +1476,7 @@ test('lock: a link in place of the lock is removed under the .break lock (loop r
   assert.deepStrictEqual(fs.readdirSync(base).filter(f => f.endsWith('.gone')), []);
 });
 
-test('git checks: a decoy .git beside a bare-repo HEAD, plain configs read as git reads them, other worktrees\' commondir (loop round 8)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git checks: a decoy .git beside a bare-repo HEAD, plain configs read as git reads them, other worktrees\' commondir (loop round 8)', { skip: WIN && 'names with a tab or a form feed, which Windows refuses' }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far8-');
   const EVIL = '//evil.invalid/share/x';
@@ -1474,7 +1523,7 @@ test('git checks: a decoy .git beside a bare-repo HEAD, plain configs read as gi
   assert.notStrictEqual(farGitConfig(path.join(m, 'sub')), '', "another worktree's commondir on a share");
 });
 
-test('git status: tracked paths are never lstat-ed through a linked folder (loop round 8)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git status: tracked paths are never lstat-ed through a linked folder (loop round 8)', { skip: NO_LINKS }, () => {
   const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = realTemp('jbmem-r8-');
   const EVIL = '//evil.invalid/share/x';
@@ -1502,7 +1551,7 @@ test('branch: a folder that is not a repo has no branch, and the Updated line ke
   assert.match(out, /branch feature-x \| HEAD abcdef1/, "an unknown branch replaced the model's own");
 });
 
-test('git checks: a folder with a HEAD is probed only as git probes a bare repo; module walks skip refs/ and objects/ (loop round 8)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git checks: a folder with a HEAD is probed only as git probes a bare repo; module walks skip refs/ and the loose-object folders of module gitdirs (loop round 8)', { skip: NO_LINKS }, () => {
   const { farGitConfig, farModules } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-bare8-');
   const EVIL = '//evil.invalid/share/x';
@@ -1538,7 +1587,10 @@ test('git checks: a folder with a HEAD is probed only as git probes a bare repo;
   let why;
   try { why = farModules(sp); } finally { fs.readdirSync = orig; }
   assert.strictEqual(why, '', '1,100 submodules with a remote counted as more than 2,000');
-  assert.deepStrictEqual(seen.filter(p => p.startsWith(path.join(m0, 'objects'))), [], "a module's objects/ was walked");
+  // objects/ itself is listed once (0.6.0: a gitdir under a name that isn't
+  // two-hex may sit there); its loose-object folders never are.
+  assert.ok(seen.filter(p => p === path.join(m0, 'objects')).length <= 1, "a module's objects/ was listed more than once");
+  assert.deepStrictEqual(seen.filter(p => p.startsWith(path.join(m0, 'objects') + path.sep)), [], "a module's loose-object folders were walked");
 });
 
 // A path git keeps as raw bytes; Node can only name it as a Buffer.
@@ -1577,7 +1629,7 @@ test('git status: a tracked folder that is not UTF-8 and links to a share stops 
 // manager such as stow makes these) was listed as a dead link, next to the
 // files that really are gone. The prune skill deletes dead index lines and
 // reads flagged files, and only links reported as links are kept unopened.
-test('prune: a topic file that is a link is reported as a link, never as dead (loop round 9)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('prune: a topic file that is a link is reported as a link, never as dead (loop round 9)', { skip: NO_LINKS }, () => {
   const s = sandbox();
   const real = path.join(s.base, 'dotfiles-topic.md'); fs.writeFileSync(real, '---\ndescription: kept elsewhere\n---\nlive\n');
   fs.symlinkSync(real, path.join(s.memdir, 'stowed.md'));
@@ -1614,7 +1666,7 @@ test('injection: invisible tag characters and bidi overrides never reach the ses
 // .break, but only the look before .break decides. A real lock taken in
 // between was moved aside, and a third command could take the free name
 // before it was put back: two holders at once. Forced interleaving.
-test('lock: a real lock taken before .break is held is never moved aside (loop round 9)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('lock: a real lock taken before .break is held is never moved aside (loop round 9)', { skip: NO_LINKS }, () => {
   const base = realTemp('jbmem-lock9-');
   const lock = path.join(base, S.LOCK);
   fs.symlinkSync(path.join(base, 'nowhere'), lock);
@@ -1650,7 +1702,7 @@ test('lock: a real lock taken before .break is held is never moved aside (loop r
 // local link to a link that names a network path was followed. On Linux and
 // macOS //x resolves like /x, so a copy found through it shows the chain was
 // followed; on Windows the same chain opens \\server\share.
-test('health: a chain of links in the plugin cache that ends on a network path is never followed (loop round 9)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('health: a chain of links in the plugin cache that ends on a network path is never followed (loop round 9)', { skip: WIN && 'a link to "/" + a path is a network path only outside Windows' }, () => {
   const { otherCopies } = require(path.join(ROOT, 'scripts', 'lib', 'health.js'));
   const base = realTemp('jbmem-hops9-');
   const cfg = path.join(base, 'cfg');
@@ -1705,7 +1757,7 @@ function cachedCopy(cache) {
 // is opened, and on Windows that sends the server your sign-in hash. On Linux
 // and macOS //x resolves like /x, so a copy found through the link shows it
 // was followed.
-test('health: a plugin cache or plugins folder that links to a network path is never opened (loop round 10)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('health: a plugin cache or plugins folder that links to a network path is never opened (loop round 10)', { skip: WIN && 'a link to "/" + a path is a network path only outside Windows' }, () => {
   const { otherCopies } = require(path.join(ROOT, 'scripts', 'lib', 'health.js'));
   const base = realTemp('jbmem-hc10-');
   const own = path.join(base, 'own'); fs.mkdirSync(own);
@@ -1744,7 +1796,7 @@ test('health: a plugin cache or plugins folder that links to a network path is n
 // treats as untrusted, and an installPath through a link to a share (or one
 // written \??\UNC\..., which networkPath() doesn't know) was resolved, which
 // opens the share on Windows. gitfacts.realOr already guards this way.
-test('health: an installPath through a link to a network path is never resolved (loop round 10)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('health: an installPath through a link to a network path is never resolved (loop round 10)', { skip: NO_LINKS }, () => {
   const { otherCopies } = require(path.join(ROOT, 'scripts', 'lib', 'health.js'));
   const base = realTemp('jbmem-hi10-');
   const own = path.join(base, 'own'); fs.mkdirSync(own);
@@ -1912,7 +1964,7 @@ test('git checks: names and pointers that are not valid UTF-8 keep git out, and 
   fs.rmSync(base, { recursive: true, force: true });
 });
 
-test('git checks: another worktree recorded through a link to a share, or on one, keeps git out (git 2.56, final check)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git checks: another worktree recorded through a link to a share, or on one, keeps git out (git 2.56, final check)', { skip: NO_LINKS }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-wtgd-');
   const EVIL = '//evil.invalid/share/x';
@@ -1944,7 +1996,7 @@ test('git checks: another worktree recorded through a link to a share, or on one
   assert.strictEqual(farGitConfig(c.m), 'network-gitdir', 'a worktree recorded on a share');
 });
 
-test('git checks: a linked worktrees folder, worktree entry or modules folder is resolved before anything is listed or read through it (review round 11)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git checks: a linked worktrees folder, worktree entry or modules folder is resolved before anything is listed or read through it (review round 11)', { skip: NO_LINKS }, () => {
   const G = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-wtln-');
   const EVIL = '//evil.invalid/share';
@@ -2016,7 +2068,7 @@ test('sweep: a later finished commit releases an earlier record only from the sa
   assert.strictEqual(S.cleanAgent(7), '');
 });
 
-test('git checks: a NUL in a pointer file keeps git out, since git reads only up to the NUL; a tab in a folder name does not (review round 11)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git checks: a NUL in a pointer file keeps git out, since git reads only up to the NUL; a tab in a folder name does not (review round 11)', { skip: NO_LINKS }, () => {
   const G = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-nul-');
   const m = path.join(base, 'm'); repoAt(m);
@@ -2032,7 +2084,7 @@ test('git checks: a NUL in a pointer file keeps git out, since git reads only up
   assert.strictEqual(G.localPath(path.join(base, 'lnk') + '\0/x'), null);
 });
 
-test('git checks: alternates are read as git reads them, a missing folder followed by .. is refused, and LFS and annex stores in submodules have their own budget (review round 12)', { skip: WIN && 'making links needs Developer Mode on Windows' }, () => {
+test('git checks: alternates are read as git reads them, a missing folder followed by .. is refused, and LFS and annex stores in submodules have their own budget (review round 12)', { skip: WIN && 'quoted alternates, where backslashes in a Windows path would be escapes' }, () => {
   const G = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-alt-');
   const alts = (r) => path.join(r, '.git', 'objects', 'info', 'alternates');
@@ -2282,4 +2334,125 @@ test('0.5.1 git checks: a submodule named like vendor/objects/ab or vendor/objec
   } finally {
     if (low === undefined) delete process.env.JBMEM_TEST_GITDIR_BUDGET; else process.env.JBMEM_TEST_GITDIR_BUDGET = low;
   }
+});
+
+// ---------- 0.6.0: git checks ----------
+
+test('0.6.0 git checks: a submodule gitdir kept in a real submodule gitdir\'s objects/ under a name that isn\'t two-hex has its config checked', () => {
+  const { farGitConfig, farModules } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-nestmod-');
+  // modules/vendor is a real submodule gitdir (it has a HEAD); a submodule
+  // named vendor/objects/<name> keeps its gitdir inside vendor's objects/.
+  const make = (repo, name, fill) => {
+    const r = path.join(base, repo); repoAt(r);
+    const vendor = path.join(r, '.git', 'modules', 'vendor');
+    fs.mkdirSync(path.join(vendor, 'refs', 'heads'), { recursive: true });
+    fs.writeFileSync(path.join(vendor, 'HEAD'), 'ref: refs/heads/main\n');
+    const d = path.join(vendor, 'objects', name);
+    fs.mkdirSync(d, { recursive: true });
+    fill(d);
+    return r;
+  };
+  const nested = (d) => {
+    fs.mkdirSync(path.join(d, 'refs', 'heads'), { recursive: true });
+    fs.writeFileSync(path.join(d, 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(d, 'config'), '[include]\n\tpath = //evil.invalid/share/x\n');
+  };
+  // Checked before git status, like any submodule gitdir's config, there
+  // and one level further down.
+  assert.strictEqual(farModules(make('named', 'evil', nested)), 'network-config');
+  assert.strictEqual(farModules(make('deeper', 'info', (d) => nested(path.join(d, 'child')))), 'network-config');
+  // vendor's own pack/ and info/ hold no gitdir, and its loose objects
+  // (two-hex folders) are passed over unlisted, as before.
+  const plain = make('plain', 'ab', (d) => fs.writeFileSync(path.join(d, '0'.repeat(38)), ''));
+  fs.mkdirSync(path.join(plain, '.git', 'modules', 'vendor', 'objects', 'pack'));
+  fs.writeFileSync(path.join(plain, '.git', 'modules', 'vendor', 'objects', 'pack', 'pack-x.idx'), '');
+  assert.strictEqual(farGitConfig(plain), '');
+  assert.strictEqual(farModules(plain), '');
+});
+
+test('0.6.0 git checks: a removed submodule\'s leftover gitdir, whose worktree folder is gone, does not keep git status out', () => {
+  const { farModules } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-rmsub-');
+  for (const n of ['sub1', 'sub2']) repoAt(path.join(base, n));
+  const sup = path.join(base, 'sup');
+  const g = repoAt(sup);
+  for (const n of ['sub1', 'sub2']) g('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', path.join(base, n), n);
+  g('commit', '-q', '-m', 'add');
+  g('rm', '-q', 'sub2');
+  g('commit', '-q', '-m', 'rm');
+  assert.ok(fs.existsSync(path.join(sup, '.git', 'modules', 'sub2', 'HEAD')), 'git rm left the gitdir');
+  assert.ok(!fs.existsSync(path.join(sup, 'sub2')), 'and removed the folder');
+  // git keeps core.worktree = ../../../sub2 there: read from the missing
+  // folder, a '..' can only be taken as text.
+  assert.strictEqual(farModules(sup), '');
+  if (!NO_LINKS) {
+    // A worktree that is a link to a share is still refused.
+    fs.symlinkSync('//evil.invalid/share', path.join(sup, 'sub2'));
+    assert.notStrictEqual(farModules(sup), '');
+  }
+});
+
+test('0.6.0 git checks: farModules reads a relative setting from the repo it checks, not from the folder the last check looked at', () => {
+  const { farGitConfig, farModules } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const top = realTemp('jbmem-checkcwd-');
+  repoAt(top);
+  const m = path.join(top, '.git', 'modules', 's1');
+  fs.mkdirSync(path.join(m, 'refs', 'heads'), { recursive: true });
+  fs.mkdirSync(path.join(m, 'objects'), { recursive: true });
+  fs.writeFileSync(path.join(m, 'HEAD'), 'ref: refs/heads/main\n');
+  fs.writeFileSync(path.join(m, 'config'), '[core]\n\tworktree = loop\n');
+  // Another folder, where loop is a link that leads back to itself (a
+  // junction on Windows, which needs no extra rights): a path through it is
+  // refused, as through a link to a share.
+  const other = realTemp('jbmem-checkcwd-other-');
+  fs.symlinkSync(path.join(other, 'loop2'), path.join(other, 'loop'), 'junction');
+  fs.symlinkSync(path.join(other, 'loop'), path.join(other, 'loop2'), 'junction');
+  assert.strictEqual(farModules(top), '');
+  farGitConfig(other);
+  assert.strictEqual(farModules(top), '', 'the same answer after a check of another folder');
+});
+
+test('0.6.0 git checks: a gitdir folder that is there but cannot be listed keeps git out', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-nolist-');
+  // Two like repos: a check's answer is kept for its folder.
+  const make = (n) => {
+    const r = path.join(base, n); repoAt(r);
+    const odd = path.join(r, '.git', 'refs', 'heads', 'topic');
+    fs.mkdirSync(odd, { recursive: true });
+    fs.writeFileSync(path.join(odd, 'x'), '');
+    return { r, odd };
+  };
+  const a = make('a');
+  const b = make('b');
+  // As Node does on a file system that reports no entry types: it lstat's
+  // each name it decoded, and a name that isn't valid UTF-8 makes that fail.
+  const real = fs.readdirSync;
+  const target = path.resolve(a.odd);
+  fs.readdirSync = function (d, ...rest) {
+    if (path.resolve(String(d)) === target) { const e = new Error(`ENOENT: no such file or directory, lstat '${target}${path.sep}b�'`); e.code = 'ENOENT'; throw e; }
+    return real.call(this, d, ...rest);
+  };
+  try {
+    assert.strictEqual(farGitConfig(a.r), 'odd-path');
+  } finally {
+    fs.readdirSync = real;
+  }
+  assert.strictEqual(farGitConfig(b.r), '', 'listed as usual, the same folder is fine');
+});
+
+test('0.6.0 git checks: a link (not a folder) inside a leftover\'s objects/ab is followed and a share refused', { skip: NO_LINKS }, () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-ablink-');
+  const make = (n, link) => {
+    const r = path.join(base, n); repoAt(r);
+    const ab = path.join(r, '.git', 'modules', 'vendor', 'objects', 'ab');
+    fs.mkdirSync(ab, { recursive: true });
+    fs.writeFileSync(path.join(ab, '0'.repeat(38)), '');
+    if (link) fs.symlinkSync('//evil.invalid/share', path.join(ab, 'lnk'));
+    return r;
+  };
+  assert.strictEqual(farGitConfig(make('plain', false)), '');
+  assert.strictEqual(farGitConfig(make('linked', true)), 'linked-gitdir');
 });

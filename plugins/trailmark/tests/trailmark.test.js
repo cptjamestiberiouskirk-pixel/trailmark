@@ -4078,3 +4078,196 @@ test('0.6.0 context watch: a transcript_path outside the projects folder, or dee
   assert.strictEqual(c.run({ transcript_path: c.transcript.replace(/\.jsonl$/, '.txt') }), null, 'not a .jsonl');
   assert.ok(c.run(), 'the real one asks');
 });
+
+// ---------- 0.6.0: the session's commit folders ----------
+
+// A plain repo for a commit folder, its first commit ten minutes old as far
+// as its reflog says.
+const plainRepo = (dir) => {
+  fs.mkdirSync(dir, { recursive: true });
+  const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
+  g('init', '-q'); g('config', 'user.email', 't@t'); g('config', 'user.name', 't'); g('commit', '-q', '--allow-empty', '-m', 'first');
+  ageReflogs(path.join(dir, '.git'), 600);
+  return g;
+};
+// A commit command sent to the background in dir: its hooks run before it commits.
+const bgCommit = (s, dir, msg) => {
+  const id = `toolu_bgj${++toolSeq}x${process.pid}`;
+  const base = { session_id: SA, tool_name: 'Bash', tool_input: { command: `git -C "${dir}" commit -q --allow-empty -m "${msg}"`, run_in_background: true }, tool_use_id: id };
+  assert.strictEqual(jbm(s, ['--hook', 'commit-start'], JSON.stringify({ ...base, cwd: s.repo, hook_event_name: 'PreToolUse' })).status, 0);
+  const post = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ ...base, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 40 }));
+  assert.strictEqual(post.status, 0, post.stdout + post.stderr);
+};
+const sweepNow = (s) => settle(() => {
+  const r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], '# H\n- swept\n');
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  return r.stdout;
+});
+
+test('0.6.0 commit folders: a folder that joins the session\'s commit folders is swept from its command\'s start, not the session\'s', sweepTest(() => {
+  const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
+  const { s, clone, gClone, head } = multiFolder();
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  // The session started five minutes ago; another session committed in the
+  // clone half a minute ago, before this session's command there.
+  S.updateState(s.memdir, SA, (state, rec) => { rec.start = Date.now() - 300000; });
+  gClone('commit', '-q', '--allow-empty', '-m', 'not this session');
+  ageReflogs(path.join(clone, '.git'), 30);
+  bgCommit(s, clone, 'bg elsewhere');
+  gClone('commit', '-q', '--allow-empty', '-m', 'bg elsewhere');
+  const sha = head(clone);
+  tick();
+  sweepNow(s);
+  const lines = commitLines(s);
+  assert.ok(lines.some(l => l.endsWith(`COMMIT ${sha} in="${dp(clone)}" bg elsewhere (found later) session=11111111`)), notesOf(s));
+  assert.ok(!lines.some(l => l.includes('not this session')), lines.join('\n'));
+}));
+
+test('0.6.0 commit folders: past six, a folder a sweep has read since it joined goes first, not one whose background command may still commit', sweepTest(() => {
+  const { s, hook } = multiFolder();
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  const at = (n) => path.join(s.base, n);
+  const g = Object.fromEntries(['bgx', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6'].map(n => [n, plainRepo(at(n))]));
+  tick();
+  // First a command sent to the background in bgx, which hasn't committed yet.
+  bgCommit(s, at('bgx'), 'bg late');
+  // Then commits in five more folders, logged as they land.
+  const logged = (n) => {
+    const r = hook(s.repo, SA, `git -C "${at(n)}" commit -q --allow-empty -m "in ${n}"`, { duration_ms: 3000, between: () => g[n]('commit', '-q', '--allow-empty', '-m', `in ${n}`) });
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  };
+  for (const n of ['f1', 'f2', 'f3', 'f4', 'f5']) logged(n);
+  tick();
+  // A sweep reads all six; the background command may still commit after it.
+  sweepNow(s);
+  // A seventh folder: f1, read since it joined, makes room, not bgx.
+  logged('f6');
+  const rec = JSON.parse(fs.readFileSync(path.join(s.memdir, '.jbmem-state.json'), 'utf8')).sessions[SA];
+  assert.strictEqual(rec.commitDirs.length, 6, JSON.stringify(rec.commitDirs));
+  assert.ok(rec.commitDirs.some(d => d === at('bgx')), JSON.stringify(rec.commitDirs));
+  assert.ok(!rec.commitDirs.some(d => d === at('f1')), JSON.stringify(rec.commitDirs));
+  // The background command commits now, and the next sweep logs it.
+  g.bgx('commit', '-q', '--allow-empty', '-m', 'bg late');
+  tick();
+  sweepNow(s);
+  assert.ok(commitLines(s).some(l => l.includes(`in="${dp(at('bgx'))}" bg late (found later)`)), notesOf(s));
+}));
+
+test('0.6.0 commit hook: when git times out and another command holds the state file, Claude is still told the commit isn\'t logged', () => {
+  const s = sandbox();
+  jbm(s, ['init']);
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  const stub = path.join(s.base, 'git-timeout.js');
+  fs.writeFileSync(stub, GIT_TIMEOUT_STUB);
+  s.g('commit', '-q', '--allow-empty', '-m', 'slow and locked');
+  // The lock's holder is this test process, alive, so the hook gives up after its 2 s.
+  const lock = path.join(s.memdir, '.jbmem.lock');
+  fs.writeFileSync(lock, `pid ${process.pid} since now token busy\n`);
+  let r;
+  try {
+    r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', 'milestone', 'commit'], { cwd: s.repo, env: s.env, encoding: 'utf8',
+      input: JSON.stringify({ session_id: SA, tool_name: 'Bash', tool_input: { command: 'git commit -m "slow and locked"' }, tool_use_id: `toolu_lk${++toolSeq}x${process.pid}`, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 3000 }) });
+  } finally {
+    fs.rmSync(lock, { force: true });
+  }
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(notesOf(s), /COMMIT_UNRESOLVED why=git-timeout/, notesOf(s));
+  assert.ok(r.stdout, 'nothing was said to Claude');
+  const ctx = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+  assert.match(ctx, /A commit was not logged: git was too slow \(it timed out\) in one folder, and another command held trailmark's state file, so a later sweep may miss it\./, ctx);
+  assert.ok(!ctx.includes(dp(s.repo)), ctx);
+});
+
+test('0.6.0 context watch: an image counts as one image, one tool call adds at most 25k, and an ask from an estimate under 75% of the compaction point neither repeats nor ends the steps', () => {
+  const c = contextWatchSetup({ model: 'claude-haiku-4-5' }); // a 200k model: compaction near 167k, 75% near 125k, first step near 142k
+  // An image Read, shaped as in a transcript (2026-11-05): its base64 is
+  // 670k characters, the model gets at most 4,784 tokens. 120k + 4.8k is
+  // under the first step; counted as text it would be 120k + 25k.
+  c.usage(120000);
+  const image = { type: 'image', file: { base64: 'QUJD'.repeat(167500), type: 'image/png', originalSize: 500000 } };
+  assert.strictEqual(c.run({ tool_name: 'Read', tool_response: image }), null, 'an image Read at 120k: silent');
+  // Two large results in a row from under 75% (Opus round 2): 124k + 20k
+  // asks, at most 25k for one call.
+  c.usage(124000);
+  assert.match(askText(c.run({ tool_name: 'Read', tool_response: { file: { content: 'r'.repeat(80000) } } })), /about 144k tokens/);
+  const edit = { tool_name: 'Edit', tool_response: { filePath: 'x', originalFile: 'y'.repeat(400000) } };
+  // Still under 75%: the same step doesn't ask again, call after call.
+  c.usage(121000);
+  for (let i = 1; i <= 2; i++) assert.strictEqual(c.run(edit), null, `call ${i} under 75%: silent`);
+  // The handoff is written, then the transcript reaches 75%: the steps start
+  // over, so the first step asks again as a first request.
+  assert.strictEqual(wh((a2, i) => jbm(c.s, a2, i), '# H\n## Next\n- x\n', [`--session=${SA}`]).status, 0);
+  c.usage(126000);
+  assert.strictEqual(c.run(), null, '126k: under the first step');
+  assert.strictEqual(c.rec().contextWatch.level, undefined, 'started over');
+  c.usage(143000);
+  const again = askText(c.run());
+  assert.match(again, /about 143k tokens/);
+  assert.doesNotMatch(again, /has not written/);
+  // Without a write, reaching 75% doesn't start over: no second first
+  // request while Claude is still on the first.
+  const d = contextWatchSetup({ model: 'claude-haiku-4-5' });
+  d.usage(124000);
+  assert.ok(d.run(edit), 'an early ask');
+  d.usage(127000);
+  assert.strictEqual(d.run(), null, '127k, no write: silent');
+  assert.strictEqual(d.rec().contextWatch.level, 1, 'kept');
+});
+
+test('0.6.0 context watch: a request bigger than the window the model\'s name gives lifts that cap (a 1M context the name doesn\'t show)', () => {
+  // The window from the variable, capped at 200k by the name.
+  const c = contextWatchSetup({ model: 'claude-sonnet-4-5-20250929' });
+  const env = { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '1000000' };
+  c.usage(145000);
+  assert.match(askText(c.run({}, env)), /about 167k/, 'under 200k the cap holds');
+  assert.strictEqual(wh((a2, i) => jbm(c.s, a2, i), '# H\n## Next\n- x\n', [`--session=${SA}`]).status, 0);
+  c.usage(600000);
+  assert.strictEqual(c.run({}, env), null, 'past 200k: the 1M window, under its first step');
+  c.usage(830000);
+  assert.match(askText(c.run({}, env)), /about 830k tokens.*about 967k/);
+  // No setting: the model's own window, lifted to 1M the same way.
+  const d = contextWatchSetup({ model: 'claude-sonnet-4-5-20250929', settings: {} });
+  d.usage(830000);
+  assert.match(askText(d.run()), /about 967k/);
+});
+
+test('0.6.0 commit folders: a folder\'s join time is measured from the launcher\'s start, not from the later start of the script it runs', () => {
+  const s = sandbox();
+  jbm(s, ['init']);
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  const other = path.join(s.base, 'jt');
+  const g = plainRepo(other);
+  g('commit', '-q', '--allow-empty', '-m', 'joined');
+  // A preload that holds the launcher 3 s, as slow git would; the script it
+  // starts under the sandbox gets no -r.
+  const wait = path.join(s.base, 'wait.js');
+  fs.writeFileSync(wait, 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);\n');
+  const before = Date.now();
+  const r = spawnSync(process.execPath, ['-r', wait, JBM, '--hook', 'milestone', 'commit'], { cwd: s.repo, env: s.env, encoding: 'utf8',
+    input: JSON.stringify({ session_id: SA, tool_name: 'Bash', tool_input: { command: `git -C "${other}" commit -q --allow-empty -m "joined"` }, tool_use_id: `toolu_jt${++toolSeq}x${process.pid}`, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 1000 }) });
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.ok(Date.now() - before >= 3000, 'the launcher was held');
+  const rec = JSON.parse(fs.readFileSync(path.join(s.memdir, '.jbmem-state.json'), 'utf8')).sessions[SA];
+  const key = Object.keys(rec.commitDirsAt || {}).find(k => path.resolve(k).toLowerCase() === path.resolve(other).toLowerCase());
+  assert.ok(key, JSON.stringify(rec));
+  // With no PreToolUse record: the launcher's start, less duration_ms and
+  // 5 s, in whole seconds. From the sandboxed script's start it would be
+  // about 3 s later.
+  const from = rec.commitDirsAt[key][0];
+  assert.ok(from <= before - 5000, `the join time is ${from - before} ms from the launcher's start`);
+});
+
+test('0.6.0 context watch: a prompt counts in full, and an image counts as much as the high-resolution tier allows', () => {
+  const c = contextWatchSetup(); // 400k window: compaction near 367k, first step near 312k
+  // Claude Code has no 25k limit on a prompt: a 200k-character paste is
+  // about 50k tokens, 280k + 50k.
+  c.usage(280000);
+  const a = c.run({ hook_event_name: 'UserPromptSubmit', prompt: 'x'.repeat(200000) });
+  assert.match(askText(a), /about 330k tokens/);
+  // An image costs at most 4,784 tokens on the high-resolution tier
+  // (Claude's vision docs): 308k + 4.8k is past the first step.
+  const d = contextWatchSetup();
+  d.usage(308000);
+  const image = { type: 'image', file: { base64: 'QUJD'.repeat(100000), type: 'image/png', originalSize: 300000 } };
+  assert.match(askText(d.run({ tool_name: 'Read', tool_response: image })), /about 313k tokens/);
+});

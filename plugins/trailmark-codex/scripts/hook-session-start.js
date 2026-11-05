@@ -52,13 +52,14 @@ guard(() => {
   try {
     if (S.loadConfig(dir).sandbox === false) warn.push('.jbmem.json has "sandbox": false, which trailmark ignores; the sandbox stays on. To turn it off, set JBMEM_SANDBOX=off in the environment the app starts with');
   } catch (e) { if (e && e.code === 'ERR_ACCESS_DENIED') throw e; }
-  const copies = Array.isArray(health.copies) ? health.copies.filter(c => c && typeof c === 'object').slice(0, 3) : [];
+  // Counted only (0.6.0): no folder is named, so every copy found is counted.
+  const copies = Array.isArray(health.copies) ? health.copies.filter(c => c && typeof c === 'object') : [];
   if (copies.length) {
     const one = copies.length === 1;
     warn.push(`${one ? 'another trailmark copy is' : `${copies.length} other trailmark copies are`} in Claude Code's plugin cache (under plugins/cache in its config folder: a plugin folder named trailmark or jb-memory, or one whose scripts folder holds trailmark.js or jbm.js). Remove or rename ${one ? 'it' : 'them'}; ${listCmd} lists ${one ? 'it' : 'them'}`);
     notes.push(`[trailmark] ${one ? 'Another copy of trailmark is' : `${copies.length} other copies of trailmark are`} on disk, in Claude Code's plugin cache. They are not the installed plugin. Never run their trailmark.js or memory.js; the skills give the path to use. If the user asks which, run ${listCmd} and show its output.`);
   }
-  const oldCodex = Array.isArray(health.oldCodex) ? health.oldCodex.filter(x => typeof x === 'string' && /^[\w./+<> -]{1,300}$/.test(x)).slice(0, 3) : [];
+  const oldCodex = Array.isArray(health.oldCodex) ? health.oldCodex.filter(x => typeof x === 'string' && /^[\w./+<> -]{1,300}$/.test(x)) : [];
   if (oldCodex.length) {
     warn.push(`jb-memory-codex, this plugin's name before 0.5.0, is still in Codex's plugin cache (plugins/cache in CODEX_HOME, ${oldCodex.length === 1 ? 'a folder' : `${oldCodex.length} folders`} named jb-memory-codex) and would run every hook a second time. Uninstall it in the ChatGPT app and remove its marketplace: codex plugin marketplace remove jb-memory-codex`);
     notes.push(`[trailmark] An old copy of this plugin, jb-memory-codex, is in Codex's plugin cache (${oldCodex.length === 1 ? 'one folder' : `${oldCodex.length} folders`}). Never run its jbm.js; the skills give the path to use. If the user asks where, run ${listCmd} and show its output.`);

@@ -11,6 +11,7 @@ That's what a fresh session receives: the handoff, then the commits made since i
 - Every new session gets the repo's handoff, kept under 8,500 characters so it fits inside Claude Code's 10,000-character hook limit. When the note runs long, the cut says which sections were left out and where the full file is.
 - The note is checked against git. Commits made since it was written are listed, so Claude doesn't redo finished work.
 - After a commit, a merged PR or a subagent's result, Claude is reminded to update the note. Before a compaction, a snapshot of the repo's git state is saved.
+- As the session's context nears the point where Claude Code auto-compacts it, Claude is asked to update the note first.
 - Parallel sessions are safe. Every write names the version it started from, so one session can't silently overwrite another's notes.
 - If you also use Codex with trailmark-codex in the same repo, both read and write the same note. Its `Updated:` line names the agent that wrote it last.
 

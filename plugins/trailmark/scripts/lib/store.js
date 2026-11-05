@@ -1194,6 +1194,54 @@ function rememberCommits(state, shas) {
   state.loggedCommits = prior.concat(shas).slice(-KEEP_SHAS);
 }
 
+// ---------- the folders a session's commits went to ----------
+
+// rec.commitDirs: the folders this session committed in, or may have
+// committed in without a log line yet (git timed out, a command sent to the
+// background), at most MAX_COMMIT_DIRS; the commit sweep reads them.
+// rec.commitDirsAt keeps [from, settled] for each. The sweep starts there no
+// earlier than `from`, the window of the first command that added it since
+// a sweep last read it past `settled`: commits another session made there
+// before are not this session's. `settled` is when the latest of those
+// commands was done (for one sent to the background, when its time is up);
+// a sweep read past it means nothing of this session's is left there
+// unlogged. Past the limit, such a folder is dropped first (oldest first),
+// then the oldest; a folder this call adds stays. With no time given (NaN)
+// a folder has no entry and is swept from the session's start, as before.
+const MAX_COMMIT_DIRS = 6;
+function addCommitDirs(rec, dirs, from, settled = from) {
+  const list = Array.isArray(rec.commitDirs) ? rec.commitDirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
+  const old = isPlainObject(rec.commitDirsAt) ? rec.commitDirsAt : {};
+  const at = {};
+  for (const d of list) {
+    const v = old[d];
+    if (Array.isArray(v) && v.length === 2 && v.every(Number.isFinite)) at[d] = [v[0], v[1]];
+  }
+  const swept = isPlainObject(rec.swept) ? rec.swept : {};
+  const sweptAt = (d) => { const k = Object.keys(swept).find(x => Number.isFinite(swept[x]) && samePath(x, d)); return k ? swept[k] : -Infinity; };
+  const done = (d) => !!at[d] && sweptAt(d) >= at[d][1];
+  const timed = Number.isFinite(from) && Number.isFinite(settled);
+  const added = new Set();
+  for (const d of Array.isArray(dirs) ? dirs : []) {
+    if (typeof d !== 'string' || !path.isAbsolute(d) || d.length >= 4096) continue;
+    added.add(d);
+    const fresh = !list.includes(d);
+    if (fresh) list.push(d);
+    if (!timed) delete at[d];
+    else if (fresh || done(d)) at[d] = [from, settled];
+    else if (at[d]) at[d] = [Math.min(at[d][0], from), Math.max(at[d][1], settled)];
+  }
+  while (list.length > MAX_COMMIT_DIRS) {
+    let i = list.findIndex(d => !added.has(d) && done(d));
+    if (i < 0) i = list.findIndex(d => !added.has(d));
+    if (i < 0) i = 0;
+    delete at[list[i]];
+    list.splice(i, 1);
+  }
+  rec.commitDirs = list;
+  rec.commitDirsAt = at;
+}
+
 // The commits a sweep (gitfacts.sweepCommits, run by the launcher at session
 // start and at write-handoff) found in this session's folders that no hook
 // logged: made by a script, by hand, or while a hook didn't run. Logged as
@@ -2019,7 +2067,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   return { text, summary: `handoff ${age} old, ~${estTokens(text.length)} tokens injected${cut ? ', TRUNCATED' : ''}${ho.overChars || ho.overLines ? ', over budget' : ''}` };
 }
 
-module.exports = { addMemoryRoot, plainStat, plainExists, shownName, linkedFiles,
+module.exports = { addCommitDirs, MAX_COMMIT_DIRS, addMemoryRoot, plainStat, plainExists, shownName, linkedFiles,
   checkRepoRoot, escapeTags, readPlain, handoffStamp, checkSinceFacts, coveredSteps, pruneNotes, AGENT,
   MARKER, HANDOFF, HANDOFF_PREV, PRECOMPACT, SNAPSHOTS, LOCK, PENDING, DEFAULTS, HISTORY, CHECKPOINT_SKILL, SKILL_RULE,
   cleanSession, shortSession, versionOf, withLock, updateState, sessionRecord, otherSessions, lastWriterOf,

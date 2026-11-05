@@ -650,7 +650,8 @@ function hookMode(name, extraIn) {
     // text says: no end-folder check for it.
     // Codex: each command runs in a fresh shell and the session's folder
     // never moves, so there is no end folder to compare.
-    facts = { commit: fitCommitFacts(commit) };
+    // procStart: the commit hook measures a folder's join time from it too.
+    facts = { commit: fitCommitFacts(commit), procStart: performance.timeOrigin };
   } else {
     facts = gitFacts(cwd, spec.facts, { budgetMs: Math.max(0, 5000 - (Date.now() - started)) });
     // At session start, commits in this session's folders that no hook logged.
@@ -759,9 +760,15 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   };
   const own = held(loc.dir, session);
   const swept = rec.swept && typeof rec.swept === 'object' && !Array.isArray(rec.swept) ? rec.swept : {};
+  // A folder that joined the session's commit folders (store.addCommitDirs)
+  // is read no further back than the window of the command that added it;
+  // the session's own folder from the session's start.
+  const joined = rec.commitDirsAt && typeof rec.commitDirsAt === 'object' && !Array.isArray(rec.commitDirsAt) ? rec.commitDirsAt : {};
+  const home = (d) => sameFolder(d, homeCwd) || (typeof rec.home === 'string' && path.isAbsolute(rec.home) && sameFolder(d, rec.home));
   const sinceFor = (d) => {
     const k = Object.keys(swept).find(x => Number.isFinite(swept[x]) && sameFolder(x, d));
-    return Math.max(k ? swept[k] : rec.start, now - 24 * 3600 * 1000);
+    const j = home(d) ? undefined : Object.keys(joined).find(x => Array.isArray(joined[x]) && Number.isFinite(joined[x][0]) && sameFolder(x, d));
+    return Math.max(k ? swept[k] : rec.start, j ? joined[j][0] : -Infinity, now - 24 * 3600 * 1000);
   };
   const dirs = [];
   // The folders come from the state file, which a session can write: a

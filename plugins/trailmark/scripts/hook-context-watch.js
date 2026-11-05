@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // PostToolUse and UserPromptSubmit hook: ask Claude to run the checkpoint
 // skill before Claude Code's auto-compaction summarizes the session, so its
-// decisions, corrections and next steps are in handoff.md first.
+// decisions and next steps are in handoff.md first.
 //
 // The launcher (trailmark.js) reads the session's context size from its
 // transcript, works out the auto-compact window, and starts this script only
@@ -19,6 +19,13 @@
 //     (the launcher reads that from the transcript since the last request).
 //     Between 75% and the first step nothing changes, so a large tool result
 //     that lifts the estimate over a step and drops back asks only once.
+//   - An ask made while the transcript's own size (before the estimate for
+//     what came after it) is under that 75% doesn't start over at the line,
+//     only after a compaction or a shrink, so an estimate that runs high
+//     can't ask again and again. Once the transcript reaches the line, the
+//     steps start over if the handoff was written since that ask, so a
+//     checkpoint made early doesn't end the requests; otherwise Claude is
+//     still on it and the state carries on.
 //   - A request ignores hints.minMinutesBetween (it is the last chance before
 //     the compaction) and sets lastHintAt, so milestone hints don't follow it
 //     straight away.
@@ -56,6 +63,7 @@ function contextFacts() {
 function decide(prev, rec, ctx, cfg, now) {
   let w = isObj(prev) ? { ...prev } : {};
   const point = compactPoint(ctx.win, cfg.reserve, ctx.pct);
+  const line = point * FORGET_BELOW;
   const level = cfg.steps.filter(s => ctx.tokens >= point * s / 100).length;
   const seen = count(w.seen);
   // Start over: a compaction since the last request, a shrink, a fall below
@@ -64,7 +72,12 @@ function decide(prev, rec, ctx, cfg, now) {
   if (w.level) {
     const s = ctx.since;
     const low = Math.min(ctx.base, s && Number.isFinite(s.min) ? s.min : Infinity);
-    if (!s || s.boundary || !s.reached || (seen > 0 && low < seen * SHRINK) || low < point * FORGET_BELOW) w = {};
+    if (!s || s.boundary || !s.reached || (seen > 0 && low < seen * SHRINK)) w = {};
+    else if (seen > 0 && seen < line) {
+      // Asked from under the line: kept there; at the line, start over if
+      // the handoff was written since, else carry on from here.
+      if (ctx.base >= line) w = when(rec && rec.lastWrite) > when(w.firstAt) ? {} : { ...w, seen: ctx.base };
+    } else if (low < line) w = {};
   }
   const firstAt = when(w.firstAt);
   if (w.level && !w.done && firstAt > 0 && when(rec && rec.lastWrite) > firstAt) w.done = true;
@@ -110,7 +123,7 @@ function main() {
     systemMessage: `[trailmark] Context about ${k(ctx.tokens)} tokens, auto-compaction near ${k(out.point)}: asked Claude to checkpoint first.`,
     hookSpecificOutput: {
       hookEventName: event,
-      additionalContext: `[trailmark] This session's context is about ${k(ctx.tokens)} tokens, and Claude Code auto-compacts it at about ${k(out.point)}.${again} Run the ${S.CHECKPOINT_SKILL} skill now, so this session's decisions, corrections and next steps are in the handoff before the compaction summarizes them. A step that is about to finish may finish first, but start no long operation before the checkpoint. ${S.SKILL_RULE}`,
+      additionalContext: `[trailmark] This session's context is about ${k(ctx.tokens)} tokens, and Claude Code auto-compacts it at about ${k(out.point)}.${again} Run the ${S.CHECKPOINT_SKILL} skill now, so this session's decisions and next steps are in the handoff before the compaction summarizes them. A step that is about to finish may finish first, but start no long operation before the checkpoint. ${S.SKILL_RULE}`,
     },
   });
 }

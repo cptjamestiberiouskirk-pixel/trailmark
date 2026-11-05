@@ -52,7 +52,8 @@ guard(() => {
   try {
     if (S.loadConfig(dir).sandbox === false) warn.push('.jbmem.json has "sandbox": false, which trailmark now ignores; the sandbox stays on. To turn it off, set JBMEM_SANDBOX=off in the env block of Claude Code\'s settings.json');
   } catch (e) { if (e && e.code === 'ERR_ACCESS_DENIED') throw e; }
-  const copies = Array.isArray(health.copies) ? health.copies.filter(c => c && typeof c === 'object').slice(0, 3) : [];
+  // Counted only (0.6.0): no folder is named, so every copy found is counted.
+  const copies = Array.isArray(health.copies) ? health.copies.filter(c => c && typeof c === 'object') : [];
   if (copies.length) {
     const one = copies.length === 1;
     warn.push(`${one ? 'another trailmark copy is' : `${copies.length} other trailmark copies are`} in Claude Code's plugin cache (under plugins/cache in its config folder: a plugin folder named trailmark or jb-memory, or one whose scripts folder holds trailmark.js or jbm.js). Remove or rename ${one ? 'it' : 'them'}; ${listCmd} lists ${one ? 'it' : 'them'}`);

@@ -1,6 +1,6 @@
 # Security
 
-Trailmark runs code as you at every Claude Code session start, after every commit command and before every compaction. This file says what that code can and can't do, what it trusts, and what's left to you.
+Trailmark runs code as you at every Claude Code session start and compaction, and after every tool call and prompt. This file says what that code can and can't do, what it trusts, and what's left to you.
 
 The short version: the part that writes runs under Node's permission model and can write only in the repo's memory folder. git runs with every repo setting that could start a program switched off, and is kept away from network shares. Nothing in the release makes network requests. The limits that remain are listed under "Known limits".
 
@@ -12,7 +12,7 @@ Please don't open a public issue for anything that lets a repo, a web page or an
 
 ## What runs, and with what rights
 
-Every hook and skill command enters through `plugins/trailmark/scripts/trailmark.js` (the launcher). The launcher only reads: it finds the repo's memory folder and collects a few git facts. It then runs the real script under Node's permission model:
+Every hook and skill command enters through `plugins/trailmark/scripts/trailmark.js` (the launcher). The launcher only reads: it finds the repo's memory folder and collects a few git facts. For the context watch it also reads the end of the session's transcript and Claude Code's settings files. It then runs the real script under Node's permission model:
 
 | Right | Granted |
 |---|---|
@@ -40,7 +40,8 @@ git is run by the launcher, outside the sandbox. It runs by full path (found on 
 | `JBMEM_SANDBOX=off` | Trusted | Only the environment turns the sandbox off, and every session start then warns |
 | `NODE_OPTIONS`, other `NODE_*`, the launcher's own `JBMEM_*` | Untrusted | Not passed to the sandboxed script; the launcher sets its own |
 | Network paths in command text, payloads or `--from` | Untrusted | Never touched unless the session works under that path |
-| Claude Code's plugin cache | Untrusted | Read with limits on entries, bytes and time; network links are never followed. Other Trailmark copies there are named at session start so Claude doesn't run them |
+| Claude Code's plugin cache | Untrusted | Read with limits on entries, bytes and time; network links are never followed. Session start says how many other Trailmark copies are there, in fixed text, and tells Claude not to run them; `trailmark.js --copies` lists their folders for you |
+| Claude Code's settings files and the session's transcript, read for the context watch | Untrusted | Read by the launcher, as plain local files only (`lib/plainfile.js`): a settings file up to 1 MB, and up to the last 32 MB of a transcript that is a `.jsonl` file directly in a folder of Claude Code's projects folder. Only numbers and a model name of plain characters come out. No text from either file is passed on: two token counts appear, in the message to you and in the request to Claude |
 | The Codex rollout transcript | Untrusted | Read by session ID only, only for a session that started in this repo, streamed with a size limit |
 
 ## Known limits

@@ -1,6 +1,6 @@
 {
   "name": "trailmark-codex",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Gives Codex a memory for each project. A short handoff note keeps track of where the work stands and what to do next. It is updated after commits and merges and given to every new chat, so you don't have to explain the project again each time. Two chats working at once can't overwrite each other's notes. Turn it on per repo. If you also use Claude Code with trailmark, both share the same note for that repo.",
   "author": {
     "name": "Jim Burke"

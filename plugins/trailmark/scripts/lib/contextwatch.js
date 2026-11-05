@@ -114,10 +114,11 @@ function settingsFiles(configDir, projectDir) {
 
 // The auto-compact window for this model and where it came from: env,
 // settings env (a settings file's env block, in case the hook doesn't inherit
-// it), settings, or model (the model's own window).
+// it), settings, or model (the model's own window). uncapped: the window
+// without the cap from the model's name (see fastPath).
 function windowFor(model, { configDir, projectDir, env = process.env } = {}) {
   const cap = modelWindow(model, env);
-  const capped = (w, source) => ({ win: Math.min(w, cap), source });
+  const capped = (w, source) => ({ win: Math.min(w, cap), source, uncapped: w });
   const fromEnv = parseWindow(env[ENV_WINDOW], { env: true });
   if (fromEnv) return capped(fromEnv, 'env');
   const want = canonical(model);
@@ -139,7 +140,7 @@ function windowFor(model, { configDir, projectDir, env = process.env } = {}) {
   }
   if (envBlock) return capped(envBlock, 'settings env');
   if (win) return capped(win, 'settings');
-  return { win: cap, source: 'model' };
+  return { win: cap, source: 'model', uncapped: MAX_WINDOW };
 }
 
 // CLAUDE_AUTOCOMPACT_PCT_OVERRIDE as a whole percentage 1..100, or 0 when unset.
@@ -228,13 +229,52 @@ function readUsage(file, { since = 0 } = {}) {
   return { ...last, min: Number.isFinite(min) ? min : last.tokens, boundary, reached };
 }
 
-// About four characters a token, for what came in after the last request:
-// the tool's result or the new prompt. At most 1M tokens.
-function extraTokens(v) {
-  if (v === undefined || v === null) return 0;
-  let n = 0;
-  try { n = typeof v === 'string' ? v.length : JSON.stringify(v).length; } catch { return 0; }
-  return Math.round(Math.min(n, 4e6) / 4);
+// What one tool result or prompt adds. A tool's result in the payload can
+// hold far more than the model is given: an image's base64 (229k characters
+// for a 1093x1351 JPEG in a transcript seen 2026-11-05, where the model gets
+// about 2k tokens), or an Edit's whole file. Claude Code itself refuses a
+// Read past 25,000 tokens and cuts MCP output there (MAX_MCP_OUTPUT_TOKENS)
+// and Bash output at 30,000 characters (docs), so one call counts for at
+// most MAX_EXTRA. A prompt has no such limit and counts in full, up to the
+// largest window.
+const MAX_EXTRA = 25000;
+// An image costs ceil(width / 28) x ceil(height / 28) tokens, at most 1,568
+// on the standard tier and 4,784 on the high-resolution tier of Claude 4.7
+// and later (Claude's vision docs, read 2026-11-05); the most is counted, and
+// the 75% rule in hook-context-watch.js keeps a high count from asking early. An image is
+// base64 under "base64" or "data" in an object whose type, media_type or
+// mimeType is image/...: a Read's result ({ file: { base64, type } }), an API
+// content block's source, MCP output.
+const IMAGE_TOKENS = 4784;
+const BASE64_MIN = 1000;
+const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+const isImage = o => ['type', 'media_type', 'mimeType', 'mime_type'].some(k => typeof o[k] === 'string' && /^image\//i.test(o[k]));
+
+// About four characters a token for text and keys, an image's worth for each
+// image, and at most cap in all.
+function extraTokens(v, cap = MAX_EXTRA) {
+  let chars = 0;
+  let images = 0;
+  let over = false;
+  const walk = (x, depth) => {
+    if (over) return;
+    if (depth > 64 || chars > 4 * cap) { over = true; return; }
+    if (typeof x === 'string') chars += x.length;
+    else if (Array.isArray(x)) {
+      for (const y of x) walk(y, depth + 1);
+    } else if (x && typeof x === 'object') {
+      const img = isImage(x);
+      for (const k of Object.keys(x)) {
+        chars += k.length;
+        const y = x[k];
+        if (img && (k === 'base64' || k === 'data') && typeof y === 'string' && y.length >= BASE64_MIN && BASE64_RE.test(y)) images++;
+        else walk(y, depth + 1);
+      }
+    } else if (typeof x === 'number' || typeof x === 'boolean') chars += String(x).length;
+  };
+  walk(v, 0);
+  if (over) return cap;
+  return Math.min(cap, Math.round(chars / 4) + images * IMAGE_TOKENS);
 }
 
 // The launcher's first step for this hook, run before it loads anything
@@ -257,10 +297,14 @@ function fastPath() {
   const last = readUsage(tp);
   if (!last) process.exit(0);
   // The last usage entry predates the tool's result or the new prompt.
-  const tokens = last.tokens + extraTokens(event === 'PostToolUse' ? payload.tool_response : payload.prompt);
+  const tokens = last.tokens + (event === 'PostToolUse' ? extraTokens(payload.tool_response) : extraTokens(payload.prompt, MAX_WINDOW));
   const cwd = typeof payload.cwd === 'string' && path.isAbsolute(payload.cwd) ? payload.cwd : process.cwd();
   const projectDir = process.env.CLAUDE_PROJECT_DIR && path.isAbsolute(process.env.CLAUDE_PROJECT_DIR) ? process.env.CLAUDE_PROJECT_DIR : cwd;
-  const { win } = windowFor(last.model, { configDir: configDir(), projectDir });
+  let { win, uncapped } = windowFor(last.model, { configDir: configDir(), projectDir });
+  // The model's own window is guessed from its name, which doesn't show a 1M
+  // context chosen with [1m] (transcripts don't carry the suffix). A request
+  // bigger than the window proves the window is bigger: then the cap goes.
+  if (last.tokens > win && uncapped > win) win = uncapped;
   const pct = pctOverride();
   if (tokens < compactPoint(win, MAX_RESERVE, pct) * LOWEST_STEP / 100) process.exit(0);
   return { raw, payload, tp, cwd, context: { tokens, base: last.tokens, win, pct } };
@@ -270,5 +314,5 @@ module.exports = {
   fastPath,
   ENV_WINDOW, ENV_PCT, LOWEST_STEP, MAX_RESERVE, MIN_WINDOW, MAX_WINDOW,
   canonical, nativeMillion, modelWindow, parseWindow, windowFor, pctOverride, compactPoint,
-  transcriptFile, readUsage, extraTokens,
+  transcriptFile, readUsage, extraTokens, MAX_EXTRA, IMAGE_TOKENS,
 };

@@ -4083,3 +4083,128 @@ test('0.5.1 commit hook: a background commit command that has committed in one o
   });
   assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${sha} in="${dp(third)}" bg two (found later) session=11111111`)), notesOf(s));
 }));
+
+// ---------- 0.6.0: the session's commit folders ----------
+
+// A plain repo for a commit folder, its first commit ten minutes old as far
+// as its reflog says.
+const plainRepo = (dir) => {
+  fs.mkdirSync(dir, { recursive: true });
+  const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
+  g('init', '-q'); g('config', 'user.email', 't@t'); g('config', 'user.name', 't'); g('commit', '-q', '--allow-empty', '-m', 'first');
+  ageReflogs(path.join(dir, '.git'), 600);
+  return g;
+};
+// A commit command sent to the background in dir: its hooks run before it commits.
+const bgCommit = (s, dir, msg) => {
+  const id = `toolu_bgj${++toolSeq}x${process.pid}`;
+  const base = { session_id: SA, tool_name: 'Bash', tool_input: { command: `git -C "${dir}" commit -q --allow-empty -m "${msg}"`, run_in_background: true }, tool_use_id: id };
+  assert.strictEqual(jbm(s, ['--hook', 'commit-start'], JSON.stringify({ ...base, cwd: s.repo, hook_event_name: 'PreToolUse' })).status, 0);
+  const post = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ ...base, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 40 }));
+  assert.strictEqual(post.status, 0, post.stdout + post.stderr);
+};
+const sweepNow = (s) => settle(() => {
+  const r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], '# H\n- swept\n');
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  return r.stdout;
+});
+
+test('0.6.0 commit folders: a folder that joins the session\'s commit folders is swept from its command\'s start, not the session\'s', sweepTest(() => {
+  const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
+  const { s, clone, gClone, head } = multiFolder();
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  // The session started five minutes ago; another session committed in the
+  // clone half a minute ago, before this session's command there.
+  S.updateState(s.memdir, SA, (state, rec) => { rec.start = Date.now() - 300000; });
+  gClone('commit', '-q', '--allow-empty', '-m', 'not this session');
+  ageReflogs(path.join(clone, '.git'), 30);
+  bgCommit(s, clone, 'bg elsewhere');
+  gClone('commit', '-q', '--allow-empty', '-m', 'bg elsewhere');
+  const sha = head(clone);
+  tick();
+  sweepNow(s);
+  const lines = commitLines(s);
+  assert.ok(lines.some(l => l.endsWith(`COMMIT ${sha} in="${dp(clone)}" bg elsewhere (found later) session=11111111`)), notesOf(s));
+  assert.ok(!lines.some(l => l.includes('not this session')), lines.join('\n'));
+}));
+
+test('0.6.0 commit folders: past six, a folder a sweep has read since it joined goes first, not one whose background command may still commit', sweepTest(() => {
+  const { s, hook } = multiFolder();
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  const at = (n) => path.join(s.base, n);
+  const g = Object.fromEntries(['bgx', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6'].map(n => [n, plainRepo(at(n))]));
+  tick();
+  // First a command sent to the background in bgx, which hasn't committed yet.
+  bgCommit(s, at('bgx'), 'bg late');
+  // Then commits in five more folders, logged as they land.
+  const logged = (n) => {
+    const r = hook(s.repo, SA, `git -C "${at(n)}" commit -q --allow-empty -m "in ${n}"`, { duration_ms: 3000, between: () => g[n]('commit', '-q', '--allow-empty', '-m', `in ${n}`) });
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  };
+  for (const n of ['f1', 'f2', 'f3', 'f4', 'f5']) logged(n);
+  tick();
+  // A sweep reads all six; the background command may still commit after it.
+  sweepNow(s);
+  // A seventh folder: f1, read since it joined, makes room, not bgx.
+  logged('f6');
+  const rec = JSON.parse(fs.readFileSync(path.join(s.memdir, '.jbmem-state.json'), 'utf8')).sessions[SA];
+  assert.strictEqual(rec.commitDirs.length, 6, JSON.stringify(rec.commitDirs));
+  assert.ok(rec.commitDirs.some(d => d === at('bgx')), JSON.stringify(rec.commitDirs));
+  assert.ok(!rec.commitDirs.some(d => d === at('f1')), JSON.stringify(rec.commitDirs));
+  // The background command commits now, and the next sweep logs it.
+  g.bgx('commit', '-q', '--allow-empty', '-m', 'bg late');
+  tick();
+  sweepNow(s);
+  assert.ok(commitLines(s).some(l => l.includes(`in="${dp(at('bgx'))}" bg late (found later)`)), notesOf(s));
+}));
+
+test('0.6.0 commit hook: when git times out and another command holds the state file, Claude is still told the commit isn\'t logged', () => {
+  const s = sandbox();
+  jbm(s, ['init']);
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  const stub = path.join(s.base, 'git-timeout.js');
+  fs.writeFileSync(stub, GIT_TIMEOUT_STUB);
+  s.g('commit', '-q', '--allow-empty', '-m', 'slow and locked');
+  // The lock's holder is this test process, alive, so the hook gives up after its 2 s.
+  const lock = path.join(s.memdir, '.jbmem.lock');
+  fs.writeFileSync(lock, `pid ${process.pid} since now token busy\n`);
+  let r;
+  try {
+    r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', 'milestone', 'commit'], { cwd: s.repo, env: s.env, encoding: 'utf8',
+      input: JSON.stringify({ session_id: SA, tool_name: 'Bash', tool_input: { command: 'git commit -m "slow and locked"' }, tool_use_id: `toolu_lk${++toolSeq}x${process.pid}`, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 3000 }) });
+  } finally {
+    fs.rmSync(lock, { force: true });
+  }
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(notesOf(s), /COMMIT_UNRESOLVED why=git-timeout/, notesOf(s));
+  assert.ok(r.stdout, 'nothing was said to Claude');
+  const ctx = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+  assert.match(ctx, /A commit was not logged: git was too slow \(it timed out\) in one folder, and another command held trailmark's state file, so a later sweep may miss it\./, ctx);
+  assert.ok(!ctx.includes(dp(s.repo)), ctx);
+});
+
+test('0.6.0 commit folders: a folder\'s join time is measured from the launcher\'s start, not from the later start of the script it runs', () => {
+  const s = sandbox();
+  jbm(s, ['init']);
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  const other = path.join(s.base, 'jt');
+  const g = plainRepo(other);
+  g('commit', '-q', '--allow-empty', '-m', 'joined');
+  // A preload that holds the launcher 3 s, as slow git would; the script it
+  // starts under the sandbox gets no -r.
+  const wait = path.join(s.base, 'wait.js');
+  fs.writeFileSync(wait, 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);\n');
+  const before = Date.now();
+  const r = spawnSync(process.execPath, ['-r', wait, JBM, '--hook', 'milestone', 'commit'], { cwd: s.repo, env: s.env, encoding: 'utf8',
+    input: JSON.stringify({ session_id: SA, tool_name: 'Bash', tool_input: { command: `git -C "${other}" commit -q --allow-empty -m "joined"` }, tool_use_id: `toolu_jt${++toolSeq}x${process.pid}`, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 1000 }) });
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.ok(Date.now() - before >= 3000, 'the launcher was held');
+  const rec = JSON.parse(fs.readFileSync(path.join(s.memdir, '.jbmem-state.json'), 'utf8')).sessions[SA];
+  const key = Object.keys(rec.commitDirsAt || {}).find(k => path.resolve(k).toLowerCase() === path.resolve(other).toLowerCase());
+  assert.ok(key, JSON.stringify(rec));
+  // With no PreToolUse record: the launcher's start, less duration_ms and
+  // 5 s, in whole seconds. From the sandboxed script's start it would be
+  // about 3 s later.
+  const from = rec.commitDirsAt[key][0];
+  assert.ok(from <= before - 5000, `the join time is ${from - before} ms from the launcher's start`);
+});
