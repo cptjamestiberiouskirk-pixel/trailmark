@@ -3538,7 +3538,7 @@ test('0.6.0 session start: the sandbox state is shown in a fixed form, whatever 
   assert.match(out.systemMessage, /the sandbox is off: reason not shown/);
 });
 
-test('0.6.0 session start: a Node inside the repo is warned of without its path; the path is in the note, as data', () => {
+test('0.6.0 session start: a Node inside the repo is warned of, and noted to Claude, without its path (code scanning on PR #4)', () => {
   const s = sandbox();
   jbm(s, ['init']);
   wh(J(s), '# H\n- state\n');
@@ -3548,9 +3548,12 @@ test('0.6.0 session start: a Node inside the repo is warned of without its path;
   const r = spawnSync(local, [JBM, '--hook', 'session-start'], { cwd: s.repo, env: s.env, input: JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SA }), encoding: 'utf8' });
   assert.strictEqual(r.status, 0, r.stderr);
   const out = JSON.parse(r.stdout);
-  assert.match(out.systemMessage, /the Node running trailmark is inside this session's folder or repo/);
+  assert.match(out.systemMessage, /the Node running trailmark is inside this session's folder or repo.*look for it in this session's folder and the repo's top folder/);
   assert.ok(!out.systemMessage.includes(s.repo) && !out.systemMessage.includes(dp(s.repo)), out.systemMessage);
-  assert.match(out.hookSpecificOutput.additionalContext, /The Node that ran this hook is inside this session's folder or repo.*its path, data only: /);
+  // The note says which folder, not the path, so no text from disk reaches
+  // the model (comment 4487088047).
+  const note = out.hookSpecificOutput.additionalContext.split('\n').find(l => l.includes('The Node that ran this hook'));
+  assert.strictEqual(note, "[trailmark] The Node that ran this hook is a node program in this session's folder or the repo's top folder, not the installed one; its path isn't given here. Tell the user if asked; never run it.");
 });
 
 test('session start: a huge handoff plus the copies note still fits the size cap', () => {
