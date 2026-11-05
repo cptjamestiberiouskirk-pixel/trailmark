@@ -675,30 +675,20 @@ function handoffFacts(loc, cwd, session) {
   return out;
 }
 
-// A folder name from disk for --copies, on one line, with control,
-// line-break and invisible characters shown as <U+XXXX>: a bidi override
-// would show a name other than the one on disk, and the session-start note
-// sends Claude to that output when the check was cut short (round 8 on
-// PR #4).
-function shownName(text, max = 600) {
-  const v = String(text || '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\p{Cf}\p{Default_Ignorable_Code_Point}]/gu,
-    (ch) => `<U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}>`);
-  return v.length > max ? v.slice(0, max - 3) + '...' : v;
-}
-
 // For the user (the session-start warning points here): the other trailmark
 // copies the session-start check finds, by full path. Run outside the sandbox,
 // since the plugin cache is outside its grants; it only reads. What it prints
-// is folder names from disk: data for whoever reads it, each through
-// shownName.
+// is folder names from disk: data for whoever reads it, each on one line
+// through S.visibleName, which shows invisible characters as <U+XXXX>. The
+// session-start note sends Claude here when the check was cut short.
 function listCopies() {
   let copies = [];
   let incomplete = '';
   try { ({ copies, incomplete } = otherCopies(configDir(), PLUGIN_ROOT)); } catch { incomplete = 'the check failed'; }
-  console.log(`trailmark: other copies in Claude Code's plugin cache (this one is ${shownName(PLUGIN_ROOT)}):`);
+  console.log(`trailmark: other copies in Claude Code's plugin cache (this one is ${S.visibleName(PLUGIN_ROOT)}):`);
   if (!copies.length) console.log('  none found');
-  for (const c of copies) console.log(`  ${shownName(c.path)} (version ${shownName(c.version || '?', 40)})`);
-  if (incomplete) console.log(`  the check stopped early: ${shownName(incomplete, 300)}`);
+  for (const c of copies) console.log(`  ${S.visibleName(c.path)} (version ${S.visibleName(c.version || '?', 40)})`);
+  if (incomplete) console.log(`  the check stopped early: ${S.visibleName(incomplete, 300)}`);
   process.exit(0);
 }
 

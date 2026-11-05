@@ -497,6 +497,31 @@ function usablePath(p, max = 1024) {
   return v && v.length <= max && fieldText(w, max) === w && oneLine(v, max) === v && !/[$`%!\u201c-\u201e]|\\\\/.test(v) ? v : '';
 }
 
+// A name from disk as the launcher's --copies prints it: on one line, with
+// control, line-break and invisible characters (a bidi override among them)
+// and a lone surrogate shown as <U+XXXX>, so a name can't reorder or hide
+// part of its line (round 8 on PR #4). A < that starts <U+ is shown so too,
+// so a name holding the text <U+202E> prints apart from one holding U+202E.
+// A name over max characters keeps its end, as fieldText does, since the
+// end of a path names the folder: '...' and then whole characters and
+// escapes, never part of one.
+function visibleName(text, max = 600) {
+  const s = String(text || ''), parts = [];
+  const hidden = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}]/u;
+  let len = 0;
+  for (let i = 0; i < s.length;) {
+    const cp = s.codePointAt(i), ch = String.fromCodePoint(cp);
+    const part = hidden.test(ch) || (ch === '<' && s.startsWith('U+', i + 1)) ? `<U+${cp.toString(16).toUpperCase().padStart(4, '0')}>` : ch;
+    parts.push(part);
+    len += part.length;
+    i += ch.length;
+  }
+  if (len <= max) return parts.join('');
+  let out = '';
+  for (let j = parts.length - 1; j >= 0 && out.length + parts[j].length <= max - 3; j--) out = parts[j] + out;
+  return '...' + out;
+}
+
 // A folder as it appears in a log line (COMMIT ... in="<folder>") and on the
 // handoff's Updated line (| in <folder>): forward slashes and an upper-case
 // drive letter on Windows, no control or invisible characters, " and |
@@ -2132,7 +2157,7 @@ module.exports = { addCommitDirs, MAX_COMMIT_DIRS, addMemoryRoot, plainStat, pla
   findVersionText, lineDiff, snapshotPath, writeSnapshot, listSnapshots, retryWin, splitDone, lockInfo,
   recordSessionStart, checkpointTime, ageText,
   CC_MEMORY_MD_LINES, CC_MEMORY_MD_BYTES, CC_CONTEXT_CHARS,
-  localDate, localTime, estTokens, oneLine, inside, displayPath, fieldText, usablePath, splitFrontmatter, atomicWrite, readText,
+  localDate, localTime, estTokens, oneLine, inside, displayPath, fieldText, usablePath, visibleName, splitFrontmatter, atomicWrite, readText,
   isEnabled, loadConfig, readState, writeState, init,
   writeHandoff, stampUpdated, undoHandoff, measureHandoff, rotate,
   note, lastNote, loggedCommitShas, recordCommitStart, readCommitStart, cleanAgent, markCommitDone, openCommitStart, concurrentCommitStarts, park, listDir, search, topicFiles,
