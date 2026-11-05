@@ -15,6 +15,19 @@ One session runs the whole round. Its passes run as subagents, each with the mod
 - e5b50a8: `store.js` `openNew()` (both copies). On Windows an exclusive create goes through a link or junction whose target is missing. Now anything at the lock's names, or at the state file's `.bad` name, counts as taken. A `handoff-checks.test.js` expectation was also corrected: on Windows, a `.git` that is a link gives `linked-gitdir`. This came from CI's first Windows run of the link tests.
 - Docs: the CHANGELOG entry "Memory folder (Windows)", plus `dev/release-state.md`.
 
+## After 586329e (the extra pass)
+
+- c7a194a:
+  - The launcher's own install path is written as data (GitHub code scanning, comment 4483760395). `hook-session-start.js` (both copies) runs the `--copies` command's path through `fieldText`. In the Codex copy, its first note's launcher path does the same, and `host.js` `skillRule()` takes `store.js`'s `fieldText` for the skill rule that ends the compaction note and every hint.
+  - Round 8's S1: `openNew`'s look after the open goes through `retryWin` (`store.js`, both copies).
+  - `--copies` prints an old jb-memory-codex by its path on disk (Copilot): `oldCodexCopies(home, { full })` in `health.js` (shared), and the Codex `trailmark.js`.
+  - `dev/probes/path-limit.js` skips a folder already at its padded name (Copilot).
+  - Three new tests in `handoff-checks.test.js`, the CHANGELOG (D3 and a launcher-path line), and SHA256SUMS.
+- The commit after it: `dev/release-state.md` (D1, D2, the findings) and this brief.
+- Points for the security pass: any other place where a path from the install folder reaches the model without `fieldText`, in either copy; whether `fieldText`'s cut at 400 characters, or its `%22` and `%7C`, can leave a command that runs another file; `retryWin` around the look (how long a busy lock name can hold up `withLock`, and whether a swap during the retries is still caught); `--copies` printing full paths from Codex's cache.
+- Points for the regression pass: the Codex skill rule for an ordinary path is the same text as before (`trailmark.test.js` checks it holds the skill file's path); the probe still makes and removes its own folder.
+- Failing first: the launcher-path test against 586329e's code (its compaction part needs `host.js` and `store.js` from 586329e with the fixed hook); the S1 test against 586329e's `store.js`; the `--copies` test against 586329e's `health.js` and Codex `trailmark.js`.
+
 ## Passes (subagents)
 
 | Pass | Model | Scope |
