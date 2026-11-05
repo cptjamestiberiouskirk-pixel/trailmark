@@ -215,7 +215,10 @@ function retryWin(fn, platform = process.platform) {
 // and a file opened through a link swapped in after that look is closed and
 // counts as taken too. What such a swap made where the link led stays; it
 // needs a process already running as you (SECURITY.md, links in the memory
-// folder).
+// folder). The look after the open is tried again for up to 2 s when Windows
+// answers busy (retryWin): until it answers, the new file can't be shown to be
+// this call's, and one that can't stays at the name until a break takes it
+// (review round 8).
 function openNew(file) {
   if (process.platform !== 'win32') return fs.openSync(file, 'wx');
   const taken = () => { const e = new Error(`EEXIST: ${file} is already there`); e.code = 'EEXIST'; return e; };
@@ -225,10 +228,12 @@ function openNew(file) {
   const fd = fs.openSync(file, 'wx');
   let same = false;
   try {
-    const st = fs.fstatSync(fd, { bigint: true });
-    const l = fs.lstatSync(file, { bigint: true });
-    same = st.isFile() && l.isFile() && (!l.ino || (st.ino === l.ino && st.dev === l.dev));
-  } catch { /* not the same */ }
+    same = retryWin(() => {
+      const st = fs.fstatSync(fd, { bigint: true });
+      const l = fs.lstatSync(file, { bigint: true });
+      return st.isFile() && l.isFile() && (!l.ino || (st.ino === l.ino && st.dev === l.dev));
+    });
+  } catch { /* not shown to be the same */ }
   if (!same) { try { fs.closeSync(fd); } catch { /* closed */ } throw taken(); }
   return fd;
 }

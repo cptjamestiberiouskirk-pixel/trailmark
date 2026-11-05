@@ -283,16 +283,18 @@ function nodeInside(execPath, folders, platform = process.platform) {
 // jb-memory-codex, the Codex copy's name before 0.5.0, in Codex's own plugin
 // cache: left installed, it would run every hook next to trailmark-codex.
 // Codex doesn't document the cache's layout, so the folders are searched by
-// name, three levels down, local folders only. Returns their display paths,
-// at most maxCopies (as otherCopies), all of which session start counts.
-function oldCodexCopies(codexHome, { maxEntries = 200, depth = 3, maxCopies = 10 } = {}) {
+// name, three levels down, local folders only. Returns their display paths
+// (a name outside SAFE_NAME shown as <unusual name>), at most maxCopies (as
+// otherCopies), all of which session start counts. With full, it returns their
+// paths as they are on disk, for --copies to print.
+function oldCodexCopies(codexHome, { maxEntries = 200, depth = 3, maxCopies = 10, full = false } = {}) {
   const found = [];
   if (typeof codexHome !== 'string' || !path.isAbsolute(codexHome) || networkPath(codexHome)) return found;
   const walk = (dir, rel, d) => {
     if (d > depth || found.length >= maxCopies || !local(dir)) return;
     for (const n of list(dir, maxEntries).names) {
       const p = path.join(dir, n);
-      if (n.toLowerCase() === 'jb-memory-codex') { if (local(p)) found.push([...rel, showName(n)].join('/')); continue; }
+      if (n.toLowerCase() === 'jb-memory-codex') { if (local(p)) found.push(full ? p : [...rel, showName(n)].join('/')); continue; }
       walk(p, [...rel, showName(n)], d + 1);
     }
   };

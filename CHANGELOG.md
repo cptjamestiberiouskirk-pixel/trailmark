@@ -13,6 +13,7 @@
 
 - The warning shown to you is now fixed text for each case: Node inside the repo, the sandbox state, a copies check cut short, two repos sharing one memory folder. Details read from disk (paths, reasons) go only in the note to Claude, marked as data.
 - No warning or note names a cached copy's folder any more. Both give a count and `node "<launcher>" --copies`, a new launcher command that lists the copies by full path. The Codex copy's note about an old jb-memory-codex does the same. The count takes in every copy found, up to 10; it used to stop at three.
+- The launcher's own install path is written as data too, wherever it reaches Claude or Codex: in the `--copies` command, and in the Codex copy's notes and hints that name the launcher or the checkpoint skill's file. Control and invisible characters, bidi overrides among them, are dropped from it.
 
 ### Commit folders
 
@@ -29,7 +30,7 @@
 
 ### Memory folder (Windows)
 
-- Making the lock file went through a link or junction left at its name when what it pointed to was missing, and made that instead. The lock's break file and the state file's `.bad` copy had the same gap. Anything at those names now counts as taken: a link at the lock's names is removed, and the `.bad` copy goes to a name with the time in it.
+- Making the lock file went through a link or junction left at its name when what it pointed to was missing, and made that instead. The lock's break file and the state file's `.bad` copy had the same gap. Anything at those names now counts as taken: a link at the lock's names is removed, and when the `.bad` name is taken (a link there included), the copy goes to a name with the time in it.
 
 ### Tests
 

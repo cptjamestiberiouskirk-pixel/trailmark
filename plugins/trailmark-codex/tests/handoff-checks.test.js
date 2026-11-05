@@ -1363,6 +1363,38 @@ test('copies: session start counts every copy it found, not the first three (0.6
   assert.match(message, /4 other trailmark copies are in Claude Code's plugin cache/);
 });
 
+// PR #4 code scanning: the --copies command named the launcher by its install
+// path through oneLine only, which keeps invisible and bidi characters, and
+// put it in the note to Claude and the warning. It is written as data now
+// (fieldText), like the other paths there. Windows allows U+202E in a folder
+// name too. The Codex copy also names its launcher in its first note. Its
+// skill rule, which ends the compaction note and every hint, names the
+// launcher and the checkpoint skill's file: the second run, after a
+// compaction, checks that.
+test('copies: the launcher\'s own path in the session-start note and warning is written as data (0.6.0)', () => {
+  const s = sandbox();
+  s.write('# H\n- state\n');
+  const old = path.join(s.cfg, 'plugins', 'cache', 'm1', 'trailmark', '0.4.0');
+  fs.mkdirSync(path.join(old, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(old, 'scripts', 'trailmark.js'), '// old copy');
+  const odd = path.join(s.base, 'p\u202eq');
+  fs.cpSync(ROOT, odd, { recursive: true, filter: (src) => path.basename(src) !== 'tests' });
+  const r = spawnSync(process.execPath, [path.join(odd, 'scripts', 'trailmark.js'), '--hook', 'session-start'],
+    { cwd: s.repo, env: s.env, input: JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB }), encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  const context = out.hookSpecificOutput.additionalContext, message = out.systemMessage || '';
+  assert.match(context, /Another copy of trailmark is on disk/);
+  assert.match(context, /pq[\\/]+scripts[\\/]+trailmark\.js" --copies/);
+  assert.doesNotMatch(context + message, /\u202e/, 'a bidi override from the install path reached Claude or the warning');
+  const r2 = spawnSync(process.execPath, [path.join(odd, 'scripts', 'trailmark.js'), '--hook', 'session-start'],
+    { cwd: s.repo, env: s.env, input: JSON.stringify({ cwd: s.repo, source: 'compact', session_id: SB }), encoding: 'utf8' });
+  assert.strictEqual(r2.status, 0, r2.stderr);
+  const compact = JSON.parse(r2.stdout).hookSpecificOutput.additionalContext;
+  assert.match(compact, /A compaction just ran/);
+  assert.doesNotMatch(compact, /\u202e/, 'a bidi override from the install path reached Claude after a compaction');
+});
+
 test('rename: a copy under the old name jb-memory is still found, counted at session start, and named only by --copies', () => {
   const s = sandbox();
   s.write('# H\n- state\n');
@@ -1432,6 +1464,24 @@ test('rename: an old jb-memory-codex in the Codex plugin cache is found', () => 
     assert.doesNotMatch(out.hookSpecificOutput.additionalContext, /plugins\/cache\/jb-memory-codex/, 'the note names no folder either');
     const list = spawnSync(process.execPath, [JBM, '--copies'], { cwd: s.repo, env: { ...s.env, CODEX_HOME: home }, encoding: 'utf8' }).stdout;
     assert.ok(list.includes(path.join(home, 'plugins', 'cache', 'jb-memory-codex')), list);
+  }
+});
+
+// PR #4, Copilot: a cache folder whose name fails SAFE_NAME (a space, say) was
+// printed by --copies as <unusual name>, a path that isn't there. --copies
+// now prints each folder as it is on disk; session start still only counts.
+test('copies: --copies names an old jb-memory-codex by its path on disk when a folder on the way has an unusual name (0.6.0)', () => {
+  const { oldCodexCopies } = require(path.join(ROOT, 'scripts', 'lib', 'health.js'));
+  const home = realTemp('jbmem-codexodd-');
+  const odd = path.join(home, 'plugins', 'cache', 'my marketplace', 'jb-memory-codex');
+  fs.mkdirSync(path.join(odd, '0.2.3'), { recursive: true });
+  assert.deepStrictEqual(oldCodexCopies(home), ['plugins/cache/<unusual name>/jb-memory-codex']);
+  assert.deepStrictEqual(oldCodexCopies(home, { full: true }), [odd]);
+  if (S.AGENT === 'Codex') {
+    const s = sandbox();
+    const list = spawnSync(process.execPath, [JBM, '--copies'], { cwd: s.repo, env: { ...s.env, CODEX_HOME: home }, encoding: 'utf8' }).stdout;
+    assert.ok(list.includes(`jb-memory-codex (old name): ${odd}`), list);
+    assert.doesNotMatch(list, /<unusual name>/);
   }
 });
 
@@ -1703,6 +1753,36 @@ test('lock: a real lock taken before .break is held is never moved aside (loop r
 // what it points to is missing, and makes that. The lock's names were made
 // that way, and so was the state file's .bad copy. A junction needs no extra
 // rights on Windows; elsewhere it is a plain link, which 'wx' never follows.
+// Review round 8 (S1): on Windows openNew looks at the name again right after
+// making the file. When that look failed (a scanner can answer EBUSY for a
+// moment), the file just made stayed at the lock's name, empty, and every
+// command waited for the 30 s break. The look is now tried again for up to
+// 2 s. Only Windows looks there.
+test('lock: a busy look right after the lock is made neither fails the command nor leaves the lock (0.6.0, round 8)', { skip: !WIN && 'only Windows looks at the name after making it' }, () => {
+  const d = realTemp('jbmem-');
+  const lock = path.join(d, S.LOCK);
+  const real = fs.lstatSync;
+  let injected = 0;
+  fs.lstatSync = function (p, o) {
+    if (!injected && o && o.bigint && path.resolve(String(p)) === lock) {
+      injected++;
+      const e = new Error(`EBUSY: resource busy or locked, lstat '${p}'`);
+      e.code = 'EBUSY';
+      throw e;
+    }
+    return real.apply(this, arguments);
+  };
+  let ran = false;
+  try {
+    S.withLock(d, () => { ran = true; }, { waitMs: 3000 });
+  } finally {
+    fs.lstatSync = real;
+  }
+  assert.strictEqual(injected, 1, 'the busy answer was given');
+  assert.ok(ran, 'the command ran under the lock');
+  assert.ok(!fs.existsSync(lock), 'the lock file was left at its name');
+});
+
 test('lock and state copy: a link whose target is missing is never made through (0.6.0)', () => {
   const base = realTemp('jbmem-wx060-');
   const away = path.join(base, 'away'); fs.mkdirSync(away);

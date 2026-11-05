@@ -986,7 +986,7 @@ function listCopies() {
   // Codex: the old jb-memory-codex in Codex's own plugin cache.
   try {
     const ch = process.env.CODEX_HOME && path.isAbsolute(process.env.CODEX_HOME) ? process.env.CODEX_HOME : path.join(os.homedir(), '.codex');
-    for (const rel of oldCodexCopies(ch)) console.log(`  jb-memory-codex (old name): ${S.oneLine(path.join(ch, rel), 600)}`);
+    for (const p of oldCodexCopies(ch, { full: true })) console.log(`  jb-memory-codex (old name): ${S.oneLine(p, 600)}`);
   } catch { console.log('  (the Codex plugin cache could not be checked)'); }
   process.exit(0);
 }

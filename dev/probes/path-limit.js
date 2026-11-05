@@ -27,6 +27,9 @@ for (const want of wants) {
   const padLen = baseLen - parent.length - 1 - '\\jbmem-x'.length;
   if (padLen < 1) { console.log(`${want}: parent too long`); continue; }
   const top = path.join(parent, 'p'.repeat(padLen));
+  // Made here or not at all: a folder already at this name isn't this
+  // probe's, so it is left alone and never removed (Copilot on PR #4).
+  try { fs.mkdirSync(top); } catch (e) { console.log(`${want}: a folder is already at ${top} (${e.code}), skipped`); continue; }
   const base = path.join(top, 'jbmem-x');
   const cfg = path.join(base, 'cfg');
   const repo = path.join(base, 'repo');
