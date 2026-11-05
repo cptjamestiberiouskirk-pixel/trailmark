@@ -27,6 +27,10 @@
 - A relative setting in a submodule's config was read from the folder of whichever check ran last. It is now read from the repo's top, where `git status` runs.
 - On a file system that doesn't report entry types, a folder holding a name that isn't valid UTF-8 can't be listed, and it was passed over. It now keeps git out (`odd-path`).
 
+### Memory folder (Windows)
+
+- Making the lock file went through a link or junction left at its name when what it pointed to was missing, and made that instead. The lock's break file and the state file's `.bad` copy had the same gap. Anything at those names now counts as taken: a link at the lock's names is removed, and the `.bad` copy goes to a name with the time in it.
+
 ### Tests
 
 - 30 link tests that skipped on every Windows machine now run wherever links can be made, as on CI's Windows runners, and two hard-link tests run everywhere. The POSIX-only ones that still skip on Windows say why. On Windows, a test link to a network path is made without looking the share up.

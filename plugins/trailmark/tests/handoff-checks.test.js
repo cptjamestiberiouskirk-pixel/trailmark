@@ -477,7 +477,8 @@ test('git pointers: links on the way to a gitdir, config or include', { skip: NO
   const b = path.join(base, 'b'); repoAt(b);
   fs.renameSync(path.join(b, '.git'), path.join(base, 'b-git'));
   fs.symlinkSync(path.join(base, 'b-git'), path.join(b, '.git'));
-  assert.strictEqual(farGitConfig(b), '', '.git that is a link to a local gitdir is followed');
+  // On Windows any .git that is a link keeps git out (review round 13).
+  assert.strictEqual(farGitConfig(b), WIN ? 'linked-gitdir' : '', '.git that is a link to a local gitdir');
   const c = path.join(base, 'c'); repoAt(c);
   fs.rmSync(path.join(c, '.git', 'refs', 'heads'), { recursive: true, force: true });
   fs.symlinkSync('//evil.invalid/share/heads', path.join(c, '.git', 'refs', 'heads'));
@@ -1695,6 +1696,39 @@ test('lock: a real lock taken before .break is held is never moved aside (loop r
   } finally { fs.openSync = realOpen; fs.lstatSync = realLstat; }
   assert.match(fs.readFileSync(lock, 'utf8'), /token BBBB/, 'a live lock was moved aside');
   assert.deepStrictEqual(fs.readdirSync(base).filter(f => f.endsWith('.gone')), []);
+});
+
+// 0.6.0, found when CI's Windows runners first ran the link tests: on Windows
+// an exclusive create ('wx') goes through a link or junction at the name when
+// what it points to is missing, and makes that. The lock's names were made
+// that way, and so was the state file's .bad copy. A junction needs no extra
+// rights on Windows; elsewhere it is a plain link, which 'wx' never follows.
+test('lock and state copy: a link whose target is missing is never made through (0.6.0)', () => {
+  const base = realTemp('jbmem-wx060-');
+  const away = path.join(base, 'away'); fs.mkdirSync(away);
+  const d = path.join(base, 'mem'); fs.mkdirSync(d);
+  const lock = path.join(d, S.LOCK);
+  fs.symlinkSync(path.join(away, 'lock'), lock, 'junction');
+  let ran = false;
+  S.withLock(d, () => { ran = true; }, { waitMs: 1500 });
+  assert.ok(ran, 'the lock was not taken');
+  assert.deepStrictEqual(fs.readdirSync(away), [], 'the lock was made through a link');
+  // A stale lock to break, and a link where .break goes.
+  fs.writeFileSync(lock, 'pid 1 host h since then token AAAA\n');
+  const old = new Date(Date.now() - 3600 * 1000); fs.utimesSync(lock, old, old);
+  fs.symlinkSync(path.join(away, 'break'), lock + '.break', 'junction');
+  ran = false;
+  S.withLock(d, () => { ran = true; }, { waitMs: 1500 });
+  assert.ok(ran, 'the stale lock was not broken');
+  assert.deepStrictEqual(fs.readdirSync(away), [], '.break was made through a link');
+  // A state file that isn't JSON, and a link where its .bad copy goes.
+  fs.writeFileSync(path.join(d, '.jbmem-state.json'), '{not json');
+  fs.symlinkSync(path.join(away, 'bad'), path.join(d, '.jbmem-state.json.bad'), 'junction');
+  S.updateState(d, SA, () => {});
+  assert.deepStrictEqual(fs.readdirSync(away), [], 'the .bad copy was made through a link');
+  const bad = fs.readdirSync(d).filter(f => f.startsWith('.jbmem-state.json.bad-'));
+  assert.strictEqual(bad.length, 1, fs.readdirSync(d).join(' '));
+  assert.strictEqual(fs.readFileSync(path.join(d, bad[0]), 'utf8'), '{not json');
 });
 
 // Nice-to-have: the plugin-cache walk (run by the launcher, outside the

@@ -206,6 +206,31 @@ function retryWin(fn, platform = process.platform) {
   }
 }
 
+// Makes a file that must not be there yet, as 'wx' does. Outside Windows
+// that never goes through a link at the name. On Windows it does: a link or
+// junction whose target is missing is followed, and the target is made. So
+// there anything at the name counts as taken (EEXIST, as a file there would),
+// and a file opened through a link swapped in after that look is closed and
+// counts as taken too. What such a swap made where the link led stays; it
+// needs a process already running as you (SECURITY.md, links in the memory
+// folder).
+function openNew(file) {
+  if (process.platform !== 'win32') return fs.openSync(file, 'wx');
+  const taken = () => { const e = new Error(`EEXIST: ${file} is already there`); e.code = 'EEXIST'; return e; };
+  let there = true;
+  try { fs.lstatSync(file); } catch (e) { if (!e || e.code !== 'ENOENT') throw e; there = false; }
+  if (there) throw taken();
+  const fd = fs.openSync(file, 'wx');
+  let same = false;
+  try {
+    const st = fs.fstatSync(fd, { bigint: true });
+    const l = fs.lstatSync(file, { bigint: true });
+    same = st.isFile() && l.isFile() && (!l.ino || (st.ino === l.ino && st.dev === l.dev));
+  } catch { /* not the same */ }
+  if (!same) { try { fs.closeSync(fd); } catch { /* closed */ } throw taken(); }
+  return fd;
+}
+
 // The temp name is random and created exclusively ('wx'), so a link someone
 // planted at a name they could predict is never written through.
 function atomicWrite(file, content) {
@@ -325,7 +350,7 @@ function tryBreakLock(file) {
   if (!nonFile && !lockBreakable(info)) return false;
   const brk = `${file}.break`;
   let bfd;
-  try { bfd = fs.openSync(brk, 'wx'); } catch {
+  try { bfd = openNew(brk); } catch {
     // Someone else is breaking it. A break file older than 30 s is left over
     // from a crash in the few lines below.
     // Anything there that isn't a plain file isn't ours: a link or FIFO is
@@ -381,7 +406,7 @@ function withLock(dir, fn, { waitMs = 10000, holder = '' } = {}) {
   let lastCode = '';
   for (;;) {
     let broke = false;
-    try { fd = fs.openSync(file, 'wx'); break; } catch (e) {
+    try { fd = openNew(file); break; } catch (e) {
       lastCode = e.code;
       // On Windows a lock that was just deleted while something still had it
       // open refuses to be created again for a moment: same as "taken".
@@ -555,11 +580,12 @@ function readStateStrict(dir) {
   if (text === null) return {};
   const v = parseState(text);
   if (v) return v;
-  // The text already read, created exclusively ('wx'): never through a link
-  // or over a file already there. An older .bad copy stays; this one gets a
-  // time suffix.
-  try { fs.writeFileSync(`${file}.bad`, text, { flag: 'wx' }); } catch (e) {
-    if (e && e.code === 'EEXIST') { try { fs.writeFileSync(`${file}.bad-${Date.now()}`, text, { flag: 'wx' }); } catch { /* best effort */ } }
+  // The text already read, in a file made new (openNew): never through a link
+  // or over a file already there. An older .bad copy (or a link there) stays;
+  // this one gets a time suffix.
+  const keep = (f) => { const fd = openNew(f); try { fs.writeFileSync(fd, text); } finally { fs.closeSync(fd); } };
+  try { keep(`${file}.bad`); } catch (e) {
+    if (e && e.code === 'EEXIST') { try { keep(`${file}.bad-${Date.now()}`); } catch { /* best effort */ } }
   }
   return {};
 }
