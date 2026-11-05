@@ -12,13 +12,25 @@
 #      (a 2026-11-05 trace under load showed git calls about 420 ms apart).
 # Prints result lines and the failing assertions only, no verdict. Changes
 # nothing outside argv[2], which must not exist yet: sed and git checkout
-# run only in the clone, and the real repo is only read (git clone). Delete
-# argv[2] yourself when done.
+# run only in the clone, and the real repo is only read (git clone). Each
+# release-check.sh run gets TMPDIR=argv[2]/tmp, so it keeps its output under
+# there and prunes nothing in the kept-output folder of the system temp
+# (review round 8). On Windows argv[2] must be 80 characters or fewer: the
+# folder that holds a test's memory folder is about twice its length plus 83,
+# and the sandbox refuses one past about 260 (dev/release-state.md, the
+# long-path entry in the deferred list). Delete argv[2] yourself when done.
 # Usage: bash dev/repro-git-timeout.sh <repo root> <new scratch folder>
 set -u
 REPO="$1"; W="$2"
 [ -e "$W" ] && { echo "$W exists already"; exit 2; }
-mkdir -p "$W/tree" "$W/out" || exit 2
+case "$W" in /*|[A-Za-z]:*) A="$W" ;; *) A="$PWD/$W" ;; esac
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*)
+  [ ${#A} -le 80 ] || { echo "$A is ${#A} characters: on Windows give a scratch folder of 80 or fewer"; exit 2; } ;;
+esac
+mkdir -p "$W/tree" "$W/out" "$W/tmp" || exit 2
+# Absolute from here: the runs below work inside the clone, where a relative
+# argv[2] would name another folder (Copilot on PR #4).
+W=$(cd "$W" && pwd) || exit 2
 HEAD=$(git -C "$REPO" rev-parse --short HEAD)
 # A clone, not git archive: archive leaves out dev/ (export-ignore), and
 # release-check.sh with it. The clone only reads the real repo.
@@ -30,7 +42,7 @@ echo "clone at $(git rev-parse --short HEAD) in $W/tree"
 P='launcher: hooks run sandboxed with launcher-collected git facts|the PreCompact status runs no fsmonitor, hook or submodule git|commit in the same folder while a command ran is left to that session when git printed'
 run() { # label, slug
   echo "== $1 ($(date +%H:%M:%S))"
-  bash dev/release-check.sh --only "$P" > "$W/out/$2.txt" 2>&1
+  TMPDIR="$W/tmp" bash dev/release-check.sh --only "$P" > "$W/out/$2.txt" 2>&1
   grep -E '^(PASS|FAIL)' "$W/out/$2.txt" | sed 's/^/   /'
   kept=$(grep -o 'Output kept.*' "$W/out/$2.txt" | sed 's/.*): //')
   [ -n "$kept" ] && cp -R "$kept" "$W/out/$2-kept" && for t in "$kept"/*.tap; do
