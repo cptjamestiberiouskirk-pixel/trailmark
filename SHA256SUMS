@@ -13,7 +13,7 @@ b1d29c22e3d045bcd578000e62dda7a20fb4afd6c27f95be3fce7324caae2a5d *./CONTRIBUTING
 c1001a285f356fc7287f85b1dcc34beb80c7e3d8b17d5c976dbc25fd508e3f1d *./MANUAL.md
 ac41959746ec265208a98ce70458fb596737baaed84ae066d684425b7c253577 *./README.md
 812a3b1ec377ff78aa3bd026f00e79a5cec2daeaf8c3aa127b7f751a2bdcb5ed *./SECURITY.md
-0e011ae9260aeb0c81649db8c6cbe3463c77bc284a55462e3acba0722f8b64f4 *./docs/how-it-works.md
+8031cc64b43f1ae649b8502c11cd31f990aa39203bfabe452abb5ea5a0c104ba *./docs/how-it-works.md
 53c222f6021e268dd2bf274fd79f4a96c008931b22977c0260ae7a52682bbe82 *./install.cmd
 06c1f76c849c59a57c19ba2d107ef119aea12d4013f32389e413b94da2dddcbe *./install.ps1
 3f806bcd82345561c3a48ede8a0d5d6c5df37740a058859e997404c9191d8a5b *./install.sh
@@ -59,7 +59,7 @@ f766e56215274b399e7f2dce156a5e5fbfbdf197ffd54e903bcef41937c6a06f *./plugins/trai
 831b1615a07d44cd93379d9200d369456178738bc302cbcebc575203bb62a3ae *./plugins/trailmark/scripts/hook-precompact.js
 adca2ac9ab6f43730682e639b6ae73b27017ccb6a6bddcd2fd25595ff42d502b *./plugins/trailmark/scripts/hook-session-start.js
 4b3891fe9f5a110ee55e594e36556ccb7ab45404014dee23998080c4efe3c156 *./plugins/trailmark/scripts/lib/commands.js
-5c6c48c78430f187502d198bcb404e3cc50de483911c27bfc7526926050e8430 *./plugins/trailmark/scripts/lib/contextwatch.js
+90daccbad26bec91a6b413b81439c69d249b199a9c72570decdef92022cef7dd *./plugins/trailmark/scripts/lib/contextwatch.js
 2bf5b09e63e0d273e7070167a70322c89b9ca78f339eebbde5f56722b4649020 *./plugins/trailmark/scripts/lib/gitbin.js
 470017233e7a64c1f80d0eb8cde40c3783b08e1907cf07b535c2dd13d646c1b5 *./plugins/trailmark/scripts/lib/gitfacts.js
 70916ee1f331794322658ca49e8886c4c3c7bf38b9a90390b00cce3888720886 *./plugins/trailmark/scripts/lib/health.js

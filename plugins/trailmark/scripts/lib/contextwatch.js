@@ -181,9 +181,10 @@ function usageOf(o) {
 }
 
 // Read from the end of the transcript. Without `since`: the last main-thread
-// request's context size and model, or null when a compaction came after it
-// (after /compact the next prompt comes before the next request, and the size
-// from before the compaction says nothing about the context now). With
+// request's context size and model, or null when the main thread compacted
+// after it (a prompt after /compact, or a tool result after a compaction
+// mid-turn, can come before the next request, and the size from before the
+// compaction says nothing about the context now). With
 // `since` (ms): also the smallest size and any compaction after that time,
 // and whether the read got back that far; read back to `since` with no
 // request after it, `min` is null. null when no usable entry was found, or
