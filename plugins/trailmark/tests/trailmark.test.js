@@ -4178,7 +4178,7 @@ test('0.6.0 commit hook: when git times out and another command holds the state 
   assert.ok(!ctx.includes(dp(s.repo)), ctx);
 });
 
-test('0.6.0 context watch: an image counts as one image, one tool call adds at most 25k, and an ask from an estimate under 75% of the compaction point neither repeats nor ends the steps', () => {
+test('0.6.0 context watch: an image counts as one image, one tool call adds at most 25k, and an ask from an estimate under the first step neither repeats nor ends the steps', () => {
   const c = contextWatchSetup({ model: 'claude-haiku-4-5' }); // a 200k model: compaction near 167k, 75% near 125k, first step near 142k
   // An image Read, shaped as in a transcript (2026-11-05): its base64 is
   // 670k characters, the model gets at most 4,784 tokens. 120k + 4.8k is
@@ -4194,24 +4194,32 @@ test('0.6.0 context watch: an image counts as one image, one tool call adds at m
   // Still under 75%: the same step doesn't ask again, call after call.
   c.usage(121000);
   for (let i = 1; i <= 2; i++) assert.strictEqual(c.run(edit), null, `call ${i} under 75%: silent`);
-  // The handoff is written, then the transcript reaches 75%: the steps start
-  // over, so the first step asks again as a first request.
+  // The handoff is written: an estimate past the line asks nothing more
+  // (Opus round 3: it asked again at once at an estimated 151k)...
   assert.strictEqual(wh((a2, i) => jbm(c.s, a2, i), '# H\n## Next\n- x\n', [`--session=${SA}`]).status, 0);
   c.usage(126000);
-  assert.strictEqual(c.run(), null, '126k: under the first step');
-  assert.strictEqual(c.rec().contextWatch.level, undefined, 'started over');
+  assert.strictEqual(c.run(edit), null, '126k + 25k after the checkpoint: silent');
+  // ...until the transcript itself reaches the first step: the steps start
+  // over there, and the request comes from the real size.
   c.usage(143000);
   const again = askText(c.run());
   assert.match(again, /about 143k tokens/);
   assert.doesNotMatch(again, /has not written/);
-  // Without a write, reaching 75% doesn't start over: no second first
-  // request while Claude is still on the first.
+  // Without a write, reaching the first step doesn't start over: no second
+  // first request while Claude is still on the first, also with a size under
+  // the line read since the ask (Opus round 3).
   const d = contextWatchSetup({ model: 'claude-haiku-4-5' });
   d.usage(124000);
   assert.ok(d.run(edit), 'an early ask');
-  d.usage(127000);
-  assert.strictEqual(d.run(), null, '127k, no write: silent');
+  for (const n of [124500, 126000, 127000]) {
+    d.usage(n);
+    assert.strictEqual(d.run(), null, `${n}, no write: silent`);
+  }
+  d.usage(143000);
+  assert.strictEqual(d.run(), null, '143k, no write: silent');
   assert.strictEqual(d.rec().contextWatch.level, 1, 'kept');
+  d.usage(151000);
+  assert.match(askText(d.run()), /has not written/, 'the next step asks again, as a repeat');
 });
 
 test('0.6.0 context watch: a request bigger than the window the model\'s name gives lifts that cap (a 1M context the name doesn\'t show)', () => {
@@ -4270,4 +4278,29 @@ test('0.6.0 context watch: a prompt counts in full, and an image counts as much 
   d.usage(308000);
   const image = { type: 'image', file: { base64: 'QUJD'.repeat(100000), type: 'image/png', originalSize: 300000 } };
   assert.match(askText(d.run({ tool_name: 'Read', tool_response: image })), /about 313k tokens/);
+});
+
+test('0.6.0 commit hook: when git times out and the state file can\'t be updated for another reason, Claude isn\'t told another command held it', () => {
+  const s = sandbox();
+  jbm(s, ['init']);
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  const stub = path.join(s.base, 'git-timeout.js');
+  fs.writeFileSync(stub, GIT_TIMEOUT_STUB);
+  s.g('commit', '-q', '--allow-empty', '-m', 'slow, state unreadable');
+  // A folder where the state file goes: reading it fails, and no lock is held.
+  const state = path.join(s.memdir, '.jbmem-state.json');
+  fs.rmSync(state, { force: true });
+  fs.mkdirSync(state);
+  let r;
+  try {
+    r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', 'milestone', 'commit'], { cwd: s.repo, env: s.env, encoding: 'utf8',
+      input: JSON.stringify({ session_id: SA, tool_name: 'Bash', tool_input: { command: 'git commit -m "slow, state unreadable"' }, tool_use_id: `toolu_su${++toolSeq}x${process.pid}`, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 3000 }) });
+  } finally {
+    fs.rmSync(state, { recursive: true, force: true });
+  }
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.ok(r.stdout, 'nothing was said to Claude');
+  const ctx = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+  assert.match(ctx, /A commit was not logged: git was too slow \(it timed out\) in one folder, and trailmark's state file couldn't be updated, so a later sweep may miss it\./, ctx);
+  assert.doesNotMatch(ctx, /another command held/, ctx);
 });

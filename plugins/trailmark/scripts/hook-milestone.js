@@ -266,12 +266,14 @@ guard(() => {
       }
     } catch (e2) { if (e2 && e2.code === 'ERR_ACCESS_DENIED') throw e2; }
     // Git timed out and the folder couldn't join the session's commit
-    // folders: Claude is told, without the promise of a sweep.
+    // folders: Claude is told, without the promise of a sweep. A held lock
+    // is named only when it was the reason.
     if (slowNote && !afterFailure) {
+      const why = e && e.code === 'JBMEM_LOCKED' ? "another command held trailmark's state file" : "trailmark's state file couldn't be updated";
       emit({
         hookSpecificOutput: {
           hookEventName: 'PostToolUse',
-          additionalContext: `[trailmark] A commit was not logged: git was too slow (it timed out) in ${slow.length === 1 ? 'one folder' : `${slow.length} folders`}, and another command held trailmark's state file, so a later sweep may miss it. Name the commit in the handoff at the next checkpoint.`,
+          additionalContext: `[trailmark] A commit was not logged: git was too slow (it timed out) in ${slow.length === 1 ? 'one folder' : `${slow.length} folders`}, and ${why}, so a later sweep may miss it. Name the commit in the handoff at the next checkpoint.`,
         },
       });
     }

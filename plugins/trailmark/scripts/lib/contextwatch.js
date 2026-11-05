@@ -240,11 +240,11 @@ function readUsage(file, { since = 0 } = {}) {
 const MAX_EXTRA = 25000;
 // An image costs ceil(width / 28) x ceil(height / 28) tokens, at most 1,568
 // on the standard tier and 4,784 on the high-resolution tier of Claude 4.7
-// and later (Claude's vision docs, read 2026-11-05); the most is counted, and
-// the 75% rule in hook-context-watch.js keeps a high count from asking early. An image is
-// base64 under "base64" or "data" in an object whose type, media_type or
-// mimeType is image/...: a Read's result ({ file: { base64, type } }), an API
-// content block's source, MCP output.
+// and later (Claude's vision docs, read 2026-11-05); the most is counted,
+// and hook-context-watch.js keeps a high count from asking more than once.
+// An image is base64 under "base64" or "data" in an object whose type,
+// media_type or mimeType is image/...: a Read's result ({ file: { base64,
+// type } }), an API content block's source, MCP output.
 const IMAGE_TOKENS = 4784;
 const BASE64_MIN = 1000;
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;

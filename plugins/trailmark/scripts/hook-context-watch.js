@@ -20,12 +20,13 @@
 //     Between 75% and the first step nothing changes, so a large tool result
 //     that lifts the estimate over a step and drops back asks only once.
 //   - An ask made while the transcript's own size (before the estimate for
-//     what came after it) is under that 75% doesn't start over at the line,
-//     only after a compaction or a shrink, so an estimate that runs high
-//     can't ask again and again. Once the transcript reaches the line, the
-//     steps start over if the handoff was written since that ask, so a
-//     checkpoint made early doesn't end the requests; otherwise Claude is
-//     still on it and the state carries on.
+//     what came after it) is under the first step came from the estimate,
+//     and is kept until the transcript itself reaches that step: being
+//     under 75% doesn't clear it (a compaction or a shrink still does), so
+//     an estimate that runs high can't ask again and again. At the first
+//     step the steps start over if the handoff was written since that ask,
+//     so the request that ends them is made from the real size; otherwise
+//     Claude is still on it and the state carries on from there.
 //   - A request ignores hints.minMinutesBetween (it is the last chance before
 //     the compaction) and sets lastHintAt, so milestone hints don't follow it
 //     straight away.
@@ -64,6 +65,7 @@ function decide(prev, rec, ctx, cfg, now) {
   let w = isObj(prev) ? { ...prev } : {};
   const point = compactPoint(ctx.win, cfg.reserve, ctx.pct);
   const line = point * FORGET_BELOW;
+  const first = cfg.steps.length ? point * Math.min(...cfg.steps) / 100 : Infinity;
   const level = cfg.steps.filter(s => ctx.tokens >= point * s / 100).length;
   const seen = count(w.seen);
   // Start over: a compaction since the last request, a shrink, a fall below
@@ -73,10 +75,11 @@ function decide(prev, rec, ctx, cfg, now) {
     const s = ctx.since;
     const low = Math.min(ctx.base, s && Number.isFinite(s.min) ? s.min : Infinity);
     if (!s || s.boundary || !s.reached || (seen > 0 && low < seen * SHRINK)) w = {};
-    else if (seen > 0 && seen < line) {
-      // Asked from under the line: kept there; at the line, start over if
-      // the handoff was written since, else carry on from here.
-      if (ctx.base >= line) w = when(rec && rec.lastWrite) > when(w.firstAt) ? {} : { ...w, seen: ctx.base };
+    else if (seen > 0 && seen < first) {
+      // Asked from an estimate: kept until the transcript reaches the first
+      // step; there, start over if the handoff was written since, else carry
+      // on from here (seenAt too, so the launcher reads on from now).
+      if (ctx.base >= first) w = when(rec && rec.lastWrite) > when(w.firstAt) ? {} : { ...w, seen: ctx.base, seenAt: now };
     } else if (low < line) w = {};
   }
   const firstAt = when(w.firstAt);

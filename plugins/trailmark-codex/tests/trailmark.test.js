@@ -4208,3 +4208,28 @@ test('0.6.0 commit folders: a folder\'s join time is measured from the launcher\
   const from = rec.commitDirsAt[key][0];
   assert.ok(from <= before - 5000, `the join time is ${from - before} ms from the launcher's start`);
 });
+
+test('0.6.0 commit hook: when git times out and the state file can\'t be updated for another reason, Claude isn\'t told another command held it', () => {
+  const s = sandbox();
+  jbm(s, ['init']);
+  jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
+  const stub = path.join(s.base, 'git-timeout.js');
+  fs.writeFileSync(stub, GIT_TIMEOUT_STUB);
+  s.g('commit', '-q', '--allow-empty', '-m', 'slow, state unreadable');
+  // A folder where the state file goes: reading it fails, and no lock is held.
+  const state = path.join(s.memdir, '.jbmem-state.json');
+  fs.rmSync(state, { force: true });
+  fs.mkdirSync(state);
+  let r;
+  try {
+    r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', 'milestone', 'commit'], { cwd: s.repo, env: s.env, encoding: 'utf8',
+      input: JSON.stringify({ session_id: SA, tool_name: 'Bash', tool_input: { command: 'git commit -m "slow, state unreadable"' }, tool_use_id: `toolu_su${++toolSeq}x${process.pid}`, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 3000 }) });
+  } finally {
+    fs.rmSync(state, { recursive: true, force: true });
+  }
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.ok(r.stdout, 'nothing was said to Claude');
+  const ctx = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+  assert.match(ctx, /A commit was not logged: git was too slow \(it timed out\) in one folder, and trailmark's state file couldn't be updated, so a later sweep may miss it\./, ctx);
+  assert.doesNotMatch(ctx, /another command held/, ctx);
+});
