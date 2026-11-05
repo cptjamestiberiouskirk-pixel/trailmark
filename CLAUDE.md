@@ -23,7 +23,7 @@ Don't drive those steps by hand one at a time, and don't paste full test output 
 - A failing suite's full TAP output, with the folders its failed tests kept, is copied to the folder named under the summary (`<temp>/trailmark-release-check/<run>`). Read a failure there first.
 - One test or one test file: `dev/release-check.sh --only '<name pattern>'` or `--only <file>`, never a plain `node --test`. A failing test keeps its folders, and a plain run leaves them in the system temp folder (`%TEMP%` held 3,071 `jbmem-*` folders on 2026-11-05). `--only` keeps its output even when it passes.
 - An intermittent failure gets no "flaky" label: it needs a reproduced, proven cause. Keep its output, log CPU use during the run, rerun the single test several times with `--only`, and compare with the parent commit, alternating which version runs first (a fixed order confounded a timing comparison in 0.6.0).
-- Tests known to fail or skip under load are listed under "Load-sensitive tests" in `dev/release-state.md`, each with the sign its output shows: the busy-lock test's 6 s bound (test 44), the commit list since the handoff, and the sweep tests that skip themselves after 90 s (`SweepsOutOfTime`).
+- Tests known to fail or skip under load are listed under "Load-sensitive tests" in `dev/release-state.md`, each with the sign its output shows. Read the list there, not a copy: it grows during a release. A failure whose output doesn't show a listed sign is new and gets investigated.
 
 ## Windows notes
 
