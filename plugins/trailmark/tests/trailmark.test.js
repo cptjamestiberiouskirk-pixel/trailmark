@@ -4356,7 +4356,8 @@ test('0.6.0 context watch: a window that flips between two sizes starts the step
   assert.strictEqual(wh((a2, i) => jbm(c.s, a2, i), '# H\n## Next\n- x\n', [`--session=${SA}`]).status, 0);
   const asked = [];
   for (const n of [202000, 198000, 203000, 199000, 204000, 197000]) { c.usage(n); asked.push(askText(c.run()) ? `${n / 1000}k` : '-'); }
-  // The bigger window's first step asks once, and its repeat once (no write
-  // since that ask); flipping back and forth after that is silent.
+  // The bigger window asks once (at its 90% step), and the 200k window once
+  // more as a repeat (no write since); flipping back and forth after that is
+  // silent.
   assert.deepStrictEqual(asked, ['202k', '198k', '-', '-', '-', '-']);
 });

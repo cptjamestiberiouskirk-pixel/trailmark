@@ -10,7 +10,7 @@ Started 2026-11-04 from `dev/release-0.6.0-prompt.md` on branch `claude/release-
 
 | # | Item (from) | Label when listed | Status |
 |---|---|---|---|
-| A | The context-watch hook, as `dev/context-watch-prompt.md` describes | (feature) | built, tests pass, docs written; review rounds 1 to 5 done, every CONFIRMED finding fixed with a test; round 6 on the round-5 fix next |
+| A | The context-watch hook, as `dev/context-watch-prompt.md` describes | (feature) | built, tests pass, docs written; review rounds 1 to 6 done, every CONFIRMED finding fixed with a test; round 6 found nothing CONFIRMED in the round-5 fix, so the stop rule is met |
 | B1 | `handoff-checks.test.js` link tests skip on every Windows machine (`skip: WIN`, 42 tests, not 38) (0.5.2 list) | CONFIRMED | done here; CI's Windows jobs to run them |
 | B2 | Text from disk in the session-start `systemMessage`: `health.incomplete`, `JBMEM_SANDBOX`, Node's path, folder-clash paths (0.5.1 list) | CONFIRMED in code | fixed, tests pass; reviews to do |
 | B3 | Cached copies' folder names in the session-start `additionalContext`, and the Codex jb-memory-codex note (0.5.1 list) | CONFIRMED in code | fixed, tests pass; reviews to do |
@@ -149,6 +149,15 @@ Fixed before 0.6.0, though not marked in the 0.5.1 list:
   - Rounding can't grow the point, and `cfg.reserve` and `ctx.pct` change only with the settings.
   - `readUsage`'s only caller with `since` (trailmark.js:375) reads just `min`, `boundary` and `reached`; 8 built transcripts lost no boundary or smaller size to the early stop.
 
+### Review round 6 (2026-11-05, on `git diff 575a8cb..765a597`)
+
+- The round-5 fix is committed as 765a597, after `dev/release-check.sh --sums` passed every check (handoff-checks 106/190, Claude Code 154/169, Codex 148/164; CPU median 23%). The Codex count had 17 skipped in the round-4 run at 72% CPU: its sweep tests skip themselves when every sweep runs out of time for 90 s (`sweepTest`, CONFIRMED in code; that this was the one is INFERRED, that run's output wasn't kept).
+- Docs (Sonnet): nothing wrong. Two wording notes, fixed: the flip test's comment called the 202k ask the bigger window's first step (it is its 90% step), and MANUAL.md and CHANGELOG.md said the steps start over "when the window grows", broader than the code; they now say "when the window grows past any it has asked in".
+- Regression (Opus): nothing CONFIRMED that the round-5 fix caused. Two findings, both in the deferred list:
+  1. A window that flips with no handoff write goes silent at the bigger window's later steps (202k, 198k, 203k, 199k, 207k, 210k: an ask, a repeat, then nothing, though 207k is past the 95% step of the 217k point). CONFIRMED here with the launcher: HEAD and 0612f86's context-watch code give the same calls. 575a8cb asked there only through the flip bug's start-overs.
+  2. Three windows in one cycle can lose repeat asks (CONFIRMED by Opus, not re-run here); it follows the documented rule.
+- Also from Opus, checked and fine: a window that shrinks for good asks as before; a window bigger than every point asked under still starts over; each of the four start-overs stores the current point; nothing but `decide()` reads `contextWatch.point`; the new test fails with 575a8cb's hook and passes on 765a597.
+
 ### Deferred to the next version (2026-11-05)
 
 - Cost: from 80% of (window less 50k) to the compaction, each call costs about 300 ms (332 ms median against 97 ms, Opus round 2) (the sandboxed hook starts) even after this session checkpointed, when it can't ask (Opus, measured). The launcher could run `decide()` itself and start the hook only when the state changes; `hookMemory` could use a shorter git timeout.
@@ -164,6 +173,8 @@ Fixed before 0.6.0, though not marked in the 0.5.1 list:
 - From Opus round 3: past 10 old jb-memory-codex folders the Codex note says "10 folders", with no sign of the cutoff (`otherCopies` marks its own). An image counts 4,784 tokens on a standard-tier model too (Haiku 4.5, at most 1,568); the provisional rule keeps that from asking more than once.
 - From Opus round 4: a session that switches from a smaller to a bigger window (another model) while its context is in the step zone gets one more request. Since round 5 the state keeps the biggest point asked under, so switching back and forth adds no more.
 - From Opus round 5 (from fdd46b2 on, CONFIRMED with the launcher 2026-11-05): after an ask, a handoff write and a manual `/compact`, the next prompt asks again with the size from before the compaction ("Context about 315k tokens, auto-compaction near 367k"). `fastPath` takes the last request, which is from before the compaction, and the boundary only starts the state over. INFERRED that hooks see this order: 5 of 9 manual compactions in local transcripts had a prompt before the first request after the compaction (1 of 61 automatic ones). A possible fix: `fastPath` treats a main-thread `compact_boundary` after the last request as no usable entry.
+- From Opus round 6 (older; CONFIRMED with the launcher, the same on 0612f86's code): `w.level` counts steps against the point of the last ask, so after a repeat ask under a smaller point (level 3 of 167k), the bigger window's later steps (90% and 95% of 217k) never ask, with no handoff written. One repeat ask is lost. A fix: store the size of the last ask and compare its level under the current point.
+- From Opus round 6: three windows in one cycle (250k, then 200k, then 225k) lose the third window's repeat asks; the first ask was already past all its steps. Rare (two setting or model changes in one cycle, INFERRED).
 - From Opus round 5 (older): once a request drops back under the model's named window, an ask can say "Context about 198k tokens" with compaction "near 167k".
 - The busy-lock test's 6,000 ms limit (from 0.4.0) fails on a busy machine in every version (CONFIRMED 2026-11-05: 3 of 3 with one busy loop per core). The hook waits 2 s for the lock; the rest is process starts, which slow with load. The launcher cuts the writer off at 9 s, so a wait that long already fails the test's exit-status check. A limit on the wait alone would hold under load: for example, time `updateState` in the test's own process against a held lock, and keep the hook check to its exit status and the log line.
 - Windows, long paths: init (and every write) fails with "sandbox refused FileSystemWrite" when the memory folder's path is about 268 characters or more (Node 26.13, CONFIRMED 2026-11-05). A repo path near 230 characters gets there, since the folder's name repeats it. HYPOTHESIZED: Node checks the `\\?\` form of a long path, which the grant doesn't match. Options: grant the `\\?\` form too (if Node takes it), or name the path's length in the message.

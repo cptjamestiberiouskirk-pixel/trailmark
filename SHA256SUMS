@@ -7,10 +7,10 @@ f81f737038bd2de241a3a63161e5921405dd786a885f2325ec1c7928b1405c05 *./.github/ISSU
 2a8cd05372f0ae35b43633c00630c5c4f54e250811830e65d5ac813c1c32ad01 *./.github/tap-annotate.js
 9bff623f70ad2328d0b1458264754187738c324d15684bdac469cbacb59c9ec5 *./.github/workflows/tests.yml
 0c4783ef9495551da26bd242a0cace9f7ad39e46bf1d5af8f51aeb8f338a9112 *./.gitignore
-e82b69f154a32afb4bdb882c676754a114cf13b4d06c78dab506bc8941e09ac2 *./CHANGELOG.md
+cc6e7ebfe6f75529fca6b002a1b6150495096716c2e89ac738d373ee150e1aec *./CHANGELOG.md
 b1d29c22e3d045bcd578000e62dda7a20fb4afd6c27f95be3fce7324caae2a5d *./CONTRIBUTING.md
 2d172f3f7cebcf8c0ffd6db4720e86ce14fd91a6b152e07dc6102eb3c2f6ffc4 *./LICENSE
-81abfe213125f82b18e6f97d1d1af7e860833f5e7893055136ebf908e705ce68 *./MANUAL.md
+c1001a285f356fc7287f85b1dcc34beb80c7e3d8b17d5c976dbc25fd508e3f1d *./MANUAL.md
 ac41959746ec265208a98ce70458fb596737baaed84ae066d684425b7c253577 *./README.md
 812a3b1ec377ff78aa3bd026f00e79a5cec2daeaf8c3aa127b7f751a2bdcb5ed *./SECURITY.md
 6dccaf031d8a72ee9eff60c0d98ee0e5172f47ae2d4e3a020d212188bf0a0307 *./docs/how-it-works.md
@@ -77,7 +77,7 @@ a0f27188b6bb03b0316665f98b6eb193509678623a3d604f39c7aac20bdfab8d *./plugins/trai
 400a90486a0d7761aa26aaac702b4c9c5538d2ca5abd97854571ce0cd00d5d67 *./plugins/trailmark/skills/recall/SKILL.md
 b3c91fccd2d47a5834a9efbaf666ffa125a7019fa615d8213e8772b6d0a7deac *./plugins/trailmark/skills/session-end/SKILL.md
 f96d7790af0f208bbc3875b64d0a8e1a82c72fd75633beda4f9c1bf716099081 *./plugins/trailmark/tests/handoff-checks.test.js
-1aec92a03ba7463891d375811a0311b8f7acdb3512b9d56b42d8d115e6a1bcab *./plugins/trailmark/tests/trailmark.test.js
+53947b40447eefccead349440204641629600c95aa35fc668b8a4c2570289b88 *./plugins/trailmark/tests/trailmark.test.js
 fbfb824e44c91d4754c0fdfde7807c0f9b798fa8b8dd635faadcb133a79bb318 *./tools/install-check.js
 081feba44aebf054e9e39fb4aa2577caa633d6d79f32107b74ea0e529e5eb966 *./tools/migrate-from-jb-memory.js
 c8c129ca3b71358d6e96a270e1401b02c39c942c99a63b096cb2397b988a9496 *./tools/migrate-from-jb-memory.ps1
