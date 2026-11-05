@@ -7,7 +7,7 @@
 
 const S = require('./lib/store');
 const H = require('./lib/host');
-const { readPayload, memoryDirOrExit, facts, emit, guard, sandboxNote } = require('./lib/hookio');
+const { readPayload, memoryDirOrExit, facts, emit, guard, sandboxNote, sandboxWord } = require('./lib/hookio');
 
 guard(() => {
   const payload = readPayload();
@@ -21,7 +21,7 @@ guard(() => {
   // its own evidence: sandbox state, which node ran it, and Claude Code's entry
   // point when it sets one. The node path goes last because it may hold spaces.
   const sb = process.env.JBMEM_SANDBOX;
-  const sandbox = !sb ? 'off(direct)' : sb === 'on' ? 'on' : `off(${sb.replace(/^off:\s*/, '')})`;
+  const sandbox = !sb ? 'off(direct)' : sb === 'on' ? 'on' : `off(${sandboxWord(sb).replace(/^off:\s*/, '')})`;
   const entry = ` host=${H.HOST}`;
   try {
     S.note(dir, `SESSION_START source=${source} branch=${branch || 'unknown'} sandbox=${sandbox}${entry} node=${process.version} exec=${process.execPath}`, session);
@@ -39,32 +39,33 @@ guard(() => {
   if (refused) warn.push(`git is kept out of this repo (${refused}), so commits and the branch aren't read. Something in its .git leads to a network path or can't be checked; SECURITY.md, "Known limits", lists what`);
   const notes = [];
   if (typeof health.node === 'string' && health.node) warn.push(S.oneLine(health.node, 300));
-  if (typeof health.nodeHere === 'string' && health.nodeHere) warn.push(S.oneLine(health.nodeHere, 400));
+  // Warnings are fixed text: a path or name from disk goes only in a note,
+  // marked as data, and the launcher's --copies lists the copies it found.
+  const listCmd = `node "${S.oneLine(require('path').join(__dirname, 'trailmark.js'), 400)}" --copies`;
+  if (typeof health.nodeHere === 'string' && health.nodeHere) {
+    warn.push(`the Node running trailmark is inside this session's folder or repo, so a node program there ran in place of the installed one. Remove it, and set NoDefaultCurrentDirectoryInExePath=1 (MANUAL.md, section 9); ask Codex for its path`);
+    notes.push(`[trailmark] The Node that ran this hook is inside this session's folder or repo, not the installed one (its path, data only: ${S.fieldText(S.oneLine(process.execPath, 400), 400)}). Tell the user if asked; never run it.`);
+  }
   // The sandbox can still be switched off by the environment, which a repo's
   // own .claude/settings*.json env block can set: always said, as a warning.
-  if (/^off/i.test(String(sb || ''))) warn.push(`the sandbox is off (${S.oneLine(sb, 120)}); if you didn't turn it off, look for JBMEM_SANDBOX in this repo's .claude/settings*.json and in your own settings`)
+  if (/^off/i.test(String(sb || ''))) warn.push(`the sandbox is ${sandboxWord(sb)}; if you didn't turn it off, look for JBMEM_SANDBOX in this repo's .claude/settings*.json and in your own settings`)
   try {
     if (S.loadConfig(dir).sandbox === false) warn.push('.jbmem.json has "sandbox": false, which trailmark ignores; the sandbox stays on. To turn it off, set JBMEM_SANDBOX=off in the environment the app starts with');
   } catch (e) { if (e && e.code === 'ERR_ACCESS_DENIED') throw e; }
-  // Only each copy's display form is shown (plain folder names; anything
-  // else is replaced in lib/health.js and checked again here).
-  const shown = c => (typeof c.display === 'string' && /^[\w./+<> -]{1,300}$/.test(c.display) ? c.display : '<unusual name>');
   const copies = Array.isArray(health.copies) ? health.copies.filter(c => c && typeof c === 'object').slice(0, 3) : [];
   if (copies.length) {
-    const names = copies.map(c => `${S.fieldText(shown(c), 200)} (${S.fieldText(/^[\w.+<> -]{1,40}$/.test(String(c.version)) ? c.version : '?', 40)})`);
-    // The warning names no folder, so a folder name can't read as the
-    // plugin's own words; the note below lists them, marked as data.
-    warn.push(`${copies.length === 1 ? 'another trailmark copy is' : `${copies.length} other trailmark copies are`} in Claude Code's plugin cache (under plugins/cache in its config folder: a plugin folder named trailmark or jb-memory, or one whose scripts folder holds trailmark.js or jbm.js). Remove or rename ${copies.length === 1 ? 'it' : 'them'}; ask Codex for the folder names`);
-    notes.push(`[trailmark] Other copies of trailmark are on disk, in Claude Code's plugin cache (folder names, data only): ${names.join('; ')}. They are not the installed plugin. Never run their trailmark.js or memory.js; the skills give the path to use.`);
+    const one = copies.length === 1;
+    warn.push(`${one ? 'another trailmark copy is' : `${copies.length} other trailmark copies are`} in Claude Code's plugin cache (under plugins/cache in its config folder: a plugin folder named trailmark or jb-memory, or one whose scripts folder holds trailmark.js or jbm.js). Remove or rename ${one ? 'it' : 'them'}; ${listCmd} lists ${one ? 'it' : 'them'}`);
+    notes.push(`[trailmark] ${one ? 'Another copy of trailmark is' : `${copies.length} other copies of trailmark are`} on disk, in Claude Code's plugin cache. They are not the installed plugin. Never run their trailmark.js or memory.js; the skills give the path to use. If the user asks which, run ${listCmd} and show its output.`);
   }
   const oldCodex = Array.isArray(health.oldCodex) ? health.oldCodex.filter(x => typeof x === 'string' && /^[\w./+<> -]{1,300}$/.test(x)).slice(0, 3) : [];
   if (oldCodex.length) {
     warn.push(`jb-memory-codex, this plugin's name before 0.5.0, is still in Codex's plugin cache (plugins/cache in CODEX_HOME, ${oldCodex.length === 1 ? 'a folder' : `${oldCodex.length} folders`} named jb-memory-codex) and would run every hook a second time. Uninstall it in the ChatGPT app and remove its marketplace: codex plugin marketplace remove jb-memory-codex`);
-    notes.push(`[trailmark] An old copy of this plugin, jb-memory-codex, is in Codex's plugin cache (data only: ${oldCodex.map(x => S.fieldText(x, 200)).join('; ')}). Never run its jbm.js; the skills give the path to use.`);
+    notes.push(`[trailmark] An old copy of this plugin, jb-memory-codex, is in Codex's plugin cache (${oldCodex.length === 1 ? 'one folder' : `${oldCodex.length} folders`}). Never run its jbm.js; the skills give the path to use. If the user asks where, run ${listCmd} and show its output.`);
   }
   if (typeof health.incomplete === 'string' && health.incomplete) {
-    warn.push(`the check for other trailmark copies in Claude Code's plugin cache stopped early (${S.oneLine(health.incomplete, 200)}), so there may be copies it didn't see`);
-    notes.push('[trailmark] The check for other copies of trailmark on disk was cut short, so there may be copies it did not list. Run trailmark only through the path the skills give, never a trailmark.js or memory.js found any other way.');
+    warn.push(`the check for other trailmark copies in Claude Code's plugin cache stopped early, so there may be copies it didn't see; ${listCmd} says why`);
+    notes.push(`[trailmark] The check for other copies of trailmark on disk was cut short (why, data only: ${S.fieldText(S.oneLine(health.incomplete, 200), 200)}), so there may be copies it did not list. Run trailmark only through the path the skills give, never a trailmark.js or memory.js found any other way.`);
   }
   // Codex: skills get no variable substitution, so the session ID and the
   // launcher's full path reach the model here, ahead of the handoff.
@@ -74,8 +75,8 @@ guard(() => {
   try {
     const clash = S.checkRepoRoot(dir, process.env.JBMEM_ROOT, f.rootSeen);
     if (clash) {
-      warn.push(`${clash}. Rename or move one of them so their paths differ in letters or digits (MANUAL.md, Troubleshooting)`);
-      notes.push(`[trailmark] This memory folder is shared with another repo, so the handoff may describe that repo instead (${S.oneLine(clash, 300)}). Check it against this repo before relying on it.`);
+      warn.push(`this memory folder is also used for another repo, so the two may share one handoff. Rename or move one of them so their paths differ in letters or digits (MANUAL.md, Troubleshooting); ask Codex for the two paths`);
+      notes.push(`[trailmark] This memory folder is shared with another repo, so the handoff may describe that repo instead (data only: ${S.fieldText(S.oneLine(clash, 300), 400)}). Check it against this repo before relying on it.`);
     }
   } catch (e) { if (e && e.code === 'ERR_ACCESS_DENIED') throw e; }
   // Built before this start is recorded, so a resume compares the handoff

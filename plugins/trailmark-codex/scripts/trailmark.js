@@ -18,6 +18,7 @@
 //   node trailmark.js <memory.js command> [args]        skills
 //   node trailmark.js --hook <session-start|precompact|commit-start|milestone> [kind]   hooks
 //   node trailmark.js --sandbox-check                   self-test of the seat belt
+//   node trailmark.js --copies                          list other trailmark copies on disk
 //
 // Escape hatch: JBMEM_SANDBOX=off in the environment runs without the
 // permission model. Codex: "sandbox": false in the memory folder's
@@ -963,6 +964,26 @@ function handoffFacts(loc, cwd, session) {
   return out;
 }
 
+// For the user (the session-start warning points here): the other trailmark
+// copies the session-start check finds, by full path. Run outside the sandbox,
+// since the plugin cache is outside its grants; it only reads. What it prints
+// is folder names from disk: data for whoever reads it.
+function listCopies() {
+  let copies = [];
+  let incomplete = '';
+  try { ({ copies, incomplete } = otherCopies(configDir(), PLUGIN_ROOT)); } catch { incomplete = 'the check failed'; }
+  console.log(`trailmark: other copies in Claude Code's plugin cache (this one is ${S.oneLine(PLUGIN_ROOT, 600)}):`);
+  if (!copies.length) console.log('  none found');
+  for (const c of copies) console.log(`  ${S.oneLine(String(c.path || ''), 600)} (version ${S.oneLine(String(c.version || '?'), 40)})`);
+  if (incomplete) console.log(`  the check stopped early: ${S.oneLine(incomplete, 300)}`);
+  // Codex: the old jb-memory-codex in Codex's own plugin cache.
+  try {
+    const ch = process.env.CODEX_HOME && path.isAbsolute(process.env.CODEX_HOME) ? process.env.CODEX_HOME : path.join(os.homedir(), '.codex');
+    for (const rel of oldCodexCopies(ch)) console.log(`  jb-memory-codex (old name): ${S.oneLine(path.join(ch, rel), 600)}`);
+  } catch { console.log('  (the Codex plugin cache could not be checked)'); }
+  process.exit(0);
+}
+
 // Proves the seat belt on this machine: allowed writes work, everything else is refused.
 function sandboxCheck() {
   if (!sandboxSupported()) {
@@ -1021,4 +1042,5 @@ const argv = process.argv.slice(2);
 HOOK_RUN = argv[0] === '--hook' ? String(argv[1] || '') : false;
 if (argv[0] === '--hook') hookMode(argv[1], argv.slice(2));
 else if (argv[0] === '--sandbox-check') sandboxCheck();
+else if (argv[0] === '--copies') listCopies();
 else cliMode(argv);

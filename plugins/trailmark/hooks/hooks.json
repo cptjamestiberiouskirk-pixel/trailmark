@@ -1,5 +1,5 @@
 {
-  "description": "Keeps this repo's handoff note current. At session start, and after /clear or a compaction, Claude gets the note. Before a compaction, a short snapshot of the repo's git state is saved. After a commit, a PR merge or a subagent's result, the commit or merge is logged and Claude is reminded to update the note; a commit made by a command that then failed is logged too. Before each commit command, the folder it starts in is noted, so commits made in another folder are logged correctly. In repos where you haven't run /trailmark:memory-setup, every hook does nothing. Each hook goes through Trailmark's launcher (scripts/trailmark.js). The launcher only reads, running git to look up commits and status; the part that writes runs under Node's permission model, so it can write only in the repo's memory folder and can't start other programs.",
+  "description": "Keeps this repo's handoff note current. At session start, and after /clear or a compaction, Claude gets the note. Before a compaction, a short snapshot of the repo's git state is saved. After a commit, a PR merge or a subagent's result, the commit or merge is logged and Claude is reminded to update the note; a commit made by a command that then failed is logged too. Before each commit command, the folder it starts in is noted, so commits made in another folder are logged correctly. After each tool call and prompt, the session's context size is read from its transcript; as it nears the point where Claude Code auto-compacts, Claude is asked to update the note first. In repos where you haven't run /trailmark:memory-setup, every hook does nothing. Each hook goes through Trailmark's launcher (scripts/trailmark.js). The launcher only reads, running git to look up commits and status; the part that writes runs under Node's permission model, so it can write only in the repo's memory folder and can't start other programs.",
   "hooks": {
     "SessionStart": [
       {
@@ -187,6 +187,20 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js",
+              "--hook",
+              "context-watch"
+            ],
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [
@@ -244,6 +258,22 @@
               "commit"
             ],
             "if": "PowerShell(git -C *)",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js",
+              "--hook",
+              "context-watch"
+            ],
             "timeout": 10
           }
         ]

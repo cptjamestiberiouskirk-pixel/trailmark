@@ -2,9 +2,62 @@
 
 Last updated 2026-11-04.
 
+## 0.6.0 (in progress)
+
+Started 2026-11-04 from `dev/release-0.6.0-prompt.md` on branch `claude/release-0.6.0` (from origin/main d6b705e). Scope confirmed by the user 2026-11-04 ("Yes, start", after their answer was relayed from another session): A, B1 to B11. One Fable review covers B4, B6, B7 and B9. For B8, read Defender's MPLog first; ask before downloading Process Monitor or anything else.
+
+### Scope
+
+| # | Item (from) | Label when listed | Status |
+|---|---|---|---|
+| A | The context-watch hook, as `dev/context-watch-prompt.md` describes | (feature) | built, tests pass; docs and reviews to do |
+| B1 | `handoff-checks.test.js` link tests skip on every Windows machine (`skip: WIN`, 38 tests) (0.5.2 list) | CONFIRMED | open |
+| B2 | Text from disk in the session-start `systemMessage`: `health.incomplete`, `JBMEM_SANDBOX`, Node's path, folder-clash paths (0.5.1 list) | CONFIRMED in code | fixed, tests pass; reviews to do |
+| B3 | Cached copies' folder names in the session-start `additionalContext`, and the Codex jb-memory-codex note (0.5.1 list) | CONFIRMED in code | fixed, tests pass; reviews to do |
+| B4 | A module gitdir nested in a real submodule gitdir's `objects/` is passed over (0.5.1 list) | CONFIRMED; old git INFERRED | open |
+| B5 | `commitDirs` keeps 6; a background folder that never commits takes a slot; entries swept from session start (0.5.1 list) | INFERRED | open |
+| B6 | Outside Windows, a removed submodule's leftover `core.worktree` gives `network-config` (0.5.1 list) | CONFIRMED (WSL) | open |
+| B7 | A relative gitdir setting is also read from `CHECK_CWD` (0.5.1 list) | CONFIRMED (Windows) | open |
+| B8 | The junction test fails now and then here with `EBUSY` / `EPERM` (0.5.1 list) | failures CONFIRMED; cause INFERRED | open |
+| B9 | With no d_type, `readdirSync` throws on a name that isn't valid UTF-8 and `linkedEntries` skips the folder (0.5.1 list) | CONFIRMED from source; HYPOTHESIZED on a real file system | open |
+| B10 | Lock held over 2 s: the commit hook's fallback logs `COMMIT_UNRESOLVED` but tells Claude nothing and adds no folder (0.5.1 list) | CONFIRMED | open |
+| B11 | A POSIX-only test with a link (not a folder) inside `vendor/objects/ab` (0.5.1 notes, "For 0.5.2") | test gap | open |
+
+Fixed before 0.6.0, though not marked in the 0.5.1 list:
+
+- `localRepoRoot` running `git config --file` after a timeout: CONFIRMED fixed (d6b705e). It calls `farGit` only with `locate: true`, which returns at `gitbin.js:816`, before the first config read at `:832`.
+- The four sweep tests that failed with every core busy: CONFIRMED in code (d6b705e) that they use `settle`, `settleCall` and `sweepTest` (`trailmark.test.js:2952` on). Not re-run for this entry.
+
+### A: the context watch (2026-11-04/05)
+
+- New: `hook-context-watch.js` (sandboxed), `lib/contextwatch.js` (launcher side), the `context-watch` entry in `HOOKS` and `hooks.json` (PostToolUse with no matcher, UserPromptSubmit, 10 s), `contextWatch` in `.jbmem.json` (`on`, `steps` 80..99, `reserve` 20000..50000; defaults 85/90/95 and 33000).
+- Docs facts (Claude Code docs, read 2026-11-04 by a subagent, quoted with URLs; model-config, env-vars, settings-reference, hooks): `CLAUDE_CODE_AUTO_COMPACT_WINDOW` wins over the settings (documented, so the HYPOTHESIZED order is now CONFIRMED by the docs); a model's `modelSettings` entry wins over the top-level value in the same file; "auto" is the model's own window; default is the model's context limit (1M for Fable, Sonnet 5+, Haiku 5.5, Opus 4.7+; 200k for others and unknown IDs); the window is capped at the model's context; `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` is a percentage 1..100 of the window and can only lower the point. The 33k reserve is not documented (still INFERRED from `preTokens`).
+- Choices: no "fallback window" setting, since the docs give the default per model (the prototype's 200k guess is replaced by it); the window is capped at the model's own; the percentage override is honored. A request ignores `hints.minMinutesBetween` (last chance before the compaction) and sets `lastHintAt`, so a milestone hint does not follow straight away.
+- Speed: the launcher runs `contextwatch.fastPath()` before loading anything else and exits below the earliest step any configuration allows (80% of the window less 50k). Measured (`cwtime.js`, scratch, 15 runs each, 1.2 MB transcript tail): bare `node -e 0` median 70 ms; the hook below the step median 89 ms (min 82, max 122). Before moving the fast path ahead of the module loads it was 292 ms against 172 ms bare (a busier moment), about 50 ms of it module loading. A test checks that no child process starts below the step.
+- Start over: the launcher reads the transcript back to the time of the last request and passes the smallest size and any `compact_boundary` since; the hook starts over on a compaction, a shrink by a fifth, a fall below 75% of the compaction point, or when it could not read back that far. Nothing is written below the first step.
+- Codex: not ported. Codex rollouts do record usage (`token_count` events with `last_token_usage` and `model_context_window`, CONFIRMED in a local rollout file) but its compaction point (`model_auto_compact_token_limit`, unset here) and default are not established, and its hooks have no UserPromptSubmit. Claude Code only in 0.6.0; README and CHANGELOG to say so. trailmark-watchdog does none of this (it watches plugin files).
+- Tests (`trailmark.test.js`, 9): the prototype's 14 cases plus the steps-before-the-point check at 400k and 200k, the worktree/sandbox case, refused transcript paths, the variable, the percentage override, the cap, prompts, a shrink and a dip. All 9 fail on d6b705e and pass now.
+
+### B2 and B3: text from disk at session start (2026-11-05)
+
+- The warning (`systemMessage`) is fixed text for each case: Node inside the repo (no path), the sandbox state (`hookio.sandboxWord`: only the launcher's own reasons, else "reason not shown"), the copies check cut short (no reason), the folder clash (no paths). The details go in the note (`additionalContext`) as data, via `S.fieldText`.
+- The notes name no cached copy or jb-memory-codex folder: a count, and `node "<launcher>" --copies`, a new launcher command that lists them by full path for the user (outside the sandbox, read-only). Both copies.
+- Tests: four changed and two new in `trailmark.test.js` (each copy), four changed in `handoff-checks.test.js`. Every changed or new one fails on d6b705e (the jb-memory-codex one only in the Codex copy, where its hook part runs) and passes now.
+- Found on the way, test only: the Codex copy's "resume does not re-inject" test failed in this worktree because the plugin path holds "init" (`powershell-starship-init-error-...`) and the test looked for "init" after the snapshot; it passed on d6b705e in a path without it. The check now leaves the plugin's own path out.
+
+### Release checklist
+
+1. Version bumps to 0.6.0: `plugins/trailmark/.claude-plugin/plugin.json`, `plugins/trailmark-codex/.codex-plugin/plugin.json`, `plugins/trailmark-codex/plugin.json`, MANUAL.md's version line. `grep -rn "0\.5\.1"` for anything else naming the current version.
+2. CHANGELOG: a 0.6.0 section, dated when released.
+3. Reviews by CLAUDE.md's model table, each on the diff since the last reviewed commit.
+4. `dev/release-check.sh` passes on the final commit; CI green on all 9 jobs.
+5. `dev/release-check.sh --zip D:\UserFiles\Downloads` from a clean tree at the release commit; record the commit and the zip hash here.
+6. Push, PR, merge (auto-merge, merge commit), tag and publish: each only when the user says so.
+7. After install: the user removes the prototype (the hooks block in `~/.claude/settings.json` and `~/.claude/hooks/trailmark-context-watch.js`).
+
 ## Next feature: the context watch (brief written 2026-11-04)
 
-`dev/context-watch-prompt.md` is the brief for a new hook that asks Claude to run trailmark:checkpoint before Claude Code's auto-compaction. It was written from a user-level prototype and the facts measured with it. `dev/release-0.6.0-prompt.md` (saved 2026-11-04 at the user's request) is the prompt that starts the release: this hook and every open item of the two deferred lists, in 0.6.0, with the list confirmed by the user before any code. Not started.
+`dev/context-watch-prompt.md` is the brief for a new hook that asks Claude to run trailmark:checkpoint before Claude Code's auto-compaction. It was written from a user-level prototype and the facts measured with it. `dev/release-0.6.0-prompt.md` (saved 2026-11-04 at the user's request) is the prompt that starts the release: this hook and every open item of the two deferred lists, in 0.6.0, with the list confirmed by the user before any code. In progress: see 0.6.0 above.
 
 ## 0.5.0
 

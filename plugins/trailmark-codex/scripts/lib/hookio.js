@@ -37,10 +37,20 @@ function guard(fn) {
   }
 }
 
-function sandboxNote() {
-  const s = process.env.JBMEM_SANDBOX;
-  if (!s) return 'sandbox off (run directly, not via trailmark.js)';
-  return s === 'on' ? 'sandbox on' : `sandbox ${s}`;
+// The sandbox state in a fixed form: the launcher sets JBMEM_SANDBOX to "on"
+// or "off: <its reason>", but a hook run some other way gets whatever the
+// environment held, which a repo's own settings can set. Only the launcher's
+// own reasons are shown; anything else is "reason not shown".
+function sandboxWord(s = process.env.JBMEM_SANDBOX) {
+  if (!s) return 'off (run directly, not via trailmark.js)';
+  if (s === 'on') return 'on';
+  const why = String(s).replace(/^off:\s*/i, '');
+  if (why === 'JBMEM_SANDBOX=off' || /^Node v\d{1,3}\.\d{1,3}\.\d{1,3} has no --permission$/.test(why)) return `off: ${why}`;
+  return 'off: reason not shown';
 }
 
-module.exports = { readPayload, memoryDirOrExit, facts, emit, guard, sandboxNote };
+function sandboxNote() {
+  return `sandbox ${sandboxWord()}`;
+}
+
+module.exports = { readPayload, memoryDirOrExit, facts, emit, guard, sandboxNote, sandboxWord };

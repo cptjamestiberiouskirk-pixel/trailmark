@@ -58,6 +58,11 @@ const DEFAULTS = {
     memoryMdBytes: 20000, // headroom under the 25 KB load cap
   },
   hints: { minMinutesBetween: 20, freshCheckpointMinutes: 3 },
+  // The context watch (hook-context-watch.js): steps in percent of the
+  // compaction point, and the reserve Claude Code keeps below the auto-compact
+  // window. When nothing sets the window, the model's own is used (the docs
+  // give it per model; lib/contextwatch.js).
+  contextWatch: { on: true, steps: [85, 90, 95], reserve: 33000 },
   staleDays: 30,
   // The daily log (notes/): on unless "notes": false, and files older than
   // this many days are deleted when a new day's log starts.
@@ -491,6 +496,9 @@ const CONFIG_RANGES = {
     memoryMdBytes: [1000, 200000],
   },
   hints: { minMinutesBetween: [0, 24 * 60], freshCheckpointMinutes: [0, 24 * 60] },
+  // The launcher leaves before any lookup below the earliest step these allow
+  // (lib/contextwatch.js LOWEST_STEP and MAX_RESERVE): keep them in step.
+  contextWatch: { step: [80, 99], reserve: [20000, 50000] },
   staleDays: [1, 3650],
   notesKeepDays: [1, 3650],
 };
@@ -519,11 +527,25 @@ function loadConfig(dir) {
     staleDays: configInt(user.staleDays, CONFIG_RANGES.staleDays, DEFAULTS.staleDays),
     notes: user.notes !== false,
     notesKeepDays: configInt(user.notesKeepDays, CONFIG_RANGES.notesKeepDays, DEFAULTS.notesKeepDays),
+    contextWatch: contextWatchConfig(user.contextWatch),
   };
   // Kept only so session start can warn that it is ignored (trailmark.js: the
   // sandbox is turned off by JBMEM_SANDBOX=off alone, since 0.3.8).
   if (user.sandbox === false) cfg.sandbox = false;
   return cfg;
+}
+
+// contextWatch in .jbmem.json: "on" (false turns it off), "steps" (one to
+// three whole percentages, each clamped, sorted, duplicates dropped) and
+// "reserve".
+function contextWatchConfig(v) {
+  const d = DEFAULTS.contextWatch;
+  const r = CONFIG_RANGES.contextWatch;
+  const u = isPlainObject(v) ? v : {};
+  let steps = Array.isArray(u.steps) ? u.steps.slice(0, 3).map(x => configInt(x, r.step, NaN)).filter(Number.isFinite) : [];
+  steps = [...new Set(steps)].sort((a, b) => a - b);
+  if (!steps.length) steps = d.steps.slice();
+  return { on: u.on !== false, steps, reserve: configInt(u.reserve, r.reserve, d.reserve) };
 }
 
 function isPlainObject(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }

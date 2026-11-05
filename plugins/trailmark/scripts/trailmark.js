@@ -13,8 +13,9 @@
 //
 // Usage:
 //   node trailmark.js <memory.js command> [args]        skills
-//   node trailmark.js --hook <session-start|precompact|commit-start|milestone> [kind]   hooks
+//   node trailmark.js --hook <session-start|precompact|commit-start|milestone|context-watch> [kind]   hooks
 //   node trailmark.js --sandbox-check                   self-test of the seat belt
+//   node trailmark.js --copies                          list other trailmark copies on disk
 //
 // Escape hatch: JBMEM_SANDBOX=off in the environment (for every session: the
 // env block of Claude Code's settings.json) runs without the permission
@@ -34,6 +35,10 @@ process.env.NoDefaultCurrentDirectoryInExePath = '1';
 // env variables, and these would otherwise choose the memory folder (and so
 // the sandbox's write grant) or pass made-up git facts.
 for (const k of ['JBMEM_DIR', 'JBMEM_DIR_MISSING', 'JBMEM_LAUNCHED', 'JBMEM_METHOD', 'JBMEM_ROOT', 'JBMEM_GIT']) delete process.env[k];
+
+// The context watch runs after every tool call: below its first step it
+// leaves here, before the rest of the launcher is even loaded.
+const CW_EARLY = process.argv[2] === '--hook' && process.argv[3] === 'context-watch' ? require('./lib/contextwatch').fastPath() : null;
 
 const fs = require('fs');
 const os = require('os');
@@ -61,6 +66,7 @@ const HOOKS = {
   precompact: { script: 'hook-precompact.js', facts: ['branch', 'head', 'status', 'toplevel'] },
   milestone: { script: 'hook-milestone.js', facts: [] }, // commits: see commitFacts below
   'commit-start': { script: 'hook-commit-start.js', facts: [] },
+  'context-watch': { script: 'hook-context-watch.js', facts: [] }, // context: see contextWatch below
 };
 const STDIN_COMMANDS = new Set(['write-handoff', 'park']);
 
@@ -267,6 +273,7 @@ function hookMode(name, extra) {
   const started = Date.now();
   const spec = HOOKS[name];
   if (!spec) process.exit(0);
+  if (name === 'context-watch') contextWatch(CW_EARLY);
   const raw = readAllStdin();
   let payload = {};
   try { payload = JSON.parse(raw.toString('utf8').replace(/^\uFEFF/, '') || '{}'); } catch { /* empty payload */ }
@@ -343,6 +350,32 @@ function hookMode(name, extra) {
     }
   }
   process.exit(run(spec.script, extra, { ...opts, facts }));
+}
+
+// The context watch's numbers, read here because a worktree session's
+// transcript is outside the sandbox's grants: the context size from the
+// transcript, the auto-compact window, and, once this session was asked, what
+// the transcript shows since (a compaction, the smallest size). Below the
+// earliest step any configuration allows, contextwatch.fastPath (top of this
+// file) has already exited, so most runs start no git and load little.
+// See lib/contextwatch.js and hook-context-watch.js.
+function contextWatch(early) {
+  if (!early) process.exit(0);
+  const CW = require('./lib/contextwatch');
+  const { raw, payload, tp, cwd, context } = early;
+  const session = S.cleanSession(payload.session_id);
+  const loc = hookMemory(payload, cwd);
+  if (!loc) process.exit(0); // repo not set up: stay silent
+  let rec = null;
+  try { rec = S.sessionRecord(loc.dir, session); } catch { rec = null; }
+  const w = rec && rec.contextWatch;
+  const seenAt = w && Number.isFinite(w.seenAt) ? w.seenAt : 0;
+  if (seenAt) {
+    const r = CW.readUsage(tp, { since: seenAt });
+    context.since = r ? { min: r.min, boundary: r.boundary, reached: r.reached } : { reached: false };
+  }
+  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, input: raw, reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
+  process.exit(run(HOOKS['context-watch'].script, [], { ...opts, facts: { context } }));
 }
 
 // The commits on HEAD since the handoff's HEAD (its Updated line), read
@@ -635,6 +668,21 @@ function handoffFacts(loc, cwd, session) {
   return out;
 }
 
+// For the user (the session-start warning points here): the other trailmark
+// copies the session-start check finds, by full path. Run outside the sandbox,
+// since the plugin cache is outside its grants; it only reads. What it prints
+// is folder names from disk: data for whoever reads it.
+function listCopies() {
+  let copies = [];
+  let incomplete = '';
+  try { ({ copies, incomplete } = otherCopies(configDir(), PLUGIN_ROOT)); } catch { incomplete = 'the check failed'; }
+  console.log(`trailmark: other copies in Claude Code's plugin cache (this one is ${S.oneLine(PLUGIN_ROOT, 600)}):`);
+  if (!copies.length) console.log('  none found');
+  for (const c of copies) console.log(`  ${S.oneLine(String(c.path || ''), 600)} (version ${S.oneLine(String(c.version || '?'), 40)})`);
+  if (incomplete) console.log(`  the check stopped early: ${S.oneLine(incomplete, 300)}`);
+  process.exit(0);
+}
+
 // Proves the seat belt on this machine: allowed writes work, everything else is refused.
 function sandboxCheck() {
   if (!sandboxSupported()) {
@@ -693,4 +741,5 @@ const argv = process.argv.slice(2);
 HOOK_RUN = argv[0] === '--hook' ? String(argv[1] || '') : false;
 if (argv[0] === '--hook') hookMode(argv[1], argv.slice(2));
 else if (argv[0] === '--sandbox-check') sandboxCheck();
+else if (argv[0] === '--copies') listCopies();
 else cliMode(argv);
