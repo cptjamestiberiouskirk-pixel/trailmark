@@ -6,35 +6,118 @@
 #   dev/release-check.sh --zip <dir>     also build <dir>/trailmark-<version>.zip
 #                                        and its .sha256 from HEAD, and verify them
 #   dev/release-check.sh --quick         skip the two long trailmark.test.js suites
+#   dev/release-check.sh --only <x>      run only the tests in file <x> (a path
+#                                        from the repo's top folder), or else the
+#                                        tests whose name matches the regular
+#                                        expression <x> in all four test files
 #
 # Run from anywhere inside the repo, in bash (Git Bash on Windows). It writes
-# only SHA256SUMS (with --sums), its own temp folder (removed at the end) and
-# the zip folder you name. It makes no network requests.
+# only SHA256SUMS (with --sums), its own temp folder (removed at the end), the
+# zip folder you name and, when a test suite fails or --only runs, a folder
+# under <temp>/trailmark-release-check with the suite's full TAP output and
+# the folders its failed tests kept (the 20 newest such folders stay). It
+# makes no network requests.
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
 
-SUMS=0; QUICK=0; ZIPDIR=''
+SUMS=0; QUICK=0; ZIPDIR=''; ONLY=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --sums) SUMS=1 ;;
     --quick) QUICK=1 ;;
     --zip) shift; ZIPDIR="${1:-}"; [ -n "$ZIPDIR" ] || { echo 'usage: --zip <dir>'; exit 2; } ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --only) shift; ONLY="${1:-}"; [ -n "$ONLY" ] || { echo 'usage: --only <test file or name pattern>'; exit 2; } ;;
+    -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) echo "unknown option: $1"; exit 2 ;;
   esac
   shift
 done
+if [ -n "$ONLY" ] && { [ "$SUMS" = 1 ] || [ -n "$ZIPDIR" ]; }; then
+  echo '--only runs tests alone: leave out --sums and --zip'; exit 2
+fi
 
 T="$(mktemp -d 2>/dev/null || mktemp -d -t tmcheck)"
 # Never go on without a temp folder: the cleanup below removes inside it.
 [ -n "$T" ] && [ -d "$T" ] || { echo "no temp folder"; exit 2; }
 trap 'rm -rf "$T"' EXIT
+# Kept output goes next to $T, not inside it, so it outlives the run.
+KEEPROOT="$(dirname "$T")/trailmark-release-check"
+KEEP=''
 export TMPDIR="$T"
 # Node on Windows takes its temp folder from TEMP and TMP, not TMPDIR.
 if command -v cygpath >/dev/null 2>&1; then TW="$(cygpath -w "$T")"; export TEMP="$TW" TMP="$TW"; fi
 RESULTS=()
 FAILED=0
 record() { RESULTS+=("$(printf '%-4s  %s' "$1" "$2")"); if [ "$1" = FAIL ]; then FAILED=1; fi; return 0; }
+# A path to print: C:/Users/... form on Windows, so bash and Windows tools both take it.
+shown() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
+
+heading() {
+  echo "release-check${ONLY:+ --only $ONLY} at $(git rev-parse --short HEAD)$( [ -n "$(git status --porcelain)" ] && echo ' (uncommitted changes)')"
+}
+# This run's folder for kept output, made on first use, with what was run
+# where in run.txt. Only the 20 newest run folders under $KEEPROOT stay, so
+# a failure stays through a few reruns of the test with --only.
+keep_dir() {
+  [ -n "$KEEP" ] && return 0
+  KEEP="$KEEPROOT/$(date +%Y%m%d-%H%M%S)-$$"
+  mkdir -p "$KEEP" || { KEEP=''; return 1; }
+  { heading; echo "commit $(git rev-parse HEAD)"; echo "started $(date)"; } > "$KEEP/run.txt"
+  local old=("$KEEPROOT"/[0-9]*-[0-9]*-[0-9]*) i
+  for (( i = 0; i < ${#old[@]} - 20; i++ )); do rm -rf -- "${old[i]}"; done
+  return 0
+}
+# Keep a suite's full output and the folders its failed tests kept (they are
+# in $T, which goes at the end of the run).
+keep_suite() { # slug, output
+  keep_dir || { echo "      could not make $(shown "$KEEPROOT") to keep the output" >> "$T/failures"; return 0; }
+  printf '%s\n' "$2" > "$KEEP/$1.tap"
+  local d
+  for d in "$T"/jbmem-*; do
+    [ -e "$d" ] || continue
+    mkdir -p "$KEEP/$1-folders"
+    mv "$d" "$KEEP/$1-folders/" 2>/dev/null || cp -R "$d" "$KEEP/$1-folders/" 2>/dev/null \
+      || echo "      could not keep $(basename "$d")" >> "$T/failures"
+  done
+}
+run_suite() { # name, slug for the kept output, then node --test arguments
+  local name="$1" slug="$2"; shift 2
+  # TAP named: newer Node prints the spec reporter even into a pipe.
+  local out; out="$(node --test --test-reporter=tap "$@" 2>&1)"
+  local tests pass fail skip
+  tests="$(sed -n 's/^# tests //p' <<<"$out" | tail -1)"; pass="$(sed -n 's/^# pass //p' <<<"$out" | tail -1)"
+  fail="$(sed -n 's/^# fail //p' <<<"$out" | tail -1)"; skip="$(sed -n 's/^# skipped //p' <<<"$out" | tail -1)"
+  # A file in which no test ran (--only with a name) is listed as one passing
+  # test named by the file's path: not a test.
+  local empty; empty="$(grep -cE '^ok [0-9]+ - .*\.test\.js$' <<<"$out")"
+  [ -n "$tests" ] && tests=$((tests - empty)); [ -n "$pass" ] && pass=$((pass - empty))
+  local ok=0
+  if [ "${fail:-1}" = 0 ] && [ "${tests:-0}" != 0 ]; then ok=1; record PASS "$name: $pass/$tests pass, $skip skipped"
+  elif [ "${tests:-}" = 0 ]; then record FAIL "$name: no test ran"
+  else record FAIL "$name: ${fail:-?} failed of ${tests:-?}"; fi
+  [ $ok = 1 ] || grep -E '^not ok' <<<"$out" | head -5 | sed 's/^/      /' >> "$T/failures"
+  # Kept when the suite failed, and always with --only: a skip's reason is in it too.
+  if [ $ok = 0 ] || [ -n "$ONLY" ]; then keep_suite "$slug" "$out"; fi
+  rm -rf "$T"/jbmem-* 2>/dev/null
+}
+summary() {
+  echo
+  heading
+  printf '%s\n' "${RESULTS[@]}"
+  [ -f "$T/failures" ] && cat "$T/failures"
+  [ -n "$KEEP" ] && echo "Output kept (full TAP, and the folders failed tests kept): $(shown "$KEEP")"
+  return 0
+}
+HC=(plugins/trailmark/tests/handoff-checks.test.js plugins/trailmark-codex/tests/handoff-checks.test.js)
+TC=(plugins/trailmark/tests/trailmark.test.js plugins/trailmark-codex/tests/trailmark.test.js)
+
+# --only: the one suite file or the matching tests, and nothing else.
+if [ -n "$ONLY" ]; then
+  if [ -f "$ONLY" ]; then run_suite "--only $ONLY" only "$ONLY"
+  else run_suite "--only (tests named like /$ONLY/, all four files)" only --test-name-pattern="$ONLY" "${HC[@]}" "${TC[@]}"; fi
+  summary
+  exit $FAILED
+fi
 
 # Files kept out of the release zip (export-ignore in .gitattributes) are
 # left out of SHA256SUMS too, so the zip's own list verifies.
@@ -68,24 +151,10 @@ for c in trailmark trailmark-codex; do
   else record PASS "$c sandbox check"; fi
 done
 
-run_suite() { # name, files...
-  local name="$1"; shift
-  # TAP named: newer Node prints the spec reporter even into a pipe.
-  local out; out="$(node --test --test-reporter=tap "$@" 2>&1)"
-  local tests pass fail skip
-  tests="$(sed -n 's/^# tests //p' <<<"$out" | tail -1)"; pass="$(sed -n 's/^# pass //p' <<<"$out" | tail -1)"
-  fail="$(sed -n 's/^# fail //p' <<<"$out" | tail -1)"; skip="$(sed -n 's/^# skipped //p' <<<"$out" | tail -1)"
-  if [ "${fail:-1}" = 0 ] && [ -n "$tests" ]; then record PASS "$name: $pass/$tests pass, $skip skipped"
-  else
-    record FAIL "$name: ${fail:-?} failed of ${tests:-?}"
-    grep -E '^not ok' <<<"$out" | head -5 | sed 's/^/      /' >> "$T/failures"
-  fi
-  rm -rf "$T"/jbmem-* 2>/dev/null
-}
-run_suite 'handoff-checks (both copies)' plugins/trailmark/tests/handoff-checks.test.js plugins/trailmark-codex/tests/handoff-checks.test.js
+run_suite 'handoff-checks (both copies)' handoff-checks "${HC[@]}"
 if [ "$QUICK" = 0 ]; then
-  run_suite 'trailmark.test.js (Claude Code)' plugins/trailmark/tests/trailmark.test.js
-  run_suite 'trailmark.test.js (Codex)' plugins/trailmark-codex/tests/trailmark.test.js
+  run_suite 'trailmark.test.js (Claude Code)' trailmark-claude-code "${TC[0]}"
+  run_suite 'trailmark.test.js (Codex)' trailmark-codex "${TC[1]}"
 else record SKIP 'trailmark.test.js suites (--quick)'; fi
 
 if command -v claude >/dev/null 2>&1; then
@@ -110,8 +179,5 @@ if [ -n "$ZIPDIR" ]; then
   fi
 fi
 
-echo
-echo "release-check at $(git rev-parse --short HEAD)$( [ -n "$(git status --porcelain)" ] && echo ' (uncommitted changes)')"
-printf '%s\n' "${RESULTS[@]}"
-[ -f "$T/failures" ] && cat "$T/failures"
+summary
 exit $FAILED
