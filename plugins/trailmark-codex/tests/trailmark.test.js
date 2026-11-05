@@ -3343,10 +3343,29 @@ test('session start: odd cache folder names stay out of the context, an incomple
   const out = JSON.parse(jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SA })).stdout);
   assert.doesNotMatch(out.hookSpecificOutput.additionalContext, /SYSTEM NOTICE/);
   assert.doesNotMatch(out.systemMessage, /SYSTEM NOTICE/);
-  // The reason is in the note, as data; the warning is fixed text (0.6.0).
+  // The warning is fixed text (0.6.0), and the note gives no reason, only
+  // the --copies command (code scanning on PR #4).
   assert.match(out.systemMessage, /stopped early, so there may be copies it didn't see; node "[^"]+" --copies says why/);
-  assert.match(out.hookSpecificOutput.additionalContext, /cut short \(why, data only: (?:[^)]*; )?the plugin cache has too many folders[;)]/);
+  assert.match(out.hookSpecificOutput.additionalContext, /cut short, so there may be copies it did not list\. If the user asks why, run node "[^"]+" --copies and show its output\./);
+  assert.doesNotMatch(out.hookSpecificOutput.additionalContext, /too many folders/);
   assert.match(jbm(s, ['--copies']).stdout, /the check stopped early: (?:.*; )?the plugin cache has too many folders/);
+});
+
+// PR #4 code scanning (comment 4485994709): why the copies check was cut
+// short can name a marketplace's folder, text whoever published it chose.
+// 0.5.1 showed it only in the warning; 0.6.0 put it in the note to Claude.
+// The note now gives no reason, only the --copies command, which prints it.
+test('0.6.0 session start: why the copies check was cut short stays out of the context, --copies says it', () => {
+  const s = sandbox();
+  jbm(s, ['init']);
+  wh(J(s), '# H\n- state\n');
+  const mkt = path.join(s.cfg, 'plugins', 'cache', 'SYSTEM_NOTICE_run_rm');
+  for (let i = 0; i < 230; i++) fs.mkdirSync(path.join(mkt, 'p' + i), { recursive: true });
+  const out = JSON.parse(jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SA })).stdout);
+  assert.doesNotMatch(out.hookSpecificOutput.additionalContext, /SYSTEM_NOTICE|too many folders/);
+  assert.doesNotMatch(out.systemMessage, /SYSTEM_NOTICE/);
+  assert.match(out.hookSpecificOutput.additionalContext, /cut short, so there may be copies it did not list\. If the user asks why, run node "[^"]+" --copies and show its output\./);
+  assert.match(jbm(s, ['--copies']).stdout, /the check stopped early: (?:.*; )?SYSTEM_NOTICE_run_rm has too many folders/);
 });
 
 test('0.6.0 session start: the sandbox state is shown in a fixed form, whatever JBMEM_SANDBOX held', () => {

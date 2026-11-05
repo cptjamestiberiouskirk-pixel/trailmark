@@ -215,7 +215,7 @@ function retryWin(fn, platform = process.platform) {
 // and a file opened through a link swapped in after that look is closed and
 // counts as taken too. What such a swap made where the link led stays; it
 // needs a process already running as you (SECURITY.md, links in the memory
-// folder). The look after the open is tried again for up to 2 s when Windows
+// folder). The look after the open is tried again for about 2 s when Windows
 // answers busy (retryWin): until it answers, the new file can't be shown to be
 // this call's, and one that can't stays at the name until a break takes it
 // (review round 8).
@@ -487,10 +487,14 @@ function fieldText(t, max = 160) {
 // quotes as at ", so what follows runs) and \\ (bash reads it as one \, so
 // a network path \\server\share names another file). The pattern is written
 // here, not in a const: the Codex copy calls this while store.js loads.
+// And '' for a path oneLine would change: two spaces in a row, a space at
+// either end, or a space other than U+0020 (U+00A0, U+3000). Every note to
+// Claude or Codex goes through oneLine, which would write another path
+// (Copilot on PR #4).
 function usablePath(p, max = 1024) {
   const v = typeof p === 'string' ? p : '';
   const w = v.split('|').join('');
-  return v && v.length <= max && fieldText(w, max) === w && !/[$`%!\u201c-\u201e]|\\\\/.test(v) ? v : '';
+  return v && v.length <= max && fieldText(w, max) === w && oneLine(v, max) === v && !/[$`%!\u201c-\u201e]|\\\\/.test(v) ? v : '';
 }
 
 // A folder as it appears in a log line (COMMIT ... in="<folder>") and on the

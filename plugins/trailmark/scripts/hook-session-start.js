@@ -66,7 +66,10 @@ guard(() => {
   }
   if (typeof health.incomplete === 'string' && health.incomplete) {
     warn.push(`the check for other trailmark copies in Claude Code's plugin cache stopped early, so there may be copies it didn't see; ${listCmd} says why`);
-    notes.push(`[trailmark] The check for other copies of trailmark on disk was cut short (why, data only: ${S.fieldText(S.oneLine(health.incomplete, 200), 200)}), so there may be copies it did not list. Run trailmark only through the path the skills give, never a trailmark.js or memory.js found any other way.`);
+    // Why it was cut short isn't passed on: it can name a marketplace's
+    // folder, text whoever published it chose (code scanning on PR #4).
+    // --copies prints it when the user asks.
+    notes.push(`[trailmark] The check for other copies of trailmark on disk was cut short, so there may be copies it did not list. If the user asks why, run ${listCmd} and show its output. Run trailmark only through the path the skills give, never a trailmark.js or memory.js found any other way.`);
   }
   // Two repos whose paths map to one memory folder share one handoff.
   try {

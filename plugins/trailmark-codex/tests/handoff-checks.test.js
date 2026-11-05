@@ -1422,6 +1422,40 @@ test('copies: usablePath gives an install path as it is on disk, or nothing when
     `C:${bs}a${ch(0x201c)}b${bs}trailmark.js`, `C:${bs}a${ch(0x201d)}b${bs}trailmark.js`, `C:${bs}a${ch(0x201e)}b${bs}trailmark.js`, `${bs}${bs}server${bs}share${bs}trailmark.js`]) {
     assert.strictEqual(S.usablePath(bad), '', JSON.stringify(bad));
   }
+  // A path oneLine would change: every note to Claude or Codex goes through
+  // it, so the note would name another path (Copilot on PR #4).
+  for (const bad of ['/opt/a  b/trailmark.js', `/opt/a${ch(0xa0)}b/trailmark.js`, `/opt/a${ch(0x3000)}b/trailmark.js`, `/opt/a${ch(0x2009)}b/trailmark.js`,
+    ' /opt/a/trailmark.js', '/opt/a/trailmark.js ']) {
+    assert.strictEqual(S.usablePath(bad), '', JSON.stringify(bad));
+  }
+});
+
+// PR #4, Copilot on df88236: every note to Claude or Codex goes through
+// oneLine, which writes two spaces in a row as one, so a launcher in a folder
+// whose name holds two spaces was named by a path that isn't there. Now it
+// isn't named. The second run, after a compaction, checks the Codex skill
+// rule too.
+test('copies: a launcher whose path the notes would change is not named (0.6.0)', () => {
+  const s = sandbox();
+  s.write('# H\n- state\n');
+  const old = path.join(s.cfg, 'plugins', 'cache', 'm1', 'trailmark', '0.4.0');
+  fs.mkdirSync(path.join(old, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(old, 'scripts', 'trailmark.js'), '// old copy');
+  const odd = path.join(s.base, 'x  y');
+  fs.cpSync(ROOT, odd, { recursive: true, filter: (src) => path.basename(src) !== 'tests' });
+  const run = (source) => {
+    const r = spawnSync(process.execPath, [path.join(odd, 'scripts', 'trailmark.js'), '--hook', 'session-start'],
+      { cwd: s.repo, env: s.env, input: JSON.stringify({ cwd: s.repo, source, session_id: SB }), encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+  };
+  const context = run('startup');
+  assert.match(context, /Another copy of trailmark is on disk/);
+  assert.ok(!context.includes(path.join('x y', 'scripts')), 'the note named the launcher by a path that is not on disk');
+  assert.match(context, /isn't written here/);
+  const compact = run('compact');
+  assert.match(compact, /A compaction just ran/);
+  assert.ok(!compact.includes(path.join('x y', 'scripts')) && !compact.includes(path.join('x y', 'skills')), 'a path that is not on disk was given after a compaction');
 });
 
 // PR #4, Copilot on b28144d: a | is legal in a folder name on Linux and macOS,
@@ -1566,6 +1600,26 @@ test('copies: --copies names an old jb-memory-codex by its path on disk when a f
     assert.ok(list.includes(`jb-memory-codex (old name): ${odd}`), list);
     assert.doesNotMatch(list, /<unusual name>/);
   }
+});
+
+// PR #4, round 8 (P2): --copies printed folder names through oneLine, which
+// keeps a bidi override and a zero-width space, so a folder could show a name
+// other than its own. The session-start note now sends Claude to that output
+// when the check was cut short. Such characters are shown as <U+XXXX>.
+test('copies: --copies shows a bidi override or another invisible character in a folder name as <U+XXXX> (0.6.0)', () => {
+  const s = sandbox();
+  s.write('# H\n- state\n');
+  const mkt = `m${String.fromCharCode(0x202e)}x${String.fromCharCode(0x200b)}y`, shown = 'm<U+202E>x<U+200B>y';
+  const old = path.join(s.cfg, 'plugins', 'cache', mkt, 'trailmark', '0.4.0');
+  fs.mkdirSync(path.join(old, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(old, 'scripts', 'trailmark.js'), '// old copy');
+  const home = realTemp('jbmem-codexbidi-');
+  fs.mkdirSync(path.join(home, 'plugins', 'cache', mkt, 'jb-memory-codex', '0.2.3'), { recursive: true });
+  const r = spawnSync(process.execPath, [JBM, '--copies'], { cwd: s.repo, env: { ...s.env, CODEX_HOME: home }, encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /[\u202e\u200b]/, 'a bidi override or zero-width space from a folder name was printed as it is');
+  assert.ok(r.stdout.includes(`  ${path.join(s.cfg, 'plugins', 'cache', shown, 'trailmark', '0.4.0')} (version 0.4.0)`), r.stdout);
+  if (S.AGENT === 'Codex') assert.ok(r.stdout.includes(`jb-memory-codex (old name): ${path.join(home, 'plugins', 'cache', shown, 'jb-memory-codex')}`), r.stdout);
 });
 
 test('copies: every old jb-memory-codex folder is counted, not the first three (0.6.0)', () => {
