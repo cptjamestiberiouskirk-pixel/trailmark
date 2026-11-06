@@ -17,15 +17,16 @@ function readPayload() {
 }
 
 // What the launcher hands a hook's script, as JSON text in JBMEM_PAYLOAD: the
-// payload fields the hook scripts read (and memoryDirOrExit above), never a
-// tool's result or a prompt. Not on stdin: on macOS, spawnSync sometimes
+// payload fields the hook scripts read (and memoryDirOrExit below), with no
+// prompt text and no tool output. Not on stdin: on macOS, spawnSync sometimes
 // deadlocks while it writes a big input to the child's stdin (a socket). The
 // child waits in read, the parent in kevent, and the launcher stops the hook
 // after 9 s (seen in CI 2026-11-06, 9 of 3,600 calls, all with 80k or more).
 // A field's value is kept only when it is a string, number, boolean or null;
 // tool_input keeps its command and run_in_background, tool_response only its
 // exit fields. Windows caps a variable at 32,767 characters, so the launcher
-// starts no hook script for a payload over PAYLOAD_MAX (a command that long).
+// starts no hook script for a payload over PAYLOAD_MAX characters of JSON,
+// escapes included.
 const PAYLOAD_MAX = 30000;
 const HOOK_FIELDS = ['session_id', 'transcript_path', 'cwd', 'codex_workdir', 'hook_event_name', 'source', 'trigger', 'tool_name', 'tool_use_id', 'duration_ms', 'agent_id', 'agent_type'];
 const INPUT_FIELDS = ['command', 'run_in_background'];

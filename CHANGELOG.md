@@ -11,7 +11,7 @@
 
 ### Hooks
 
-- On macOS, a hook run for a tool call with a big result, such as an image Read or an Edit of a big file, could stop after 9 s ("took too long and was stopped"): Node's `spawnSync` sometimes deadlocks while it writes a big input to a child's stdin (seen in CI). The launcher now hands each hook's script only the payload fields it reads, in an environment variable, and nothing on stdin. A command over 30,000 characters starts no hook script, and the launcher says so. Both copies.
+- On macOS, a hook run for a tool call with a big result, such as an image Read or an Edit of a big file, could stop after 9 s ("took too long and was stopped"). Node's `spawnSync` sometimes deadlocks while it writes a big input to a child's stdin (seen in CI). The launcher now hands each hook's script only the payload fields it reads, in an environment variable, and nothing on stdin. A hook whose payload would be over 30,000 characters of JSON isn't started, and the launcher says so on stderr. A very long command is the usual cause, and quotes or line breaks in it count double. The tool call goes on. Both copies.
 - `write-handoff` and `park` had the same exposure for a big text (a handoff over its budget is still saved, and a parked item has no size cap), against their 120 s limit. The launcher no longer reads their text and writes it on: the script reads the launcher's own stdin, or opens the `--from` file the launcher checked and reads it only if it is still that file. Both copies.
 
 ### Session start
