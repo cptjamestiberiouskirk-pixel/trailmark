@@ -4438,3 +4438,103 @@ test('0.6.0 commit folders: a folder already swept keeps its sweep start when an
   write();
   assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${sha} in="${dp(clone)}" by a script (found later) session=11111111`)), notesOf(s));
 }));
+
+// ---------- 0.6.0: what a hook's script is handed ----------
+
+// Records, in the launcher, what it hands each hook script: stdin (input),
+// JBMEM_PAYLOAD and JBMEM_GIT. On macOS, spawnSync sometimes deadlocks while
+// it writes a big input to the child's stdin, and the launcher then stops the
+// hook after 9 s (seen in CI 2026-11-06). The launcher drops NODE_* for its
+// child, so only the launcher is spied on.
+function hookInputSpy(s) {
+  const log = path.join(s.base, 'hook-inputs.jsonl');
+  const spy = path.join(s.base, 'hook-input-spy.js');
+  fs.writeFileSync(spy, `const cp=require('child_process'),fs=require('fs'),path=require('path');const o=cp.spawnSync;cp.spawnSync=function(f,a,opt){const s=(a||[]).find(x=>/hook-[a-z-]+\\.js$/.test(String(x)));if(s){const e=(opt&&opt.env)||{};fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({script:path.basename(String(s)),input:opt&&opt.input!==undefined?String(opt.input):null,payload:typeof e.JBMEM_PAYLOAD==='string'?e.JBMEM_PAYLOAD:null,git:typeof e.JBMEM_GIT==='string'?e.JBMEM_GIT:null})+'\\n')}return o.apply(this,arguments)}`);
+  return {
+    env: { NODE_OPTIONS: `--require ${spy}` },
+    inputs: script => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').map(l => JSON.parse(l)) : []).filter(i => i.script === script),
+  };
+}
+// Nothing on stdin, and a payload of under `max` characters in JBMEM_PAYLOAD.
+function assertHanded(i, max = 2000) {
+  assert.strictEqual(i.input, null, `${i.script} got ${i.input === null ? 0 : i.input.length} characters on stdin`);
+  assert.ok(typeof i.payload === 'string' && i.payload.length < max, `${i.script} got ${i.payload === null ? 'no' : i.payload.length + ' characters of'} payload`);
+  return JSON.parse(i.payload);
+}
+
+test('0.6.0 context watch: the hook gets nothing on stdin and only the payload fields it reads, and the estimates for a 670k image and a 400k Edit are as before', () => {
+  const c = contextWatchSetup({ model: 'claude-haiku-4-5' }); // compaction near 167k, the fast path's line 120k, the first step near 142k
+  const spy = hookInputSpy(c.s);
+  // The image Read of the test above (670k characters of base64), at 120k.
+  c.usage(120000);
+  const image = { type: 'image', file: { base64: 'QUJD'.repeat(167500), type: 'image/png', originalSize: 500000 } };
+  assert.strictEqual(c.run({ tool_name: 'Read', tool_response: image }, spy.env), null, 'an image Read at 120k: silent');
+  // A 400k Edit at 124k: 25k more, the most one call adds.
+  c.usage(124000);
+  const edit = { tool_name: 'Edit', tool_response: { filePath: 'x', originalFile: 'y'.repeat(400000) } };
+  assert.match(askText(c.run(edit, spy.env)), /about 149k tokens/);
+  // A 200k-character prompt: 50k more.
+  c.usage(124000);
+  c.run({ hook_event_name: 'UserPromptSubmit', prompt: 'x'.repeat(200000) }, spy.env);
+  const got = spy.inputs('hook-context-watch.js');
+  assert.strictEqual(got.length, 3, 'three hook runs');
+  // The launcher works the estimate out from the whole payload before the
+  // hook starts, and hands it over in JBMEM_GIT: one image is 4,784 tokens,
+  // and its other fields' text 13 more. The same on 03da9fd.
+  assert.deepStrictEqual(got.map(i => JSON.parse(i.git).context.tokens), [124797, 149000, 174000]);
+  const p = got.map(i => assertHanded(i));
+  assert.deepStrictEqual({ session_id: p[1].session_id, hook_event_name: p[1].hook_event_name, cwd: p[1].cwd, transcript_path: p[1].transcript_path, tool_name: p[1].tool_name },
+    { session_id: SA, hook_event_name: 'PostToolUse', cwd: c.s.repo, transcript_path: c.transcript, tool_name: 'Edit' });
+  assert.deepStrictEqual(p[0].tool_response, {});
+  assert.deepStrictEqual(p[1].tool_response, {});
+  assert.strictEqual(p[2].hook_event_name, 'UserPromptSubmit');
+  assert.ok(!('prompt' in p[2]), Object.keys(p[2]).join(' '));
+});
+
+test('0.6.0 hooks: a commit hook gets nothing on stdin and not the command\'s 400k output, and a long command still reaches it', () => {
+  const s = sandbox();
+  jbm(s, ['init']);
+  const spy = hookInputSpy(s);
+  const old = new Date(Date.now() - 3600000);
+  fs.utimesSync(path.join(s.memdir, 'handoff.md'), old, old);
+  s.g('commit', '--allow-empty', '-qm', 'big output');
+  const m = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, session_id: SA, hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_use_id: 'toolu_big1', tool_input: { command: 'git commit --allow-empty -m "big output"', description: 'd'.repeat(50000) }, tool_response: { stdout: 'y'.repeat(400000), stderr: '', interrupted: false } }), spy.env);
+  assert.strictEqual(m.status, 0, m.stderr);
+  assert.match(JSON.parse(m.stdout).hookSpecificOutput.additionalContext, /Commit landed/);
+  assert.match(notesOf(s), /COMMIT [0-9a-f]+ big output/);
+  let got = spy.inputs('hook-milestone.js');
+  assert.strictEqual(got.length, 1, 'one hook run');
+  let p = assertHanded(got[0]);
+  assert.deepStrictEqual(p.tool_input, { command: 'git commit --allow-empty -m "big output"' });
+  assert.deepStrictEqual(p.tool_response, { interrupted: false });
+  assert.strictEqual(p.tool_use_id, 'toolu_big1');
+  // The exit fields still reach the hook: an interrupted command gets no
+  // reminder and logs no commit.
+  s.g('commit', '--allow-empty', '-qm', 'cut short');
+  let before = notesOf(s);
+  const q = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, session_id: SA, hook_event_name: 'PostToolUse', tool_input: { command: 'git commit --allow-empty -m "cut short"' }, tool_response: { stdout: 'y'.repeat(400000), interrupted: true } }), spy.env);
+  assert.strictEqual(q.status, 0, q.stderr);
+  assert.strictEqual(q.stdout, '');
+  assert.strictEqual(notesOf(s), before);
+  // A 20,000-character command (a long message in a heredoc) reaches the
+  // hook whole, still not on stdin, and its commit is logged.
+  s.g('commit', '--allow-empty', '-qm', 'long command');
+  const long = `git commit --allow-empty -F - <<'EOF'\nlong command\n\n${'m'.repeat(20000)}\nEOF`;
+  const l = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, session_id: SA, hook_event_name: 'PostToolUse', tool_input: { command: long }, tool_response: { stdout: '' } }), spy.env);
+  assert.strictEqual(l.status, 0, l.stderr);
+  assert.match(notesOf(s), /COMMIT [0-9a-f]+ long command/);
+  got = spy.inputs('hook-milestone.js');
+  assert.strictEqual(got.length, 3, 'three hook runs');
+  p = assertHanded(got[2], 30001);
+  assert.strictEqual(p.tool_input.command, long);
+  // Past 30,000 characters (Windows caps a variable at 32,767) the hook
+  // script isn't started, and the launcher says why.
+  before = notesOf(s);
+  const huge = `git commit --allow-empty -F - <<'EOF'\nhuge\n\n${'m'.repeat(40000)}\nEOF`;
+  const h = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, session_id: SA, hook_event_name: 'PostToolUse', tool_input: { command: huge }, tool_response: {} }), spy.env);
+  assert.strictEqual(h.status, 0, h.stderr);
+  assert.match(h.stderr, /hook-milestone\.js was not run: what it would be handed is over 30,000 characters/);
+  assert.strictEqual(h.stdout, '');
+  assert.strictEqual(spy.inputs('hook-milestone.js').length, 3, 'no fourth hook run');
+  assert.strictEqual(notesOf(s), before);
+});

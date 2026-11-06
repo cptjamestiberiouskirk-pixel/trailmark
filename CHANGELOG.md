@@ -9,6 +9,10 @@
 - `"contextWatch"` in `.jbmem.json` sets `on`, `steps` and `reserve` (MANUAL.md, section 7).
 - The Codex copy has none: where Codex compacts by default isn't established, and its hooks have no prompt event.
 
+### Hooks
+
+- On macOS, a hook run for a tool call with a big result, such as an image Read or an Edit of a big file, could stop after 9 s ("took too long and was stopped"): Node's `spawnSync` sometimes deadlocks while it writes a big input to a child's stdin (seen in CI). The launcher now hands each hook's script only the payload fields it reads, in an environment variable, and nothing on stdin. A command over 30,000 characters starts no hook script, and the launcher says so. Both copies.
+
 ### Session start
 
 - The warning shown to you is now fixed text for each case: Node inside the repo, the sandbox state, a copies check cut short, two repos sharing one memory folder. The Node's own path goes in neither: both say it is in this session's folder or the repo's top folder. Nor do the paths of two repos sharing a memory folder: `node "<launcher>" dir`, run in the repo's folder, shows them, and if you ask Claude which they are, it gives you that command to run yourself. `dir` labels the path it read from the state file as data, not instructions, on its `first used for` line and in its warning, since the checkpoint, park and session-end skills run it. Why a copies check was cut short goes in neither, since it can name a marketplace's folder: `node "<launcher>" --copies --show-names` prints it. If you ask Claude which copies there are, or why the check was cut short, it points you to the command in the warning and doesn't run it, so the folder names reach Claude only if you show it the output.

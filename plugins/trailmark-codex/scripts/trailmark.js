@@ -36,7 +36,7 @@ process.env.NoDefaultCurrentDirectoryInExePath = '1';
 // never from the environment it was started with: a repo's settings can set
 // env variables, and these would otherwise choose the memory folder (and so
 // the sandbox's write grant) or pass made-up git facts.
-for (const k of ['JBMEM_DIR', 'JBMEM_DIR_MISSING', 'JBMEM_LAUNCHED', 'JBMEM_METHOD', 'JBMEM_ROOT', 'JBMEM_GIT']) delete process.env[k];
+for (const k of ['JBMEM_DIR', 'JBMEM_DIR_MISSING', 'JBMEM_LAUNCHED', 'JBMEM_METHOD', 'JBMEM_ROOT', 'JBMEM_GIT', 'JBMEM_PAYLOAD']) delete process.env[k];
 
 const fs = require('fs');
 const os = require('os');
@@ -55,6 +55,8 @@ const { localPath, localPathFrom } = require('./lib/gitbin');
 // the host's hook timeout, not a fixed time on top of the launcher's own work.
 const T0 = Date.now();
 const { isMilestoneCommand, commitSites } = require('./lib/commands');
+// A hook's script gets only the payload fields it reads (see hookio.js).
+const { hookInput, PAYLOAD_MAX } = require('./lib/hookio');
 const H = require('./lib/host');
 
 const SCRIPTS = __dirname;
@@ -165,7 +167,7 @@ function cleanEnv() {
   return env;
 }
 
-function run(script, args, { dir, method, root, cwd, input, reads, writes, facts, dirMissing = false }) {
+function run(script, args, { dir, method, root, cwd, input, payload, reads, writes, facts, dirMissing = false }) {
   const sb = sandboxDecision(dir);
   const env = Object.assign(cleanEnv(), {
     JBMEM_DIR: dir,
@@ -175,6 +177,14 @@ function run(script, args, { dir, method, root, cwd, input, reads, writes, facts
     JBMEM_SANDBOX: sb.on ? 'on' : `off: ${sb.why}`,
   });
   if (dirMissing) env.JBMEM_DIR_MISSING = '1'; else delete env.JBMEM_DIR_MISSING;
+  // A hook's payload, from hookInput: in the environment, never on stdin.
+  if (payload !== undefined) {
+    if (payload.length > PAYLOAD_MAX) {
+      process.stderr.write(`trailmark: ${script} was not run: what it would be handed is over ${PAYLOAD_MAX.toLocaleString('en-US')} characters (a command that long).\n`);
+      return 0;
+    }
+    env.JBMEM_PAYLOAD = payload;
+  } else delete env.JBMEM_PAYLOAD;
   if (facts) env.JBMEM_GIT = JSON.stringify(facts);
   // Node reads * in a grant as a wildcard, so a granted path with one in it
   // would allow more than that folder. Such a path is refused, not granted.
@@ -562,7 +572,7 @@ function hookMode(name, extraIn) {
   const started = Date.now();
   const spec = HOOKS[name];
   if (!spec) process.exit(0);
-  let raw = readAllStdin();
+  const raw = readAllStdin();
   let payload = {};
   try { payload = JSON.parse(raw.toString('utf8').replace(/^\uFEFF/, '') || '{}'); } catch { /* empty payload */ }
   if (!payload || typeof payload !== 'object') payload = {};
@@ -597,7 +607,6 @@ function hookMode(name, extraIn) {
     if (code === null && extra[0] === 'pr-merge' && !/\b(?:squashed and |rebased and )?merged pull request\b/i.test(String(payload.tool_response || ''))) process.exit(0);
   }
   if (name === 'milestone' && extra[0] === 'pr-merge' && payload.hook_event_name === 'PostToolUseFailure') process.exit(0);
-  raw = Buffer.from(JSON.stringify(payload), 'utf8');
   // The commit hooks also fire on every `git -C ...` command, so leave before
   // any git work unless this one really is a commit (or a PR merge).
   if (name === 'milestone' && !isMilestoneCommand(extra[0], command)) process.exit(0);
@@ -609,7 +618,7 @@ function hookMode(name, extraIn) {
   const loc = hookMemory(payload, cwd, name === 'commit-start' ? 1000 : undefined);
   if (!loc) process.exit(0); // repo not set up: stay silent, and log nothing
   try { logShape(name, extra, rawPayload); } catch { /* diagnostics only */ }
-  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, input: raw, reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
+  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, payload: hookInput(payload), reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
   // PreToolUse: no git at all, only the record of where the command starts.
   if (name === 'commit-start') process.exit(run(spec.script, extra, opts));
   // All git work in a hook gets about 5 s, including finding the repo above,

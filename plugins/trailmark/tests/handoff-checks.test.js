@@ -3178,3 +3178,58 @@ test('0.6.0 git checks: a link (not a folder) inside a leftover\'s objects/ab is
   assert.strictEqual(farGitConfig(make('plain', false)), '');
   assert.strictEqual(farGitConfig(make('linked', true)), 'linked-gitdir');
 });
+
+// ---------- 0.6.0: what a hook's script is handed ----------
+
+test('0.6.0 hooks: the launcher hands a hook script every payload field the hook scripts read, and no tool result or prompt, in JBMEM_PAYLOAD', () => {
+  const { hookInput, HOOK_FIELDS } = require(path.join(ROOT, 'scripts', 'lib', 'hookio.js'));
+  // Every payload.<field> and payload.<field>.<field> read in this copy's
+  // hook scripts and hookio.js, so a field a hook starts reading can't be
+  // dropped on the way without this test failing.
+  const files = fs.readdirSync(path.join(ROOT, 'scripts')).filter(f => /^hook-.*\.js$/.test(f)).map(f => path.join(ROOT, 'scripts', f));
+  files.push(path.join(ROOT, 'scripts', 'lib', 'hookio.js'));
+  const reads = new Set();
+  for (const f of files) for (const m of fs.readFileSync(f, 'utf8').matchAll(/\bpayload\.([A-Za-z_]+)(?:\.([A-Za-z_]+))?/g)) reads.add(m[2] ? `${m[1]}.${m[2]}` : m[1]);
+  assert.ok(reads.has('session_id') && reads.has('tool_input.command'), [...reads].join(' '));
+  const full = {};
+  for (const r of reads) {
+    const [a, b] = r.split('.');
+    if (b) { full[a] = typeof full[a] === 'object' ? full[a] : {}; full[a][b] = `v-${r}`; } else if (!(a in full)) full[a] = `v-${r}`;
+  }
+  // The fields that are objects: what the hooks read inside them.
+  full.tool_input = { ...full.tool_input, description: 'x'.repeat(100000) };
+  full.tool_response = { interrupted: false, exit_code: 0, exitCode: 0, stdout: 'y'.repeat(400000), file: { content: 'z'.repeat(400000) } };
+  full.prompt = 'p'.repeat(200000);
+  full.error = 'e'.repeat(400000);
+  const buf = hookInput(full);
+  const got = JSON.parse(buf.toString('utf8'));
+  for (const r of reads) {
+    const [a, b] = r.split('.');
+    if (a === 'tool_response' && !b) continue; // read only for its exit fields (failed() in hook-milestone.js)
+    if (b) assert.strictEqual(got[a] && got[a][b], full[a][b], `${r} was dropped`);
+    else if (typeof full[a] !== 'object') assert.strictEqual(got[a], full[a], `${r} was dropped`);
+  }
+  for (const k of HOOK_FIELDS) assert.ok(typeof full[k] !== 'string' || got[k] === full[k], `${k} was dropped`);
+  assert.deepStrictEqual(got.tool_response, { interrupted: false, exit_code: 0, exitCode: 0 });
+  assert.deepStrictEqual(Object.keys(got.tool_input).sort(), ['command', 'run_in_background'].filter(k => k in full.tool_input).sort());
+  assert.ok(!('prompt' in got) && !('error' in got), Object.keys(got).join(' '));
+  assert.ok(buf.length < 2000, `${buf.length} bytes`);
+  // Only plain values are kept, so a field can't carry a big object or array.
+  const odd = JSON.parse(hookInput({ cwd: { big: 'x'.repeat(100000) }, session_id: ['a'], tool_input: 'git commit', tool_response: 'printed text', duration_ms: 12, agent_id: null }).toString('utf8'));
+  assert.deepStrictEqual(odd, { duration_ms: 12, agent_id: null });
+  assert.deepStrictEqual(JSON.parse(hookInput(null).toString('utf8')), {});
+  assert.deepStrictEqual(JSON.parse(hookInput([1, 2]).toString('utf8')), {});
+  // readPayload takes JBMEM_PAYLOAD only from the launcher (JBMEM_LAUNCHED,
+  // which the launcher sets and never inherits); run directly, stdin.
+  const read = (env, input) => {
+    const e = { ...process.env, ...env };
+    for (const k of ['JBMEM_LAUNCHED', 'JBMEM_PAYLOAD']) if (!(k in env)) delete e[k];
+    const r = spawnSync(process.execPath, ['-e', `process.stdout.write(JSON.stringify(require(${JSON.stringify(path.join(ROOT, 'scripts', 'lib', 'hookio.js'))}).readPayload()))`], { env: e, input, encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout);
+  };
+  assert.deepStrictEqual(read({ JBMEM_LAUNCHED: '1', JBMEM_PAYLOAD: '{"session_id":"env"}' }, '{"session_id":"stdin"}'), { session_id: 'env' });
+  assert.deepStrictEqual(read({ JBMEM_PAYLOAD: '{"session_id":"env"}' }, '{"session_id":"stdin"}'), { session_id: 'stdin' });
+  assert.deepStrictEqual(read({}, '\uFEFF{"session_id":"stdin"}'), { session_id: 'stdin' });
+  assert.deepStrictEqual(read({ JBMEM_LAUNCHED: '1', JBMEM_PAYLOAD: 'not json' }, ''), {});
+});

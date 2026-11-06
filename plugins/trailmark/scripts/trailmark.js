@@ -34,7 +34,7 @@ process.env.NoDefaultCurrentDirectoryInExePath = '1';
 // never from the environment it was started with: a repo's settings can set
 // env variables, and these would otherwise choose the memory folder (and so
 // the sandbox's write grant) or pass made-up git facts.
-for (const k of ['JBMEM_DIR', 'JBMEM_DIR_MISSING', 'JBMEM_LAUNCHED', 'JBMEM_METHOD', 'JBMEM_ROOT', 'JBMEM_GIT']) delete process.env[k];
+for (const k of ['JBMEM_DIR', 'JBMEM_DIR_MISSING', 'JBMEM_LAUNCHED', 'JBMEM_METHOD', 'JBMEM_ROOT', 'JBMEM_GIT', 'JBMEM_PAYLOAD']) delete process.env[k];
 
 // The context watch runs after every tool call: below its first step it
 // leaves here, before the rest of the launcher is even loaded.
@@ -57,6 +57,8 @@ const { localPath, localPathFrom } = require('./lib/gitbin');
 // the host's hook timeout, not a fixed time on top of the launcher's own work.
 const T0 = Date.now();
 const { isMilestoneCommand, commitSites } = require('./lib/commands');
+// A hook's script gets only the payload fields it reads (see hookio.js).
+const { hookInput, PAYLOAD_MAX } = require('./lib/hookio');
 
 const SCRIPTS = __dirname;
 const PLUGIN_ROOT = path.dirname(SCRIPTS);
@@ -167,7 +169,7 @@ function cleanEnv() {
   return env;
 }
 
-function run(script, args, { dir, method, root, cwd, input, reads, writes, facts, dirMissing = false }) {
+function run(script, args, { dir, method, root, cwd, input, payload, reads, writes, facts, dirMissing = false }) {
   const sb = sandboxDecision(dir);
   const env = Object.assign(cleanEnv(), {
     JBMEM_DIR: dir,
@@ -177,6 +179,14 @@ function run(script, args, { dir, method, root, cwd, input, reads, writes, facts
     JBMEM_SANDBOX: sb.on ? 'on' : `off: ${sb.why}`,
   });
   if (dirMissing) env.JBMEM_DIR_MISSING = '1'; else delete env.JBMEM_DIR_MISSING;
+  // A hook's payload, from hookInput: in the environment, never on stdin.
+  if (payload !== undefined) {
+    if (payload.length > PAYLOAD_MAX) {
+      process.stderr.write(`trailmark: ${script} was not run: what it would be handed is over ${PAYLOAD_MAX.toLocaleString('en-US')} characters (a command that long).\n`);
+      return 0;
+    }
+    env.JBMEM_PAYLOAD = payload;
+  } else delete env.JBMEM_PAYLOAD;
   if (facts) env.JBMEM_GIT = JSON.stringify(facts);
   // Node reads * in a grant as a wildcard, so a granted path with one in it
   // would allow more than that folder. Such a path is refused, not granted.
@@ -289,7 +299,7 @@ function hookMode(name, extra) {
   // the record.
   const loc = hookMemory(payload, cwd, name === 'commit-start' ? 1000 : undefined);
   if (!loc) process.exit(0); // repo not set up: stay silent
-  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, input: raw, reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
+  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, payload: hookInput(payload), reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
   // PreToolUse: no git at all, only the record of where the command starts.
   if (name === 'commit-start') process.exit(run(spec.script, extra, opts));
   // All git work in a hook gets about 5 s, including finding the repo above,
@@ -363,7 +373,7 @@ function hookMode(name, extra) {
 function contextWatch(early) {
   if (!early) process.exit(0);
   const CW = require('./lib/contextwatch');
-  const { raw, payload, tp, cwd, context } = early;
+  const { payload, tp, cwd, context } = early;
   const session = S.cleanSession(payload.session_id);
   const loc = hookMemory(payload, cwd);
   if (!loc) process.exit(0); // repo not set up: stay silent
@@ -375,7 +385,7 @@ function contextWatch(early) {
     const r = CW.readUsage(tp, { since: seenAt });
     context.since = r ? { min: r.min, boundary: r.boundary, reached: r.reached } : { reached: false };
   }
-  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, input: raw, reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
+  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, payload: hookInput(payload), reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
   process.exit(run(HOOKS['context-watch'].script, [], { ...opts, facts: { context } }));
 }
 
