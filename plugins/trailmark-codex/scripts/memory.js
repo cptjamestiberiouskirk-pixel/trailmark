@@ -58,10 +58,12 @@ function fail(msg, code = 1) {
 }
 
 // Text for write-handoff and park: stdin, or --from=<file>. Through the
-// launcher --from is already checked and turned into stdin, and any --from
-// that still reaches this script is ignored (the launcher sets JBMEM_LAUNCHED).
-// Reading the file here covers running memory.js directly.
+// launcher, --from is checked there and handed over in JBMEM_FROM (see
+// readChecked), and any --from that still reaches this script is ignored (the
+// launcher sets JBMEM_LAUNCHED). Reading the file --from names covers running
+// memory.js directly.
 function readStdin() {
+  if (process.env.JBMEM_LAUNCHED === '1' && typeof process.env.JBMEM_FROM === 'string') return endMarkerFree(readChecked(process.env.JBMEM_FROM, process.env.JBMEM_FROM_ID));
   if (typeof flags.from === 'string' && process.env.JBMEM_LAUNCHED !== '1') {
     try { return endMarkerFree(fs.readFileSync(path.resolve(flags.from), 'utf8')); } catch (e) { fail(`could not read ${flags.from}: ${e.code || e.message}`); }
   }
@@ -71,6 +73,23 @@ function readStdin() {
   let t = '';
   try { t = fs.readFileSync(0, 'utf8'); } catch (e) { fail(`could not read stdin: ${e.message}`); }
   return endMarkerFree(t);
+}
+// A --from file the launcher checked (inside the memory folder, no other hard
+// link), named in JBMEM_FROM with its device and file ID in JBMEM_FROM_ID. It
+// is read only if the file opened is still that one, with one link, so a file
+// swapped in or linked since the check is refused. Closed before any write.
+function readChecked(file, id) {
+  let fd;
+  try {
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0) | (fs.constants.O_NOFOLLOW || 0));
+    const st = fs.fstatSync(fd, { bigint: true });
+    if (!st.isFile() || `${st.dev}:${st.ino}` !== id || st.nlink > 1n) fail(`${file} changed after the launcher checked it; nothing was written`);
+    return fs.readFileSync(fd, 'utf8');
+  } catch (e) {
+    fail(`could not read ${file}: ${e.code || e.message}`);
+  } finally {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch { /* ignore */ }
+  }
 }
 // The skills pass text in a heredoc that ends at a line JBMEM_EOF_<session>.
 // A line starting that way in the text would end it early when the text is

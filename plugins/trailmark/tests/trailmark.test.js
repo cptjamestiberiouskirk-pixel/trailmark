@@ -4544,10 +4544,11 @@ test('0.6.0 write-handoff and park: a 124k text reaches the script whole, and th
   jbm(s, ['init']);
   // A preload in the launcher logs how each write-handoff or park run of
   // memory.js gets its text: written by the launcher (input), or the
-  // launcher's own stdin (inherit), or the checked --from file (fd).
+  // launcher's own stdin (inherit), or a checked --from file it opens itself
+  // (from, with nothing on stdin).
   const log = path.join(s.base, 'memory-inputs.jsonl');
   const spy = path.join(s.base, 'memory-input-spy.js');
-  fs.writeFileSync(spy, `const cp=require('child_process'),fs=require('fs');const o=cp.spawnSync;cp.spawnSync=function(f,a,opt){const c=(a||[]).find(x=>x==='write-handoff'||x==='park');if(c&&(a||[]).some(x=>/memory\\.js$/.test(String(x)))){const st=opt&&Array.isArray(opt.stdio)?opt.stdio[0]:null;fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({cmd:c,input:opt&&opt.input!=null?String(opt.input).length:null,stdin:typeof st==='number'?'fd':st})+'\\n')}return o.apply(this,arguments)}`);
+  fs.writeFileSync(spy, `const cp=require('child_process'),fs=require('fs');const o=cp.spawnSync;cp.spawnSync=function(f,a,opt){const c=(a||[]).find(x=>x==='write-handoff'||x==='park');if(c&&(a||[]).some(x=>/memory\\.js$/.test(String(x)))){const st=opt&&Array.isArray(opt.stdio)?opt.stdio[0]:null;fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({cmd:c,input:opt&&opt.input!=null?String(opt.input).length:null,stdin:typeof st==='number'?'fd':st,from:!!(opt&&opt.env&&opt.env.JBMEM_FROM)})+'\\n')}return o.apply(this,arguments)}`);
   const env = { NODE_OPTIONS: `--require ${spy}` };
   // 2,000 lines, about 124k characters: past the 64 KB a pipe holds, and
   // past the sizes that stalled on macOS.
@@ -4574,8 +4575,34 @@ test('0.6.0 write-handoff and park: a 124k text reaches the script whole, and th
   assert.strictEqual(r.status, 2, r.stdout + r.stderr);
   assert.ok(handoff().includes('- the second handoff'));
   assert.ok(fs.existsSync(hdrop), 'over budget, the drop file stays');
+  // --from naming handoff.md itself: the script replaces the very file it
+  // reads, which Windows refuses while a handle to it is open (CI, a778ace).
+  const own = path.join(s.memdir, 'handoff.md');
+  fs.writeFileSync(own, big('the third handoff'));
+  r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--from=${own}`], undefined, env);
+  assert.strictEqual(r.status, 2, r.stdout + r.stderr);
+  assert.ok(handoff().includes('- the third handoff'));
   const got = fs.readFileSync(log, 'utf8').trim().split('\n').map(l => JSON.parse(l));
-  assert.deepStrictEqual(got.map(g => g.cmd), ['write-handoff', 'park', 'park', 'write-handoff']);
+  assert.deepStrictEqual(got.map(g => g.cmd), ['write-handoff', 'park', 'park', 'write-handoff', 'write-handoff']);
   for (const g of got) assert.strictEqual(g.input, null, `${g.cmd} got ${g.input} characters written to its stdin by the launcher`);
-  assert.deepStrictEqual(got.map(g => g.stdin), ['inherit', 'inherit', 'fd', 'fd']);
+  assert.deepStrictEqual(got.map(g => g.stdin), ['inherit', 'inherit', 'ignore', 'ignore', 'ignore']);
+  assert.deepStrictEqual(got.map(g => g.from), [false, false, true, true, true]);
+  // The script reads a --from file only if it is still the one the launcher
+  // checked: another file ID, or a second hard link since, is refused.
+  const direct = (file, id) => spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'memory.js'), 'park', '--slug=swapped'], { cwd: s.repo, env: { ...s.env, JBMEM_DIR: s.memdir, JBMEM_LAUNCHED: '1', JBMEM_FROM: file, JBMEM_FROM_ID: id }, encoding: 'utf8' });
+  const idea = path.join(s.memdir, 'incoming-park.md');
+  fs.writeFileSync(idea, '# Idea\nwhy\n');
+  const st = fs.statSync(idea, { bigint: true });
+  r = direct(idea, `${st.dev}:${st.ino + 1n}`);
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /changed after the launcher checked it; nothing was written/);
+  fs.linkSync(idea, path.join(s.base, 'second-link.md'));
+  r = direct(idea, `${st.dev}:${st.ino}`);
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /changed after the launcher checked it/);
+  assert.ok(!fs.existsSync(path.join(s.memdir, 'parked', 'swapped.md')));
+  fs.unlinkSync(path.join(s.base, 'second-link.md'));
+  r = direct(idea, `${st.dev}:${st.ino}`);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(parked('swapped'), /why/);
 });

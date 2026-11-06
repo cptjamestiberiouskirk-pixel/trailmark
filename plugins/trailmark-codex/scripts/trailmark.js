@@ -36,7 +36,7 @@ process.env.NoDefaultCurrentDirectoryInExePath = '1';
 // never from the environment it was started with: a repo's settings can set
 // env variables, and these would otherwise choose the memory folder (and so
 // the sandbox's write grant) or pass made-up git facts.
-for (const k of ['JBMEM_DIR', 'JBMEM_DIR_MISSING', 'JBMEM_LAUNCHED', 'JBMEM_METHOD', 'JBMEM_ROOT', 'JBMEM_GIT', 'JBMEM_PAYLOAD']) delete process.env[k];
+for (const k of ['JBMEM_DIR', 'JBMEM_DIR_MISSING', 'JBMEM_LAUNCHED', 'JBMEM_METHOD', 'JBMEM_ROOT', 'JBMEM_GIT', 'JBMEM_PAYLOAD', 'JBMEM_FROM', 'JBMEM_FROM_ID']) delete process.env[k];
 
 const fs = require('fs');
 const os = require('os');
@@ -95,13 +95,15 @@ function insideFolder(dir, file) {
   return S.inside(realDir, realFile);
 }
 
-// Opens a --from file and checks it through one descriptor, so what was
-// checked is what is read: the open file must be the one at the checked real
-// path (same device and file ID), inside the memory folder, and have no other
-// hard link, which could make a file elsewhere look like one in the folder.
-// The launcher doesn't read it: the descriptor becomes the script's stdin (see
-// run()), and the caller closes it.
-function openFromFile(dir, file) {
+// Checks a --from file through one descriptor: the open file must be the one
+// at the checked real path (same device and file ID), inside the memory
+// folder, and have no other hard link, which could make a file elsewhere look
+// like one in the folder. The launcher neither reads the file nor keeps it
+// open: Windows can't replace a file while it is open, and the script may
+// replace the very file named (handoff.md). The script gets the file's path
+// under the memory folder as granted, with its device and file ID, and reads
+// it only if it is still that file (readChecked in memory.js).
+function checkFromFile(dir, file) {
   let fd;
   try {
     // A FIFO or device would block the read forever: refuse it before opening,
@@ -123,9 +125,7 @@ function openFromFile(dir, file) {
     if (st2.dev !== st.dev || st2.ino !== st.ino) return { error: `${file} changed while it was being checked.` };
     // Checked again after the path checks, so a hard link made in between counts.
     if (fs.fstatSync(fd, { bigint: true }).nlink > 1n) return { error: `${file} has other hard links, so it may really live outside the memory folder. Save the text as a new file there.` };
-    const checked = fd;
-    fd = undefined; // kept open for the script
-    return { fd: checked };
+    return { file: path.join(dir, path.relative(realDir, real)), id: `${st.dev}:${st.ino}` };
   } catch (e) {
     return { error: `could not read ${file}: ${e.code || e.message}.` };
   } finally {
@@ -171,7 +171,7 @@ function cleanEnv() {
   return env;
 }
 
-function run(script, args, { dir, method, root, cwd, stdin, payload, reads, writes, facts, dirMissing = false }) {
+function run(script, args, { dir, method, root, cwd, stdin, from, payload, reads, writes, facts, dirMissing = false }) {
   const sb = sandboxDecision(dir);
   const env = Object.assign(cleanEnv(), {
     JBMEM_DIR: dir,
@@ -189,6 +189,8 @@ function run(script, args, { dir, method, root, cwd, stdin, payload, reads, writ
     }
     env.JBMEM_PAYLOAD = payload;
   } else delete env.JBMEM_PAYLOAD;
+  // A checked --from file, which the script opens itself (checkFromFile).
+  if (from) { env.JBMEM_FROM = from.file; env.JBMEM_FROM_ID = from.id; } else { delete env.JBMEM_FROM; delete env.JBMEM_FROM_ID; }
   if (facts) env.JBMEM_GIT = JSON.stringify(facts);
   // Node reads * in a grant as a wildcard, so a granted path with one in it
   // would allow more than that folder. Such a path is refused, not granted.
@@ -202,10 +204,10 @@ function run(script, args, { dir, method, root, cwd, stdin, payload, reads, writ
   const r = spawnSync(process.execPath, nodeArgs, {
     cwd,
     env,
-    // write-handoff's and park's text: the launcher's own stdin ('inherit'),
-    // or the checked --from file's descriptor. The launcher never writes a
-    // script's stdin: on macOS, spawnSync sometimes deadlocks while it writes
-    // a big input to a child (seen in CI, 0.6.0).
+    // Text on stdin for write-handoff and park reaches the script as it is
+    // ('inherit'); a --from file, the script opens itself. The launcher never
+    // writes a script's stdin: on macOS, spawnSync sometimes deadlocks while
+    // it writes a big input to a child (seen in CI, 0.6.0).
     stdio: [stdin === undefined ? 'ignore' : stdin, 'inherit', 'inherit'],
     windowsHide: true,
     maxBuffer: 64 * 1024 * 1024,
@@ -901,14 +903,16 @@ function cliMode(args) {
   }
   // write-handoff and park take their text on stdin, or from a file named with
   // --from=<path>. The file route is for PowerShell, which won't pipe text into
-  // a command without manual approval. The launcher opens and checks the file
-  // and hands it to the script as its stdin, so the sandboxed script needs no
-  // extra grant. Text on stdin goes to the script as it is: the launcher reads
-  // neither. Because this open happens before the sandbox starts, the file
+  // a command without manual approval. The launcher checks the file and the
+  // script opens it in the memory folder, which it may read anyway, so it
+  // needs no extra grant. Text on stdin goes to the script as it is: the
+  // launcher reads neither. Because this check happens before the sandbox
+  // starts, the file
   // must be inside the memory folder, like the drop files the skills write
   // there. A drop file (incoming-handoff*.md, incoming-park*.md) is removed
   // once its text is saved; any other file is left alone.
   let stdin;
+  let from;
   let childArgs = args;
   let dropFile = null;
   // Options end at a lone "--"; anything after it is text, never --from.
@@ -926,12 +930,12 @@ function cliMode(args) {
       process.stderr.write(`trailmark: --from must name a file inside the memory folder (${loc.dir}). ${file} is outside it. Save the text there with the Write tool, or pipe it on stdin. Nothing was written.\n`);
       process.exit(1);
     }
-    const r = openFromFile(loc.dir, file);
+    const r = checkFromFile(loc.dir, file);
     if (r.error) {
       process.stderr.write(`trailmark: ${r.error} Nothing was written.\n`);
       process.exit(1);
     }
-    stdin = r.fd;
+    from = { file: r.file, id: r.id };
     childArgs = [...opts.filter(a => !a.startsWith('--from=')), ...(optEnd >= 0 ? args.slice(optEnd) : [])];
     if (isDropFile(loc.dir, file)) dropFile = file;
   } else if (STDIN_COMMANDS.has(cmd) && !tty.isatty(0)) {
@@ -946,8 +950,7 @@ function cliMode(args) {
     const sweep = sweepFacts(loc, sessionArg(opts), cwd, 3000);
     if (sweep) facts.sweep = sweep;
   }
-  const code = run('memory.js', childArgs, { dir: loc.dir, method: loc.method, root: loc.root, cwd, stdin, reads, writes, facts, dirMissing });
-  if (typeof stdin === 'number') { try { fs.closeSync(stdin); } catch { /* ignore */ } }
+  const code = run('memory.js', childArgs, { dir: loc.dir, method: loc.method, root: loc.root, cwd, stdin, from, reads, writes, facts, dirMissing });
   if (code === 0 && dropFile) { try { fs.unlinkSync(dropFile); } catch { /* left in place; the next write replaces it */ } }
   process.exit(code);
 }
