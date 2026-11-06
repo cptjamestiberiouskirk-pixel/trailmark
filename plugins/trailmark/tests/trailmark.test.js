@@ -4538,3 +4538,44 @@ test('0.6.0 hooks: a commit hook gets nothing on stdin and not the command\'s 40
   assert.strictEqual(spy.inputs('hook-milestone.js').length, 3, 'no fourth hook run');
   assert.strictEqual(notesOf(s), before);
 });
+
+test('0.6.0 write-handoff and park: a 124k text reaches the script whole, and the launcher writes none of it to the script\'s stdin', () => {
+  const s = sandbox();
+  jbm(s, ['init']);
+  // A preload in the launcher logs how each write-handoff or park run of
+  // memory.js gets its text: written by the launcher (input), or the
+  // launcher's own stdin (inherit), or the checked --from file (fd).
+  const log = path.join(s.base, 'memory-inputs.jsonl');
+  const spy = path.join(s.base, 'memory-input-spy.js');
+  fs.writeFileSync(spy, `const cp=require('child_process'),fs=require('fs');const o=cp.spawnSync;cp.spawnSync=function(f,a,opt){const c=(a||[]).find(x=>x==='write-handoff'||x==='park');if(c&&(a||[]).some(x=>/memory\\.js$/.test(String(x)))){const st=opt&&Array.isArray(opt.stdio)?opt.stdio[0]:null;fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({cmd:c,input:opt&&opt.input!=null?String(opt.input).length:null,stdin:typeof st==='number'?'fd':st})+'\\n')}return o.apply(this,arguments)}`);
+  const env = { NODE_OPTIONS: `--require ${spy}` };
+  // 2,000 lines, about 124k characters: past the 64 KB a pipe holds, and
+  // past the sizes that stalled on macOS.
+  const big = end => `# H\n## Next\n${Array.from({ length: 2000 }, (_, i) => `- item ${i} ${'x'.repeat(50)}`).join('\n')}\n- ${end}\n`;
+  const handoff = () => fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8');
+  const parked = slug => fs.readFileSync(path.join(s.memdir, 'parked', `${slug}.md`), 'utf8');
+  // On stdin. A handoff that big is over its budget: saved, exit 2.
+  let r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`], big('the first handoff'), env);
+  assert.strictEqual(r.status, 2, r.stdout + r.stderr);
+  assert.ok(handoff().includes('- item 1999 ') && handoff().includes('- the first handoff'), 'the whole handoff was saved');
+  r = jbm(s, ['park', '--slug=big-stdin'], big('the first idea'), env);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.ok(parked('big-stdin').includes('- the first idea'), 'the whole idea was parked');
+  // From a drop file in the memory folder (--from).
+  const pdrop = path.join(s.memdir, 'incoming-park.md');
+  fs.writeFileSync(pdrop, big('the second idea'));
+  r = jbm(s, ['park', '--slug=big-file', `--from=${pdrop}`], undefined, env);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.ok(parked('big-file').includes('- the second idea'));
+  assert.ok(!fs.existsSync(pdrop), 'the drop file is removed once saved');
+  const hdrop = path.join(s.memdir, 'incoming-handoff.md');
+  fs.writeFileSync(hdrop, big('the second handoff'));
+  r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--from=${hdrop}`], undefined, env);
+  assert.strictEqual(r.status, 2, r.stdout + r.stderr);
+  assert.ok(handoff().includes('- the second handoff'));
+  assert.ok(fs.existsSync(hdrop), 'over budget, the drop file stays');
+  const got = fs.readFileSync(log, 'utf8').trim().split('\n').map(l => JSON.parse(l));
+  assert.deepStrictEqual(got.map(g => g.cmd), ['write-handoff', 'park', 'park', 'write-handoff']);
+  for (const g of got) assert.strictEqual(g.input, null, `${g.cmd} got ${g.input} characters written to its stdin by the launcher`);
+  assert.deepStrictEqual(got.map(g => g.stdin), ['inherit', 'inherit', 'fd', 'fd']);
+});
