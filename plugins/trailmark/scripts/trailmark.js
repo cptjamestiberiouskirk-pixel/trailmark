@@ -34,7 +34,7 @@ process.env.NoDefaultCurrentDirectoryInExePath = '1';
 // never from the environment it was started with: a repo's settings can set
 // env variables, and these would otherwise choose the memory folder (and so
 // the sandbox's write grant) or pass made-up git facts.
-for (const k of ['JBMEM_DIR', 'JBMEM_DIR_MISSING', 'JBMEM_LAUNCHED', 'JBMEM_METHOD', 'JBMEM_ROOT', 'JBMEM_GIT']) delete process.env[k];
+for (const k of ['JBMEM_DIR', 'JBMEM_DIR_MISSING', 'JBMEM_LAUNCHED', 'JBMEM_METHOD', 'JBMEM_ROOT', 'JBMEM_GIT', 'JBMEM_PAYLOAD', 'JBMEM_FROM', 'JBMEM_FROM_ID']) delete process.env[k];
 
 // The context watch runs after every tool call: below its first step it
 // leaves here, before the rest of the launcher is even loaded.
@@ -57,6 +57,8 @@ const { localPath, localPathFrom } = require('./lib/gitbin');
 // the host's hook timeout, not a fixed time on top of the launcher's own work.
 const T0 = Date.now();
 const { isMilestoneCommand, commitSites } = require('./lib/commands');
+// A hook's script gets only the payload fields it reads (see hookio.js).
+const { hookInput, PAYLOAD_MAX } = require('./lib/hookio');
 
 const SCRIPTS = __dirname;
 const PLUGIN_ROOT = path.dirname(SCRIPTS);
@@ -95,11 +97,15 @@ function insideFolder(dir, file) {
   return S.inside(realDir, realFile);
 }
 
-// Reads a --from file through one descriptor, so what was checked is what is
-// read: the open file must be the one at the checked real path (same device
-// and file ID), inside the memory folder, and have no other hard link, which
-// could make a file elsewhere look like one in the folder.
-function readFromFile(dir, file) {
+// Checks a --from file through one descriptor: the open file must be the one
+// at the checked real path (same device and file ID), inside the memory
+// folder, and have no other hard link, which could make a file elsewhere look
+// like one in the folder. The launcher neither reads the file nor keeps it
+// open: Windows can't replace a file while it is open, and the script may
+// replace the very file named (handoff.md). The script gets the file's path
+// under the memory folder as granted, with its device and file ID, and reads
+// it only if it is still that file (readChecked in memory.js).
+function checkFromFile(dir, file) {
   let fd;
   try {
     // A FIFO or device would block the read forever: refuse it before opening,
@@ -121,7 +127,7 @@ function readFromFile(dir, file) {
     if (st2.dev !== st.dev || st2.ino !== st.ino) return { error: `${file} changed while it was being checked.` };
     // Checked again after the path checks, so a hard link made in between counts.
     if (fs.fstatSync(fd, { bigint: true }).nlink > 1n) return { error: `${file} has other hard links, so it may really live outside the memory folder. Save the text as a new file there.` };
-    return { data: fs.readFileSync(fd) };
+    return { file: path.join(dir, path.relative(realDir, real)), id: `${st.dev}:${st.ino}` };
   } catch (e) {
     return { error: `could not read ${file}: ${e.code || e.message}.` };
   } finally {
@@ -167,7 +173,7 @@ function cleanEnv() {
   return env;
 }
 
-function run(script, args, { dir, method, root, cwd, input, reads, writes, facts, dirMissing = false }) {
+function run(script, args, { dir, method, root, cwd, stdin, from, payload, reads, writes, facts, dirMissing = false }) {
   const sb = sandboxDecision(dir);
   const env = Object.assign(cleanEnv(), {
     JBMEM_DIR: dir,
@@ -177,6 +183,16 @@ function run(script, args, { dir, method, root, cwd, input, reads, writes, facts
     JBMEM_SANDBOX: sb.on ? 'on' : `off: ${sb.why}`,
   });
   if (dirMissing) env.JBMEM_DIR_MISSING = '1'; else delete env.JBMEM_DIR_MISSING;
+  // A hook's payload, from hookInput: in the environment, never on stdin.
+  if (payload !== undefined) {
+    if (payload.length > PAYLOAD_MAX) {
+      process.stderr.write(`trailmark: ${script} was not run: what it would be handed is over ${PAYLOAD_MAX.toLocaleString('en-US')} characters of JSON.\n`);
+      return 0;
+    }
+    env.JBMEM_PAYLOAD = payload;
+  } else delete env.JBMEM_PAYLOAD;
+  // A checked --from file, which the script opens itself (checkFromFile).
+  if (from) { env.JBMEM_FROM = from.file; env.JBMEM_FROM_ID = from.id; } else { delete env.JBMEM_FROM; delete env.JBMEM_FROM_ID; }
   if (facts) env.JBMEM_GIT = JSON.stringify(facts);
   // Node reads * in a grant as a wildcard, so a granted path with one in it
   // would allow more than that folder. Such a path is refused, not granted.
@@ -190,8 +206,11 @@ function run(script, args, { dir, method, root, cwd, input, reads, writes, facts
   const r = spawnSync(process.execPath, nodeArgs, {
     cwd,
     env,
-    input: input === undefined ? undefined : input,
-    stdio: [input === undefined ? 'ignore' : 'pipe', 'inherit', 'inherit'],
+    // Text on stdin for write-handoff and park reaches the script as it is
+    // ('inherit'); a --from file, the script opens itself. The launcher never
+    // writes a script's stdin: on macOS, spawnSync sometimes deadlocks while
+    // it writes a big input to a child (seen in CI, 0.6.0).
+    stdio: [stdin === undefined ? 'ignore' : stdin, 'inherit', 'inherit'],
     windowsHide: true,
     maxBuffer: 64 * 1024 * 1024,
     // A hook's script is killed before the host's own hook timeout, so it
@@ -212,14 +231,11 @@ function run(script, args, { dir, method, root, cwd, input, reads, writes, facts
 // opens fd 0 as a stream and makes it non-blocking, and readFileSync(0) fails
 // with EAGAIN whenever the writer hasn't sent anything yet (seen in the
 // six-writer test, 2026-10-18). tty.isatty(0) answers "is it a terminal?"
-// without that side effect. Hooks treat a failed read as an empty payload; a
-// command reports it, so a write never goes ahead with text it didn't get.
-function readAllStdin({ strict = false } = {}) {
-  try { return fs.readFileSync(0); } catch (e) {
-    if (strict) {
-      process.stderr.write(`trailmark: could not read the text on stdin (${e.code || e.message}); nothing was written\n`);
-      process.exit(1);
-    }
+// without that side effect. Hooks treat a failed read as an empty payload.
+// write-handoff and park don't come here: memory.js reads their text itself
+// and reports a failed read, so a write never goes ahead with text it didn't get.
+function readAllStdin() {
+  try { return fs.readFileSync(0); } catch {
     return Buffer.alloc(0);
   }
 }
@@ -289,7 +305,7 @@ function hookMode(name, extra) {
   // the record.
   const loc = hookMemory(payload, cwd, name === 'commit-start' ? 1000 : undefined);
   if (!loc) process.exit(0); // repo not set up: stay silent
-  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, input: raw, reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
+  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, payload: hookInput(payload), reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
   // PreToolUse: no git at all, only the record of where the command starts.
   if (name === 'commit-start') process.exit(run(spec.script, extra, opts));
   // All git work in a hook gets about 5 s, including finding the repo above,
@@ -363,7 +379,7 @@ function hookMode(name, extra) {
 function contextWatch(early) {
   if (!early) process.exit(0);
   const CW = require('./lib/contextwatch');
-  const { raw, payload, tp, cwd, context } = early;
+  const { payload, tp, cwd, context } = early;
   const session = S.cleanSession(payload.session_id);
   const loc = hookMemory(payload, cwd);
   if (!loc) process.exit(0); // repo not set up: stay silent
@@ -375,7 +391,7 @@ function contextWatch(early) {
     const r = CW.readUsage(tp, { since: seenAt });
     context.since = r ? { min: r.min, boundary: r.boundary, reached: r.reached } : { reached: false };
   }
-  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, input: raw, reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
+  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, payload: hookInput(payload), reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
   process.exit(run(HOOKS['context-watch'].script, [], { ...opts, facts: { context } }));
 }
 
@@ -592,13 +608,16 @@ function cliMode(args) {
   }
   // write-handoff and park take their text on stdin, or from a file named with
   // --from=<path>. The file route is for PowerShell, which won't pipe text into
-  // a command without manual approval. The launcher reads the file and passes
-  // it on stdin, so the sandboxed script needs no extra grant. Because this
-  // read happens before the sandbox starts, the file must be inside the memory
-  // folder, like the drop files the skills write there. A drop file
-  // (incoming-handoff*.md, incoming-park*.md) is removed once its text is
-  // saved; any other file is left alone.
-  let input;
+  // a command without manual approval. The launcher checks the file and the
+  // script opens it in the memory folder, which it may read anyway, so it
+  // needs no extra grant. Text on stdin goes to the script as it is: the
+  // launcher reads neither. Because this check happens before the sandbox
+  // starts, the file
+  // must be inside the memory folder, like the drop files the skills write
+  // there. A drop file (incoming-handoff*.md, incoming-park*.md) is removed
+  // once its text is saved; any other file is left alone.
+  let stdin;
+  let from;
   let childArgs = args;
   let dropFile = null;
   // Options end at a lone "--"; anything after it is text, never --from.
@@ -616,16 +635,16 @@ function cliMode(args) {
       process.stderr.write(`trailmark: --from must name a file inside the memory folder (${loc.dir}). ${file} is outside it. Save the text there with the Write tool, or pipe it on stdin. Nothing was written.\n`);
       process.exit(1);
     }
-    const r = readFromFile(loc.dir, file);
+    const r = checkFromFile(loc.dir, file);
     if (r.error) {
       process.stderr.write(`trailmark: ${r.error} Nothing was written.\n`);
       process.exit(1);
     }
-    input = r.data;
+    from = { file: r.file, id: r.id };
     childArgs = [...opts.filter(a => !a.startsWith('--from=')), ...(optEnd >= 0 ? args.slice(optEnd) : [])];
     if (isDropFile(loc.dir, file)) dropFile = file;
   } else if (STDIN_COMMANDS.has(cmd) && !tty.isatty(0)) {
-    input = readAllStdin({ strict: true });
+    stdin = 'inherit';
   }
   // write-handoff stamps the Updated line with git's branch and HEAD. The
   // sandboxed script can't run git, so the launcher collects them here.
@@ -636,7 +655,7 @@ function cliMode(args) {
     const sweep = sweepFacts(loc, sessionArg(opts), cwd, 3000);
     if (sweep) facts.sweep = sweep;
   }
-  const code = run('memory.js', childArgs, { dir: loc.dir, method: loc.method, root: loc.root, cwd, input, reads, writes, facts, dirMissing });
+  const code = run('memory.js', childArgs, { dir: loc.dir, method: loc.method, root: loc.root, cwd, stdin, from, reads, writes, facts, dirMissing });
   if (code === 0 && dropFile) { try { fs.unlinkSync(dropFile); } catch { /* left in place; the next write replaces it */ } }
   process.exit(code);
 }

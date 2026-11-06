@@ -4438,3 +4438,171 @@ test('0.6.0 commit folders: a folder already swept keeps its sweep start when an
   write();
   assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${sha} in="${dp(clone)}" by a script (found later) session=11111111`)), notesOf(s));
 }));
+
+// ---------- 0.6.0: what a hook's script is handed ----------
+
+// Records, in the launcher, what it hands each hook script: stdin (input),
+// JBMEM_PAYLOAD and JBMEM_GIT. On macOS, spawnSync sometimes deadlocks while
+// it writes a big input to the child's stdin, and the launcher then stops the
+// hook after 9 s (seen in CI 2026-11-06). The launcher drops NODE_* for its
+// child, so only the launcher is spied on.
+function hookInputSpy(s) {
+  const log = path.join(s.base, 'hook-inputs.jsonl');
+  const spy = path.join(s.base, 'hook-input-spy.js');
+  fs.writeFileSync(spy, `const cp=require('child_process'),fs=require('fs'),path=require('path');const o=cp.spawnSync;cp.spawnSync=function(f,a,opt){const s=(a||[]).find(x=>/hook-[a-z-]+\\.js$/.test(String(x)));if(s){const e=(opt&&opt.env)||{};fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({script:path.basename(String(s)),input:opt&&opt.input!==undefined?String(opt.input):null,payload:typeof e.JBMEM_PAYLOAD==='string'?e.JBMEM_PAYLOAD:null,git:typeof e.JBMEM_GIT==='string'?e.JBMEM_GIT:null})+'\\n')}return o.apply(this,arguments)}`);
+  return {
+    env: { NODE_OPTIONS: `--require ${spy}` },
+    inputs: script => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').map(l => JSON.parse(l)) : []).filter(i => i.script === script),
+  };
+}
+// Nothing on stdin, and a payload of under `max` characters in JBMEM_PAYLOAD.
+function assertHanded(i, max = 2000) {
+  assert.strictEqual(i.input, null, `${i.script} got ${i.input === null ? 0 : i.input.length} characters on stdin`);
+  assert.ok(typeof i.payload === 'string' && i.payload.length < max, `${i.script} got ${i.payload === null ? 'no' : i.payload.length + ' characters of'} payload`);
+  return JSON.parse(i.payload);
+}
+
+test('0.6.0 context watch: the hook gets nothing on stdin and only the payload fields it reads, and the estimates for a 670k image and a 400k Edit are as before', () => {
+  const c = contextWatchSetup({ model: 'claude-haiku-4-5' }); // compaction near 167k, the fast path's line 120k, the first step near 142k
+  const spy = hookInputSpy(c.s);
+  // The image Read of the test above (670k characters of base64), at 120k.
+  c.usage(120000);
+  const image = { type: 'image', file: { base64: 'QUJD'.repeat(167500), type: 'image/png', originalSize: 500000 } };
+  assert.strictEqual(c.run({ tool_name: 'Read', tool_response: image }, spy.env), null, 'an image Read at 120k: silent');
+  // A 400k Edit at 124k: 25k more, the most one call adds.
+  c.usage(124000);
+  const edit = { tool_name: 'Edit', tool_response: { filePath: 'x', originalFile: 'y'.repeat(400000) } };
+  assert.match(askText(c.run(edit, spy.env)), /about 149k tokens/);
+  // A 200k-character prompt: 50k more.
+  c.usage(124000);
+  c.run({ hook_event_name: 'UserPromptSubmit', prompt: 'x'.repeat(200000) }, spy.env);
+  const got = spy.inputs('hook-context-watch.js');
+  assert.strictEqual(got.length, 3, 'three hook runs');
+  // The launcher works the estimate out from the whole payload before the
+  // hook starts, and hands it over in JBMEM_GIT: one image is 4,784 tokens,
+  // and its other fields' text 13 more. The same on 03da9fd.
+  assert.deepStrictEqual(got.map(i => JSON.parse(i.git).context.tokens), [124797, 149000, 174000]);
+  const p = got.map(i => assertHanded(i));
+  assert.deepStrictEqual({ session_id: p[1].session_id, hook_event_name: p[1].hook_event_name, cwd: p[1].cwd, transcript_path: p[1].transcript_path, tool_name: p[1].tool_name },
+    { session_id: SA, hook_event_name: 'PostToolUse', cwd: c.s.repo, transcript_path: c.transcript, tool_name: 'Edit' });
+  assert.deepStrictEqual(p[0].tool_response, {});
+  assert.deepStrictEqual(p[1].tool_response, {});
+  assert.strictEqual(p[2].hook_event_name, 'UserPromptSubmit');
+  assert.ok(!('prompt' in p[2]), Object.keys(p[2]).join(' '));
+});
+
+test('0.6.0 hooks: a commit hook gets nothing on stdin and not the command\'s 400k output, and a long command still reaches it', () => {
+  const s = sandbox();
+  jbm(s, ['init']);
+  const spy = hookInputSpy(s);
+  const old = new Date(Date.now() - 3600000);
+  fs.utimesSync(path.join(s.memdir, 'handoff.md'), old, old);
+  s.g('commit', '--allow-empty', '-qm', 'big output');
+  const m = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, session_id: SA, hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_use_id: 'toolu_big1', tool_input: { command: 'git commit --allow-empty -m "big output"', description: 'd'.repeat(50000) }, tool_response: { stdout: 'y'.repeat(400000), stderr: '', interrupted: false } }), spy.env);
+  assert.strictEqual(m.status, 0, m.stderr);
+  assert.match(JSON.parse(m.stdout).hookSpecificOutput.additionalContext, /Commit landed/);
+  assert.match(notesOf(s), /COMMIT [0-9a-f]+ big output/);
+  let got = spy.inputs('hook-milestone.js');
+  assert.strictEqual(got.length, 1, 'one hook run');
+  let p = assertHanded(got[0]);
+  assert.deepStrictEqual(p.tool_input, { command: 'git commit --allow-empty -m "big output"' });
+  assert.deepStrictEqual(p.tool_response, { interrupted: false });
+  assert.strictEqual(p.tool_use_id, 'toolu_big1');
+  // The exit fields still reach the hook: an interrupted command gets no
+  // reminder and logs no commit.
+  s.g('commit', '--allow-empty', '-qm', 'cut short');
+  let before = notesOf(s);
+  const q = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, session_id: SA, hook_event_name: 'PostToolUse', tool_input: { command: 'git commit --allow-empty -m "cut short"' }, tool_response: { stdout: 'y'.repeat(400000), interrupted: true } }), spy.env);
+  assert.strictEqual(q.status, 0, q.stderr);
+  assert.strictEqual(q.stdout, '');
+  assert.strictEqual(notesOf(s), before);
+  // A 20,000-character command (a long message in a heredoc) reaches the
+  // hook whole, still not on stdin, and its commit is logged.
+  s.g('commit', '--allow-empty', '-qm', 'long command');
+  const long = `git commit --allow-empty -F - <<'EOF'\nlong command\n\n${'m'.repeat(20000)}\nEOF`;
+  const l = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, session_id: SA, hook_event_name: 'PostToolUse', tool_input: { command: long }, tool_response: { stdout: '' } }), spy.env);
+  assert.strictEqual(l.status, 0, l.stderr);
+  assert.match(notesOf(s), /COMMIT [0-9a-f]+ long command/);
+  got = spy.inputs('hook-milestone.js');
+  assert.strictEqual(got.length, 3, 'three hook runs');
+  p = assertHanded(got[2], 30001);
+  assert.strictEqual(p.tool_input.command, long);
+  // Past 30,000 characters (Windows caps a variable at 32,767) the hook
+  // script isn't started, and the launcher says why.
+  before = notesOf(s);
+  const huge = `git commit --allow-empty -F - <<'EOF'\nhuge\n\n${'m'.repeat(40000)}\nEOF`;
+  const h = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, session_id: SA, hook_event_name: 'PostToolUse', tool_input: { command: huge }, tool_response: {} }), spy.env);
+  assert.strictEqual(h.status, 0, h.stderr);
+  assert.match(h.stderr, /hook-milestone\.js was not run: what it would be handed is over 30,000 characters/);
+  assert.strictEqual(h.stdout, '');
+  assert.strictEqual(spy.inputs('hook-milestone.js').length, 3, 'no fourth hook run');
+  assert.strictEqual(notesOf(s), before);
+});
+
+test('0.6.0 write-handoff and park: a 124k text reaches the script whole, and the launcher writes none of it to the script\'s stdin', () => {
+  const s = sandbox();
+  jbm(s, ['init']);
+  // A preload in the launcher logs how each write-handoff or park run of
+  // memory.js gets its text: written by the launcher (input), or the
+  // launcher's own stdin (inherit), or a checked --from file it opens itself
+  // (from, with nothing on stdin).
+  const log = path.join(s.base, 'memory-inputs.jsonl');
+  const spy = path.join(s.base, 'memory-input-spy.js');
+  fs.writeFileSync(spy, `const cp=require('child_process'),fs=require('fs');const o=cp.spawnSync;cp.spawnSync=function(f,a,opt){const c=(a||[]).find(x=>x==='write-handoff'||x==='park');if(c&&(a||[]).some(x=>/memory\\.js$/.test(String(x)))){const st=opt&&Array.isArray(opt.stdio)?opt.stdio[0]:null;fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({cmd:c,input:opt&&opt.input!=null?String(opt.input).length:null,stdin:typeof st==='number'?'fd':st,from:!!(opt&&opt.env&&opt.env.JBMEM_FROM)})+'\\n')}return o.apply(this,arguments)}`);
+  const env = { NODE_OPTIONS: `--require ${spy}` };
+  // 2,000 lines, about 124k characters: past the 64 KB a pipe holds, and
+  // past the sizes that stalled on macOS.
+  const big = end => `# H\n## Next\n${Array.from({ length: 2000 }, (_, i) => `- item ${i} ${'x'.repeat(50)}`).join('\n')}\n- ${end}\n`;
+  const handoff = () => fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8');
+  const parked = slug => fs.readFileSync(path.join(s.memdir, 'parked', `${slug}.md`), 'utf8');
+  // On stdin. A handoff that big is over its budget: saved, exit 2.
+  let r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`], big('the first handoff'), env);
+  assert.strictEqual(r.status, 2, r.stdout + r.stderr);
+  assert.ok(handoff().includes('- item 1999 ') && handoff().includes('- the first handoff'), 'the whole handoff was saved');
+  r = jbm(s, ['park', '--slug=big-stdin'], big('the first idea'), env);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.ok(parked('big-stdin').includes('- the first idea'), 'the whole idea was parked');
+  // From a drop file in the memory folder (--from).
+  const pdrop = path.join(s.memdir, 'incoming-park.md');
+  fs.writeFileSync(pdrop, big('the second idea'));
+  r = jbm(s, ['park', '--slug=big-file', `--from=${pdrop}`], undefined, env);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.ok(parked('big-file').includes('- the second idea'));
+  assert.ok(!fs.existsSync(pdrop), 'the drop file is removed once saved');
+  const hdrop = path.join(s.memdir, 'incoming-handoff.md');
+  fs.writeFileSync(hdrop, big('the second handoff'));
+  r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--from=${hdrop}`], undefined, env);
+  assert.strictEqual(r.status, 2, r.stdout + r.stderr);
+  assert.ok(handoff().includes('- the second handoff'));
+  assert.ok(fs.existsSync(hdrop), 'over budget, the drop file stays');
+  // --from naming handoff.md itself: the script replaces the very file it
+  // reads, which Windows refuses while a handle to it is open (CI, a778ace).
+  const own = path.join(s.memdir, 'handoff.md');
+  fs.writeFileSync(own, big('the third handoff'));
+  r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--from=${own}`], undefined, env);
+  assert.strictEqual(r.status, 2, r.stdout + r.stderr);
+  assert.ok(handoff().includes('- the third handoff'));
+  const got = fs.readFileSync(log, 'utf8').trim().split('\n').map(l => JSON.parse(l));
+  assert.deepStrictEqual(got.map(g => g.cmd), ['write-handoff', 'park', 'park', 'write-handoff', 'write-handoff']);
+  for (const g of got) assert.strictEqual(g.input, null, `${g.cmd} got ${g.input} characters written to its stdin by the launcher`);
+  assert.deepStrictEqual(got.map(g => g.stdin), ['inherit', 'inherit', 'ignore', 'ignore', 'ignore']);
+  assert.deepStrictEqual(got.map(g => g.from), [false, false, true, true, true]);
+  // The script reads a --from file only if it is still the one the launcher
+  // checked: another file ID, or a second hard link since, is refused.
+  const direct = (file, id) => spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'memory.js'), 'park', '--slug=swapped'], { cwd: s.repo, env: { ...s.env, JBMEM_DIR: s.memdir, JBMEM_LAUNCHED: '1', JBMEM_FROM: file, JBMEM_FROM_ID: id }, encoding: 'utf8' });
+  const idea = path.join(s.memdir, 'incoming-park.md');
+  fs.writeFileSync(idea, '# Idea\nwhy\n');
+  const st = fs.statSync(idea, { bigint: true });
+  r = direct(idea, `${st.dev}:${st.ino + 1n}`);
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /changed after the launcher checked it; nothing was written/);
+  fs.linkSync(idea, path.join(s.base, 'second-link.md'));
+  r = direct(idea, `${st.dev}:${st.ino}`);
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /changed after the launcher checked it/);
+  assert.ok(!fs.existsSync(path.join(s.memdir, 'parked', 'swapped.md')));
+  fs.unlinkSync(path.join(s.base, 'second-link.md'));
+  r = direct(idea, `${st.dev}:${st.ino}`);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(parked('swapped'), /why/);
+});

@@ -9,8 +9,41 @@ const { findMemoryDir } = require('./paths');
 const S = require('./store');
 const { facts } = require('./gitfacts');
 
+// The hook's payload. Started by the launcher, a hook gets it in JBMEM_PAYLOAD
+// (see hookInput below) and nothing on stdin; run directly, it reads stdin.
 function readPayload() {
-  try { return JSON.parse(fs.readFileSync(0, 'utf8').replace(/^\uFEFF/, '')); } catch { return {}; }
+  const fromLauncher = process.env.JBMEM_LAUNCHED === '1' && typeof process.env.JBMEM_PAYLOAD === 'string' ? process.env.JBMEM_PAYLOAD : null;
+  try { return JSON.parse(fromLauncher !== null ? fromLauncher : fs.readFileSync(0, 'utf8').replace(/^\uFEFF/, '')); } catch { return {}; }
+}
+
+// What the launcher hands a hook's script, as JSON text in JBMEM_PAYLOAD: the
+// payload fields the hook scripts read (and memoryDirOrExit below), with no
+// prompt text and no tool output. Not on stdin: on macOS, spawnSync sometimes
+// deadlocks while it writes a big input to the child's stdin (a socket). The
+// child waits in read, the parent in kevent, and the launcher stops the hook
+// after 9 s (seen in CI 2026-11-06, 9 of 3,600 calls, all with 80k or more).
+// A field's value is kept only when it is a string, number, boolean or null;
+// tool_input keeps its command and run_in_background, tool_response only its
+// exit fields. Windows caps a variable at 32,767 characters, so the launcher
+// starts no hook script for a payload over PAYLOAD_MAX characters of JSON,
+// escapes included.
+const PAYLOAD_MAX = 30000;
+const HOOK_FIELDS = ['session_id', 'transcript_path', 'cwd', 'codex_workdir', 'hook_event_name', 'source', 'trigger', 'tool_name', 'tool_use_id', 'duration_ms', 'agent_id', 'agent_type'];
+const INPUT_FIELDS = ['command', 'run_in_background'];
+const EXIT_FIELDS = ['interrupted', 'exit_code', 'exitCode'];
+const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+const plain = v => v === null || ['string', 'number', 'boolean'].includes(typeof v);
+function pick(from, keys) {
+  const out = {};
+  for (const k of keys) if (Object.prototype.hasOwnProperty.call(from, k) && plain(from[k])) out[k] = from[k];
+  return out;
+}
+function hookInput(payload) {
+  const p = isObj(payload) ? payload : {};
+  const out = pick(p, HOOK_FIELDS);
+  if (isObj(p.tool_input)) out.tool_input = pick(p.tool_input, INPUT_FIELDS);
+  if (isObj(p.tool_response)) out.tool_response = pick(p.tool_response, EXIT_FIELDS);
+  return JSON.stringify(out);
 }
 
 // Returns the memory dir for an opted-in repo, or exits silently.
@@ -53,4 +86,4 @@ function sandboxNote() {
   return `sandbox ${sandboxWord()}`;
 }
 
-module.exports = { readPayload, memoryDirOrExit, facts, emit, guard, sandboxNote, sandboxWord };
+module.exports = { readPayload, hookInput, HOOK_FIELDS, PAYLOAD_MAX, memoryDirOrExit, facts, emit, guard, sandboxNote, sandboxWord };
