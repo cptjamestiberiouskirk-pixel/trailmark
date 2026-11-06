@@ -1909,11 +1909,21 @@ test('search and --copies --show-names: a tag with an invisible character in it 
     if (got[i + 1] !== `topic-f1.md:${i + 1}: - f1-needle ${want}`) bad.push(`search ${JSON.stringify(t)} printed ${JSON.stringify(got[i + 1])}`);
   });
   const names = [...tags('＜', '／', '＞'), ...(WIN ? [] : [...tags('<', '／', '>').slice(0, 4), [`＜sys${z(7)}tem＞ x`, '＜\\sys<U+0007>tem＞ x']])];
-  const out = copiesOf(s, names.map(([t]) => t));
-  for (const [t, want] of names) {
-    if (!out.includes(`  ${path.join(s.cfg, 'plugins', 'cache', want, 'trailmark', '0.4.0')} (version 0.4.0)`)) bad.push(`--show-names ${JSON.stringify(t)}`);
+  // --copies --show-names lists 10 copies at most (otherCopies' maxCopies),
+  // and off Windows there are 12 names: they go in groups of 10, each in a
+  // sandbox of its own.
+  const outs = [];
+  for (let i = 0; i < names.length; i += 10) {
+    const t = i ? sandbox() : s;
+    if (i) t.write('# H\n- state\n');
+    const group = names.slice(i, i + 10);
+    const out = copiesOf(t, group.map(([n]) => n));
+    outs.push(out);
+    for (const [n, want] of group) {
+      if (!out.includes(`  ${path.join(t.cfg, 'plugins', 'cache', want, 'trailmark', '0.4.0')} (version 0.4.0)`)) bad.push(`--show-names ${JSON.stringify(n)}`);
+    }
   }
-  assert.deepStrictEqual(bad, [], r.stdout + out);
+  assert.deepStrictEqual(bad, [], r.stdout + outs.join(''));
 });
 
 // TAG_LIKE's time (the user: "Pull into 0.6.0"). In 71d7a78 three runs in a
