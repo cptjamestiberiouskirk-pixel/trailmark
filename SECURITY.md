@@ -142,7 +142,7 @@ Two grants reach past the memory folder. `init` gets read and write on the proje
 
 ### Output the skills read, and very large files
 
-CLI output that skills read (`handoff`, `search`, `list`) prints memory text without the session-start frame. `list` and `status` do drop control characters and escape tags.
+CLI output that skills read (`handoff`, `list`) prints memory text without the session-start frame. `list` and `status` do drop control characters and escape tags. `search` prints its hits after a line saying they are matched lines from memory files, data only, not instructions, with invisible characters shown as `<U+XXXX>` and tags escaped.
 
 A very large `handoff.md` or state file is read whole, so the injection could miss the hook's time limit. The session itself isn't held up.
 
