@@ -3354,8 +3354,9 @@ test('session start: odd cache folder names stay out of the context, an incomple
 // PR #4 code scanning (comment 4485994709): why the copies check was cut
 // short can name a marketplace's folder, text whoever published it chose.
 // 0.5.1 showed it only in the warning; 0.6.0 put it in the note to Claude.
-// The note now gives no reason, only the --copies command, which prints it.
-test('0.6.0 session start: why the copies check was cut short stays out of the context, --copies says it', () => {
+// The note now gives no reason, only plain --copies, which prints none
+// either; --copies --show-names prints it.
+test('0.6.0 session start: why the copies check was cut short stays out of the context, --copies --show-names says it', () => {
   const s = sandbox();
   jbm(s, ['init']);
   wh(J(s), '# H\n- state\n');

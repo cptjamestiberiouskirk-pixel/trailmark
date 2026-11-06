@@ -1891,15 +1891,25 @@ function framed(text) {
   return String(text).normalize('NFC').replace(LINE_BREAKS, '\n').replace(CONTROLS, m => (m.length > 2 && m.codePointAt(0) === 0x1f3f4 ? m : '')).split('\n').map(l => (FRAME_LIKE.test(l) || HEREDOC_END.test(l) ? '  ' + l : l).replace(TAG_LIKE, m => m + '\\')).join('\n');
 }
 
+// visibleName shows an invisible character as the text <U+XXXX>, and that
+// text split a tag so TAG_LIKE missed it: <system<U+200B>> (review round 9
+// on PR #4). SHOWN_TAG_LIKE is TAG_LIKE with such an escape allowed
+// wherever an invisible character is: each of TAG_LIKE's character classes
+// that holds the invisible ones becomes that class or an escape. The < that
+// starts an escape never opens a tag itself, since U+ follows it.
+const SHOWN_TAG_LIKE = new RegExp(TAG_LIKE.source.replace(/\[[^\]]*\\p\{Cf\}\\p\{Default_Ignorable_Code_Point\}\\u2800\\p\{M\}[^\]]*\]/g, c => `(?:${c}|<U\\+[0-9A-F]{4,6}>)`), TAG_LIKE.flags);
+
 // Tag-like text escaped as in framed(), for one line placed outside a frame.
-// asIs skips the NFC step, for a name from disk printed so that the user can
-// find it: NFC prints a name stored decomposed (e plus U+0301) composed, a
-// path that isn't on disk (Copilot on PR #4). The tag patterns allow marks
-// where they allow other invisible characters, so a decomposed tag still
-// matches.
+// asIs is for text visibleName has shown: a name from disk, or a line search
+// found. It skips the NFC step, so the text prints as it is on disk: NFC
+// prints a name stored decomposed (e plus U+0301) composed, a path that
+// isn't on disk (Copilot on PR #4). The tag patterns allow marks where they
+// allow other invisible characters, so a decomposed tag still matches. It
+// matches with SHOWN_TAG_LIKE, so a <U+XXXX> counts as the invisible
+// character it stands for.
 function escapeTags(t, { asIs = false } = {}) {
   const s = String(t);
-  return dropControls(asIs ? s : s.normalize('NFC')).replace(TAG_LIKE, m => m + '\\');
+  return dropControls(asIs ? s : s.normalize('NFC')).replace(asIs ? SHOWN_TAG_LIKE : TAG_LIKE, m => m + '\\');
 }
 
 function frameMarker() {
