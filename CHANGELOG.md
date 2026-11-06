@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 (Trailmark and trailmark-codex): 2026-11-05
+## 0.6.0 (Trailmark and trailmark-codex): 2026-11-06
 
 ### Context watch (Claude Code only)
 
