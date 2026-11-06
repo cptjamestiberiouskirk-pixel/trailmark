@@ -1877,7 +1877,43 @@ const FRAME_LIKE = /^[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*(?:[-
 // before a letter) or an invisible character in it, starts with a role or
 // block word (<systemprompt>, <developer>), or has a letter outside ASCII in
 // it (a look-alike such as a Cyrillic s).
-const TAG_LIKE = /[<＜﹤](?=[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*[\/／∕⁄⧸]?[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*$|[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*[\/／∕⁄⧸][\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*[\p{L}_]|[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*(?:[\p{L}_][\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*(?:[-_.\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]|:(?=\p{L}))[\p{L}\p{N}_.:\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}-]*|(?:system|user|assistant|human|tool|function|developer|instructions?|context|documents?|example|reminder|message|prompt)[\p{L}\p{N}_]*|[\p{L}\p{N}_]*(?:(?![\x00-\x7f])\p{L})[\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*)[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*(?:[\s>＞\/／∕⁄⧸]|$))/giu;
+// Each run in TAG_LIKE matches a stretch of text one way only, so its time
+// grows with the line's length. 71d7a78's pattern let three runs in a row
+// take invisible characters, from the name to the spaces before the tag's
+// end, so a line holding <a, thousands of them and no tag end took time that
+// grew with their number cubed: 2.75 s at 1,200, minutes at 3,000, past
+// session start's 10 s limit (the user: "Pull into 0.6.0"). It escapes the
+// same text, which handoff-checks.test.js checks against 71d7a78's pattern:
+// - The run before a name's separator takes no separator, since the first
+//   one serves as well as a later one.
+// - The run after it stops at the first character that can't be in a name,
+//   and that character ends the tag or nothing does. U+FEFF is both
+//   invisible and a space, so these runs leave it to the end.
+// - Four Hangul fillers are both letters and invisible: the run before an
+//   opening tag's name stops at them, and the name starts there.
+// - A role word's letters are taken whole: the lookahead and \1 keep the
+//   engine from giving any back.
+// TAG_INV is the invisible characters as FRAME_LIKE counts them. Every class
+// that holds them writes them so, which SHOWN_TAG_LIKE relies on.
+const TAG_INV = '\\p{Cf}\\p{Default_Ignorable_Code_Point}\\u2800\\p{M}';
+const TAG_SPACE = `[\\s${TAG_INV}]`;
+const TAG_SPACE_NL = `(?:(?!\\p{L})${TAG_SPACE})`;
+const TAG_SLASH = '[\\/／∕⁄⧸]';
+const TAG_END = '(?:[\\s>＞\\/／∕⁄⧸]|$)';
+const TAG_ROLE = '(?:system|user|assistant|human|tool|function|developer|instructions?|context|documents?|example|reminder|message|prompt)';
+const TAG_LIKE = new RegExp('[<＜﹤](?=' + [
+  // < or </ with nothing after it but spaces and invisible characters.
+  `${TAG_SPACE}*(?:${TAG_SLASH}${TAG_SPACE}*)?$`,
+  // A closing tag: / and then a letter.
+  `${TAG_SPACE}*${TAG_SLASH}${TAG_SPACE_NL}*[\\p{L}_]`,
+  // An opening tag, after spaces and invisible characters that aren't
+  // letters: one of the kinds of name above, then the tag's end.
+  `${TAG_SPACE_NL}*(?:${[
+    `[\\p{L}_](?:(?![${TAG_INV}])[\\p{L}\\p{N}])*(?:[-_.${TAG_INV}]|:(?=\\p{L}))(?:(?!\\uFEFF)[\\p{L}\\p{N}_.:${TAG_INV}-])*${TAG_END}`,
+    `${TAG_ROLE}(?=([\\p{L}\\p{N}_]*))\\1(?:(?!\\uFEFF)[${TAG_INV}])*${TAG_END}`,
+    `(?:[\\p{N}_]|(?=[\\x00-\\x7f])\\p{L})*(?![\\x00-\\x7f])\\p{L}(?:(?!\\uFEFF)[\\p{L}\\p{N}_${TAG_INV}])*${TAG_END}`,
+  ].join('|')})`,
+].join('|') + ')', 'giu');
 // A line that is the skills' heredoc end marker would end the heredoc when a
 // later checkpoint copies the handoff forward; indented, it can't.
 const HEREDOC_END = /^JBMEM_EOF/;
@@ -2167,7 +2203,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
 }
 
 module.exports = { addCommitDirs, MAX_COMMIT_DIRS, addMemoryRoot, plainStat, plainExists, shownName, linkedFiles,
-  checkRepoRoot, escapeTags, readPlain, handoffStamp, checkSinceFacts, coveredSteps, pruneNotes, AGENT,
+  checkRepoRoot, escapeTags, TAG_LIKE, SHOWN_TAG_LIKE, readPlain, handoffStamp, checkSinceFacts, coveredSteps, pruneNotes, AGENT,
   MARKER, HANDOFF, HANDOFF_PREV, PRECOMPACT, SNAPSHOTS, LOCK, PENDING, DEFAULTS, HISTORY, CHECKPOINT_SKILL, SKILL_RULE,
   cleanSession, shortSession, versionOf, withLock, updateState, sessionRecord, otherSessions, lastWriterOf,
   findVersionText, lineDiff, snapshotPath, writeSnapshot, listSnapshots, retryWin, splitDone, lockInfo,
