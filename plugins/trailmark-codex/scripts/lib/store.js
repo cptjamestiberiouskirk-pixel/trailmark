@@ -1874,8 +1874,14 @@ function framed(text) {
 }
 
 // Tag-like text escaped as in framed(), for one line placed outside a frame.
-function escapeTags(t) {
-  return dropControls(String(t).normalize('NFC')).replace(TAG_LIKE, m => m + '\\');
+// asIs skips the NFC step, for a name from disk printed so that the user can
+// find it: NFC prints a name stored decomposed (e plus U+0301) composed, a
+// path that isn't on disk (Copilot on PR #4). The tag patterns allow marks
+// where they allow other invisible characters, so a decomposed tag still
+// matches.
+function escapeTags(t, { asIs = false } = {}) {
+  const s = String(t);
+  return dropControls(asIs ? s : s.normalize('NFC')).replace(TAG_LIKE, m => m + '\\');
 }
 
 function frameMarker() {

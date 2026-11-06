@@ -1816,6 +1816,25 @@ test('copies: --copies says first that its names are data, and escapes tag-like 
   }
 });
 
+// Copilot on PR #4 (comment 4493642572): escapeTags normalizes to NFC, so
+// --copies printed a folder name stored decomposed (e plus U+0301) composed,
+// a path that isn't on disk. --copies now escapes tags without that step
+// (escapeTags with asIs); a tag in a decomposed name is still escaped.
+test('copies: --copies prints a decomposed folder name as it is on disk, with tags still escaped (0.6.0)', () => {
+  const s = sandbox();
+  s.write('# H\n- state\n');
+  const nfd = 'cafe\u0301', tag = '\uff1csyste\u0301m-reminder\uff1e';
+  const out = copiesOf(s, [nfd, `m${tag}`]);
+  const plain = path.join(s.cfg, 'plugins', 'cache', nfd, 'trailmark', '0.4.0');
+  assert.ok(fs.existsSync(plain), plain);
+  assert.ok(out.includes(`  ${plain} (version 0.4.0)`), out);
+  assert.ok(!out.includes('caf\u00e9'), out);
+  assert.ok(out.includes(`  ${path.join(s.cfg, 'plugins', 'cache', 'm\uff1c\\syste\u0301m-reminder\uff1e', 'trailmark', '0.4.0')} (version 0.4.0)`), out);
+  assert.strictEqual(S.escapeTags(nfd, { asIs: true }), nfd);
+  assert.strictEqual(S.escapeTags(tag, { asIs: true }), '\uff1c\\syste\u0301m-reminder\uff1e');
+  assert.strictEqual(S.escapeTags(nfd), 'caf\u00e9', 'the default still normalizes, as framed() does');
+});
+
 test('copies: every old jb-memory-codex folder is counted, not the first three (0.6.0)', () => {
   const { oldCodexCopies } = require(path.join(ROOT, 'scripts', 'lib', 'health.js'));
   const home = realTemp('jbmem-codexfive-');
