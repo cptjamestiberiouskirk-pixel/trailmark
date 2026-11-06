@@ -23,7 +23,8 @@ Don't drive those steps by hand one at a time, and don't paste full test output 
 - A failing suite's full TAP output, with the folders its failed tests kept, is copied to the folder named under the summary (`<temp>/trailmark-release-check/<run>`). Read a failure there first.
 - One test or one test file: `dev/release-check.sh --only '<name pattern>'` or `--only <file>`, never a plain `node --test`. A failing test keeps its folders, and a plain run leaves them in the system temp folder (`%TEMP%` held 3,071 `jbmem-*` folders on 2026-11-05). `--only` keeps its output even when it passes.
 - An intermittent failure gets no "flaky" label: it needs a reproduced, proven cause. Keep its output, log CPU use during the run, rerun the single test several times with `--only`, and compare with the parent commit, alternating which version runs first (a fixed order confounded a timing comparison in 0.6.0).
-- Tests known to fail or skip under load are listed under "Load-sensitive tests" in `dev/release-state.md`, each with the sign its output shows: the busy-lock test's 6 s bound (test 44), the commit list since the handoff, and the sweep tests that skip themselves after 90 s (`SweepsOutOfTime`).
+- Tests known to fail or skip under load are listed under "Load-sensitive tests" in `dev/release-state.md`, each with the sign its output shows. Read the list there, not a copy: it grows during a release. A failure whose output doesn't show a listed sign is new and gets investigated.
+- Each push during a release: `--only '<name pattern>'` for the new and changed tests (it runs them in both copies), then `--sums --quick`. No full check and no whole-file `--only`: CI runs all three suites on all three systems with three Node versions each, and `main` won't merge until its 9 jobs pass. `--quick` passing counts as `release-check.sh` passing. A test the change breaks elsewhere in a long suite shows up in CI, one push later.
 
 ## Windows notes
 
@@ -47,9 +48,13 @@ Every change gets a regression, security and double-check pass, scoped to the ch
 | Docs accuracy, style and links | Sonnet |
 | Tests, checksums, zip | `dev/release-check.sh`, no model |
 
+- A round runs only the rows its diff touches. The docs row joins when a shipped doc changed (anything outside `dev/` and this file).
+
 - Reproduce every finding before acting on it. A fix gets a test that fails on the old code.
 - Each deferred item carries its label, the commit it was seen on, and a repro (a test name or a script).
 - Stop rule: release when a round finds nothing CONFIRMED in code changed since the last round. Older edge cases found along the way go in the deferred list in `dev/release-state.md` for the next version instead of holding the release.
+- Batches: gather a round's findings and the scanner and Copilot comments on that head, fix them in one push, then review that push's diff once.
+- Scope freeze: once the user freezes a release, the next round is the last. A finding holds the release only if it is CONFIRMED in that round's diff and makes the release worse than the previous one. Everything else goes to the deferred list, scanner and Copilot comments included, with no decision from the user each time: a scanner thread gets the reply "deferred to the next version (scope frozen)" and is resolved. The user still sees every deferred item, and one that looks serious (data exposure, code that runs) is flagged; it stays deferred unless the user pulls it back in. A round that finds only deferred items counts as clean for the merge.
 
 ## Sessions
 
