@@ -184,7 +184,7 @@ function run(script, args, { dir, method, root, cwd, stdin, from, payload, reads
   // A hook's payload, from hookInput: in the environment, never on stdin.
   if (payload !== undefined) {
     if (payload.length > PAYLOAD_MAX) {
-      process.stderr.write(`trailmark: ${script} was not run: what it would be handed is over ${PAYLOAD_MAX.toLocaleString('en-US')} characters (a command that long).\n`);
+      process.stderr.write(`trailmark: ${script} was not run: what it would be handed is over ${PAYLOAD_MAX.toLocaleString('en-US')} characters of JSON.\n`);
       return 0;
     }
     env.JBMEM_PAYLOAD = payload;
