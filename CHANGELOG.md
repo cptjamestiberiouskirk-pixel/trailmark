@@ -36,6 +36,7 @@
 
 - 30 link tests that skipped on every Windows machine now run wherever links can be made, as on CI's Windows runners, and two hard-link tests run everywhere. The POSIX-only ones that still skip on Windows say why. On Windows, a test link to a network path is made without looking the share up.
 - A POSIX test for a link inside a leftover module folder's `objects/ab`.
+- The Windows junction test, and the links test that moves a `.git` the same way, now wait out a rename of `.git` or a junction refused with `EPERM` or `EBUSY` for up to 2 s, right after git has written it. A scanner holding the new files is the likely cause: the failure came in 7 of 24 runs in a scanned folder and in none of 24 in a folder excluded from Defender's scanning. A refusal that lasts, and any other error, still fails the test. Only the tests changed.
 
 ## 0.5.1 (Trailmark and trailmark-codex): 2026-11-03
 

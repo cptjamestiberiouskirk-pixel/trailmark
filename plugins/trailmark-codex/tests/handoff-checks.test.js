@@ -74,6 +74,37 @@ function repoAt(dir) {
   return g;
 }
 
+// B8 (0.6.0, dev/release-state.md): on Windows, renaming a .git that git has
+// just written, or making a junction in its place, now and then fails for a
+// moment with EPERM or EBUSY. Defender's scanning is the INFERRED cause: with
+// the release check's temp folder in a scanned folder 7 of 24 runs failed so,
+// and 0 of 24 in a folder excluded from scanning. The setup tries again for up
+// to 2 s, as openNew's look after making the lock does (round 8, S1). Any
+// other error, or a busy one past that, is thrown as it came, and what a test
+// checks is never tried again. onRetry hears how long a hold lasted.
+function busyRetry(fn, { budgetMs = 2000, waitMs = 100, onRetry = () => {} } = {}) {
+  const t0 = Date.now();
+  for (let busy = 0; ; busy++) {
+    try {
+      const out = fn();
+      if (busy) onRetry(`busy ${busy} time(s), ${Date.now() - t0} ms in all`);
+      return out;
+    } catch (e) {
+      if (!e || (e.code !== 'EPERM' && e.code !== 'EBUSY') || Date.now() - t0 + waitMs > budgetMs) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
+    }
+  }
+}
+
+// A repo at base/r whose .git is a junction to base/elsewhere/gitdir.
+function junctionGit(base, onRetry = () => {}) {
+  const r = path.join(base, 'r'); repoAt(r);
+  const elsewhere = path.join(base, 'elsewhere'); fs.mkdirSync(elsewhere);
+  busyRetry(() => fs.renameSync(path.join(r, '.git'), path.join(elsewhere, 'gitdir')), { onRetry: m => onRetry(`rename of .git: ${m}`) });
+  busyRetry(() => fs.symlinkSync(path.join(elsewhere, 'gitdir'), path.join(r, '.git'), 'junction'), { onRetry: m => onRetry(`junction: ${m}`) });
+  return r;
+}
+
 function sandbox() {
   const base = realTemp('jbmem-');
   const cfg = path.join(base, 'cfg');
@@ -467,7 +498,7 @@ test('git pointers: second review cases (prefix, deep includes, decoy .git, many
   assert.strictEqual(shareRoot('\\\\?\\UNC\\srv\\s'), '');
 });
 
-test('git pointers: links on the way to a gitdir, config or include', { skip: NO_LINKS }, () => {
+test('git pointers: links on the way to a gitdir, config or include', { skip: NO_LINKS }, (t) => {
   const { farGitConfig, localPath } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far6-');
   const a = path.join(base, 'a'); fs.mkdirSync(a);
@@ -475,7 +506,8 @@ test('git pointers: links on the way to a gitdir, config or include', { skip: NO
   fs.writeFileSync(path.join(a, '.git'), 'gitdir: ../lnk/repo/.git\n');
   assert.strictEqual(farGitConfig(a), 'network-gitdir', 'gitdir through a link to a share');
   const b = path.join(base, 'b'); repoAt(b);
-  fs.renameSync(path.join(b, '.git'), path.join(base, 'b-git'));
+  // The .git git has just written, as in the junction test (B8).
+  busyRetry(() => fs.renameSync(path.join(b, '.git'), path.join(base, 'b-git')), { onRetry: m => t.diagnostic(`B8 rename of .git: ${m}`) });
   fs.symlinkSync(path.join(base, 'b-git'), path.join(b, '.git'));
   // On Windows any .git that is a link keeps git out (review round 13).
   assert.strictEqual(farGitConfig(b), WIN ? 'linked-gitdir' : '', '.git that is a link to a local gitdir');
@@ -2558,14 +2590,52 @@ test('git checks: includes are told apart as git spells them, a session folder w
   fs.rmSync(base, { recursive: true, force: true });
 });
 
-test('git checks: on Windows a .git that is a junction keeps git out (review round 13)', { skip: !WIN && 'Windows only' }, () => {
+test('git checks: on Windows a .git that is a junction keeps git out (review round 13)', { skip: !WIN && 'Windows only' }, (t) => {
   const G = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-junc-');
-  const r = path.join(base, 'r'); repoAt(r);
-  const elsewhere = path.join(base, 'elsewhere'); fs.mkdirSync(elsewhere);
-  fs.renameSync(path.join(r, '.git'), path.join(elsewhere, 'gitdir'));
-  fs.symlinkSync(path.join(elsewhere, 'gitdir'), path.join(r, '.git'), 'junction');
+  // A hold that the setup waited out shows in the TAP as "# B8 ...".
+  const r = junctionGit(base, m => t.diagnostic(`B8 ${m}`));
   assert.strictEqual(G.farGitConfig(r), 'linked-gitdir');
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test('B8: the junction test sets up through a rename or junction that is busy for a moment, and a lasting or other error still fails as it came (0.6.0)', { skip: !WIN && 'Windows only, as the junction test' }, () => {
+  const G = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-junc-');
+  const busy = (code, what) => Object.assign(new Error(`${code}: operation not permitted or busy, ${what}`), { code });
+  const realRename = fs.renameSync, realLink = fs.symlinkSync;
+  let renames = 0, links = 0;
+  // As the B8 failures did: the rename of .git refused twice, the junction once.
+  fs.renameSync = function (from) {
+    if (path.basename(String(from)) === '.git' && renames < 2) { renames++; throw busy('EPERM', 'rename'); }
+    return realRename.apply(this, arguments);
+  };
+  fs.symlinkSync = function (target, p, type) {
+    if (type === 'junction' && links < 1) { links++; throw busy('EBUSY', 'symlink'); }
+    return realLink.apply(this, arguments);
+  };
+  const heard = [];
+  let r;
+  try { r = junctionGit(base, m => heard.push(m)); } finally { fs.renameSync = realRename; fs.symlinkSync = realLink; }
+  assert.strictEqual(renames, 2, 'the rename was refused twice');
+  assert.strictEqual(links, 1, 'the junction was refused once');
+  assert.ok(fs.lstatSync(path.join(r, '.git')).isSymbolicLink(), 'the junction is in place');
+  assert.strictEqual(G.farGitConfig(r), 'linked-gitdir');
+  assert.strictEqual(heard.length, 2, heard.join('; '));
+  assert.match(heard[0], /^rename of \.git: busy 2 time\(s\), \d+ ms in all$/);
+  assert.match(heard[1], /^junction: busy 1 time\(s\), \d+ ms in all$/);
+  // A rename that is always refused fails with its own error, once the budget is spent.
+  const lasting = busy('EPERM', 'rename');
+  let n = 0;
+  const t0 = Date.now();
+  assert.throws(() => busyRetry(() => { n++; throw lasting; }, { budgetMs: 300, waitMs: 50 }), e => e === lasting);
+  assert.ok(n >= 2, `tried ${n} time(s)`);
+  assert.ok(Date.now() - t0 < 30000, 'the budget bounds it');
+  // Any other error is thrown at once.
+  const other = busy('ENOENT', 'rename');
+  n = 0;
+  assert.throws(() => busyRetry(() => { n++; throw other; }), e => e === other);
+  assert.strictEqual(n, 1);
   fs.rmSync(base, { recursive: true, force: true });
 });
 
