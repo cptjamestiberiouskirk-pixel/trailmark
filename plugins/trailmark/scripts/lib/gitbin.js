@@ -375,6 +375,14 @@ function ownTilde(p) {
   const m = /^~([^\\/]+)[\\/]/.exec(p);
   return m && me && (WIN ? m[1].toLowerCase() === me.toLowerCase() : m[1] === me) ? m[0].length : 0;
 }
+// A base folder, links followed, that isn't there. False for anything else,
+// a base that leads to a share included: that one is refused where it is
+// read.
+function missingBase(b) {
+  const r = localPath(b);
+  if (!r) return false;
+  try { fs.lstatSync(r); return false; } catch (e) { return !!e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'); }
+}
 function farPathValue(value, bases, key = '') {
   const v = exactPointer(value);
   if (v === null) return 'odd-config-path';
@@ -387,8 +395,12 @@ function farPathValue(value, bases, key = '') {
   else if (ownTilde(p)) p = path.join(os.homedir(), p.slice(ownTilde(p)));
   else if (p.startsWith('~')) return 'odd-config-path';
   // Both readings: links followed first (as git does), and '..' taken as
-  // text first (as git-lfs does).
-  const tries = path.isAbsolute(p) ? [p, path.resolve(p)] : bases.filter(Boolean).flatMap(b => [rawJoin(b, p), path.resolve(b, p)]);
+  // text first (as git-lfs does). From a base folder that isn't there (the
+  // worktree of a removed submodule, say) the first reading reaches nothing,
+  // since the kernel stops at the missing folder, so only the second is
+  // checked. localPath would refuse it, as it refuses any '..' after a part
+  // that isn't there.
+  const tries = path.isAbsolute(p) ? [p, path.resolve(p)] : bases.filter(Boolean).flatMap(b => (missingBase(b) ? [path.resolve(b, p)] : [rawJoin(b, p), path.resolve(b, p)]));
   const walked = new Set();
   for (const t of tries) {
     const real = localPath(t);
@@ -567,6 +579,17 @@ function headAt(d) {
 function onlyFiles(d) {
   try { return fs.readdirSync(d, { withFileTypes: true }).every(x => x.isFile()); } catch { return false; }
 }
+// A listing that failed: '' when the folder is gone (removed meanwhile, or
+// not a folder), 'odd-path' when it is still there. On a file system that
+// reports no entry types, Node lstat's each name it decoded, and a name that
+// isn't valid UTF-8 then fails as ENOENT: the folder would be passed over
+// unchecked though git can read it. A folder no one may read (EACCES) is
+// passed over as before: git can't read it either.
+function unlisted(d, e) {
+  const code = e && e.code;
+  if (code !== 'ENOENT' && code !== 'ENOTDIR') return '';
+  try { return fs.lstatSync(d).isDirectory() ? 'odd-path' : ''; } catch { return ''; }
+}
 function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
   // JBMEM_TEST_GITDIR_BUDGET can only lower it (the tests use 20,000).
   const low = Number(process.env.JBMEM_TEST_GITDIR_BUDGET);
@@ -579,7 +602,7 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
   const walk = (d, rel, depth, budget, top = '') => {
     const below = top ? rel.slice(top.length + 1) : rel;
     let list;
-    try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return ''; }
+    try { list = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return unlisted(d, e); }
     for (const x of list) {
       // Past the budget: the rest isn't looked at. In the gitdir's own
       // folders that keeps git out, since a link could hide past it; a big
@@ -618,6 +641,12 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
       // vendor/objects/ab/child): its gitdir is then inside such a leftover's
       // objects/, so there a folder is passed over only when it has no HEAD
       // and holds plain files only, as loose objects do; else it is walked.
+      // A real submodule gitdir's own two-hex folders are passed over
+      // unlisted: looking into each (even for a HEAD only) took seconds on
+      // Windows with 200 submodules of 256 folders each. git 2.56 won't
+      // make a submodule vendor/objects/ab when vendor is one ("is inside
+      // git dir"), and opens a gitdir there only through a submodule's .git
+      // file, which farNested checks first (seen 2026-11-05).
       const own = lfsStore ? false : objectsRoot ? rel === '' : rel === (top ? top + '/objects' : 'objects');
       const leftover = !lfsStore && !objectsRoot && !own && /^modules\/.+\/objects$/.test(below);
       if ((own || leftover) && /^[0-9a-f]{2}$/i.test(x.name) && !(leftover && (headAt(sub) || !onlyFiles(sub)))) continue;
@@ -864,6 +893,14 @@ function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
 // were walked with the repo's own). '' or the reason; left() gives the time
 // left in ms, and the check stops with 'git-timeout' when it runs short.
 function farModules(top, left = () => Infinity) {
+  // A relative setting may also be taken from the folder git runs in
+  // (CHECK_CWD). git status runs in top, so that is the folder here, not the
+  // one the last check in this process happened to look at.
+  const prev = CHECK_CWD;
+  CHECK_CWD = path.resolve(String(top || '.'));
+  try { return farModulesIn(top, left); } finally { CHECK_CWD = prev; }
+}
+function farModulesIn(top, left) {
   return withShare(top, () => {
     const at = {};
     const g = path.join(top, '.git');
@@ -900,6 +937,35 @@ function moduleGitdirs(root) {
   if (top.why) return { list: out, why: top.why };
   if (!top.dir) return { list: out, why };
   root = top.dir;
+  // An entry of folder d, a link followed: { p, dir }, or null for a link
+  // that leads to a share (why is set).
+  const follow = (d, x) => {
+    const p = path.join(d, x.name);
+    if (!x.isSymbolicLink()) return { p, dir: x.isDirectory() };
+    const real = localPath(p);
+    if (!real) { why = 'linked-gitdir'; return null; }
+    let dir;
+    try { dir = fs.statSync(real).isDirectory(); } catch { dir = false; }
+    return { p: real, dir };
+  };
+  // A gitdir's objects/: a submodule named vendor/objects/x keeps its gitdir
+  // there when vendor is one. git 2.56 won't make one by that name, and
+  // opens it only through a submodule's .git file, which farNested checks;
+  // an older git may open it by name. Every folder there is walked but the
+  // two-hex ones, passed over unlisted as in linkedEntries (see there for
+  // the cost).
+  const objectsIn = (od, depth) => {
+    let list;
+    try { list = fs.readdirSync(od, { withFileTypes: true }); } catch (e) { why = unlisted(od, e); return; }
+    for (const x of list) {
+      if (/^[0-9a-f]{2}$/i.test(x.name)) continue;
+      if (x.name.includes('\uFFFD')) { if (x.isFile()) continue; why = 'odd-path'; return; }
+      const f = follow(od, x);
+      if (!f) return;
+      if (f.dir) walk(f.p, depth + 1);
+      if (why) return;
+    }
+  };
   const walk = (d, depth) => {
     if (why) return;
     if (out.length >= MAX_MODULE_GITDIRS) { why = 'many-submodules'; return; }
@@ -908,7 +974,7 @@ function moduleGitdirs(root) {
     if (seen.has(k)) return;
     seen.add(k);
     let list;
-    try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    try { list = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { why = unlisted(d, e); return; }
     // A folder with a HEAD (a file or a link, as git accepts either) is a
     // candidate gitdir; the walk goes on inside it too, since a submodule
     // named a/b keeps its gitdir in modules/a/b even when modules/a is one.
@@ -916,18 +982,15 @@ function moduleGitdirs(root) {
     if (isGitdir) out.push(d);
     for (const x of list) {
       if (x.name.includes('\uFFFD')) { why = 'odd-path'; return; }
-      // A gitdir's own objects, refs (refs/remotes/origin holds a HEAD too),
-      // logs, lfs and hooks hold no submodule gitdir.
-      if (isGitdir && /^(objects|refs|lfs|logs|hooks)$/.test(x.name)) continue;
-      let sub = path.join(d, x.name);
-      let isDir = x.isDirectory();
-      if (x.isSymbolicLink()) {
-        const real = localPath(sub);
-        if (!real) { why = 'linked-gitdir'; return; }
-        try { isDir = fs.statSync(real).isDirectory(); } catch { isDir = false; }
-        sub = real;
-      }
-      if (isDir) walk(sub, depth + 1);
+      // A gitdir's own refs (refs/remotes/origin holds a HEAD too), logs, lfs
+      // and hooks hold no submodule gitdir; its objects/ may (objectsIn).
+      if (isGitdir && /^(refs|lfs|logs|hooks)$/.test(x.name)) continue;
+      const f = follow(d, x);
+      if (!f) return;
+      if (f.dir && isGitdir && x.name === 'objects') {
+        const k2 = WIN ? f.p.toLowerCase() : f.p;
+        if (!seen.has(k2)) { seen.add(k2); objectsIn(f.p, depth + 1); }
+      } else if (f.dir) walk(f.p, depth + 1);
       if (why) return;
     }
   };

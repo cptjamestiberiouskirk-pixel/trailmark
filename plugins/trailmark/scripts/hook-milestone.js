@@ -48,7 +48,7 @@ function mergeText(command) {
 }
 const { readPayload, memoryDirOrExit, emit, guard } = require('./lib/hookio');
 const { isMilestoneCommand, commitSites } = require('./lib/commands');
-const { commitFacts } = require('./lib/gitfacts');
+const { commitFacts, windowStart, windowMs } = require('./lib/gitfacts');
 
 const BG_NOTE = 'A commit command was sent to the background; its commits are logged by a later sweep once it finishes.';
 const HINTS = {
@@ -113,15 +113,29 @@ guard(() => {
   const now = Date.now();
   const handoff = path.join(dir, S.HANDOFF);
 
+  // A folder this command adds to the session's commit folders is swept from
+  // the command's window on, and counts as settled once a sweep has read it
+  // past now (for a command sent to the background, past the time it may
+  // still run): store.addCommitDirs. NaN when the window isn't known.
+  let join = { from: NaN, settled: NaN };
+  if (kind === 'commit') {
+    let start = null;
+    try { start = toolId ? S.readCommitStart(dir, toolId, session) : null; } catch (e) { if (e && e.code === 'ERR_ACCESS_DENIED') throw e; start = null; }
+    // From the launcher's start, as its own commit lookup: this script starts
+    // later, by as long as the launcher's git took (up to 5 s on a timeout).
+    let procStart = performance.timeOrigin;
+    try { const v = JSON.parse(process.env.JBMEM_GIT || '{}').procStart; if (Number.isFinite(v) && v > 0 && v <= now) procStart = v; } catch { /* this script's own start */ }
+    const from = windowStart(now, payload.duration_ms, procStart, start ? start.at : undefined);
+    join = { from, settled: background ? now + windowMs() : now };
+  }
+  const addDirs = (rec, dirs) => S.addCommitDirs(rec, dirs, join.from, join.settled);
+
   let commits = { entries: [], unresolved: [] };
   // The folders the command was checked in, outside the session's own repo,
   // join its commit folders, so a later sweep reads them.
   const addOthers = (rec) => {
     const others = (commits.folders || []).filter(f => !f.own).map(f => f.dir);
-    if (!others.length) return;
-    const dirs = Array.isArray(rec.commitDirs) ? rec.commitDirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
-    for (const d of others) if (!dirs.includes(d)) dirs.push(d);
-    rec.commitDirs = dirs.slice(-6);
+    if (others.length) addDirs(rec, others);
   };
   let endLine = '';
   if (kind === 'commit') {
@@ -219,16 +233,10 @@ guard(() => {
             rec.commitDir = last.folder.dir;
             rec.commitAt = now;
             // Every folder this session committed in, for the commit sweep.
-            const dirs = Array.isArray(rec.commitDirs) ? rec.commitDirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
-            for (const e of fresh) if (!dirs.includes(e.folder.dir)) dirs.push(e.folder.dir);
-            rec.commitDirs = dirs.slice(-6);
+            addDirs(rec, fresh.map(e => e.folder.dir));
           }
         }
-        if (rec && slowNote) {
-          const dirs = Array.isArray(rec.commitDirs) ? rec.commitDirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
-          for (const u of slow) if (u.folder && !dirs.includes(u.folder)) dirs.push(u.folder);
-          rec.commitDirs = dirs.slice(-6);
-        }
+        if (rec && slowNote) addDirs(rec, slow.map(u => u.folder).filter(Boolean));
         // A command sent to the background may still commit in its other
         // folders, the ones it hasn't committed in yet among them.
         if (rec && background) addOthers(rec);
@@ -257,6 +265,18 @@ guard(() => {
         S.note(dir, `PR_MERGE ${mergeText(command)}`, session);
       }
     } catch (e2) { if (e2 && e2.code === 'ERR_ACCESS_DENIED') throw e2; }
+    // Git timed out and the folder couldn't join the session's commit
+    // folders: Claude is told, without the promise of a sweep. No cause is
+    // named: a busy lock is the usual one, and JBMEM_LOCKED also means a
+    // lock file that can't be made (store.js withLock).
+    if (slowNote && !afterFailure) {
+      emit({
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: `[trailmark] A commit was not logged: git was too slow (it timed out) in ${slow.length === 1 ? 'one folder' : `${slow.length} folders`}, and trailmark's state file couldn't be updated, so a later sweep may miss it. Name the commit in the handoff at the next checkpoint.`,
+        },
+      });
+    }
     leave();
   }
   const slowText = slowNote

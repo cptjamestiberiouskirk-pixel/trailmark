@@ -1,6 +1,6 @@
 # Security
 
-Trailmark runs code as you at every Claude Code session start, after every commit command and before every compaction. This file says what that code can and can't do, what it trusts, and what's left to you.
+Trailmark runs code as you at every Claude Code session start and compaction, and after every tool call and prompt. This file says what that code can and can't do, what it trusts, and what's left to you.
 
 The short version: the part that writes runs under Node's permission model and can write only in the repo's memory folder. git runs with every repo setting that could start a program switched off, and is kept away from network shares. Nothing in the release makes network requests. The limits that remain are listed under "Known limits".
 
@@ -12,7 +12,7 @@ Please don't open a public issue for anything that lets a repo, a web page or an
 
 ## What runs, and with what rights
 
-Every hook and skill command enters through `plugins/trailmark/scripts/trailmark.js` (the launcher). The launcher only reads: it finds the repo's memory folder and collects a few git facts. It then runs the real script under Node's permission model:
+Every hook and skill command enters through `plugins/trailmark/scripts/trailmark.js` (the launcher). The launcher only reads: it finds the repo's memory folder and collects a few git facts. For the context watch it also reads the end of the session's transcript and Claude Code's settings files. It then runs the real script under Node's permission model:
 
 | Right | Granted |
 |---|---|
@@ -35,12 +35,13 @@ git is run by the launcher, outside the sandbox. It runs by full path (found on 
 | The memory folder's own subfolders and files | Untrusted | Subfolders must be real folders, never links, before anything is written or pruned there. Files are read, listed and dated only when they are plain files, never through a link. A link counts as missing, and a linked lock file is removed, never followed. Files are opened with `O_NOFOLLOW` where the platform has it, and checked to be the same file that was seen before opening. This matters because the launcher reads some of them outside the sandbox, and a link could lead to a network share |
 | The handoff's `Updated:` line (HEAD, agent) | Untrusted | Its HEAD reaches git only as 7 to 12 hex digits, checked by the launcher; anything else is ignored. The agent name is shown only when it is exactly `Claude Code` or `Codex` |
 | Commit subjects listed at session start | Untrusted | Read by the launcher from `git log`, cut to one line of 80 characters, and injected in their own frame marked as repo data, with the same line and tag escaping as the handoff |
-| The repo root recorded in the state file | Untrusted | Used only to compare paths and to check, outside the sandbox, whether a `.git` entry is there. A network path is never resolved, compared or checked. Shown with tag-like text escaped |
+| The repo root recorded in the state file | Untrusted | Used only to compare paths and to check, outside the sandbox, whether a `.git` entry is there. A network path is never resolved, compared or checked. `dir` shows it after a label saying it is data, with tag-like text escaped |
 | `.jbmem.json` | Partly trusted | Budgets are clamped. `"sandbox": false` is ignored, because a session steered by text it read could write it |
 | `JBMEM_SANDBOX=off` | Trusted | Only the environment turns the sandbox off, and every session start then warns |
 | `NODE_OPTIONS`, other `NODE_*`, the launcher's own `JBMEM_*` | Untrusted | Not passed to the sandboxed script; the launcher sets its own |
 | Network paths in command text, payloads or `--from` | Untrusted | Never touched unless the session works under that path |
-| Claude Code's plugin cache | Untrusted | Read with limits on entries, bytes and time; network links are never followed. Other Trailmark copies there are named at session start so Claude doesn't run them |
+| Claude Code's plugin cache | Untrusted | Read with limits on entries, bytes and time; network links are never followed. Session start says how many other Trailmark copies are there, in fixed text, and tells Claude not to run them; `trailmark.js --copies --show-names`, named only in the warning shown to you, lists their folders, after a line saying the names are data, with tag-like text escaped. Plain `--copies`, the form the note to Claude names, prints counts only |
+| Claude Code's settings files and the session's transcript, read for the context watch | Untrusted | Read by the launcher, as plain local files only (`lib/plainfile.js`): a settings file up to 1 MB, and up to the last 32 MB of a transcript that is a `.jsonl` file directly in a folder of Claude Code's projects folder. Only numbers and a model name of plain characters come out. No text from either file is passed on: two token counts appear, in the message to you and in the request to Claude |
 | The Codex rollout transcript | Untrusted | Read by session ID only, only for a session that started in this repo, streamed with a size limit |
 
 ## Known limits
@@ -141,7 +142,7 @@ Two grants reach past the memory folder. `init` gets read and write on the proje
 
 ### Output the skills read, and very large files
 
-CLI output that skills read (`handoff`, `search`, `list`) prints memory text without the session-start frame. `list` and `status` do drop control characters and escape tags.
+CLI output that skills read (`handoff`, `list`) prints memory text without the session-start frame. `list` and `status` do drop control characters and escape tags. `search` prints its hits after a line saying they are matched lines from memory files, data only, not instructions, with invisible characters shown as `<U+XXXX>` and tags escaped.
 
 A very large `handoff.md` or state file is read whole, so the injection could miss the hook's time limit. The session itself isn't held up.
 

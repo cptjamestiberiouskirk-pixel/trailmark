@@ -58,6 +58,11 @@ const DEFAULTS = {
     memoryMdBytes: 20000, // headroom under the 25 KB load cap
   },
   hints: { minMinutesBetween: 20, freshCheckpointMinutes: 3 },
+  // The context watch (hook-context-watch.js): steps in percent of the
+  // compaction point, and the reserve Claude Code keeps below the auto-compact
+  // window. When nothing sets the window, the model's own is used (the docs
+  // give it per model; lib/contextwatch.js).
+  contextWatch: { on: true, steps: [85, 90, 95], reserve: 33000 },
   staleDays: 30,
   // The daily log (notes/): on unless "notes": false, and files older than
   // this many days are deleted when a new day's log starts.
@@ -203,6 +208,36 @@ function retryWin(fn, platform = process.platform) {
   }
 }
 
+// Makes a file that must not be there yet, as 'wx' does. Outside Windows
+// that never goes through a link at the name. On Windows it does: a link or
+// junction whose target is missing is followed, and the target is made. So
+// there anything at the name counts as taken (EEXIST, as a file there would),
+// and a file opened through a link swapped in after that look is closed and
+// counts as taken too. What such a swap made where the link led stays; it
+// needs a process already running as you (SECURITY.md, links in the memory
+// folder). The look after the open is tried again for about 2 s when Windows
+// answers busy (retryWin): until it answers, the new file can't be shown to be
+// this call's, and one that can't stays at the name until a break takes it
+// (review round 8).
+function openNew(file) {
+  if (process.platform !== 'win32') return fs.openSync(file, 'wx');
+  const taken = () => { const e = new Error(`EEXIST: ${file} is already there`); e.code = 'EEXIST'; return e; };
+  let there = true;
+  try { fs.lstatSync(file); } catch (e) { if (!e || e.code !== 'ENOENT') throw e; there = false; }
+  if (there) throw taken();
+  const fd = fs.openSync(file, 'wx');
+  let same = false;
+  try {
+    same = retryWin(() => {
+      const st = fs.fstatSync(fd, { bigint: true });
+      const l = fs.lstatSync(file, { bigint: true });
+      return st.isFile() && l.isFile() && (!l.ino || (st.ino === l.ino && st.dev === l.dev));
+    });
+  } catch { /* not shown to be the same */ }
+  if (!same) { try { fs.closeSync(fd); } catch { /* closed */ } throw taken(); }
+  return fd;
+}
+
 // The temp name is random and created exclusively ('wx'), so a link someone
 // planted at a name they could predict is never written through.
 function atomicWrite(file, content) {
@@ -322,7 +357,7 @@ function tryBreakLock(file) {
   if (!nonFile && !lockBreakable(info)) return false;
   const brk = `${file}.break`;
   let bfd;
-  try { bfd = fs.openSync(brk, 'wx'); } catch {
+  try { bfd = openNew(brk); } catch {
     // Someone else is breaking it. A break file older than 30 s is left over
     // from a crash in the few lines below.
     // Anything there that isn't a plain file isn't ours: a link or FIFO is
@@ -378,7 +413,7 @@ function withLock(dir, fn, { waitMs = 10000, holder = '' } = {}) {
   let lastCode = '';
   for (;;) {
     let broke = false;
-    try { fd = fs.openSync(file, 'wx'); break; } catch (e) {
+    try { fd = openNew(file); break; } catch (e) {
       lastCode = e.code;
       // On Windows a lock that was just deleted while something still had it
       // open refuses to be created again for a moment: same as "taken".
@@ -437,6 +472,56 @@ function fieldText(t, max = 160) {
   return v.length > max ? '...' + v.slice(-(max - 3)) : v;
 }
 
+// An install path meant to be run or read (the launcher, a skill's file), for
+// text that reaches Claude or Codex: the path exactly as it is on disk, or ''
+// when it can't be written that way. fieldText would drop or encode
+// characters and so name a file that isn't there (Copilot on PR #4). '' comes
+// back when the path holds a character fieldText changes, other than |, and
+// for a path over max characters. A | stays: inside the quotes of a command
+// it is only a character, and a folder name on Linux or macOS may hold one.
+// '' also comes back for a path holding a character a shell acts on inside
+// the quotes of node "<path>", tried in bash, cmd and PowerShell (PR #4): $
+// and ` (bash and PowerShell run $(...) and `...` and expand $name), % (cmd
+// expands %name%), ! (an interactive bash expands history, and cmd does with
+// delayed expansion), U+201C to U+201E (PowerShell ends "..." at these curly
+// quotes as at ", so what follows runs) and \\ (bash reads it as one \, so
+// a network path \\server\share names another file). The pattern is written
+// here, not in a const: the Codex copy calls this while store.js loads.
+// And '' for a path oneLine would change: two spaces in a row, a space at
+// either end, or a space other than U+0020 (U+00A0, U+3000). Every note to
+// Claude or Codex goes through oneLine, which would write another path
+// (Copilot on PR #4).
+function usablePath(p, max = 1024) {
+  const v = typeof p === 'string' ? p : '';
+  const w = v.split('|').join('');
+  return v && v.length <= max && fieldText(w, max) === w && oneLine(v, max) === v && !/[$`%!\u201c-\u201e]|\\\\/.test(v) ? v : '';
+}
+
+// A name from disk as --copies --show-names prints it: on one line, with
+// control, line-break and invisible characters (a bidi override among them)
+// and a lone surrogate shown as <U+XXXX>, so a name can't reorder or hide
+// part of its line (round 8 on PR #4). A < that starts <U+ is shown so too,
+// so a name holding the text <U+202E> prints apart from one holding U+202E.
+// A name over max characters keeps its end, as fieldText does, since the
+// end of a path names the folder: '...' and then whole characters and
+// escapes, never part of one.
+function visibleName(text, max = 600) {
+  const s = String(text || ''), parts = [];
+  const hidden = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}]/u;
+  let len = 0;
+  for (let i = 0; i < s.length;) {
+    const cp = s.codePointAt(i), ch = String.fromCodePoint(cp);
+    const part = hidden.test(ch) || (ch === '<' && s.startsWith('U+', i + 1)) ? `<U+${cp.toString(16).toUpperCase().padStart(4, '0')}>` : ch;
+    parts.push(part);
+    len += part.length;
+    i += ch.length;
+  }
+  if (len <= max) return parts.join('');
+  let out = '';
+  for (let j = parts.length - 1; j >= 0 && out.length + parts[j].length <= max - 3; j--) out = parts[j] + out;
+  return '...' + out;
+}
+
 // A folder as it appears in a log line (COMMIT ... in="<folder>") and on the
 // handoff's Updated line (| in <folder>): forward slashes and an upper-case
 // drive letter on Windows, no control or invisible characters, " and |
@@ -491,6 +576,9 @@ const CONFIG_RANGES = {
     memoryMdBytes: [1000, 200000],
   },
   hints: { minMinutesBetween: [0, 24 * 60], freshCheckpointMinutes: [0, 24 * 60] },
+  // The launcher leaves before any lookup below the earliest step these allow
+  // (lib/contextwatch.js LOWEST_STEP and MAX_RESERVE): keep them in step.
+  contextWatch: { step: [80, 99], reserve: [20000, 50000] },
   staleDays: [1, 3650],
   notesKeepDays: [1, 3650],
 };
@@ -519,11 +607,25 @@ function loadConfig(dir) {
     staleDays: configInt(user.staleDays, CONFIG_RANGES.staleDays, DEFAULTS.staleDays),
     notes: user.notes !== false,
     notesKeepDays: configInt(user.notesKeepDays, CONFIG_RANGES.notesKeepDays, DEFAULTS.notesKeepDays),
+    contextWatch: contextWatchConfig(user.contextWatch),
   };
   // Kept only so session start can warn that it is ignored (trailmark.js: the
   // sandbox is turned off by JBMEM_SANDBOX=off alone, since 0.3.8).
   if (user.sandbox === false) cfg.sandbox = false;
   return cfg;
+}
+
+// contextWatch in .jbmem.json: "on" (false turns it off), "steps" (one to
+// three whole percentages, each clamped, sorted, duplicates dropped) and
+// "reserve".
+function contextWatchConfig(v) {
+  const d = DEFAULTS.contextWatch;
+  const r = CONFIG_RANGES.contextWatch;
+  const u = isPlainObject(v) ? v : {};
+  let steps = Array.isArray(u.steps) ? u.steps.slice(0, 3).map(x => configInt(x, r.step, NaN)).filter(Number.isFinite) : [];
+  steps = [...new Set(steps)].sort((a, b) => a - b);
+  if (!steps.length) steps = d.steps.slice();
+  return { on: u.on !== false, steps, reserve: configInt(u.reserve, r.reserve, d.reserve) };
 }
 
 function isPlainObject(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
@@ -552,11 +654,12 @@ function readStateStrict(dir) {
   if (text === null) return {};
   const v = parseState(text);
   if (v) return v;
-  // The text already read, created exclusively ('wx'): never through a link
-  // or over a file already there. An older .bad copy stays; this one gets a
-  // time suffix.
-  try { fs.writeFileSync(`${file}.bad`, text, { flag: 'wx' }); } catch (e) {
-    if (e && e.code === 'EEXIST') { try { fs.writeFileSync(`${file}.bad-${Date.now()}`, text, { flag: 'wx' }); } catch { /* best effort */ } }
+  // The text already read, in a file made new (openNew): never through a link
+  // or over a file already there. An older .bad copy (or a link there) stays;
+  // this one gets a time suffix.
+  const keep = (f) => { const fd = openNew(f); try { fs.writeFileSync(fd, text); } finally { fs.closeSync(fd); } };
+  try { keep(`${file}.bad`); } catch (e) {
+    if (e && e.code === 'EEXIST') { try { keep(`${file}.bad-${Date.now()}`); } catch { /* best effort */ } }
   }
   return {};
 }
@@ -1172,6 +1275,56 @@ function rememberCommits(state, shas) {
   state.loggedCommits = prior.concat(shas).slice(-KEEP_SHAS);
 }
 
+// ---------- the folders a session's commits went to ----------
+
+// rec.commitDirs: the folders this session committed in, or may have
+// committed in without a log line yet (git timed out, a command sent to the
+// background), at most MAX_COMMIT_DIRS; the commit sweep reads them.
+// rec.commitDirsAt keeps [from, settled] for each. The sweep starts there no
+// earlier than `from`, the window of the command that added it: commits
+// another session made there before are not this session's. A later command
+// there moves only `settled`, so the sweep reads on from where it last
+// stopped and still finds a commit made there in between (by a script, say).
+// `settled` is when the latest of those commands was done (for one sent to
+// the background, when its time is up); a sweep read past it means nothing
+// of this session's is left there unlogged. Past the limit, such a folder is
+// dropped first (oldest first),
+// then the oldest; a folder this call adds stays. With no time given (NaN)
+// a folder has no entry and is swept from the session's start, as before.
+const MAX_COMMIT_DIRS = 6;
+function addCommitDirs(rec, dirs, from, settled = from) {
+  const list = Array.isArray(rec.commitDirs) ? rec.commitDirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
+  const old = isPlainObject(rec.commitDirsAt) ? rec.commitDirsAt : {};
+  const at = {};
+  for (const d of list) {
+    const v = old[d];
+    if (Array.isArray(v) && v.length === 2 && v.every(Number.isFinite)) at[d] = [v[0], v[1]];
+  }
+  const swept = isPlainObject(rec.swept) ? rec.swept : {};
+  const sweptAt = (d) => { const k = Object.keys(swept).find(x => Number.isFinite(swept[x]) && samePath(x, d)); return k ? swept[k] : -Infinity; };
+  const done = (d) => !!at[d] && sweptAt(d) >= at[d][1];
+  const timed = Number.isFinite(from) && Number.isFinite(settled);
+  const added = new Set();
+  for (const d of Array.isArray(dirs) ? dirs : []) {
+    if (typeof d !== 'string' || !path.isAbsolute(d) || d.length >= 4096) continue;
+    added.add(d);
+    const fresh = !list.includes(d);
+    if (fresh) list.push(d);
+    if (!timed) delete at[d];
+    else if (fresh) at[d] = [from, settled];
+    else if (at[d]) at[d] = [Math.min(at[d][0], from), Math.max(at[d][1], settled)];
+  }
+  while (list.length > MAX_COMMIT_DIRS) {
+    let i = list.findIndex(d => !added.has(d) && done(d));
+    if (i < 0) i = list.findIndex(d => !added.has(d));
+    if (i < 0) i = 0;
+    delete at[list[i]];
+    list.splice(i, 1);
+  }
+  rec.commitDirs = list;
+  rec.commitDirsAt = at;
+}
+
 // The commits a sweep (gitfacts.sweepCommits, run by the launcher at session
 // start and at write-handoff) found in this session's folders that no hook
 // logged: made by a script, by hand, or while a hook didn't run. Logged as
@@ -1724,7 +1877,43 @@ const FRAME_LIKE = /^[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*(?:[-
 // before a letter) or an invisible character in it, starts with a role or
 // block word (<systemprompt>, <developer>), or has a letter outside ASCII in
 // it (a look-alike such as a Cyrillic s).
-const TAG_LIKE = /[<＜﹤](?=[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*[\/／∕⁄⧸]?[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*$|[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*[\/／∕⁄⧸][\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*[\p{L}_]|[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*(?:[\p{L}_][\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*(?:[-_.\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]|:(?=\p{L}))[\p{L}\p{N}_.:\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}-]*|(?:system|user|assistant|human|tool|function|developer|instructions?|context|documents?|example|reminder|message|prompt)[\p{L}\p{N}_]*|[\p{L}\p{N}_]*(?:(?![\x00-\x7f])\p{L})[\p{L}\p{N}_\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*)[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*(?:[\s>＞\/／∕⁄⧸]|$))/giu;
+// Each run in TAG_LIKE matches a stretch of text one way only, so its time
+// grows with the line's length. 71d7a78's pattern let three runs in a row
+// take invisible characters, from the name to the spaces before the tag's
+// end, so a line holding <a, thousands of them and no tag end took time that
+// grew with their number cubed: 2.75 s at 1,200, minutes at 3,000, past
+// session start's 10 s limit (the user: "Pull into 0.6.0"). It escapes the
+// same text, which handoff-checks.test.js checks against 71d7a78's pattern:
+// - The run before a name's separator takes no separator, since the first
+//   one serves as well as a later one.
+// - The run after it stops at the first character that can't be in a name,
+//   and that character ends the tag or nothing does. U+FEFF is both
+//   invisible and a space, so these runs leave it to the end.
+// - Four Hangul fillers are both letters and invisible: the run before an
+//   opening tag's name stops at them, and the name starts there.
+// - A role word's letters are taken whole: the lookahead and \1 keep the
+//   engine from giving any back.
+// TAG_INV is the invisible characters as FRAME_LIKE counts them. Every class
+// that holds them writes them so, which SHOWN_TAG_LIKE relies on.
+const TAG_INV = '\\p{Cf}\\p{Default_Ignorable_Code_Point}\\u2800\\p{M}';
+const TAG_SPACE = `[\\s${TAG_INV}]`;
+const TAG_SPACE_NL = `(?:(?!\\p{L})${TAG_SPACE})`;
+const TAG_SLASH = '[\\/／∕⁄⧸]';
+const TAG_END = '(?:[\\s>＞\\/／∕⁄⧸]|$)';
+const TAG_ROLE = '(?:system|user|assistant|human|tool|function|developer|instructions?|context|documents?|example|reminder|message|prompt)';
+const TAG_LIKE = new RegExp('[<＜﹤](?=' + [
+  // < or </ with nothing after it but spaces and invisible characters.
+  `${TAG_SPACE}*(?:${TAG_SLASH}${TAG_SPACE}*)?$`,
+  // A closing tag: / and then a letter.
+  `${TAG_SPACE}*${TAG_SLASH}${TAG_SPACE_NL}*[\\p{L}_]`,
+  // An opening tag, after spaces and invisible characters that aren't
+  // letters: one of the kinds of name above, then the tag's end.
+  `${TAG_SPACE_NL}*(?:${[
+    `[\\p{L}_](?:(?![${TAG_INV}])[\\p{L}\\p{N}])*(?:[-_.${TAG_INV}]|:(?=\\p{L}))(?:(?!\\uFEFF)[\\p{L}\\p{N}_.:${TAG_INV}-])*${TAG_END}`,
+    `${TAG_ROLE}(?=([\\p{L}\\p{N}_]*))\\1(?:(?!\\uFEFF)[${TAG_INV}])*${TAG_END}`,
+    `(?:[\\p{N}_]|(?=[\\x00-\\x7f])\\p{L})*(?![\\x00-\\x7f])\\p{L}(?:(?!\\uFEFF)[\\p{L}\\p{N}_${TAG_INV}])*${TAG_END}`,
+  ].join('|')})`,
+].join('|') + ')', 'giu');
 // A line that is the skills' heredoc end marker would end the heredoc when a
 // later checkpoint copies the handoff forward; indented, it can't.
 const HEREDOC_END = /^JBMEM_EOF/;
@@ -1738,9 +1927,25 @@ function framed(text) {
   return String(text).normalize('NFC').replace(LINE_BREAKS, '\n').replace(CONTROLS, m => (m.length > 2 && m.codePointAt(0) === 0x1f3f4 ? m : '')).split('\n').map(l => (FRAME_LIKE.test(l) || HEREDOC_END.test(l) ? '  ' + l : l).replace(TAG_LIKE, m => m + '\\')).join('\n');
 }
 
+// visibleName shows an invisible character as the text <U+XXXX>, and that
+// text split a tag so TAG_LIKE missed it: <system<U+200B>> (review round 9
+// on PR #4). SHOWN_TAG_LIKE is TAG_LIKE with such an escape allowed
+// wherever an invisible character is: each of TAG_LIKE's character classes
+// that holds the invisible ones becomes that class or an escape. The < that
+// starts an escape never opens a tag itself, since U+ follows it.
+const SHOWN_TAG_LIKE = new RegExp(TAG_LIKE.source.replace(/\[[^\]]*\\p\{Cf\}\\p\{Default_Ignorable_Code_Point\}\\u2800\\p\{M\}[^\]]*\]/g, c => `(?:${c}|<U\\+[0-9A-F]{4,6}>)`), TAG_LIKE.flags);
+
 // Tag-like text escaped as in framed(), for one line placed outside a frame.
-function escapeTags(t) {
-  return dropControls(String(t).normalize('NFC')).replace(TAG_LIKE, m => m + '\\');
+// asIs is for text visibleName has shown: a name from disk, or a line search
+// found. It skips the NFC step, so the text prints as it is on disk: NFC
+// prints a name stored decomposed (e plus U+0301) composed, a path that
+// isn't on disk (Copilot on PR #4). The tag patterns allow marks where they
+// allow other invisible characters, so a decomposed tag still matches. It
+// matches with SHOWN_TAG_LIKE, so a <U+XXXX> counts as the invisible
+// character it stands for.
+function escapeTags(t, { asIs = false } = {}) {
+  const s = String(t);
+  return dropControls(asIs ? s : s.normalize('NFC')).replace(asIs ? SHOWN_TAG_LIKE : TAG_LIKE, m => m + '\\');
 }
 
 function frameMarker() {
@@ -1997,14 +2202,14 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   return { text, summary: `handoff ${age} old, ~${estTokens(text.length)} tokens injected${cut ? ', TRUNCATED' : ''}${ho.overChars || ho.overLines ? ', over budget' : ''}` };
 }
 
-module.exports = { addMemoryRoot, plainStat, plainExists, shownName, linkedFiles,
-  checkRepoRoot, escapeTags, readPlain, handoffStamp, checkSinceFacts, coveredSteps, pruneNotes, AGENT,
+module.exports = { addCommitDirs, MAX_COMMIT_DIRS, addMemoryRoot, plainStat, plainExists, shownName, linkedFiles,
+  checkRepoRoot, escapeTags, TAG_LIKE, SHOWN_TAG_LIKE, readPlain, handoffStamp, checkSinceFacts, coveredSteps, pruneNotes, AGENT,
   MARKER, HANDOFF, HANDOFF_PREV, PRECOMPACT, SNAPSHOTS, LOCK, PENDING, DEFAULTS, HISTORY, CHECKPOINT_SKILL, SKILL_RULE,
   cleanSession, shortSession, versionOf, withLock, updateState, sessionRecord, otherSessions, lastWriterOf,
   findVersionText, lineDiff, snapshotPath, writeSnapshot, listSnapshots, retryWin, splitDone, lockInfo,
   recordSessionStart, checkpointTime, ageText,
   CC_MEMORY_MD_LINES, CC_MEMORY_MD_BYTES, CC_CONTEXT_CHARS,
-  localDate, localTime, estTokens, oneLine, inside, displayPath, fieldText, splitFrontmatter, atomicWrite, readText,
+  localDate, localTime, estTokens, oneLine, inside, displayPath, fieldText, usablePath, visibleName, splitFrontmatter, atomicWrite, readText,
   isEnabled, loadConfig, readState, writeState, init,
   writeHandoff, stampUpdated, undoHandoff, measureHandoff, rotate,
   note, lastNote, loggedCommitShas, recordCommitStart, readCommitStart, cleanAgent, markCommitDone, openCommitStart, concurrentCommitStarts, park, listDir, search, topicFiles,

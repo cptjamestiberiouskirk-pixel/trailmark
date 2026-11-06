@@ -4,7 +4,7 @@ Trailmark keeps one short state file per repo, the handoff, and gives it to ever
 
 Sections 2 to 7 get you installed and working. The rest covers the Codex copy for the ChatGPT desktop app, the optional Windows tools, updating, troubleshooting, uninstalling and moving from jb-memory. The internals are in [docs/how-it-works.md](docs/how-it-works.md) and the security model is in [SECURITY.md](SECURITY.md).
 
-Version 0.5.1, for both Claude Code and the Codex copy (trailmark-watchdog 1.7.0). MIT licensed.
+Version 0.6.0, for both Claude Code and the Codex copy (trailmark-watchdog 1.7.0). MIT licensed.
 
 ## Contents
 
@@ -160,10 +160,13 @@ Most of it happens on its own.
 | `gh pr merge` | Logs the merge and reminds Claude to checkpoint |
 | A subagent finishes | Reminds Claude to checkpoint if the result changed the state |
 | Before a compaction | Saves a snapshot of git state for that session |
+| The context nears auto-compaction (Claude Code only) | Asks Claude to checkpoint before Claude Code compacts the session, and shows `[trailmark] Context about ...` to you |
 
 After the handoff, session start also lists the commits made on HEAD since the handoff was written, and names any next step one of them may already cover. After a compaction it adds that session's snapshot. It names other sessions active in the repo in the last 3 hours, and warns if a second repo maps to the same memory folder.
 
 The reminders are rate-limited (20 minutes apart by default), and Claude may skip one when nothing material changed.
+
+The context watch is not: it is the last chance before the compaction summarizes the session. It asks at 85% of the point where Claude Code compacts, then at 90% and 95% only if no checkpoint was written since. It starts over after a compaction, and when the window grows past any it has asked in. Section 7 has its settings.
 
 You call the skills by their full names:
 
@@ -242,6 +245,11 @@ Keep the evidence labels unless you have a reason to drop them. They let the nex
 | `publicRepo` | false | true or false | Extra checks before anything is promoted into committed files |
 | `notes` | true | true or false | `false` turns off the daily log in `notes/` |
 | `notesKeepDays` | 90 | 1 to 3650 | Days a daily log file is kept. Older ones are deleted when a new day's log starts |
+| `contextWatch.on` | true | true or false | `false` turns the context watch off (Claude Code only) |
+| `contextWatch.steps` | `[85, 90, 95]` | One to three whole numbers, each 80 to 99 | When Claude is asked to checkpoint, in percent of the point where Claude Code auto-compacts |
+| `contextWatch.reserve` | 33000 | 20000 to 50000 | How many tokens below its window Claude Code compacts. 33000 is what transcripts showed with 400k and 1M windows; Claude Code doesn't document it |
+
+To find that point, the context watch takes the window from `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, then from the `env` block of a settings file, then from `modelSettings.<model>.autoCompactWindow` or `autoCompactWindow`. The settings files are Claude Code's `settings.json` and the project's `.claude/settings.json` and `.claude/settings.local.json`; a later one wins. Without any of these it uses the model's own window, as its name in the transcript shows it: 1M for a model that has one, and 200k for others or with `CLAUDE_CODE_DISABLE_1M_CONTEXT=1`. The window is never more than the model's own. A request bigger than that proves a bigger window (a 1M context chosen with `[1m]`, which transcripts don't record), and the cap is dropped. Compaction comes `reserve` tokens below the window, or at `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` percent of it when that is earlier.
 
 Environment variables:
 
@@ -375,7 +383,7 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 | The line says `sandbox off` or warns about the sandbox | `JBMEM_SANDBOX=off` is set in user or repo settings | Remove it unless you set it on purpose |
 | "Sandbox check failed" or "SANDBOX UNAVAILABLE" | Node is too old or was built without the permission model | Install a current Node LTS and rerun the check. Only if that's impossible, set `JBMEM_SANDBOX=off` (section 7) |
 | Warning that Node is older than the security release | Node is below its line's floor | Update Node |
-| Warning about another copy of Trailmark | A stale copy in Claude Code's plugin cache | Remove that folder (the warning says where to look; Claude has the folder names), or uninstall the other install (section 15) |
+| Warning about another copy of Trailmark | A stale copy in Claude Code's plugin cache | Remove that folder, or uninstall the other install (section 15). The warning gives a command, `node "<launcher>" --copies --show-names` with the launcher's path filled in, that lists the folders. Without `--show-names`, `--copies` gives only the counts. If that path holds a character a shell would act on (`$`, a backtick, `%`, `!`, a curly double quote, two backslashes in a row), or one Trailmark changes in text it passes on, or is over 1,024 characters, the path isn't filled in and the warning says so |
 | `/checkpoint` opens the rewind menu | Claude Code's `/rewind` has that alias | Use `/trailmark:checkpoint` |
 | A checkpoint write is refused with exit code 3 | Another session wrote the handoff first | Nothing: the skill merges and writes again. Three refusals in a row means two sessions are checkpointing at the same moment |
 | Exit code 2 | Over budget | The skill tightens the text and writes again |
@@ -489,7 +497,7 @@ The script warns when this release sits in a downloads, synced or temporary fold
 
    `claude plugin list` shows any project or local scope install too. Uninstall each from its repo's folder with `claude plugin uninstall jb-memory@jb-memory --scope project` (or `--scope local`).
 
-   Until you do, the Trailmark installer refuses to install, because two copies would each run every hook. If you install by hand instead, every session start names the jb-memory copy, installed or only cached, until it is gone.
+   Until you do, the Trailmark installer refuses to install, because two copies would each run every hook. If you install by hand instead, every session start warns about the jb-memory copy, installed or only cached, until it is gone.
 2. Put the new release where you keep it (renaming the folder is optional) and run its installer.
 3. Type the new skill names: `/trailmark:checkpoint`, `/trailmark:session-end` and so on. A handoff is only text, so one that still mentions a `jb-memory:` skill name changes nothing. Edit it when it suits you.
 4. For Codex, uninstall jb-memory-codex in the ChatGPT app first. Then remove its marketplace (`codex plugin marketplace remove jb-memory-codex`), add this release's (section 8) and trust the new hooks. The order matters: once its marketplace is gone, the app no longer lists the plugin, though `config.toml` still has it installed. If that happened, add the old marketplace back for a moment (`codex plugin marketplace add <old release folder>`), uninstall the plugin in the app, and remove the marketplace again. The skills are now `tm-checkpoint`, `tm-recall` and so on. While a `jb-memory-codex` folder is still in Codex's plugin cache, each chat start warns about it.

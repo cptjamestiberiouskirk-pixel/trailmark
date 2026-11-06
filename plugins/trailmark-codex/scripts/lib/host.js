@@ -15,8 +15,17 @@ const skill = (n) => `tm-${n}`;
 const skillFile = (n) => path.join(ROOT, 'skills', skill(n), 'SKILL.md');
 
 const CHECKPOINT_SKILL = skill('checkpoint');
-const SKILL_RULE = `Its instructions are in ${skillFile('checkpoint')}; follow them, and run trailmark only through ${LAUNCHER}. If that fails, tell the user; don't look for or run another trailmark.js.`;
+// The rule names the skill's file and the launcher by the folder this copy was
+// installed in. store.js passes its usablePath as asPath, so each path is
+// written only as it is on disk. When either can't be, the rule says so and
+// asks for a plain install folder instead of naming a file that isn't there.
+const skillRule = (asPath) => {
+  const file = asPath(skillFile('checkpoint')), launcher = asPath(LAUNCHER);
+  return file && launcher
+    ? `Its instructions are in ${file}; follow them, and run trailmark only through ${launcher}. If that fails, tell the user; don't look for or run another trailmark.js.`
+    : `Its instructions and the launcher are in the folder trailmark is installed in, whose path isn't written here (it holds characters trailmark doesn't pass on, or is too long), so it can't be run from this session: tell the user to install trailmark in a folder with a plain path, and don't look for or run a trailmark.js.`;
+};
 
 const CONTEXT_CHARS = 9000;
 
-module.exports = { HOST: 'codex', AGENT: 'Codex', CONTEXT_CHARS, NAME: 'trailmark-codex', ROOT, LAUNCHER, skill, skillFile, CHECKPOINT_SKILL, SKILL_RULE };
+module.exports = { HOST: 'codex', AGENT: 'Codex', CONTEXT_CHARS, NAME: 'trailmark-codex', ROOT, LAUNCHER, skill, skillFile, CHECKPOINT_SKILL, skillRule };

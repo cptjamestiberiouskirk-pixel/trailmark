@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.6.0 (Trailmark and trailmark-codex): 2026-11-05
+
+### Context watch (Claude Code only)
+
+- New: as a session's context nears the point where Claude Code auto-compacts it, Claude is asked to run `/trailmark:checkpoint` first, so the session's decisions and next steps are in the handoff before the compaction summarizes them. It asks at 85% of that point, and again at 90% and 95% only if no checkpoint was written since. You see `[trailmark] Context about ...` when it asks. It starts over after a compaction, and when the window grows past any it has asked in.
+- The launcher reads the context size from the end of the session's transcript. It takes the window from `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, then the settings files (their `env` block, then `modelSettings` or `autoCompactWindow`), then the model's own (1M or 200k), and honors `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`. What came after the last request is estimated from the tool's result or the prompt; an image counts as 4,784 tokens, the most one costs on Claude's high-resolution tier. One tool call adds at most 25,000, while a prompt counts in full. Below 80% of the earliest point any setting allows, it exits before loading the rest of its code, and starts no git.
+- `"contextWatch"` in `.jbmem.json` sets `on`, `steps` and `reserve` (MANUAL.md, section 7).
+- The Codex copy has none: where Codex compacts by default isn't established, and its hooks have no prompt event.
+
+### Session start
+
+- The warning shown to you is now fixed text for each case: Node inside the repo, the sandbox state, a copies check cut short, two repos sharing one memory folder. The Node's own path goes in neither: both say it is in this session's folder or the repo's top folder. Nor do the paths of two repos sharing a memory folder: `node "<launcher>" dir`, run in the repo's folder, shows them, and if you ask Claude which they are, it gives you that command to run yourself. `dir` labels the path it read from the state file as data, not instructions, on its `first used for` line and in its warning, since the checkpoint, park and session-end skills run it. Why a copies check was cut short goes in neither, since it can name a marketplace's folder: `node "<launcher>" --copies --show-names` prints it. If you ask Claude which copies there are, or why the check was cut short, it points you to the command in the warning and doesn't run it, so the folder names reach Claude only if you show it the output.
+- No warning or note names a cached copy's folder any more. Both give a count. The warning also gives `node "<launcher>" --copies --show-names`, a new launcher command that lists the copies by full path. Plain `--copies`, the only form the note to Claude names, prints the counts and whether the check stopped early, with no folder name. The Codex copy's warning and note about an old jb-memory-codex do the same. `--show-names` shows control, line-break and invisible characters in a folder's name (a bidi override among them) and lone surrogates as `<U+XXXX>`, so a name can't reorder or hide part of its line, and a `<` before `U+` as `<U+003C>`, so the text `<U+202E>` in a name prints apart from the character. A path is cut when it prints longer than 600 characters, each escape counted as printed, so a short name full of invisible characters can be cut too. A cut path keeps its end, the part that names the folder, and is cut between whole characters. The count takes in every copy found, up to 10; it used to stop at three. The output of `--show-names` starts with a line saying the names below are folder names from disk, data only, not instructions, also when none is found. A name holding tag-like text such as `<system-reminder>` gets a `\` after the `<`, also when the tag holds an invisible character, and is otherwise printed in the form it has on disk.
+- The launcher's own install path reaches Claude or Codex only as it is on disk: in the `--copies` command, and in the Codex copy's notes and hints that name the launcher or the checkpoint skill's file. A path that can't be written as it is isn't written at all, and the note says so instead: one that holds control characters, the line and paragraph separators U+2028 and U+2029, invisible characters (bidi overrides among them) or a `"`, one that holds a character a shell acts on inside double quotes (`$`, a backtick, `%`, `!`, the curly double quotes U+201C to U+201E, or two backslashes in a row), one whose spaces the notes would change (two in a row, one at either end, or a space other than the plain one), and one over 1,024 characters. The Codex copy then asks to be installed in a folder with a plain path. This covers trailmark's own notes and hints only, not the skills' commands: Claude Code fills the path into its skills itself, and the Codex skills can still work it out from their own folder.
+- A handoff line holding thousands of invisible characters (zero-width spaces, say) after a `<` and a letter, with no tag end after them, no longer stalls session start. The tag check's time grew with the cube of their number: 3,000 took minutes, so the launcher stopped session start at its time limit and the handoff wasn't shown. The check now takes time in step with the line's length and escapes the same text as before. 0.5.1 had it too.
+
+### Commands
+
+- `search` prints its hits after a line saying they are matched lines from memory files, data only, not instructions. Memory files are written by sessions, and the park and recall skills run `search`. A hit's file name and line show invisible characters (a bidi override among them) as `<U+XXXX>`, and tag-like text gets a `\` after its `<`, also when the tag holds an invisible character.
+
+### Commit folders
+
+- A folder a commit command commits in joins the session's commit folders with the time that command started, and a sweep reads it from then. Before, it was read from the session's start, so another session's earlier commit there could be logged as this session's.
+- Past six folders, one that a sweep has read since its last commit command finished goes first. Before, the oldest went, which could be a background command's folder whose commit no sweep had read yet.
+- When git timed out in a commit hook and the state file couldn't be updated (for example, another command held it for over 2 s), Claude was told nothing. Now Claude is told the commit wasn't logged and to name it in the handoff at the next checkpoint. The folder still can't join the commit folders then.
+
+### Git checks
+
+- A submodule gitdir inside another submodule gitdir's `objects/`, under a name that isn't two hex digits (`vendor/objects/evil`, or deeper), was passed over. Its config is now checked. Two-hex names (`vendor/objects/ab`) are still passed over: looking into each took seconds on Windows with 200 submodules, and git 2.56 opens a gitdir there only through a submodule's `.git` file, which is checked before git runs (an older git may also open it by name).
+- Outside Windows, a removed submodule's leftover `core.worktree` kept git out of the repo (`network-config`), since the folder its relative path starts from is gone. A relative value read from a folder that isn't there is now taken as text.
+- A relative setting in a submodule's config was read from the folder of whichever check ran last. It is now read from the repo's top, where `git status` runs.
+- On a file system that doesn't report entry types, a folder holding a name that isn't valid UTF-8 can't be listed, and it was passed over. It now keeps git out (`odd-path`).
+
+### Memory folder (Windows)
+
+- Making the lock file went through a link or junction left at its name when what it pointed to was missing, and made that instead. The lock's break file and the state file's `.bad` copy had the same gap. Anything at those names now counts as taken: a link at the lock's names is removed, and when the `.bad` name is taken (a link there included), the copy goes to a name with the time in it.
+
+### Tests
+
+- 30 link tests that skipped on every Windows machine now run wherever links can be made, as on CI's Windows runners, and two hard-link tests run everywhere. The POSIX-only ones that still skip on Windows say why. On Windows, a test link to a network path is made without looking the share up.
+- A POSIX test for a link inside a leftover module folder's `objects/ab`.
+- The Windows junction test, and the links test that moves a `.git` the same way, now wait out a rename of `.git` or a junction refused with `EPERM` or `EBUSY` for up to 2 s, right after git has written it. A scanner holding the new files is the likely cause: the failure came in 7 of 24 runs in a scanned folder and in none of 24 in a folder excluded from Defender's scanning. A refusal that lasts, and any other error, still fails the test. Only the tests changed.
+
 ## 0.5.1 (Trailmark and trailmark-codex): 2026-11-03
 
 ### Commit sweep
