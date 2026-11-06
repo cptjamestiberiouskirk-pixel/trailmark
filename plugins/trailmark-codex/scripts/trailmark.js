@@ -18,7 +18,7 @@
 //   node trailmark.js <memory.js command> [args]        skills
 //   node trailmark.js --hook <session-start|precompact|commit-start|milestone> [kind]   hooks
 //   node trailmark.js --sandbox-check                   self-test of the seat belt
-//   node trailmark.js --copies                          list other trailmark copies on disk
+//   node trailmark.js --copies [--show-names]           count other trailmark copies on disk; --show-names lists them
 //
 // Escape hatch: JBMEM_SANDBOX=off in the environment runs without the
 // permission model. Codex: "sandbox": false in the memory folder's

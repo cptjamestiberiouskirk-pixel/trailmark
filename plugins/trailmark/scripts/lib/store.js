@@ -497,7 +497,7 @@ function usablePath(p, max = 1024) {
   return v && v.length <= max && fieldText(w, max) === w && oneLine(v, max) === v && !/[$`%!\u201c-\u201e]|\\\\/.test(v) ? v : '';
 }
 
-// A name from disk as the launcher's --copies prints it: on one line, with
+// A name from disk as --copies --show-names prints it: on one line, with
 // control, line-break and invisible characters (a bidi override among them)
 // and a lone surrogate shown as <U+XXXX>, so a name can't reorder or hide
 // part of its line (round 8 on PR #4). A < that starts <U+ is shown so too,

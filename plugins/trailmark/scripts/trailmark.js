@@ -15,7 +15,7 @@
 //   node trailmark.js <memory.js command> [args]        skills
 //   node trailmark.js --hook <session-start|precompact|commit-start|milestone|context-watch> [kind]   hooks
 //   node trailmark.js --sandbox-check                   self-test of the seat belt
-//   node trailmark.js --copies                          list other trailmark copies on disk
+//   node trailmark.js --copies [--show-names]           count other trailmark copies on disk; --show-names lists them
 //
 // Escape hatch: JBMEM_SANDBOX=off in the environment (for every session: the
 // env block of Claude Code's settings.json) runs without the permission

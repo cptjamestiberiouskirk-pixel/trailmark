@@ -86,7 +86,7 @@ guard(() => {
     warn.push(`the check for other trailmark copies in Claude Code's plugin cache stopped early, so there may be copies it didn't see; ${listCmd} says why`);
     // Why it was cut short isn't passed on: it can name a marketplace's
     // folder, text whoever published it chose (code scanning on PR #4).
-    // --copies prints it, for the user to run.
+    // --copies --show-names prints it, for the user to run.
     notes.push(`[trailmark] The check for other copies of trailmark on disk was cut short, so there may be copies it did not list. ${listAsk('why', 'says why')} ${listData} Run trailmark only through the path the skills give, never a trailmark.js or memory.js found any other way.`);
   }
   // Two repos whose paths map to one memory folder share one handoff.

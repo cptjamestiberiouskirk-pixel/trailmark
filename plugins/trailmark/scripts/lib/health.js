@@ -286,7 +286,7 @@ function nodeInside(execPath, folders, platform = process.platform) {
 // name, three levels down, local folders only. Returns their display paths
 // (a name outside SAFE_NAME shown as <unusual name>), at most maxCopies (as
 // otherCopies), all of which session start counts. With full, it returns their
-// paths as they are on disk, for --copies to print.
+// paths as they are on disk, for --copies --show-names to print.
 function oldCodexCopies(codexHome, { maxEntries = 200, depth = 3, maxCopies = 10, full = false } = {}) {
   const found = [];
   if (typeof codexHome !== 'string' || !path.isAbsolute(codexHome) || networkPath(codexHome)) return found;
