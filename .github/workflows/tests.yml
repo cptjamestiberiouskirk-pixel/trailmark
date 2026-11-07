@@ -89,18 +89,19 @@ jobs:
           node .github/tap-annotate.js tap-new.txt
           [ "$ok" = 1 ]
       # A few tests need a shell script in place of git; they say so and
-      # skip themselves on Windows, where trailmark runs git.exe only.
+      # skip themselves on Windows, where trailmark runs git.exe only. Each
+      # copy's test files other than handoff-checks run here, side by side.
       - name: trailmark tests
         if: always()
         shell: bash
         run: |
-          node --test --test-reporter=tap plugins/trailmark/tests/trailmark.test.js > tap-claude.txt 2>&1 && ok=1 || ok=0
+          node --test --test-reporter=tap $(ls plugins/trailmark/tests/*.test.js | grep -v '/handoff-checks.test.js$') > tap-claude.txt 2>&1 && ok=1 || ok=0
           node .github/tap-annotate.js tap-claude.txt
           [ "$ok" = 1 ]
       - name: trailmark-codex tests
         if: always()
         shell: bash
         run: |
-          node --test --test-reporter=tap plugins/trailmark-codex/tests/trailmark.test.js > tap-codex.txt 2>&1 && ok=1 || ok=0
+          node --test --test-reporter=tap $(ls plugins/trailmark-codex/tests/*.test.js | grep -v '/handoff-checks.test.js$') > tap-codex.txt 2>&1 && ok=1 || ok=0
           node .github/tap-annotate.js tap-codex.txt
           [ "$ok" = 1 ]
