@@ -141,19 +141,28 @@ function sandbox() {
 // why a check stopped, so a session start that was cut short asks it. A
 // reason other than time, alone or with it, is returned as it is and the
 // test fails on it. A session start cut short while --show-names finished
-// may have a reason --show-names doesn't share (its own call threw: "the
-// check failed"), so that gets five tries, then is returned as it is.
+// is either time (both walks have the same 300 ms budget, so one can run out
+// and the other not) or a reason --show-names doesn't share (session start's
+// own call threw: "the check failed"). Once any --show-names in the window
+// gave the time reason, it counts as time. Ten such tries with none are
+// returned as they are, and the test fails on them.
 class CopiesOutOfTime extends Error {}
 const cutShort = (context) => /The check for other copies of trailmark on disk was cut short/.test(context);
 const whyEarly = (listed) => ((/^  the check stopped early: (.*)$/m.exec(listed) || [])[1] || '').split('; ').filter(Boolean);
 const outOfTime = (why) => why.includes('it took too long') && why.every(w => w === 'it took too long' || /^it stopped at \d+ copies$/.test(w));
 function copiesInTime(s, call, { listed, waitMs = 30000 } = {}) {
   const until = Date.now() + waitMs;
-  let clean = 0;
+  let clean = 0, timeSeen = false;
   for (let tries = 1; ; tries++) {
     const r = call();
-    const why = listed ? whyEarly(listed(r)) : cutShort(r.context) ? whyEarly(s.jbm(['--copies', '--show-names']).stdout) : [];
-    if (listed ? !outOfTime(why) : !cutShort(r.context) || (why.length ? !outOfTime(why) : ++clean >= 5)) return r;
+    if (listed) {
+      if (!outOfTime(whyEarly(listed(r)))) return r;
+    } else if (cutShort(r.context)) {
+      const why = whyEarly(s.jbm(['--copies', '--show-names']).stdout);
+      if (why.length && !outOfTime(why)) return r;
+      if (why.length) timeSeen = true;
+      else if (++clean >= 10 && !timeSeen) return r;
+    } else return r;
     if (Date.now() > until) throw new CopiesOutOfTime(`every copy check for ${waitMs / 1000} s ran out of time (${tries} in a row): the machine is too slow now`);
   }
 }

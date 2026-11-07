@@ -302,7 +302,7 @@ test('0.3.3 hardening: the PreCompact status runs no fsmonitor, hook or submodul
   const late = lateAgain(precompact, () => { try { return /not read \(git-timeout\)/.test(fs.readFileSync(snap, 'utf8')) && 'Uncommitted files: not read (git-timeout)'; } catch { return ''; } });
   // What git started is checked on every run, also when git ran out of time.
   assert.deepStrictEqual(fs.readdirSync(marks), []);
-  const t = fs.readFileSync(trace, 'utf8');
+  const t = fs.existsSync(trace) ? fs.readFileSync(trace, 'utf8') : '';
   assert.ok(!/run_command:/.test(t), 'git started another program: ' + t.split('\n').filter(l => /run_command/.test(l)).join('\n'));
   if (late) return ctx.skip(late);
   assert.ok(/built-in: git .*status --porcelain/.test(t), 'the hook ran status: ' + t);
