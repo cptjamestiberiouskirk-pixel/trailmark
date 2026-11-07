@@ -185,10 +185,16 @@ for c in trailmark trailmark-codex; do
   else record PASS "$c sandbox check"; fi
 done
 
+# Two files at a time in each trailmark suite. Measured 2026-11-06 on 16
+# cores (dev/release-state.md, "Faster local checks"): all files at once took
+# 4.5 min but one full check in two failed a load-sensitive test, and three
+# at a time skipped one in every run. Two at a time took 6.5 to 7 min: in
+# three runs nothing failed and that test skipped once, in one copy.
+AT_ONCE=2
 start_suite 'handoff-checks (both copies)' handoff-checks "${HC[@]}"
 if [ "$QUICK" = 0 ]; then
-  start_suite "trailmark tests (Claude Code, ${#TCC[@]} files)" trailmark-claude-code "${TCC[@]}"
-  start_suite "trailmark tests (Codex, ${#TCX[@]} files)" trailmark-codex "${TCX[@]}"
+  start_suite "trailmark tests (Claude Code, ${#TCC[@]} files)" trailmark-claude-code --test-concurrency=$AT_ONCE "${TCC[@]}"
+  start_suite "trailmark tests (Codex, ${#TCX[@]} files)" trailmark-codex --test-concurrency=$AT_ONCE "${TCX[@]}"
 fi
 finish_suites
 [ "$QUICK" = 1 ] && record SKIP 'trailmark test suites (--quick)'
