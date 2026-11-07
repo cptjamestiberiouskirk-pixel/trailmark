@@ -55,7 +55,7 @@ trap clean_temp EXIT
 # whatever started this script: without job control a script shares its
 # caller's group. The suites are read from the job table, which has a suite as
 # soon as it starts; finished ones aren't listed. A suite still there after
-# 10 s is killed, and a second signal during the stop changes nothing.
+# about 10 s is killed, and a second signal during the stop changes nothing.
 stop_suites() { # exit status: 128 + the signal's number
   trap '' INT TERM HUP
   local groups p i alive
@@ -68,7 +68,10 @@ stop_suites() { # exit status: 128 + the signal's number
     [ -z "$alive" ] && break
     sleep 0.2
   done
-  for p in $groups; do kill -KILL -- "-$p" 2>/dev/null; done
+  # Only a group still there: a finished one's number may be in use again.
+  if [ -n "$alive" ]; then
+    for p in $groups; do kill -0 -- "-$p" 2>/dev/null && kill -KILL -- "-$p" 2>/dev/null; done
+  fi
   # Let them end before the EXIT trap removes their folders.
   wait 2>/dev/null
   exit "$1"
