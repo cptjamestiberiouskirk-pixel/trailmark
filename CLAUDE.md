@@ -2,6 +2,8 @@
 
 Read `dev/release-state.md` first: where the release stands, what is open, and what is deferred.
 
+Then read `PLAYBOOK.md` (checklists for this project's recurring work, with its known limits) and the latest entries in `LESSONS.md`. Re-read both before each significant step: a design decision, a code change, a test run, a release or a deliverable. Follow the checklist that applies, and a lesson's rule even when it slows the work. After each step, check the real result and report pass, fail or untested for each item. Log anything that broke, needed a redo, surprised you or drew a correction in `LESSONS.md` right away. A lesson seen twice, or clearly general, becomes a `PLAYBOOK.md` step and is marked "promoted". Keep `PLAYBOOK.md` short: rewrite or delete stale steps. When the user asks, or at a release's end, give a three-line summary of what was learned and what changed in the playbook. Both files are for development only and stay out of the release (`export-ignore`).
+
 ## Conventions
 
 - Ask before pushing, opening a PR, merging, tagging, publishing or downloading anything.
