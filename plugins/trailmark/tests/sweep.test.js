@@ -113,8 +113,23 @@ test('0.3.4 end check: an end folder that differs from Claude Code\'s is logged 
   assert.strictEqual(t.post(wt).stdout, '');
 });
 
-test('0.3.4 commits: another session\'s commit in the same folder while a command ran is left to that session when git printed this command\'s', () => {
+// A commit hook whose git ran out of the launcher's time (about 5 s,
+// trailmark.js; a busy machine) logs COMMIT_UNRESOLVED why=git-timeout and
+// leaves the commit to the next sweep. The step isn't made again (the hook
+// would take it for the same command run twice), so the test is skipped.
+class GitOutOfTime extends Error {}
+const inTimeTest = (fn) => (t) => {
+  try { fn(t); } catch (e) {
+    if (!(e instanceof GitOutOfTime)) throw e;
+    t.skip(e.message);
+  }
+};
+test('0.3.4 commits: another session\'s commit in the same folder while a command ran is left to that session when git printed this command\'s', inTimeTest(() => {
   const { s, wt, gWt, head, hook } = multiFolder();
+  const logged = () => {
+    if (/COMMIT_UNRESOLVED why=git-timeout/.test(notesOf(s))) throw new GitOutOfTime('a commit hook ran out of the launcher\'s time for git (COMMIT_UNRESOLVED why=git-timeout): git is too slow on this machine now');
+    return commitLines(s);
+  };
   const a = toolCall(s, SA, 'git commit -m "by A"');
   const b = toolCall(s, SB, 'git commit -m "by B meanwhile"');
   a.pre(wt); b.pre(wt);
@@ -125,23 +140,23 @@ test('0.3.4 commits: another session\'s commit in the same folder while a comman
   gWt('commit', '-q', '--allow-empty', '-m', 'by A');
   const shaA = head(wt);
   assert.strictEqual(a.post(wt, { stdout: `[wa ${shaA}] by A\n`, stderr: '', interrupted: false }).status, 0);
-  let lines = commitLines(s);
+  let lines = logged();
   assert.deepStrictEqual(lines.map(l => l.slice(8)), [`COMMIT ${shaA} by A session=11111111`], lines.join('\n'));
   b.post(wt, { stdout: `[wa ${shaB}] by B meanwhile\n`, stderr: '', interrupted: false });
-  lines = commitLines(s);
+  lines = logged();
   assert.deepStrictEqual(lines.map(l => l.slice(8)), [`COMMIT ${shaA} by A session=11111111`, `COMMIT ${shaB} by B meanwhile session=22222222`], lines.join('\n'));
   // Nothing printed (git commit -q): both stay with the command, as in 0.3.3.
   gWt('commit', '-q', '--allow-empty', '-m', 'quiet other');
   gWt('commit', '-q', '--allow-empty', '-m', 'quiet mine');
   hook(wt, SA, 'git commit -q -m "quiet mine"');
-  lines = commitLines(s);
+  lines = logged();
   assert.ok(lines.some(l => l.endsWith(' quiet other session=11111111')) && lines.some(l => l.endsWith(' quiet mine session=11111111')), lines.join('\n'));
   // A printed SHA that accounts for none of the extras (output from another
   // command): all stay.
   gWt('commit', '-q', '--allow-empty', '-m', 'odd one');
   gWt('commit', '-q', '--allow-empty', '-m', 'odd two');
   hook(wt, SA, 'git commit -m "odd two"', { response: { stdout: '[wa 0123456] something else\n' } });
-  lines = commitLines(s);
+  lines = logged();
   assert.ok(lines.some(l => l.endsWith(' odd one session=11111111')) && lines.some(l => l.endsWith(' odd two session=11111111')), lines.join('\n'));
   // A commit the command text doesn't show (a git alias, a post-commit hook,
   // a script), quiet, with no other commit command running: it is this
@@ -149,7 +164,7 @@ test('0.3.4 commits: another session\'s commit in the same folder while a comman
   gWt('commit', '-q', '--allow-empty', '-m', 'via an alias');
   gWt('commit', '-q', '--allow-empty', '-m', 'explicit');
   hook(wt, SA, 'git ci -q -m "via an alias" && git commit -m explicit', { response: { stdout: `[wa ${head(wt)}] explicit\n` } });
-  lines = commitLines(s);
+  lines = logged();
   assert.ok(lines.some(l => l.endsWith(' via an alias session=11111111')) && lines.some(l => l.endsWith(' explicit session=11111111')), lines.join('\n'));
   // The same, with records that aren't another session's command in this
   // folder: this session's own earlier command whose PostToolUse hook never
@@ -160,9 +175,9 @@ test('0.3.4 commits: another session\'s commit in the same folder while a comman
   gWt('commit', '-q', '--allow-empty', '-m', 'via an alias again');
   gWt('commit', '-q', '--allow-empty', '-m', 'explicit again');
   hook(wt, SA, 'git ci -q -m "via an alias again" && git commit -m "explicit again"', { response: { stdout: `[wa ${head(wt)}] explicit again\n` } });
-  lines = commitLines(s);
+  lines = logged();
   assert.ok(lines.some(l => l.endsWith(' via an alias again session=11111111')) && lines.some(l => l.endsWith(' explicit again session=11111111')), lines.join('\n'));
-});
+}));
 
 test('0.3.4 sweep: a commit no hook saw is logged once as (found later) at write-handoff and at a resume; an amended one, one already logged and another folder\'s are not', sweepTest((t) => {
   const repeats0 = sweepRepeats();
