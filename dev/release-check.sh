@@ -49,19 +49,33 @@ clean_temp() {
   echo "could not remove $T" >&2
 }
 trap clean_temp EXIT
-# Stopped (Ctrl-C or TERM): stop the suites running in the background too, then
-# clean up. Each suite runs in its own process group (set -m in start_suite), so
-# this reaches the suites and their node processes, never whatever started this
-# script: without job control a script shares its caller's group.
-SUITE_PIDS=()
-stop_suites() {
-  local p
-  for p in "${SUITE_PIDS[@]}"; do kill -TERM -- "-$p" 2>/dev/null; done
+# Stopped (Ctrl-C, TERM or a hangup): stop the suites running in the background
+# too, then clean up. Each suite runs in its own process group (set -m in
+# start_suite), so this reaches the suites and their node processes, never
+# whatever started this script: without job control a script shares its
+# caller's group. The suites are read from the job table, which has a suite as
+# soon as it starts; finished ones aren't listed. A suite still there after
+# 10 s is killed, and a second signal during the stop changes nothing.
+stop_suites() { # exit status: 128 + the signal's number
+  trap '' INT TERM HUP
+  local groups p i alive
+  jobs -rp > "$T/stopping" 2>/dev/null
+  groups="$(cat "$T/stopping" 2>/dev/null)"
+  for p in $groups; do kill -TERM -- "-$p" 2>/dev/null; done
+  for (( i = 0; i < 50; i++ )); do
+    alive=''
+    for p in $groups; do kill -0 -- "-$p" 2>/dev/null && alive=1; done
+    [ -z "$alive" ] && break
+    sleep 0.2
+  done
+  for p in $groups; do kill -KILL -- "-$p" 2>/dev/null; done
   # Let them end before the EXIT trap removes their folders.
   wait 2>/dev/null
-  exit 130
+  exit "$1"
 }
-trap stop_suites INT TERM
+trap 'stop_suites 130' INT
+trap 'stop_suites 143' TERM
+trap 'stop_suites 129' HUP
 # Kept output goes next to $T, not inside it, so it outlives the run.
 KEEPROOT="$(dirname "$T")/trailmark-release-check"
 KEEP=''
@@ -124,15 +138,13 @@ start_suite() { # name, slug for the kept output, then node --test arguments
     node --test --test-reporter=tap "$@" > "$d/out" 2>&1
     echo $(( $(date +%s) - s )) > "$d/secs"
   ) &
-  SUITE_PIDS+=("$!")
   set +m
   SUITES+=("$d")
 }
 finish_suites() {
   wait
-  SUITE_PIDS=()
   local d
-  for d in "${SUITES[@]}"; do
+  for d in ${SUITES[@]+"${SUITES[@]}"}; do
     report_suite "$(cat "$d/name")" "$(cat "$d/slug")" "$d" "$(cat "$d/secs" 2>/dev/null)"
   done
   SUITES=()
@@ -158,7 +170,7 @@ report_suite() { # name, slug, the suite's folder, seconds
 summary() {
   echo
   heading
-  printf '%s\n' "${RESULTS[@]}"
+  printf '%s\n' ${RESULTS[@]+"${RESULTS[@]}"}
   [ -f "$T/failures" ] && cat "$T/failures"
   [ -n "$KEEP" ] && echo "Output kept (full TAP, and the folders failed tests kept): $(shown "$KEEP")"
   return 0
@@ -172,7 +184,7 @@ for f in plugins/trailmark-codex/tests/*.test.js; do [ "${f##*/}" = handoff-chec
 # --only: the one suite file or the matching tests, and nothing else.
 if [ -n "$ONLY" ]; then
   if [ -f "$ONLY" ]; then start_suite "--only $ONLY" only "$ONLY"
-  else start_suite "--only (tests named like /$ONLY/, every test file)" only --test-name-pattern="$ONLY" "${HC[@]}" "${TCC[@]}" "${TCX[@]}"; fi
+  else start_suite "--only (tests named like /$ONLY/, every test file)" only --test-name-pattern="$ONLY" "${HC[@]}" ${TCC[@]+"${TCC[@]}"} ${TCX[@]+"${TCX[@]}"}; fi
   finish_suites
   summary
   exit $FAILED
@@ -218,8 +230,8 @@ done
 AT_ONCE=2
 start_suite 'handoff-checks (both copies)' handoff-checks "${HC[@]}"
 if [ "$QUICK" = 0 ]; then
-  start_suite "trailmark tests (Claude Code, ${#TCC[@]} files)" trailmark-claude-code --test-concurrency=$AT_ONCE "${TCC[@]}"
-  start_suite "trailmark tests (Codex, ${#TCX[@]} files)" trailmark-codex --test-concurrency=$AT_ONCE "${TCX[@]}"
+  start_suite "trailmark tests (Claude Code, ${#TCC[@]} files)" trailmark-claude-code --test-concurrency=$AT_ONCE ${TCC[@]+"${TCC[@]}"}
+  start_suite "trailmark tests (Codex, ${#TCX[@]} files)" trailmark-codex --test-concurrency=$AT_ONCE ${TCX[@]+"${TCX[@]}"}
 fi
 finish_suites
 [ "$QUICK" = 1 ] && record SKIP 'trailmark test suites (--quick)'
