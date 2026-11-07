@@ -16,7 +16,8 @@
 # zip folder you name and, when a test suite fails or --only runs, a folder
 # under <temp>/trailmark-release-check with the suite's full TAP output and
 # the folders its failed tests kept (the 20 newest such folders stay). It
-# makes no network requests.
+# makes no network requests. The test suites run at the same time, and each
+# summary line gives the suite's own time.
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
 
@@ -40,6 +41,8 @@ T="$(mktemp -d 2>/dev/null || mktemp -d -t tmcheck)"
 # Never go on without a temp folder: the cleanup below removes inside it.
 [ -n "$T" ] && [ -d "$T" ] || { echo "no temp folder"; exit 2; }
 trap 'rm -rf "$T"' EXIT
+# Stopped (Ctrl-C): stop the suites running in the background too, then clean up.
+trap 'trap "" TERM; kill 0 2>/dev/null; exit 130' INT TERM
 # Kept output goes next to $T, not inside it, so it outlives the run.
 KEEPROOT="$(dirname "$T")/trailmark-release-check"
 KEEP=''
@@ -68,22 +71,49 @@ keep_dir() {
   return 0
 }
 # Keep a suite's full output and the folders its failed tests kept (they are
-# in $T, which goes at the end of the run).
-keep_suite() { # slug, output
+# in the suite's own folder in $T, which goes at the end of the run).
+keep_suite() { # slug, output, the suite's folder
   keep_dir || { echo "      could not make $(shown "$KEEPROOT") to keep the output" >> "$T/failures"; return 0; }
   printf '%s\n' "$2" > "$KEEP/$1.tap"
   local d
-  for d in "$T"/jbmem-*; do
+  for d in "$3/tmp"/jbmem-*; do
     [ -e "$d" ] || continue
     mkdir -p "$KEEP/$1-folders"
     mv "$d" "$KEEP/$1-folders/" 2>/dev/null || cp -R "$d" "$KEEP/$1-folders/" 2>/dev/null \
       || echo "      could not keep $(basename "$d")" >> "$T/failures"
   done
 }
-run_suite() { # name, slug for the kept output, then node --test arguments
+# The test suites run at the same time, each in its own temp folder under $T
+# (s1, s2, ...: short, since a test's paths repeat it), so the folders a
+# suite's failed tests kept are told apart from the others'.
+# start_suite starts one in the background; finish_suites waits for them all
+# and reports each in the order started.
+SUITES=()
+start_suite() { # name, slug for the kept output, then node --test arguments
   local name="$1" slug="$2"; shift 2
-  # TAP named: newer Node prints the spec reporter even into a pipe.
-  local out; out="$(node --test --test-reporter=tap "$@" 2>&1)"
+  local d="$T/s$(( ${#SUITES[@]} + 1 ))"; mkdir -p "$d/tmp"
+  printf '%s\n' "$slug" > "$d/slug"
+  printf '%s\n' "$name" > "$d/name"
+  local dt="$d/tmp"; command -v cygpath >/dev/null 2>&1 && dt="$(cygpath -w "$d/tmp")"
+  (
+    export TMPDIR="$d/tmp" TEMP="$dt" TMP="$dt"
+    s=$(date +%s)
+    # TAP named: newer Node prints the spec reporter even into a pipe.
+    node --test --test-reporter=tap "$@" > "$d/out" 2>&1
+    echo $(( $(date +%s) - s )) > "$d/secs"
+  ) &
+  SUITES+=("$d")
+}
+finish_suites() {
+  wait
+  local d
+  for d in "${SUITES[@]}"; do
+    report_suite "$(cat "$d/name")" "$(cat "$d/slug")" "$d" "$(cat "$d/secs" 2>/dev/null)"
+  done
+  SUITES=()
+}
+report_suite() { # name, slug, the suite's folder, seconds
+  local name="$1" slug="$2" dir="$3" secs="${4:-?}" out; out="$(cat "$dir/out")"
   local tests pass fail skip
   tests="$(sed -n 's/^# tests //p' <<<"$out" | tail -1)"; pass="$(sed -n 's/^# pass //p' <<<"$out" | tail -1)"
   fail="$(sed -n 's/^# fail //p' <<<"$out" | tail -1)"; skip="$(sed -n 's/^# skipped //p' <<<"$out" | tail -1)"
@@ -92,13 +122,13 @@ run_suite() { # name, slug for the kept output, then node --test arguments
   local empty; empty="$(grep -cE '^ok [0-9]+ - .*\.test\.js$' <<<"$out")"
   [ -n "$tests" ] && tests=$((tests - empty)); [ -n "$pass" ] && pass=$((pass - empty))
   local ok=0
-  if [ "${fail:-1}" = 0 ] && [ "${tests:-0}" != 0 ]; then ok=1; record PASS "$name: $pass/$tests pass, $skip skipped"
-  elif [ "${tests:-}" = 0 ]; then record FAIL "$name: no test ran"
-  else record FAIL "$name: ${fail:-?} failed of ${tests:-?}"; fi
-  [ $ok = 1 ] || grep -E '^not ok' <<<"$out" | head -5 | sed 's/^/      /' >> "$T/failures"
+  if [ "${fail:-1}" = 0 ] && [ "${tests:-0}" != 0 ]; then ok=1; record PASS "$name: $pass/$tests pass, $skip skipped ($secs s)"
+  elif [ "${tests:-}" = 0 ]; then record FAIL "$name: no test ran ($secs s)"
+  else record FAIL "$name: ${fail:-?} failed of ${tests:-?} ($secs s)"; fi
+  [ $ok = 1 ] || grep -E '^not ok' <<<"$out" | head -5 | sed "s|^|      $slug: |" >> "$T/failures"
   # Kept when the suite failed, and always with --only: a skip's reason is in it too.
-  if [ $ok = 0 ] || [ -n "$ONLY" ]; then keep_suite "$slug" "$out"; fi
-  rm -rf "$T"/jbmem-* 2>/dev/null
+  if [ $ok = 0 ] || [ -n "$ONLY" ]; then keep_suite "$slug" "$out" "$dir"; fi
+  rm -rf "$dir" 2>/dev/null
 }
 summary() {
   echo
@@ -113,8 +143,9 @@ TC=(plugins/trailmark/tests/trailmark.test.js plugins/trailmark-codex/tests/trai
 
 # --only: the one suite file or the matching tests, and nothing else.
 if [ -n "$ONLY" ]; then
-  if [ -f "$ONLY" ]; then run_suite "--only $ONLY" only "$ONLY"
-  else run_suite "--only (tests named like /$ONLY/, all four files)" only --test-name-pattern="$ONLY" "${HC[@]}" "${TC[@]}"; fi
+  if [ -f "$ONLY" ]; then start_suite "--only $ONLY" only "$ONLY"
+  else start_suite "--only (tests named like /$ONLY/, all four files)" only --test-name-pattern="$ONLY" "${HC[@]}" "${TC[@]}"; fi
+  finish_suites
   summary
   exit $FAILED
 fi
@@ -151,11 +182,13 @@ for c in trailmark trailmark-codex; do
   else record PASS "$c sandbox check"; fi
 done
 
-run_suite 'handoff-checks (both copies)' handoff-checks "${HC[@]}"
+start_suite 'handoff-checks (both copies)' handoff-checks "${HC[@]}"
 if [ "$QUICK" = 0 ]; then
-  run_suite 'trailmark.test.js (Claude Code)' trailmark-claude-code "${TC[0]}"
-  run_suite 'trailmark.test.js (Codex)' trailmark-codex "${TC[1]}"
-else record SKIP 'trailmark.test.js suites (--quick)'; fi
+  start_suite 'trailmark.test.js (Claude Code)' trailmark-claude-code "${TC[0]}"
+  start_suite 'trailmark.test.js (Codex)' trailmark-codex "${TC[1]}"
+fi
+finish_suites
+[ "$QUICK" = 1 ] && record SKIP 'trailmark.test.js suites (--quick)'
 
 if command -v claude >/dev/null 2>&1; then
   v=1; for d in . plugins/trailmark plugins/trailmark-codex; do claude plugin validate --strict "$d" >/dev/null 2>&1 || v=0; done
