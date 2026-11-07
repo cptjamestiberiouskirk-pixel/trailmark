@@ -7,8 +7,8 @@ Bug reports and fixes are welcome. For anything that could let a repo, a web pag
 The tests use Node's built-in test runner, so there are no dependencies to install. Use a Node release at or above the security floor (22.23.4, 24.22.1 or 26.12.1); on an older one the sandbox check warns. From the repository root:
 
 ```text
-node --test plugins/trailmark/tests/trailmark.test.js plugins/trailmark/tests/handoff-checks.test.js
-node --test plugins/trailmark-codex/tests/trailmark.test.js plugins/trailmark-codex/tests/handoff-checks.test.js
+node --test "plugins/trailmark/tests/*.test.js"
+node --test "plugins/trailmark-codex/tests/*.test.js"
 node plugins/trailmark/scripts/trailmark.js --sandbox-check
 node plugins/trailmark-codex/scripts/trailmark.js --sandbox-check
 ```

@@ -369,7 +369,7 @@ Trailmark began as a rewritten fork of memory-toolkit. It differs in these ways:
 From the repository root:
 
 ```text
-node --test plugins/trailmark/tests/trailmark.test.js plugins/trailmark/tests/handoff-checks.test.js
+node --test "plugins/trailmark/tests/*.test.js"
 node plugins/trailmark/scripts/trailmark.js --sandbox-check
 ```
 

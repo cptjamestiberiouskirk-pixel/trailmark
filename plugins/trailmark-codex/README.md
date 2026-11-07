@@ -135,7 +135,7 @@ Not checked yet: whether `writable_roots` applies under the Windows sandbox, whe
 ## Tests
 
 ```text
-node --test tests/trailmark.test.js tests/handoff-checks.test.js
+node --test "tests/*.test.js"
 ```
 
 CONTRIBUTING.md in the repository covers keeping this copy in step with the Claude Code plugin.

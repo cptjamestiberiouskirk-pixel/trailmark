@@ -5,11 +5,11 @@
 #   dev/release-check.sh --sums          regenerate SHA256SUMS first, then check
 #   dev/release-check.sh --zip <dir>     also build <dir>/trailmark-<version>.zip
 #                                        and its .sha256 from HEAD, and verify them
-#   dev/release-check.sh --quick         skip the two long trailmark.test.js suites
+#   dev/release-check.sh --quick         skip the two long trailmark test suites
 #   dev/release-check.sh --only <x>      run only the tests in file <x> (a path
 #                                        from the repo's top folder), or else the
 #                                        tests whose name matches the regular
-#                                        expression <x> in all four test files
+#                                        expression <x> in every test file
 #
 # Run from anywhere inside the repo, in bash (Git Bash on Windows). It writes
 # only SHA256SUMS (with --sums), its own temp folder (removed at the end), the
@@ -139,12 +139,15 @@ summary() {
   return 0
 }
 HC=(plugins/trailmark/tests/handoff-checks.test.js plugins/trailmark-codex/tests/handoff-checks.test.js)
-TC=(plugins/trailmark/tests/trailmark.test.js plugins/trailmark-codex/tests/trailmark.test.js)
+# Each copy's other test files (CI picks them the same way).
+TCC=(); TCX=()
+for f in plugins/trailmark/tests/*.test.js; do [ "${f##*/}" = handoff-checks.test.js ] || TCC+=("$f"); done
+for f in plugins/trailmark-codex/tests/*.test.js; do [ "${f##*/}" = handoff-checks.test.js ] || TCX+=("$f"); done
 
 # --only: the one suite file or the matching tests, and nothing else.
 if [ -n "$ONLY" ]; then
   if [ -f "$ONLY" ]; then start_suite "--only $ONLY" only "$ONLY"
-  else start_suite "--only (tests named like /$ONLY/, all four files)" only --test-name-pattern="$ONLY" "${HC[@]}" "${TC[@]}"; fi
+  else start_suite "--only (tests named like /$ONLY/, every test file)" only --test-name-pattern="$ONLY" "${HC[@]}" "${TCC[@]}" "${TCX[@]}"; fi
   finish_suites
   summary
   exit $FAILED
@@ -184,11 +187,11 @@ done
 
 start_suite 'handoff-checks (both copies)' handoff-checks "${HC[@]}"
 if [ "$QUICK" = 0 ]; then
-  start_suite 'trailmark.test.js (Claude Code)' trailmark-claude-code "${TC[0]}"
-  start_suite 'trailmark.test.js (Codex)' trailmark-codex "${TC[1]}"
+  start_suite "trailmark tests (Claude Code, ${#TCC[@]} files)" trailmark-claude-code "${TCC[@]}"
+  start_suite "trailmark tests (Codex, ${#TCX[@]} files)" trailmark-codex "${TCX[@]}"
 fi
 finish_suites
-[ "$QUICK" = 1 ] && record SKIP 'trailmark.test.js suites (--quick)'
+[ "$QUICK" = 1 ] && record SKIP 'trailmark test suites (--quick)'
 
 if command -v claude >/dev/null 2>&1; then
   v=1; for d in . plugins/trailmark plugins/trailmark-codex; do claude plugin validate --strict "$d" >/dev/null 2>&1 || v=0; done
