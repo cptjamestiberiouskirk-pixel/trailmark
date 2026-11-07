@@ -40,9 +40,28 @@ fi
 T="$(mktemp -d 2>/dev/null || mktemp -d -t tmcheck)"
 # Never go on without a temp folder: the cleanup below removes inside it.
 [ -n "$T" ] && [ -d "$T" ] || { echo "no temp folder"; exit 2; }
-trap 'rm -rf "$T"' EXIT
-# Stopped (Ctrl-C): stop the suites running in the background too, then clean up.
-trap 'trap "" TERM; kill 0 2>/dev/null; exit 130' INT TERM
+# Retried: after a stop, Windows frees a stopped test's files a moment late.
+clean_temp() {
+  local i
+  for i in 1 2 3 4 5; do
+    rm -rf "$T" 2>/dev/null; [ -d "$T" ] || return 0; sleep 1
+  done
+  echo "could not remove $T" >&2
+}
+trap clean_temp EXIT
+# Stopped (Ctrl-C or TERM): stop the suites running in the background too, then
+# clean up. Each suite runs in its own process group (set -m in start_suite), so
+# this reaches the suites and their node processes, never whatever started this
+# script: without job control a script shares its caller's group.
+SUITE_PIDS=()
+stop_suites() {
+  local p
+  for p in "${SUITE_PIDS[@]}"; do kill -TERM -- "-$p" 2>/dev/null; done
+  # Let them end before the EXIT trap removes their folders.
+  wait 2>/dev/null
+  exit 130
+}
+trap stop_suites INT TERM
 # Kept output goes next to $T, not inside it, so it outlives the run.
 KEEPROOT="$(dirname "$T")/trailmark-release-check"
 KEEP=''
@@ -95,6 +114,9 @@ start_suite() { # name, slug for the kept output, then node --test arguments
   printf '%s\n' "$slug" > "$d/slug"
   printf '%s\n' "$name" > "$d/name"
   local dt="$d/tmp"; command -v cygpath >/dev/null 2>&1 && dt="$(cygpath -w "$d/tmp")"
+  # Job control on just for this start: the suite gets a process group of its
+  # own, which stop_suites stops.
+  set -m
   (
     export TMPDIR="$d/tmp" TEMP="$dt" TMP="$dt"
     s=$(date +%s)
@@ -102,10 +124,13 @@ start_suite() { # name, slug for the kept output, then node --test arguments
     node --test --test-reporter=tap "$@" > "$d/out" 2>&1
     echo $(( $(date +%s) - s )) > "$d/secs"
   ) &
+  SUITE_PIDS+=("$!")
+  set +m
   SUITES+=("$d")
 }
 finish_suites() {
   wait
+  SUITE_PIDS=()
   local d
   for d in "${SUITES[@]}"; do
     report_suite "$(cat "$d/name")" "$(cat "$d/slug")" "$d" "$(cat "$d/secs" 2>/dev/null)"

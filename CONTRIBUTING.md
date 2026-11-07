@@ -13,7 +13,7 @@ node plugins/trailmark/scripts/trailmark.js --sandbox-check
 node plugins/trailmark-codex/scripts/trailmark.js --sandbox-check
 ```
 
-Running `node --test tests/*.test.js` from inside a plugin folder does the same for that copy.
+Running `node --test "tests/*.test.js"` from inside a plugin folder does the same for that copy.
 
 The tests create throwaway repos in the temp folder and never touch your own Claude Code settings. Set `TMPDIR` (or `TEMP` on Windows) to put them somewhere else. Some tests skip themselves, most of them saying why:
 
@@ -52,7 +52,7 @@ scripts/lib/plainfile.js
 tests/handoff-checks.test.js
 ```
 
-The other files differ on purpose. Codex-specific code is in `scripts/lib/host.js`, which only the Codex copy has, and in the lines of its `scripts/trailmark.js` marked "Codex:". `scripts/lib/transcript.js`, `hooks/hooks.json`, the skills (`skills/<name>` in the Claude Code copy, `skills/tm-<name>` in the Codex copy) and `tests/trailmark.test.js` differ more. There are smaller differences in `hook-session-start.js`, `hook-commit-start.js`, `memory.js`, `lib/paths.js` and `lib/store.js`. When you change one of these, check whether the other copy needs the same change.
+The other files differ on purpose. Codex-specific code is in `scripts/lib/host.js`, which only the Codex copy has, and in the lines of its `scripts/trailmark.js` marked "Codex:". `scripts/lib/transcript.js`, `hooks/hooks.json`, the skills (`skills/<name>` in the Claude Code copy, `skills/tm-<name>` in the Codex copy) and the test files other than `tests/handoff-checks.test.js` differ more. There are smaller differences in `hook-session-start.js`, `hook-commit-start.js`, `memory.js`, `lib/paths.js` and `lib/store.js`. When you change one of these, check whether the other copy needs the same change.
 
 ## Sending a change
 

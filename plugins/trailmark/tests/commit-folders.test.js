@@ -1,5 +1,7 @@
 // Run: node --test tests/commit-folders.test.js
-// 0.6.0: the session's commit folders, and what a hook's script is handed.
+// 0.6.0: the session's commit folders and what a hook's script is handed,
+// with the context-watch tests that came after them in 0.6.0 (the others
+// are in context-watch.test.js).
 'use strict';
 
 const test = require('node:test');

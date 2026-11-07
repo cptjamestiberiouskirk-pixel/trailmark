@@ -1,5 +1,5 @@
 // Run: node --test tests/context-watch.test.js
-// 0.6.0: the context watch.
+// 0.6.0: the context watch. More of its tests are in commit-folders.test.js.
 'use strict';
 
 const test = require('node:test');
