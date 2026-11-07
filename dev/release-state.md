@@ -4,7 +4,7 @@ Last updated 2026-11-06. 0.6.0 is merged: PR #4, merge commit 03da9fd on main at
 
 ## Faster local checks (2026-11-06, branch `claude/faster-checks` off cf06986)
 
-The two speedups the user agreed to on 2026-11-06 for one small PR after 0.6.0: the suites at the same time in `release-check.sh`, and `trailmark.test.js` split into files. Not pushed; the PR waits for the user's word.
+The two speedups the user agreed to on 2026-11-06 for one small PR after 0.6.0: the suites at the same time in `release-check.sh`, and `trailmark.test.js` split into files. Pushed 2026-11-07 on the user's "Push and open PR", with main's 0.6.0 publish record (5a8dd2a) merged in.
 
 - 01ef1a4: `release-check.sh` starts the three suites in the background, each with its own temp folder (`$T/s1`, `s2`, `s3`: short, since a test's paths repeat it), so a failed test's kept folders still go to its own suite's kept output. One summary line per suite as before, now with the suite's time. Ctrl-C stops the background suites.
 - f05b383: each `plugins/*/tests/trailmark.test.js` is now nine files, one or more of its old sections each (`basics`, `sessions`, `hardening`, `commits`, `sweep`, `copies`, `security`, `commit-folders`, and `context-watch` for Claude Code or `codex` for Codex), plus `helpers.js` with what more than one file uses. The code was moved by a script that only cuts at top-level statements and checks the pieces rebuild the old file; a line-by-line comparison finds two changed lines per copy (the sweep test reads `sweepRepeats()`, since `helpers.js` keeps the count) and the new file heads. A file that counts tool-use IDs keeps its own `toolSeq`; the ID prefixes differ, so IDs stay apart. CI and `release-check.sh` take every `*.test.js` of a copy except handoff-checks, so a new file can't be left out. No split file is identical in both copies, so the shared-file list in CI is unchanged.
@@ -35,9 +35,17 @@ Load-sensitive tests (the list below), reread for this change:
 
 Not checked yet: CI. Node runs one file per core less one by default, so CI's trailmark steps now run 3 files at once on the 4-core Linux and Windows runners and 2 on the 3-core macOS ones, where the file ran alone before. CI's steps don't overlap, unlike the local check, but relative to the cores that load is about the local all-at-once one. The PR's CI run shows whether it needs a cap there too.
 
-## 0.6.0 (merged 2026-11-06, 03da9fd; not tagged or published yet)
+## 0.6.0 (published 2026-11-07 00:45Z, v0.6.0 at cf06986)
 
 Started 2026-11-04 from `dev/release-0.6.0-prompt.md` on branch `claude/release-0.6.0` (from origin/main d6b705e). Scope confirmed by the user 2026-11-04 ("Yes, start", after their answer was relayed from another session): A, B1 to B11. One Fable review covers B4, B6, B7 and B9. For B8, read Defender's MPLog first; ask before downloading Process Monitor or anything else.
+
+### Published (2026-11-07 UTC)
+
+- Release commit: `cf0698636fc096938f8243cf9ff3d6bf33d25d28`, PR #7's merge commit on main (merged 2026-11-07 00:03:21Z, all 9 jobs passing on fde125a, macOS Node 22 included). Its shipped files differ from 40a5a06, PR #8's merge, only in CHANGELOG.md's date line and SHA256SUMS. CONFIRMED with `gh pr view` and `git diff --stat`.
+- Full check at cf06986 from a clean scratch worktree: `dev/release-check.sh --zip D:\UserFiles\Downloads`, exit 0, every check PASS (handoff-checks 158/246 with 88 skipped, Claude Code 160/175 with 15 skipped, Codex 152/168 with 16 skipped). CONFIRMED by the review-strategy session.
+- Zip: `D:\UserFiles\Downloads\trailmark-0.6.0.zip`, 1,402,125 bytes, sha256 `a6ca341c6288785e67f10fc057e0ce04c6c0d531d4607ed72d999025fe9c5f50`, inner sums verified, no links. The release notes are `trailmark-0.6.0-release-notes.md` next to it, not in the repo.
+- Tag: v0.6.0 at cf06986, lightweight like v0.5.0 and v0.5.1, pushed on the user's "Tag it". Release: "Trailmark 0.6.0", published at 00:45:15Z on the user's "Publish it", marked Latest, with the zip and its `.sha256`. Both files were downloaded back from the release and passed `sha256sum -c`. CONFIRMED with `git ls-remote` and `gh release view`.
+- Left for the user (checklist item 7): after installing 0.6.0, remove the context-watch prototype.
 
 ### Merged (2026-11-06)
 
@@ -50,7 +58,7 @@ Started 2026-11-04 from `dev/release-0.6.0-prompt.md` on branch `claude/release-
   - `TAG_LIKE`'s time: "Pull into 0.6.0", the one item pulled through the freeze ("`TAG_LIKE`'s time").
   - The review: "One combined round" over F1, the `TAG_LIKE` fix and F1's CI fix ("Scope frozen after F1").
   - PR #8's review (`git diff 03da9fd..a6a025b`; Fable for the launcher and `hookio.js`, Opus for regression, Sonnet for docs; report `dev/review-pr8-report.md`) found no code problem and 3 CONFIRMED wording errors. The user: "yes, Fix the 3 wording errors in PR #8 before merging it" (8983422). A Sonnet pass on 8983422 found the same cap error left in the launcher's stderr message, and the user said "Fix it first" (2633ecc, a string change only, checked by the review-strategy session). Then "Auto-merge PR #8". Its four items to defer are at the end of "Deferred to the next version".
-- Not done: tagging v0.6.0 and publishing the release. Both need the user's word at the time.
+- Tagging and publishing: done (see "Published" above). The user's words: "Tag after PR #7", then "Tag it", then "Publish it".
   - The user asked for the context watch's CI stall to be explained before tagging ("Investigate before tagging"). Explained 2026-11-06: a stdin deadlock in Node's `spawnSync` on macOS, hit when the launcher hands a hook a big payload (the stall's entry in the deferred list). The user's decision: "Fix, then tag 0.6.0". The fix is PR #8 (99607f5, then a778ace and a6a025b for `write-handoff` and `park`, then 8983422 and 2633ecc for its review's wording). It merged at 23:29:23Z as 40a5a06 on main, with all 9 jobs passing on 2633ecc (CONFIRMED with `gh pr view`). The tag follows on the user's word.
 
 ### Scope
