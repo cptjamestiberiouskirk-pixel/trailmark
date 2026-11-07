@@ -483,28 +483,81 @@ test('strict reads: a file that can\'t be read stops the write instead of being 
   assert.strictEqual(fs.readFileSync(path.join(s.memdir, '.jbmem-state.json.bad'), 'utf8'), '{not json');
 });
 
-test('hooks: a busy lock costs the reminder, never the commit log line; a payload with a BOM still parses', () => {
-  const s = sandbox();
-  jbm(s, ['init']);
-  const lock = path.join(s.memdir, '.jbmem.lock');
-  fs.writeFileSync(lock, `pid ${process.pid} host x since now token busy\n`);
-  fs.writeFileSync(path.join(s.repo, 'q'), 'q'); s.g('add', 'q'); s.g('commit', '-qm', 'logged while busy');
-  const t0 = Date.now();
-  const m = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, session_id: SA, tool_input: { command: 'git commit -m q' }, tool_response: {} }));
-  const ms = Date.now() - t0;
-  assert.strictEqual(m.status, 0);
-  assert.ok(ms < 6000, `hook took ${ms} ms`);
-  assert.match(notesOf(s), /COMMIT [0-9a-f]+ logged while busy session=11111111/);
-  // A subagent result with the lock busy: no reminder and no log line of any kind.
-  const before = notesOf(s);
-  const sub = jbm(s, ['--hook', 'milestone', 'subagent'], JSON.stringify({ cwd: s.repo, session_id: SA, tool_input: {}, tool_response: {} }));
-  assert.strictEqual(sub.status, 0);
-  assert.strictEqual(sub.stdout, '');
-  assert.strictEqual(notesOf(s), before);
-  fs.unlinkSync(lock);
-  const st = jbm(s, ['--hook', 'session-start'], '\uFEFF' + JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB }));
-  assert.strictEqual(st.status, 0);
-  assert.ok(stateOf(s).sessions[SB], 'the session with a BOM-prefixed payload was recorded');
+// The launcher stops a hook's script at its time limit (trailmark.js: 4.5 s
+// for commit-start, 9 s for the others) and says so on stderr. On a machine
+// with every core busy that is the designed outcome, not a fault: the hook is
+// run again, and after 3 stops in a row the test is skipped with the reason.
+// Any other exit is left to the caller's asserts. With the lock busy, a stop
+// may be the lock's own fault (a wait past its bound), so the same hook is
+// then run once with the lock removed. If that run left room for the lock's
+// wait (2 s, store.js) inside the 9 s limit, with 1 s to spare, the lock cost
+// more than its wait and the test fails; a slower free run says nothing either
+// way. The free run's time includes the launcher's own work before the limit
+// starts, so it can only overstate what the limit saw. The lock stays removed.
+const HOOK_STOPPED = /took too long and was stopped/;
+const ROOM_FOR_LOCK_MS = 9000 - 2000 - 1000;
+class HookOutOfTime extends Error {}
+const stopped = r => r.status === 1 && HOOK_STOPPED.test(r.stderr);
+function hookInTime(call, what, { tries = 3, lock } = {}) {
+  for (let i = 1; ; i++) {
+    const r = call();
+    if (!stopped(r)) return r;
+    if (i < tries) continue;
+    if (lock) {
+      fs.rmSync(lock, { force: true });
+      const t0 = Date.now();
+      const free = call();
+      const took = Date.now() - t0;
+      if (!stopped(free) && took < ROOM_FOR_LOCK_MS) assert.fail(`${what}: stopped ${i} times in a row with the lock busy, but took ${took} ms with it free: a busy lock cost the hook more than its 2 s wait`);
+    }
+    throw new HookOutOfTime(`${what}: the launcher stopped the hook at its time limit ${i} times in a row: this machine is too slow now`);
+  }
+}
+
+test('hooks: a busy lock costs the reminder, never the commit log line; a payload with a BOM still parses', (t) => {
+  try {
+    const s = sandbox();
+    jbm(s, ['init']);
+    const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
+    const lock = path.join(s.memdir, '.jbmem.lock');
+    fs.writeFileSync(lock, `pid ${process.pid} host x since now token busy\n`);
+    // What a busy lock costs a hook: its one updateState (hook-milestone.js,
+    // the default wait of 2 s) gives up after that wait. Timed here, in this
+    // process: the hook's own run time is mostly starting node and git, which
+    // the machine's load decides (4 to 10 s with every core busy, about 3 s
+    // idle), and says nothing about the wait.
+    const t0 = Date.now();
+    assert.throws(() => S.updateState(s.memdir, SA, (st) => { st.junk = 1; }), (e) => e.code === 'JBMEM_LOCKED');
+    const waited = Date.now() - t0;
+    assert.ok(waited < 4000, `updateState waited ${waited} ms on a busy lock`);
+    fs.writeFileSync(path.join(s.repo, 'q'), 'q'); s.g('add', 'q'); s.g('commit', '-qm', 'logged while busy');
+    // The launcher's commit lookup has a budget of its own (5 s less what it
+    // used, trailmark.js); when it runs out the notes get COMMIT_UNRESOLVED
+    // why=git-timeout in place of the COMMIT line. That is repeated, then skipped.
+    const timeouts = () => (notesOf(s).match(/COMMIT_UNRESOLVED why=git-timeout/g) || []).length;
+    let m;
+    for (let i = 1; ; i++) {
+      const before = timeouts();
+      m = hookInTime(() => jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, session_id: SA, tool_input: { command: 'git commit -m q' }, tool_response: {} })), 'the commit hook', { lock });
+      if (m.status !== 0 || /COMMIT [0-9a-f]+ logged while busy/.test(notesOf(s)) || timeouts() === before) break;
+      if (i >= 3) throw new HookOutOfTime(`the commit hook: its commit lookup ran out of time ${i} times in a row (COMMIT_UNRESOLVED why=git-timeout): this machine is too slow now`);
+    }
+    assert.strictEqual(m.status, 0, m.stderr);
+    assert.match(notesOf(s), /COMMIT [0-9a-f]+ logged while busy session=11111111/);
+    // A subagent result with the lock busy: no reminder and no log line of any kind.
+    const before = notesOf(s);
+    const sub = hookInTime(() => jbm(s, ['--hook', 'milestone', 'subagent'], JSON.stringify({ cwd: s.repo, session_id: SA, tool_input: {}, tool_response: {} })), 'the subagent hook', { lock });
+    assert.strictEqual(sub.status, 0, sub.stderr);
+    assert.strictEqual(sub.stdout, '');
+    assert.strictEqual(notesOf(s), before);
+    fs.unlinkSync(lock);
+    const st = hookInTime(() => jbm(s, ['--hook', 'session-start'], '\uFEFF' + JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB })), 'the session-start hook');
+    assert.strictEqual(st.status, 0, st.stderr);
+    assert.ok(stateOf(s).sessions[SB], 'the session with a BOM-prefixed payload was recorded');
+  } catch (e) {
+    if (!(e instanceof HookOutOfTime)) throw e;
+    t.skip(e.message);
+  }
 });
 
 test('slow git: hooks finish well inside Claude Code\'s timeout when git hangs, and still inject', { skip: POSIX_ONLY }, () => {

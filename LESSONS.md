@@ -16,6 +16,27 @@ Format:
 
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
+## 2026-11-07: The control was a cheaper call than the one it stood in for
+
+- What went wrong: round 1's fix for the busy-lock skip ran the subagent hook as the lock-free control even when the commit hook was the one stopped. The subagent hook takes 30 to 40% of the commit hook's time, so under 24 to 30 busy loops the control would have failed the test on load alone (round 2, A). The same round found that F2's "five tries" also fired on time alone, since both copy walks share one budget (C: 2.4% to 90% of calls in a simulation).
+- Why: the control was picked for convenience (one function for both calls), and the try count was picked without asking what else gives the same sign.
+- Rule going forward: a control repeats the exact call it controls, with only the suspected cause removed. Before bounding a "can't tell" case by a try count, list every cause that gives that sign, simulate each at a few rates, and make the bound depend on evidence (here: any time reason seen in the window) rather than a count alone.
+- Status: open
+
+## 2026-11-07: A skip on the time sign hid faults that give the same sign
+
+- What went wrong: two of the new load-proof helpers skipped on a fault, not only on load. Review round 1 of `claude/load-proof-tests` found both (F1, F2), and both were reproduced. `hookInTime` read a lock that hung the hook as "the machine is too slow" (with `updateState`'s wait at 20 s the busy-lock test skipped 2 of 2). `copiesInTime` repeated a session start cut short for a reason of its own until 30 s ran out, then skipped (1,708,788 tries in the probe).
+- Why: a sign like "the hook was stopped" or "cut short" is what a slow machine shows, but a bug that makes the same call slow or stop shows it too. The every-call-late runs proved some test still fails, not that each skip fires only on load.
+- Rule going forward: every skip on a time sign gets a control that only load passes, and a run with a forced non-time fault behind that sign (a hang, a throw) that must fail. Size the control from the budget arithmetic, not "it finished": the busy-lock control fails only when the lock-free run takes under the 9 s limit less the 2 s wait less 1 s. A plain "finished with the lock free" control would fail on a machine where hooks take 8 s, which brings the load sensitivity back.
+- Status: open
+
+## 2026-11-07: A quoted heredoc in the Bash tool still lost a backslash
+
+- What went wrong: an edit script written with `cat > f <<'PYEOF'` in an inline Bash command had `\\n` in a Python literal. Python got `\n` (a real newline), so an anchor didn't match and the script stopped at its own assert before writing anything. A second pair would have written a real newline into a JS string.
+- Why: the Bash tool collapses `\\` in the inline command before the shell sees it, quoted heredoc or not. CLAUDE.md says so ("Windows notes"), but only for inline commands in general.
+- Rule going forward: any script holding a backslash goes through the Write tool, never a heredoc. The assert-before-write rule is what caught it.
+- Status: promoted to PLAYBOOK (its first constraint covers it: a heredoc in the Bash tool is an inline command)
+
 ## 2026-11-07: The playbook pointed at an old version's checklist
 
 - What went wrong: the first PLAYBOOK.md said to follow "Release checklist" in `dev/release-state.md`, but that heading appears once per version (0.6.0 at line 536, 0.5.1 at line 580), each with its own version numbers and paths. The docs reviewer caught it.
@@ -70,7 +91,7 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - What went wrong: CI failed handoff-checks "copies: the command the note gives ..." once on windows-latest, Node 26 (5a1e1a4). Session start's copy check (`otherCopies`) ran past its 300 ms budget and said it stopped early, which the test didn't accept. The sign was not on the load-sensitive list. The first fix accepted "stopped early", and round 4 found it then also passed an early stop for a reason other than time. Reported by both PR #10 sessions.
 - Why: the test checked only the success wording of a check with a time budget, and the loosened branches checked text that always comes with "stopped early".
 - Rule going forward: a test that relies on a wall-clock budget handles the out-of-time path or forces the in-time path. When it accepts a designed early stop, it asserts the reason is the designed one, and a probe shows it fails on another reason (here `maxEntries` at 0). Reproduce a timing failure at the call that timed out (budget 0 at session start only), not everywhere: budget 0 everywhere moved the failure to another assertion.
-- Status: open. The load-proof session audits all budgets after PR #10.
+- Status: open. The audit is done on `claude/load-proof-tests` (see "Load-proof tests" in `dev/release-state.md`): its rule held, and the three entries above add to it.
 
 ## 2026-11-07: A fix opened a hole next to it (`kill 0` and process groups)
 

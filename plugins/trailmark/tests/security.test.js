@@ -256,7 +256,28 @@ test('0.5.1 commit hook: a commit command sent to the background in another fold
   assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${sha} in="${dp(clone)}" bg elsewhere (found later) session=11111111`)), notesOf(s));
 }));
 
-test('0.5.1 commit hook: a background commit command that has committed in one other folder but not yet in a second adds both to the session\'s commit folders', sweepTest(() => {
+// The launcher stops a hook's script at its time limit (trailmark.js: 4.5 s
+// for commit-start, 9 s for the others) and says so on stderr. On a machine
+// with every core busy that is the designed outcome, not a fault: the step is
+// repeated, and after 3 stops in a row the test is skipped with the reason.
+// Any other exit is left to the caller's asserts.
+const HOOK_STOPPED = /took too long and was stopped/;
+class HookOutOfTime extends Error {}
+function hookInTime(call, what, tries = 3) {
+  for (let i = 1; ; i++) {
+    const r = call();
+    if (r.status !== 1 || !HOOK_STOPPED.test(r.stderr)) return r;
+    if (i >= tries) throw new HookOutOfTime(`${what}: the launcher stopped the hook at its time limit ${i} times in a row: this machine is too slow now`);
+  }
+}
+const hookTest = (fn) => sweepTest((t) => {
+  try { fn(t); } catch (e) {
+    if (!(e instanceof HookOutOfTime)) throw e;
+    t.skip(e.message);
+  }
+});
+
+test('0.5.1 commit hook: a background commit command that has committed in one other folder but not yet in a second adds both to the session\'s commit folders', hookTest(() => {
   const { s, clone, gClone, head } = multiFolder();
   const third = path.join(s.base, 'third');
   fs.mkdirSync(third);
@@ -264,10 +285,17 @@ test('0.5.1 commit hook: a background commit command that has committed in one o
   g3('init', '-q'); g3('config', 'user.email', 't@t'); g3('config', 'user.name', 't'); g3('commit', '-q', '--allow-empty', '-m', 'before the session');
   ageReflogs(path.join(third, '.git'), 600);
   jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'startup', hook_event_name: 'SessionStart' }));
-  const id = `toolu_bgt${++toolSeq}x${process.pid}`;
   const command = `git -C "${clone}" commit -q --allow-empty -m "bg one" && git -C "${third}" commit -q --allow-empty -m "bg two"`;
-  const base = { session_id: SA, tool_name: 'Bash', tool_input: { command, run_in_background: true }, tool_use_id: id };
-  assert.strictEqual(jbm(s, ['--hook', 'commit-start'], JSON.stringify({ ...base, cwd: s.repo, hook_event_name: 'PreToolUse' })).status, 0);
+  // Each try is a new tool call: a stopped hook may have left its record
+  // empty, and the record is never written over (store.recordCommitStart).
+  // A record left by a stopped try is this session's own, which its sweep
+  // doesn't wait for (store.openCommitStart).
+  let base;
+  const pre = hookInTime(() => {
+    base = { session_id: SA, tool_name: 'Bash', tool_input: { command, run_in_background: true }, tool_use_id: `toolu_bgt${++toolSeq}x${process.pid}` };
+    return jbm(s, ['--hook', 'commit-start'], JSON.stringify({ ...base, cwd: s.repo, hook_event_name: 'PreToolUse' }));
+  }, 'commit-start');
+  assert.strictEqual(pre.status, 0, pre.stderr);
   // The hook runs after the first commit and before the second.
   gClone('commit', '-q', '--allow-empty', '-m', 'bg one');
   const post = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ ...base, cwd: s.repo, hook_event_name: 'PostToolUse', tool_response: {}, duration_ms: 40 }));

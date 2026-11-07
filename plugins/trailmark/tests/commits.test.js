@@ -10,7 +10,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 const { realTemp, WIN, dp, POSIX_ONLY, NO_LINKS, sandbox, versionNow, wh, J,
-  jbm, SA, SB, SC, notesOf, multiFolder, commitLines, jbmIn } = require('./helpers.js');
+  jbm, SA, SB, SC, notesOf, multiFolder, commitLines, jbmIn, tick } = require('./helpers.js');
 
 // ---------- 0.3.3: commits logged from the folder they ran in ----------
 
@@ -252,7 +252,21 @@ test('0.3.3 hardening: hostile repo config in the folder git runs in starts no p
   assert.ok(ran.some(l => l.startsWith(`${s.repo} `) && / log -g /.test(l)), 'the hook read the reflog in the session folder');
 });
 
-test('0.3.3 hardening: the PreCompact status runs no fsmonitor, hook or submodule git', () => {
+// The launcher gives a hook's git calls about 5 s (trailmark.js). A hook
+// whose git ran out of that time (a busy machine) leaves a git-timeout marker.
+// lateAgain makes such a call again, up to 3 tries in all, and returns the
+// reason when git ran out in every one, else ''.
+const lateAgain = (call, sign) => {
+  for (let i = 1; ; i++) {
+    const m = sign();
+    if (!m) return '';
+    if (i === 3) return `git ran out of the launcher's time in ${i} tries in a row (${m}): git is too slow on this machine now`;
+    tick();
+    call();
+  }
+};
+
+test('0.3.3 hardening: the PreCompact status runs no fsmonitor, hook or submodule git', (ctx) => {
   const s = sandbox();
   jbm(s, ['init']);
   const marks = path.join(s.base, 'marks');
@@ -281,11 +295,17 @@ test('0.3.3 hardening: the PreCompact status runs no fsmonitor, hook or submodul
   fs.utimesSync(path.join(s.repo, 'a'), old, old);
   // git's own trace lists every program it starts.
   const trace = path.join(s.base, 'trace.txt');
-  assert.strictEqual(jbm(s, ['--hook', 'precompact'], JSON.stringify({ cwd: s.repo, trigger: 'auto', session_id: SA }), { GIT_TRACE: trace }).status, 0);
+  // Each try's trace is kept, so every one is checked below.
+  const snap = require('../scripts/lib/store').snapshotPath(s.memdir, SA);
+  const precompact = () => { fs.rmSync(snap, { force: true }); assert.strictEqual(jbm(s, ['--hook', 'precompact'], JSON.stringify({ cwd: s.repo, trigger: 'auto', session_id: SA }), { GIT_TRACE: trace }).status, 0); };
+  precompact();
+  const late = lateAgain(precompact, () => { try { return /not read \(git-timeout\)/.test(fs.readFileSync(snap, 'utf8')) && 'Uncommitted files: not read (git-timeout)'; } catch { return ''; } });
+  // What git started is checked on every run, also when git ran out of time.
   assert.deepStrictEqual(fs.readdirSync(marks), []);
-  const t = fs.readFileSync(trace, 'utf8');
-  assert.ok(/built-in: git .*status --porcelain/.test(t), 'the hook ran status: ' + t);
+  const t = fs.existsSync(trace) ? fs.readFileSync(trace, 'utf8') : '';
   assert.ok(!/run_command:/.test(t), 'git started another program: ' + t.split('\n').filter(l => /run_command/.test(l)).join('\n'));
+  if (late) return ctx.skip(late);
+  assert.ok(/built-in: git .*status --porcelain/.test(t), 'the hook ran status: ' + t);
 });
 
 test('0.3.3 parser: where each commit ran, for Bash, Git Bash on Windows and PowerShell', () => {

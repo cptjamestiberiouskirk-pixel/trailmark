@@ -9,7 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
-const { ROOT, CLI, sandbox, wh, J, JBM, jbm, cp } = require('./helpers.js');
+const { ROOT, CLI, sandbox, wh, J, JBM, jbm, cp, tick } = require('./helpers.js');
 
 test('paths: Windows-style comparison and candidate keys', () => {
   const { samePath, candidateKeys } = require('../scripts/lib/paths');
@@ -239,7 +239,21 @@ test('launcher: init --force sets up a repo Claude Code has never opened; withou
   assert.strictEqual(n.status, 0, n.stdout + n.stderr);
 });
 
-test('launcher: hooks run sandboxed with launcher-collected git facts', () => {
+// The launcher gives a hook's git calls about 5 s (trailmark.js). A hook
+// whose git ran out of that time (a busy machine) leaves a git-timeout marker.
+// lateAgain makes such a call again, up to 3 tries in all, and returns the
+// reason when git ran out in every one, else ''.
+const lateAgain = (call, sign) => {
+  for (let i = 1; ; i++) {
+    const m = sign();
+    if (!m) return '';
+    if (i === 3) return `git ran out of the launcher's time in ${i} tries in a row (${m}): git is too slow on this machine now`;
+    tick();
+    call();
+  }
+};
+
+test('launcher: hooks run sandboxed with launcher-collected git facts', (t) => {
   const s = sandbox();
   jbm(s, ['init']);
   wh(J(s), '# H\n- state\n');
@@ -251,10 +265,20 @@ test('launcher: hooks run sandboxed with launcher-collected git facts', () => {
   const old = new Date(Date.now() - 3600000);
   fs.utimesSync(path.join(s.memdir, 'handoff.md'), old, old);
   fs.writeFileSync(path.join(s.repo, 'z'), 'z'); s.g('add', 'z'); s.g('commit', '-qm', 'zed commit');
-  const m = jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, tool_input: { command: 'git commit -m zed' }, tool_response: {} }));
+  const readNotes = () => fs.readdirSync(path.join(s.memdir, 'notes')).map(f => fs.readFileSync(path.join(s.memdir, 'notes', f), 'utf8')).join('');
+  const timeouts = () => (readNotes().match(/COMMIT_UNRESOLVED why=git-timeout/g) || []).length;
+  let before = 0;
+  const milestone = () => { before = timeouts(); return jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, tool_input: { command: 'git commit -m zed' }, tool_response: {} })); };
+  const m = milestone();
   assert.match(JSON.parse(m.stdout).hookSpecificOutput.additionalContext, /checkpoint skill/);
-  assert.strictEqual(jbm(s, ['--hook', 'precompact'], JSON.stringify({ cwd: s.repo, trigger: 'auto' })).status, 0);
-  const notes = fs.readdirSync(path.join(s.memdir, 'notes')).map(f => fs.readFileSync(path.join(s.memdir, 'notes', f), 'utf8')).join('');
+  let late = lateAgain(milestone, () => timeouts() > before && 'COMMIT_UNRESOLVED why=git-timeout');
+  if (late) return t.skip(late);
+  const snap = require('../scripts/lib/store').snapshotPath(s.memdir, '');
+  const precompact = () => { fs.rmSync(snap, { force: true }); assert.strictEqual(jbm(s, ['--hook', 'precompact'], JSON.stringify({ cwd: s.repo, trigger: 'auto' })).status, 0); };
+  precompact();
+  late = lateAgain(precompact, () => { try { return /not read \(git-timeout\)/.test(fs.readFileSync(snap, 'utf8')) && 'Uncommitted files: not read (git-timeout)'; } catch { return ''; } });
+  if (late) return t.skip(late);
+  const notes = readNotes();
   assert.match(notes, /SESSION_START source=startup branch=\S+/);
   assert.match(notes, /COMMIT [0-9a-f]+ zed commit/);
   assert.match(notes, /PRE_COMPACT trigger=auto branch=\S+ head=[0-9a-f]+ uncommitted=0/);
