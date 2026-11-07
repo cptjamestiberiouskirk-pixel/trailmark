@@ -4,5 +4,7 @@
 # Notes and scripts for working on the repo; not part of the release zip
 # (git archive), and left out of SHA256SUMS so the zip's own list verifies.
 /CLAUDE.md export-ignore
+/PLAYBOOK.md export-ignore
+/LESSONS.md export-ignore
 /dev export-ignore
 /dev/** export-ignore

@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# A new commit on a pull request cancels that pull request's older run.
+# Each push to main keeps its own run.
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     name: ${{ matrix.os }}, Node ${{ matrix.node }}

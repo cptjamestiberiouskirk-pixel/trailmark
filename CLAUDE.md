@@ -2,6 +2,8 @@
 
 Read `dev/release-state.md` first: where the release stands, what is open, and what is deferred.
 
+Then read `PLAYBOOK.md` (checklists for this project's recurring work, with its known limits) and the latest entries in `LESSONS.md`. Re-read both before each significant step: a design decision, a code change, a test run, a release or a deliverable. Follow the checklist that applies, and a lesson's rule even when it slows the work. After each step, check the real result and report pass, fail or untested for each item. Log anything that broke, needed a redo, surprised you or drew a correction in `LESSONS.md` right away. A lesson seen twice, or clearly general, becomes a `PLAYBOOK.md` step and is marked "promoted". Keep `PLAYBOOK.md` short: rewrite or delete stale steps. When the user asks, or at a release's end, give a three-line summary of what was learned and what changed in the playbook. Both files are for development only and stay out of the release (`export-ignore`).
+
 ## Conventions
 
 - Ask before pushing, opening a PR, merging, tagging, publishing or downloading anything.
@@ -50,15 +52,16 @@ Every change gets a regression, security and double-check pass, scoped to the ch
 
 - A round runs only the rows its diff touches. The docs row joins when a shipped doc changed (anything outside `dev/` and this file).
 
-- Reproduce every finding before acting on it. A fix gets a test that fails on the old code.
+- Reproduce every finding before acting on it. A fix gets a test that fails on the old code. That test, run on the parent commit, counts as the reproduction: a coordinating session doesn't repeat it.
 - Each deferred item carries its label, the commit it was seen on, and a repro (a test name or a script).
 - Stop rule: release when a round finds nothing CONFIRMED in code changed since the last round. Older edge cases found along the way go in the deferred list in `dev/release-state.md` for the next version instead of holding the release.
 - Batches: gather a round's findings and the scanner and Copilot comments on that head, fix them in one push, then review that push's diff once.
+- In `dev/` tooling (files outside the release zip, so not `plugins/` tests), a batch fixes the round's CONFIRMED findings. An INFERRED or HYPOTHESIZED one goes to the deferred list with its repro instead, unless it can change whether a test passes or fails (for example, processes left running or temp folders left behind). Shipped code is unchanged by this rule.
 - Scope freeze: once the user freezes a release, the next round is the last. A finding holds the release only if it is CONFIRMED in that round's diff and makes the release worse than the previous one. Everything else goes to the deferred list, scanner and Copilot comments included, with no decision from the user each time: a scanner thread gets the reply "deferred to the next version (scope frozen)" and is resolved. The user still sees every deferred item, and one that looks serious (data exposure, code that runs) is flagged; it stays deferred unless the user pulls it back in. A round that finds only deferred items counts as clean for the merge.
 
 ## Sessions
 
-Start a new session for each task, and `/clear` between unrelated ones. A release prompt is split into one session per item or group of items, with `dev/release-state.md` as the handoff between them. Each review round runs in a fresh session from `git diff <last reviewed>..HEAD`. When a task ends, update `dev/release-state.md` so the next session can start from it.
+Start a new session for each task, and `/clear` between unrelated ones. A release prompt is split into one session per item or group of items, with `dev/release-state.md` as the handoff between them. Each review round runs in a fresh session, or in fresh subagents that the session owning the branch starts, from `git diff <last reviewed>..HEAD`. The reviewers get the diff and the brief, not the owner's conclusions. When a task ends, update `dev/release-state.md` so the next session can start from it.
 
 ## Where things are
 
