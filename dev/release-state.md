@@ -2,9 +2,17 @@
 
 Last updated 2026-11-06. 0.6.0 is merged: PR #4, merge commit 03da9fd on main at 19:36:21Z ("Merged", under 0.6.0). Tagging and publishing wait for the user's word.
 
-## 0.6.0 (merged 2026-11-06, 03da9fd; not tagged or published yet)
+## 0.6.0 (published 2026-11-07 00:45Z, v0.6.0 at cf06986)
 
 Started 2026-11-04 from `dev/release-0.6.0-prompt.md` on branch `claude/release-0.6.0` (from origin/main d6b705e). Scope confirmed by the user 2026-11-04 ("Yes, start", after their answer was relayed from another session): A, B1 to B11. One Fable review covers B4, B6, B7 and B9. For B8, read Defender's MPLog first; ask before downloading Process Monitor or anything else.
+
+### Published (2026-11-07 UTC)
+
+- Release commit: `cf0698636fc096938f8243cf9ff3d6bf33d25d28`, PR #7's merge commit on main (merged 2026-11-07 00:03:21Z, all 9 jobs passing on fde125a, macOS Node 22 included). Its shipped files differ from 40a5a06, PR #8's merge, only in CHANGELOG.md's date line and SHA256SUMS. CONFIRMED with `gh pr view` and `git diff --stat`.
+- Full check at cf06986 from a clean scratch worktree: `dev/release-check.sh --zip D:\UserFiles\Downloads`, exit 0, every check PASS (handoff-checks 158/246 with 88 skipped, Claude Code 160/175 with 15 skipped, Codex 152/168 with 16 skipped). CONFIRMED by the review-strategy session.
+- Zip: `D:\UserFiles\Downloads\trailmark-0.6.0.zip`, 1,402,125 bytes, sha256 `a6ca341c6288785e67f10fc057e0ce04c6c0d531d4607ed72d999025fe9c5f50`, inner sums verified, no links. The release notes are `trailmark-0.6.0-release-notes.md` next to it, not in the repo.
+- Tag: v0.6.0 at cf06986, lightweight like v0.5.0 and v0.5.1, pushed on the user's "Tag it". Release: "Trailmark 0.6.0", published at 00:45:15Z on the user's "Publish it", marked Latest, with the zip and its `.sha256`. Both files were downloaded back from the release and passed `sha256sum -c`. CONFIRMED with `git ls-remote` and `gh release view`.
+- Left for the user (checklist item 7): after installing 0.6.0, remove the context-watch prototype.
 
 ### Merged (2026-11-06)
 
@@ -17,7 +25,7 @@ Started 2026-11-04 from `dev/release-0.6.0-prompt.md` on branch `claude/release-
   - `TAG_LIKE`'s time: "Pull into 0.6.0", the one item pulled through the freeze ("`TAG_LIKE`'s time").
   - The review: "One combined round" over F1, the `TAG_LIKE` fix and F1's CI fix ("Scope frozen after F1").
   - PR #8's review (`git diff 03da9fd..a6a025b`; Fable for the launcher and `hookio.js`, Opus for regression, Sonnet for docs; report `dev/review-pr8-report.md`) found no code problem and 3 CONFIRMED wording errors. The user: "yes, Fix the 3 wording errors in PR #8 before merging it" (8983422). A Sonnet pass on 8983422 found the same cap error left in the launcher's stderr message, and the user said "Fix it first" (2633ecc, a string change only, checked by the review-strategy session). Then "Auto-merge PR #8". Its four items to defer are at the end of "Deferred to the next version".
-- Not done: tagging v0.6.0 and publishing the release. Both need the user's word at the time.
+- Tagging and publishing: done (see "Published" above). The user's words: "Tag after PR #7", then "Tag it", then "Publish it".
   - The user asked for the context watch's CI stall to be explained before tagging ("Investigate before tagging"). Explained 2026-11-06: a stdin deadlock in Node's `spawnSync` on macOS, hit when the launcher hands a hook a big payload (the stall's entry in the deferred list). The user's decision: "Fix, then tag 0.6.0". The fix is PR #8 (99607f5, then a778ace and a6a025b for `write-handoff` and `park`, then 8983422 and 2633ecc for its review's wording). It merged at 23:29:23Z as 40a5a06 on main, with all 9 jobs passing on 2633ecc (CONFIRMED with `gh pr view`). The tag follows on the user's word.
 
 ### Scope
