@@ -5,18 +5,19 @@
 #   dev/release-check.sh --sums          regenerate SHA256SUMS first, then check
 #   dev/release-check.sh --zip <dir>     also build <dir>/trailmark-<version>.zip
 #                                        and its .sha256 from HEAD, and verify them
-#   dev/release-check.sh --quick         skip the two long trailmark.test.js suites
+#   dev/release-check.sh --quick         skip the two long trailmark test suites
 #   dev/release-check.sh --only <x>      run only the tests in file <x> (a path
 #                                        from the repo's top folder), or else the
 #                                        tests whose name matches the regular
-#                                        expression <x> in all four test files
+#                                        expression <x> in every test file
 #
 # Run from anywhere inside the repo, in bash (Git Bash on Windows). It writes
 # only SHA256SUMS (with --sums), its own temp folder (removed at the end), the
 # zip folder you name and, when a test suite fails or --only runs, a folder
 # under <temp>/trailmark-release-check with the suite's full TAP output and
 # the folders its failed tests kept (the 20 newest such folders stay). It
-# makes no network requests.
+# makes no network requests. The test suites run at the same time, and each
+# summary line gives the suite's own time.
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
 
@@ -39,7 +40,42 @@ fi
 T="$(mktemp -d 2>/dev/null || mktemp -d -t tmcheck)"
 # Never go on without a temp folder: the cleanup below removes inside it.
 [ -n "$T" ] && [ -d "$T" ] || { echo "no temp folder"; exit 2; }
-trap 'rm -rf "$T"' EXIT
+# Retried: after a stop, Windows frees a stopped test's files a moment late.
+clean_temp() {
+  local i
+  for i in 1 2 3 4 5; do
+    rm -rf "$T" 2>/dev/null; [ -d "$T" ] || return 0; sleep 1
+  done
+  echo "could not remove $T" >&2
+}
+trap clean_temp EXIT
+# Stopped (Ctrl-C, TERM or a hangup): stop the suites running in the background
+# too, then clean up. Each suite runs in its own process group (set -m in
+# start_suite), so this reaches the suites and their node processes, never
+# whatever started this script: without job control a script shares its
+# caller's group. The suites are read from the job table, which has a suite as
+# soon as it starts; finished ones aren't listed. A suite still there after
+# 10 s is killed, and a second signal during the stop changes nothing.
+stop_suites() { # exit status: 128 + the signal's number
+  trap '' INT TERM HUP
+  local groups p i alive
+  jobs -rp > "$T/stopping" 2>/dev/null
+  groups="$(cat "$T/stopping" 2>/dev/null)"
+  for p in $groups; do kill -TERM -- "-$p" 2>/dev/null; done
+  for (( i = 0; i < 50; i++ )); do
+    alive=''
+    for p in $groups; do kill -0 -- "-$p" 2>/dev/null && alive=1; done
+    [ -z "$alive" ] && break
+    sleep 0.2
+  done
+  for p in $groups; do kill -KILL -- "-$p" 2>/dev/null; done
+  # Let them end before the EXIT trap removes their folders.
+  wait 2>/dev/null
+  exit "$1"
+}
+trap 'stop_suites 130' INT
+trap 'stop_suites 143' TERM
+trap 'stop_suites 129' HUP
 # Kept output goes next to $T, not inside it, so it outlives the run.
 KEEPROOT="$(dirname "$T")/trailmark-release-check"
 KEEP=''
@@ -68,22 +104,53 @@ keep_dir() {
   return 0
 }
 # Keep a suite's full output and the folders its failed tests kept (they are
-# in $T, which goes at the end of the run).
-keep_suite() { # slug, output
+# in the suite's own folder in $T, which goes at the end of the run).
+keep_suite() { # slug, output, the suite's folder
   keep_dir || { echo "      could not make $(shown "$KEEPROOT") to keep the output" >> "$T/failures"; return 0; }
   printf '%s\n' "$2" > "$KEEP/$1.tap"
   local d
-  for d in "$T"/jbmem-*; do
+  for d in "$3/tmp"/jbmem-*; do
     [ -e "$d" ] || continue
     mkdir -p "$KEEP/$1-folders"
     mv "$d" "$KEEP/$1-folders/" 2>/dev/null || cp -R "$d" "$KEEP/$1-folders/" 2>/dev/null \
       || echo "      could not keep $(basename "$d")" >> "$T/failures"
   done
 }
-run_suite() { # name, slug for the kept output, then node --test arguments
+# The test suites run at the same time, each in its own temp folder under $T
+# (s1, s2, ...: short, since a test's paths repeat it), so the folders a
+# suite's failed tests kept are told apart from the others'.
+# start_suite starts one in the background; finish_suites waits for them all
+# and reports each in the order started.
+SUITES=()
+start_suite() { # name, slug for the kept output, then node --test arguments
   local name="$1" slug="$2"; shift 2
-  # TAP named: newer Node prints the spec reporter even into a pipe.
-  local out; out="$(node --test --test-reporter=tap "$@" 2>&1)"
+  local d="$T/s$(( ${#SUITES[@]} + 1 ))"; mkdir -p "$d/tmp"
+  printf '%s\n' "$slug" > "$d/slug"
+  printf '%s\n' "$name" > "$d/name"
+  local dt="$d/tmp"; command -v cygpath >/dev/null 2>&1 && dt="$(cygpath -w "$d/tmp")"
+  # Job control on just for this start: the suite gets a process group of its
+  # own, which stop_suites stops.
+  set -m
+  (
+    export TMPDIR="$d/tmp" TEMP="$dt" TMP="$dt"
+    s=$(date +%s)
+    # TAP named: newer Node prints the spec reporter even into a pipe.
+    node --test --test-reporter=tap "$@" > "$d/out" 2>&1
+    echo $(( $(date +%s) - s )) > "$d/secs"
+  ) &
+  set +m
+  SUITES+=("$d")
+}
+finish_suites() {
+  wait
+  local d
+  for d in ${SUITES[@]+"${SUITES[@]}"}; do
+    report_suite "$(cat "$d/name")" "$(cat "$d/slug")" "$d" "$(cat "$d/secs" 2>/dev/null)"
+  done
+  SUITES=()
+}
+report_suite() { # name, slug, the suite's folder, seconds
+  local name="$1" slug="$2" dir="$3" secs="${4:-?}" out; out="$(cat "$dir/out")"
   local tests pass fail skip
   tests="$(sed -n 's/^# tests //p' <<<"$out" | tail -1)"; pass="$(sed -n 's/^# pass //p' <<<"$out" | tail -1)"
   fail="$(sed -n 's/^# fail //p' <<<"$out" | tail -1)"; skip="$(sed -n 's/^# skipped //p' <<<"$out" | tail -1)"
@@ -92,29 +159,33 @@ run_suite() { # name, slug for the kept output, then node --test arguments
   local empty; empty="$(grep -cE '^ok [0-9]+ - .*\.test\.js$' <<<"$out")"
   [ -n "$tests" ] && tests=$((tests - empty)); [ -n "$pass" ] && pass=$((pass - empty))
   local ok=0
-  if [ "${fail:-1}" = 0 ] && [ "${tests:-0}" != 0 ]; then ok=1; record PASS "$name: $pass/$tests pass, $skip skipped"
-  elif [ "${tests:-}" = 0 ]; then record FAIL "$name: no test ran"
-  else record FAIL "$name: ${fail:-?} failed of ${tests:-?}"; fi
-  [ $ok = 1 ] || grep -E '^not ok' <<<"$out" | head -5 | sed 's/^/      /' >> "$T/failures"
+  if [ "${fail:-1}" = 0 ] && [ "${tests:-0}" != 0 ]; then ok=1; record PASS "$name: $pass/$tests pass, $skip skipped ($secs s)"
+  elif [ "${tests:-}" = 0 ]; then record FAIL "$name: no test ran ($secs s)"
+  else record FAIL "$name: ${fail:-?} failed of ${tests:-?} ($secs s)"; fi
+  [ $ok = 1 ] || grep -E '^not ok' <<<"$out" | head -5 | sed "s|^|      $slug: |" >> "$T/failures"
   # Kept when the suite failed, and always with --only: a skip's reason is in it too.
-  if [ $ok = 0 ] || [ -n "$ONLY" ]; then keep_suite "$slug" "$out"; fi
-  rm -rf "$T"/jbmem-* 2>/dev/null
+  if [ $ok = 0 ] || [ -n "$ONLY" ]; then keep_suite "$slug" "$out" "$dir"; fi
+  rm -rf "$dir" 2>/dev/null
 }
 summary() {
   echo
   heading
-  printf '%s\n' "${RESULTS[@]}"
+  printf '%s\n' ${RESULTS[@]+"${RESULTS[@]}"}
   [ -f "$T/failures" ] && cat "$T/failures"
   [ -n "$KEEP" ] && echo "Output kept (full TAP, and the folders failed tests kept): $(shown "$KEEP")"
   return 0
 }
 HC=(plugins/trailmark/tests/handoff-checks.test.js plugins/trailmark-codex/tests/handoff-checks.test.js)
-TC=(plugins/trailmark/tests/trailmark.test.js plugins/trailmark-codex/tests/trailmark.test.js)
+# Each copy's other test files (CI picks them the same way).
+TCC=(); TCX=()
+for f in plugins/trailmark/tests/*.test.js; do [ "${f##*/}" = handoff-checks.test.js ] || TCC+=("$f"); done
+for f in plugins/trailmark-codex/tests/*.test.js; do [ "${f##*/}" = handoff-checks.test.js ] || TCX+=("$f"); done
 
 # --only: the one suite file or the matching tests, and nothing else.
 if [ -n "$ONLY" ]; then
-  if [ -f "$ONLY" ]; then run_suite "--only $ONLY" only "$ONLY"
-  else run_suite "--only (tests named like /$ONLY/, all four files)" only --test-name-pattern="$ONLY" "${HC[@]}" "${TC[@]}"; fi
+  if [ -f "$ONLY" ]; then start_suite "--only $ONLY" only "$ONLY"
+  else start_suite "--only (tests named like /$ONLY/, every test file)" only --test-name-pattern="$ONLY" "${HC[@]}" ${TCC[@]+"${TCC[@]}"} ${TCX[@]+"${TCX[@]}"}; fi
+  finish_suites
   summary
   exit $FAILED
 fi
@@ -151,11 +222,19 @@ for c in trailmark trailmark-codex; do
   else record PASS "$c sandbox check"; fi
 done
 
-run_suite 'handoff-checks (both copies)' handoff-checks "${HC[@]}"
+# Two files at a time in each trailmark suite. Measured 2026-11-06 on 16
+# cores (dev/release-state.md, "Faster local checks"): all files at once took
+# 4.5 min but one full check in two failed a load-sensitive test, and three
+# at a time skipped one in every run. Two at a time took 6.5 to 7 min: in
+# three runs nothing failed and that test skipped once, in one copy.
+AT_ONCE=2
+start_suite 'handoff-checks (both copies)' handoff-checks "${HC[@]}"
 if [ "$QUICK" = 0 ]; then
-  run_suite 'trailmark.test.js (Claude Code)' trailmark-claude-code "${TC[0]}"
-  run_suite 'trailmark.test.js (Codex)' trailmark-codex "${TC[1]}"
-else record SKIP 'trailmark.test.js suites (--quick)'; fi
+  start_suite "trailmark tests (Claude Code, ${#TCC[@]} files)" trailmark-claude-code --test-concurrency=$AT_ONCE ${TCC[@]+"${TCC[@]}"}
+  start_suite "trailmark tests (Codex, ${#TCX[@]} files)" trailmark-codex --test-concurrency=$AT_ONCE ${TCX[@]+"${TCX[@]}"}
+fi
+finish_suites
+[ "$QUICK" = 1 ] && record SKIP 'trailmark test suites (--quick)'
 
 if command -v claude >/dev/null 2>&1; then
   v=1; for d in . plugins/trailmark plugins/trailmark-codex; do claude plugin validate --strict "$d" >/dev/null 2>&1 || v=0; done

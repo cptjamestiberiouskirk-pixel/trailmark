@@ -1,8 +1,8 @@
 // Run: node --test tests/handoff-checks.test.js
 // The handoff checked against git, the agent tag, the cut note, which repo a
 // memory folder serves, and the daily log's switch and retention (0.4.5).
-// Kept apart from trailmark.test.js so neither file nears the plugin
-// directory's 256 KiB limit. The same file runs in both plugin copies.
+// A file of its own so that no test file nears the plugin directory's
+// 256 KiB limit. The same file runs in both plugin copies.
 'use strict';
 
 const test = require('node:test');
