@@ -4,6 +4,8 @@ Last updated 2026-11-07. Since then: the load-proof test fixes ("Load-proof test
 
 ## Load-proof tests (2026-11-07, branch `claude/load-proof-tests` off 5566010)
 
+PR #14 (https://github.com/cptjamestiberiouskirk-pixel/trailmark/pull/14), opened 2026-11-07 after review round 3 and a merge of main (208d5fb, 5579e63). It waits for its 9 jobs and the user's word to merge.
+
 The goal: no test fails because shipped code ran out of a wall-clock budget it is designed to run out of. Fixed in the tests only: no shipped file and no environment setting changed (so no security row). Each test that needs a budget's in-time path now repeats the call while its result shows that budget's out-of-time sign, as the sweep tests' `settle()` does. Where the sign names time for certain, the test skips with the reason after the repeats. Where it doesn't (the commit list), it fails after three tries, so a fault that always gives the sign still fails. Any other reason for an early stop fails at once.
 
 Budgets in `plugins/trailmark/scripts` and what covers them:
