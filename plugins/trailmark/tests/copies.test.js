@@ -112,6 +112,10 @@ test('session start: warns of an old cached copy without naming its folder, in t
   assert.match(out.hookSpecificOutput.additionalContext, /Another copy of trailmark is on disk.*Never run their trailmark\.js or memory\.js/);
   assert.doesNotMatch(out.hookSpecificOutput.additionalContext, /old-local/, 'the note names no folder either (0.6.0)');
   assert.ok(out.hookSpecificOutput.additionalContext.length <= 9900);
+  // --copies --show-names, which has a budget of its own, lists it: a walk
+  // there that always runs out fails here, after listInTime's five tries.
+  const listed = listInTime(s).stdout;
+  assert.ok(listed.includes(old), listed);
   // Gone: no warning.
   fs.rmSync(old, { recursive: true, force: true });
   const clean = JSON.parse(jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB })).stdout);

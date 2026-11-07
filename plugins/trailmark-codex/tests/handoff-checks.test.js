@@ -139,18 +139,21 @@ function sandbox() {
 // out is made again, as the sweep tests repeat a sweep, and after 30 s of
 // that the test is skipped with the reason. Only --copies --show-names says
 // why a check stopped, so a session start that was cut short asks it. A
-// reason other than time, alone or with it, stops every check the same way,
-// so that result is returned as it is and the test fails on it.
+// reason other than time, alone or with it, is returned as it is and the
+// test fails on it. A session start cut short while --show-names finished
+// may have a reason --show-names doesn't share (its own call threw: "the
+// check failed"), so that gets five tries, then is returned as it is.
 class CopiesOutOfTime extends Error {}
 const cutShort = (context) => /The check for other copies of trailmark on disk was cut short/.test(context);
 const whyEarly = (listed) => ((/^  the check stopped early: (.*)$/m.exec(listed) || [])[1] || '').split('; ').filter(Boolean);
 const outOfTime = (why) => why.includes('it took too long') && why.every(w => w === 'it took too long' || /^it stopped at \d+ copies$/.test(w));
 function copiesInTime(s, call, { listed, waitMs = 30000 } = {}) {
   const until = Date.now() + waitMs;
+  let clean = 0;
   for (let tries = 1; ; tries++) {
     const r = call();
     const why = listed ? whyEarly(listed(r)) : cutShort(r.context) ? whyEarly(s.jbm(['--copies', '--show-names']).stdout) : [];
-    if (listed ? !outOfTime(why) : !cutShort(r.context) || (why.length && !outOfTime(why))) return r;
+    if (listed ? !outOfTime(why) : !cutShort(r.context) || (why.length ? !outOfTime(why) : ++clean >= 5)) return r;
     if (Date.now() > until) throw new CopiesOutOfTime(`every copy check for ${waitMs / 1000} s ran out of time (${tries} in a row): the machine is too slow now`);
   }
 }

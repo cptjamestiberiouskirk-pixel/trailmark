@@ -487,14 +487,27 @@ test('strict reads: a file that can\'t be read stops the write instead of being 
 // for commit-start, 9 s for the others) and says so on stderr. On a machine
 // with every core busy that is the designed outcome, not a fault: the hook is
 // run again, and after 3 stops in a row the test is skipped with the reason.
-// Any other exit is left to the caller's asserts.
+// Any other exit is left to the caller's asserts. With the lock busy, a stop
+// may be the lock's own fault (a wait past its bound), so the hook is then
+// run once with the lock free. If that run left room for the lock's wait
+// (2 s, store.js) inside the 9 s limit, with 1 s to spare, the lock cost more
+// than its wait and the test fails; a slower free run says nothing either way.
 const HOOK_STOPPED = /took too long and was stopped/;
+const ROOM_FOR_LOCK_MS = 9000 - 2000 - 1000;
 class HookOutOfTime extends Error {}
-function hookInTime(call, what, tries = 3) {
+const stopped = r => r.status === 1 && HOOK_STOPPED.test(r.stderr);
+function hookInTime(call, what, { tries = 3, unlocked } = {}) {
   for (let i = 1; ; i++) {
     const r = call();
-    if (r.status !== 1 || !HOOK_STOPPED.test(r.stderr)) return r;
-    if (i >= tries) throw new HookOutOfTime(`${what}: the launcher stopped the hook at its time limit ${i} times in a row: this machine is too slow now`);
+    if (!stopped(r)) return r;
+    if (i < tries) continue;
+    if (unlocked) {
+      const t0 = Date.now();
+      const free = unlocked();
+      const took = Date.now() - t0;
+      if (!stopped(free) && took < ROOM_FOR_LOCK_MS) assert.fail(`${what}: stopped ${i} times in a row with the lock busy, but took ${took} ms with it free: a busy lock cost the hook more than its 2 s wait`);
+    }
+    throw new HookOutOfTime(`${what}: the launcher stopped the hook at its time limit ${i} times in a row: this machine is too slow now`);
   }
 }
 
@@ -505,6 +518,8 @@ test('hooks: a busy lock costs the reminder, never the commit log line; a payloa
     const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
     const lock = path.join(s.memdir, '.jbmem.lock');
     fs.writeFileSync(lock, `pid ${process.pid} host x since now token busy\n`);
+    // The subagent hook with the lock free, for hookInTime; the test ends after a call to it.
+    const free = () => { fs.rmSync(lock, { force: true }); return jbm(s, ['--hook', 'milestone', 'subagent'], JSON.stringify({ cwd: s.repo, session_id: SA, tool_input: {}, tool_response: {} })); };
     // What a busy lock costs a hook: its one updateState (hook-milestone.js,
     // the default wait of 2 s) gives up after that wait. Timed here, in this
     // process: the hook's own run time is mostly starting node and git, which
@@ -515,12 +530,12 @@ test('hooks: a busy lock costs the reminder, never the commit log line; a payloa
     const waited = Date.now() - t0;
     assert.ok(waited < 4000, `updateState waited ${waited} ms on a busy lock`);
     fs.writeFileSync(path.join(s.repo, 'q'), 'q'); s.g('add', 'q'); s.g('commit', '-qm', 'logged while busy');
-    const m = hookInTime(() => jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, session_id: SA, tool_input: { command: 'git commit -m q' }, tool_response: {} })), 'the commit hook');
+    const m = hookInTime(() => jbm(s, ['--hook', 'milestone', 'commit'], JSON.stringify({ cwd: s.repo, session_id: SA, tool_input: { command: 'git commit -m q' }, tool_response: {} })), 'the commit hook', { unlocked: free });
     assert.strictEqual(m.status, 0, m.stderr);
     assert.match(notesOf(s), /COMMIT [0-9a-f]+ logged while busy session=11111111/);
     // A subagent result with the lock busy: no reminder and no log line of any kind.
     const before = notesOf(s);
-    const sub = hookInTime(() => jbm(s, ['--hook', 'milestone', 'subagent'], JSON.stringify({ cwd: s.repo, session_id: SA, tool_input: {}, tool_response: {} })), 'the subagent hook');
+    const sub = hookInTime(() => jbm(s, ['--hook', 'milestone', 'subagent'], JSON.stringify({ cwd: s.repo, session_id: SA, tool_input: {}, tool_response: {} })), 'the subagent hook', { unlocked: free });
     assert.strictEqual(sub.status, 0, sub.stderr);
     assert.strictEqual(sub.stdout, '');
     assert.strictEqual(notesOf(s), before);
