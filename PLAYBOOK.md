@@ -8,12 +8,15 @@ Re-read this file and the latest `LESSONS.md` entries before each significant st
 
 - Windows, Git Bash: the Bash tool collapses `\\` in an inline command. Write the script to a file and run that.
 - Python writes cp1252 into a pipe: set `PYTHONIOENCODING=utf-8`.
+- MSYS splits `PATH` at `:`, so a `C:/...` entry breaks: put `cygpath -u` paths in `PATH`. It also rewrites path arguments to Windows programs: call `wsl.exe` with `MSYS_NO_PATHCONV=1`. WSL's git can't read a worktree's Windows `gitdir`: clone for WSL from the main repository's `.git`.
+- An inline command's text shows in the process list, so `ps | grep` probes match themselves: write probes to script files.
+- Windows gives back a killed process's file handles a moment after it exits: cleanup after a stop retries for a few seconds.
 - PowerShell means `pwsh` (7), never `powershell.exe` (5.1), `gsudo` runs and `-File` scripts included.
 - Node's `os.tmpdir()` uses `TEMP`/`TMP` on Windows, not `TMPDIR`. The user's `TMPDIR=E:\DevTemp` reaches tests only through `dev/release-check.sh`.
 - Defender's MPLog is readable only by administrators. The user runs elevated scripts. Claude can't.
 - Junction tests on Windows: libuv can fail with `EBUSY`/`EPERM` while the machine is busy (B8, `dev/release-state.md`). A deep temp path can also refuse init ("Windows, long paths").
 - The writer runs under `node --permission`: it writes only in the memory folder and can't start programs. The launcher `scripts/trailmark.js` only reads.
-- Codex: each checkpoint save hits the sandbox and needs an approval, since the memory folder is outside the workspace.
+- Codex: the memory folder is outside the workspace, so the sandbox refuses a checkpoint's first write and the skill asks for approval, unless the folder is a writable root (MANUAL.md section 3, the Codex README step 3).
 - `main` requires the 9 jobs of `tests.yml`. Never add `paths-ignore`: a skipped workflow leaves the required jobs pending forever.
 - Load-sensitive tests: the list lives under "Load-sensitive tests" in `dev/release-state.md`. Read it there, not from a copy.
 
@@ -50,13 +53,14 @@ Re-read this file and the latest `LESSONS.md` entries before each significant st
 ## Reviewing
 
 1. One reviewer per row the diff touches (model table in `CLAUDE.md`), on `git diff <last reviewed>..HEAD` only.
-2. The brief gives the goal, the files, what earlier rounds fixed, a word limit, its own temp folder, and where the report lands (the owning branch's next batch push).
-3. Reproduce every finding before acting on it.
-4. Gather a round's findings plus the scanner and Copilot comments on that head, fix them in one push, then review that push once.
+2. The brief gives the goal, the files, what earlier rounds fixed, a word limit, its own temp folder, and where the report lands (the owning branch's next batch push). It also says to use `pwsh`, never `powershell.exe`, and sets `TMPDIR=E:\DevTemp` itself when kept output should land on the Dev Drive (a subagent's Bash has TMPDIR on C:).
+3. Tell the reviewer to read `PLAYBOOK.md` and `LESSONS.md` first.
+4. Reproduce every finding before acting on it.
+5. Gather a round's findings plus the scanner and Copilot comments on that head, fix them in one push, then review that push once.
 
 ## Releasing
 
-Follow "Release checklist" in `dev/release-state.md`. Then:
+Follow the current version's "Release checklist" in `dev/release-state.md`. Older versions keep their own checklists there, with their own version numbers and paths: don't follow those. Then:
 
 1. `dev/release-check.sh --zip <dir>` from a clean tree at the release commit. Record the commit and the zip's sha256 in `dev/release-state.md`.
 2. Check the zip holds the change: unzip it and search for a string only the change adds. Check that `CLAUDE.md`, `PLAYBOOK.md`, `LESSONS.md` and `dev/` are absent.
