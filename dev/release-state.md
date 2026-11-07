@@ -1,6 +1,16 @@
 # Release state
 
-Last updated 2026-11-06. 0.6.0 is merged: PR #4, merge commit 03da9fd on main at 19:36:21Z ("Merged", under 0.6.0). Tagging and publishing wait for the user's word.
+Last updated 2026-11-07. 0.6.0 is published (v0.6.0 at cf06986, under 0.6.0). Since then main has PR #10, faster local checks (merge commit 5566010, 19:13:39Z), and PR #12, PLAYBOOK.md and LESSONS.md (merge commit 208d5fb, 21:09:44Z).
+
+## PLAYBOOK.md and LESSONS.md (2026-11-07, PR #12, merged as 208d5fb)
+
+The user asked for both files at the repo root, for development only, filled in by sessions as they work, and for "all existing and future sessions" to use them.
+
+- `PLAYBOOK.md`: checklists for planning, code and docs, testing, reviewing, releasing and milestones, plus the known limits and a "Do not attempt" list. `LESSONS.md`: a dated log (what went wrong, why, the rule going forward, status), seeded from this file, CLAUDE.md, the project notes and PR #10's lessons. Those came from the review-strategy session and the speed-up session's `faster-checks/lessons-pending.md`, merged where they overlapped, not re-run here.
+- `export-ignore` in `.gitattributes` keeps both out of the zip and out of `SHA256SUMS`. CONTRIBUTING.md names them with the other files the zip leaves out. CLAUDE.md's second paragraph tells every session to re-read both before significant steps and to log lessons.
+- Sessions: the project memory note `playbook-and-lessons.md` carries the rule into every session, on any branch. The review-strategy, speed-up and time-limit sessions were told, and the review-strategy session confirmed it adopted them. After the merge, the speed-up session could no longer be reached; its lessons were already in.
+- Checks: `dev/release-check.sh --sums --quick` passed on ccf4d06, after main with PR #10 was merged in (SHA256SUMS regenerated for the conflict). `--zip` from ccf4d06: inner sums verify, and there is no `PLAYBOOK.md`, `LESSONS.md`, `CLAUDE.md` or `dev/` in it (CONFIRMED with `unzip -l`). A Sonnet docs review found two CONFIRMED wording issues, both fixed in b89b644: the release checklist heading repeats per version, and Codex refuses only a checkpoint's first write. CI: all 9 jobs passed. Merged with auto-merge on the user's "Yes, auto-merge". The Codex bot's code review of ccf4d06 completed with no findings. Its security review completed with the findings field empty (`null`), and the PR has no inline comments.
+- Open lessons with owners: the review-process change in CLAUDE.md and `tests.yml` (review-strategy session, now unblocked by PR #10) and the time-budget audit (load-proof session).
 
 ## Faster local checks (2026-11-06, branch `claude/faster-checks` off cf06986)
 
