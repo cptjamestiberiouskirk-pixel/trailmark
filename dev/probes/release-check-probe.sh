@@ -19,7 +19,7 @@
 # runner (it logs its arguments, then sleeps or prints a passing TAP), so no
 # test runs and the result doesn't depend on load. Everything it writes is in
 # its own temp folder, removed at the end (JBMEM_TEST_KEEP=1 keeps it). It
-# prints PASS or FAIL per check and exits 1 if any check failed.
+# prints PASS, FAIL or SKIP per check and exits 1 if any check failed.
 set -u
 TARGET="${1:-dev/release-check.sh}"
 [ -f "$TARGET" ] || { echo "no script: $TARGET"; exit 2; }
