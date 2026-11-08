@@ -382,7 +382,8 @@ test('codex 0.1.5: the exit code comes from the transcript\'s CommandExecution i
 // now applies only when the session has no session-start note at all, keyed
 // on that note's fixed start (other [trailmark] lines, such as the handoff's
 // version line, don't count, except a hook's note that says the path isn't
-// written, when there is no session-start note: the test after this one), and only to a path free of every character
+// written, when there is no session-start note: the test after this one),
+// and only to a path free of every character
 // usablePath refuses, each named in the skills. A change to usablePath's set
 // within printable ASCII or the samples below fails here until the skills
 // follow. Characters are built with fromCharCode so the source stays ASCII.
@@ -450,6 +451,9 @@ test("codex skills: a later note that says trailmark's path isn't written stops 
   for (const n of fs.readdirSync(dir)) {
     const t = fs.readFileSync(path.join(dir, n, 'SKILL.md'), 'utf8').replace(/\s+/g, ' ');
     assert.ok(t.indexOf(stop) > t.indexOf('two folders up'), `${n}: a later note stops the fallback`);
+    // One stop, the scoped one: a second, wider sentence would stop a working session.
+    const paragraph = fs.readFileSync(path.join(dir, n, 'SKILL.md'), 'utf8').split('\n').find((l) => l.startsWith('Every command here runs Trailmark'));
+    assert.strictEqual(paragraph.split(phrase).length, 2, `${n}: one stop on that phrase`);
   }
 });
 

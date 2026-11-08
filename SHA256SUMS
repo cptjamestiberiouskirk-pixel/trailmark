@@ -46,7 +46,7 @@ d314b2e90b9d2c50002a674ff57f352e326ad09743fdb35a785ebf8f974c6ae3 *./plugins/trai
 a71fce88467b8aa9df14261f079883885b2944ece303d2592cf2a183b33209b9 *./plugins/trailmark-codex/skills/tm-recall/SKILL.md
 8ec98756e14150f55999bb8b139724ea218c23cae5337312b4fc7724844ac697 *./plugins/trailmark-codex/skills/tm-session-end/SKILL.md
 ed41410d057f632e64637bf2b7cd2db3973f6c9b832d3f0182845bd1824d70ad *./plugins/trailmark-codex/tests/basics.test.js
-3592784683ea3278aafa34e7ab53ab039e75918b35845adc74efde4a6032d9c6 *./plugins/trailmark-codex/tests/codex.test.js
+89f5d309d73f5bdf91afade554d83eea2c57a75537de84cada83da63125e47d5 *./plugins/trailmark-codex/tests/codex.test.js
 d0006a14e452cf76841b6a9dd7237d2743b4d6216aebfda0ce71fe45cc7579bb *./plugins/trailmark-codex/tests/commit-folders.test.js
 c0704aea54e588b9f3bd3811d28ea26cb4292a7bca92fac4f961af3429670803 *./plugins/trailmark-codex/tests/commits.test.js
 c21cd38f587c7f245bcbe4f4dbda8fea61e682a8ad552fb338729c3ef3910b64 *./plugins/trailmark-codex/tests/copies.test.js
