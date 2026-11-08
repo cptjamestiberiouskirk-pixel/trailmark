@@ -24,9 +24,13 @@ function readPayload() {
 // after 9 s (seen in CI 2026-11-06, 9 of 3,600 calls, all with 80k or more).
 // A field's value is kept only when it is a string, number, boolean or null;
 // tool_input keeps its command and run_in_background, tool_response only its
-// exit fields. Windows caps a variable at 32,767 characters, so the launcher
-// starts no hook script for a payload over PAYLOAD_MAX characters of JSON,
-// escapes included.
+// exit fields. The launcher starts no hook script for a payload over
+// PAYLOAD_MAX characters of JSON, escapes included. That is a margin, not a
+// limit anyone measured: Windows documents 32,767 characters for one
+// variable, yet a 120,000-character one reached a child whole through
+// spawnSync on Windows 11 (review of PR #8). Linux takes 128 KiB for one
+// variable, and every system caps a program's arguments and environment
+// together (ARG_MAX). The fields kept are short but for a command.
 const PAYLOAD_MAX = 30000;
 const HOOK_FIELDS = ['session_id', 'transcript_path', 'cwd', 'codex_workdir', 'hook_event_name', 'source', 'trigger', 'tool_name', 'tool_use_id', 'duration_ms', 'agent_id', 'agent_type'];
 const INPUT_FIELDS = ['command', 'run_in_background'];
@@ -59,12 +63,28 @@ function emit(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
 }
 
+// A sandbox refusal in words, for the hooks and memory.js. On Windows the
+// sandbox also refuses writes in a memory folder whose path is about 268
+// characters or more (dev/probes/path-limit.js, Node 26; why is not
+// established), and the refusal names the path in its \\?\ form. A long
+// refused path gets its length and what fixes it.
+const LONG_PATH = 260;
+function refusalText(e, platform = process.platform) {
+  const res = e && typeof e.resource === 'string' ? e.resource : '';
+  let t = `sandbox refused ${(e && e.permission) || 'access'} to ${res || 'a path'}. Nothing was written there.`;
+  const plain = res.replace(/^\\\\\?\\(?:UNC\\)?/, '');
+  if (platform === 'win32' && plain.length >= LONG_PATH) {
+    t += ` That path is ${plain.length} characters long. On Windows the sandbox refuses writes in a memory folder whose path is about 268 characters or more, and the folder's name repeats the repo's path, so a repo at a shorter path fixes it.`;
+  }
+  return t;
+}
+
 function guard(fn) {
   try {
     fn();
   } catch (e) {
     if (e && e.code === 'ERR_ACCESS_DENIED') {
-      emit({ systemMessage: `[trailmark] sandbox refused ${e.permission || 'access'} to ${e.resource || 'a path'}. Nothing was written there. If this keeps happening, report it; JBMEM_SANDBOX=off bypasses the sandbox.` });
+      emit({ systemMessage: `[trailmark] ${refusalText(e)} If this keeps happening, report it; JBMEM_SANDBOX=off bypasses the sandbox.` });
     }
     process.exit(0);
   }
@@ -86,4 +106,4 @@ function sandboxNote() {
   return `sandbox ${sandboxWord()}`;
 }
 
-module.exports = { readPayload, hookInput, HOOK_FIELDS, PAYLOAD_MAX, memoryDirOrExit, facts, emit, guard, sandboxNote, sandboxWord };
+module.exports = { readPayload, hookInput, HOOK_FIELDS, PAYLOAD_MAX, memoryDirOrExit, facts, emit, guard, refusalText, sandboxNote, sandboxWord };
