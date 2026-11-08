@@ -152,6 +152,41 @@ test('health: a padded cache, oversized files and odd folder names are bounded a
   assert.match(r.incomplete, /installed_plugins\.json could not be read/);
 });
 
+// RS:709: a cache folder that couldn't be opened or read (EBUSY, EPERM) was
+// reported as "<folder> has too many folders".
+test('health: a cache folder that can\'t be read is said as one, not as "too many folders" (next version)', () => {
+  const H = require(path.join(ROOT, 'scripts', 'lib', 'health'));
+  const base = realTemp('jbmem-unread-');
+  const cfg = path.join(base, 'cfg'), cache = path.join(cfg, 'plugins', 'cache');
+  const inner = path.join(cache, 'm1', 'trailmark');
+  fs.mkdirSync(path.join(inner, '0.4.0', 'scripts'), { recursive: true });
+  const home = path.join(base, 'codex'), codexCache = path.join(home, 'plugins', 'cache');
+  fs.mkdirSync(path.join(codexCache, 'm1', 'jb-memory-codex'), { recursive: true });
+  const real = fs.opendirSync;
+  const fail = (code) => { const e = new Error(code); e.code = code; return e; };
+  try {
+    for (const code of ['EBUSY', 'EPERM']) {
+      for (const where of ['open', 'read']) {
+        for (const [at, want] of [[cache, 'the plugin cache could not be read'], [inner, 'm1/trailmark could not be read'], [codexCache, 'plugins/cache could not be read']]) {
+          fs.opendirSync = function (p, ...a) {
+            if (path.resolve(p) !== path.resolve(at)) return real.call(fs, p, ...a);
+            if (where === 'open') throw fail(code);
+            const h = real.call(fs, p, ...a);
+            h.readSync = () => { throw fail(code); };
+            return h;
+          };
+          const why = (at === codexCache ? H.oldCodexCopies(home, { detail: true }) : H.otherCopies(cfg, path.join(base, 'mine'), { budgetMs: 60000 })).incomplete.split('; ');
+          assert.ok(why.includes(want), `${code} at ${where} of ${at}: ${why.join('; ')}`);
+          assert.ok(!why.some(w => /too many folders/.test(w)), `${code} at ${where} of ${at}: ${why.join('; ')}`);
+        }
+      }
+    }
+  } finally { fs.opendirSync = real; }
+  // Past the entry limit is still "too many folders".
+  for (let i = 0; i < 230; i++) fs.mkdirSync(path.join(cache, 'a' + String(i).padStart(3, '0')));
+  assert.match(H.otherCopies(cfg, path.join(base, 'mine'), { budgetMs: 60000 }).incomplete, /the plugin cache has too many folders/);
+});
+
 test('session start: odd cache folder names stay out of the context, an incomplete check is a warning', () => {
   const s = sandbox();
   jbm(s, ['init']);

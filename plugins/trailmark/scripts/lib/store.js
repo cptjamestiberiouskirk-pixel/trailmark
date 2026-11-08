@@ -693,6 +693,10 @@ function updateStateLocked(dir, session, fn) {
   if (sid) {
     rec = state.sessions[sid] || (state.sessions[sid] = {});
     rec.seen = now;
+    // first: the earliest time this session is known at, for the commit
+    // sweep when its session-start record is missing (trailmark.js,
+    // sweepFacts).
+    if (!Number.isFinite(rec.first) && !Number.isFinite(rec.start)) rec.first = now;
   }
   const out = fn(state, rec);
   writeState(dir, state);
@@ -1288,9 +1292,11 @@ function rememberCommits(state, shas) {
 // `settled` is when the latest of those commands was done (for one sent to
 // the background, when its time is up); a sweep read past it means nothing
 // of this session's is left there unlogged. Past the limit, such a folder is
-// dropped first (oldest first),
-// then the oldest; a folder this call adds stays. With no time given (NaN)
-// a folder has no entry and is swept from the session's start, as before.
+// dropped first (oldest first), then the oldest; a folder this call adds
+// stays. A folder dropped and joined again starts no later than where its
+// last sweep stopped (rec.swept), so a commit made there in between is still
+// found (review round 8, R1). With no time given (NaN) a folder has no entry
+// and is swept from the session's start, as before.
 const MAX_COMMIT_DIRS = 6;
 function addCommitDirs(rec, dirs, from, settled = from) {
   const list = Array.isArray(rec.commitDirs) ? rec.commitDirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
@@ -1311,7 +1317,7 @@ function addCommitDirs(rec, dirs, from, settled = from) {
     const fresh = !list.includes(d);
     if (fresh) list.push(d);
     if (!timed) delete at[d];
-    else if (fresh) at[d] = [from, settled];
+    else if (fresh) { const s = sweptAt(d); at[d] = [Number.isFinite(s) && s < from ? s : from, settled]; }
     else if (at[d]) at[d] = [Math.min(at[d][0], from), Math.max(at[d][1], settled)];
   }
   while (list.length > MAX_COMMIT_DIRS) {
@@ -1881,8 +1887,9 @@ const FRAME_LIKE = /^[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\p{M}]*(?:[-
 // grows with the line's length. 71d7a78's pattern let three runs in a row
 // take invisible characters, from the name to the spaces before the tag's
 // end, so a line holding <a, thousands of them and no tag end took time that
-// grew with their number cubed: 2.75 s at 1,200, minutes at 3,000, past
-// session start's 10 s limit (the user: "Pull into 0.6.0"). It escapes the
+// grew with their number cubed: 2.75 s at 1,200, about 40 seconds at 3,000,
+// past the launcher's 9 s limit for session start (the user: "Pull into
+// 0.6.0"). It escapes the
 // same text, which handoff-checks.test.js checks against 71d7a78's pattern:
 // - The run before a name's separator takes no separator, since the first
 //   one serves as well as a later one.
@@ -1970,7 +1977,7 @@ function handoffStamp(text) {
 
 // Commits on HEAD since the handoff's HEAD, from the launcher
 // (gitfacts.commitsSince), checked field by field.
-const SINCE_STATES = new Set(['ok', 'not-ancestor', 'unknown-base']);
+const SINCE_STATES = new Set(['ok', 'not-ancestor', 'unknown-base', 'late']);
 const SHORT_SHA = /^[0-9a-f]{7,12}$/;
 function checkSinceFacts(raw) {
   if (!isPlainObject(raw) || !SHORT_SHA.test(String(raw.base)) || !SINCE_STATES.has(raw.state)) return null;
@@ -1978,7 +1985,8 @@ function checkSinceFacts(raw) {
   const entries = (Array.isArray(raw.entries) ? raw.entries.slice(0, 10) : [])
     .filter(e => isPlainObject(e) && SHORT_SHA.test(String(e.short)))
     .map(e => ({ short: e.short, subject: oneLine(typeof e.subject === 'string' ? e.subject : '', 80), t: Number.isFinite(e.t) && e.t > 0 ? e.t : 0 }));
-  return { base: raw.base, state: raw.state, count, entries };
+  const unlisted = raw.unlisted === 'late' || raw.unlisted === 'error' ? raw.unlisted : '';
+  return { base: raw.base, state: raw.state, count, entries, unlisted };
 }
 
 // Next-step items (under a heading with "next" in it) that share two or more
@@ -2012,7 +2020,16 @@ function sinceSection(since, body, m, now) {
   if (!since) return [];
   if (since.state === 'unknown-base') return [`The handoff was written at HEAD ${since.base}, which this checkout doesn't have (another clone, or rewritten history). Check what it says against the repo.`];
   if (since.state === 'not-ancestor') return [`The handoff was written at HEAD ${since.base}, which is not in the history of the current HEAD (another branch, or rewritten history). Check what still applies before acting on it.`];
+  // git was too slow to answer: said, with "git ran out of time" (the sign
+  // the commit-list tests repeat on), never left out in silence.
+  if (since.state === 'late') return [`Whether HEAD has commits since the handoff's HEAD ${since.base} isn't known: git ran out of time. Run git log --oneline ${since.base}..HEAD and check the next steps against it before redoing work.`];
   if (!since.count) return [];
+  // The count came but not the list: said why, never "the newest 0 shown".
+  if (!since.entries.length) {
+    return [`--- COMMITS SINCE THIS HANDOFF ${m} ---`,
+      `The handoff was written at HEAD ${since.base}; HEAD has ${since.count} newer commit${since.count === 1 ? '' : 's'}, not listed: ${since.unlisted === 'late' ? 'git ran out of time' : 'git could not list them'}. Run git log --oneline ${since.base}..HEAD and check the next steps against them before redoing work.`,
+      `--- END COMMITS ${m} ---`];
+  }
   const list = since.entries.map(e => `- ${e.short} ${e.subject}${e.t ? ` (${ageText(now - e.t)} ago)` : ''}`);
   const more = since.count > since.entries.length ? `, the newest ${since.entries.length} shown` : '';
   const out = [`--- COMMITS SINCE THIS HANDOFF ${m} ---`,
@@ -2023,6 +2040,35 @@ function sinceSection(since, body, m, now) {
   else out.push('Check the next steps against these commits before redoing work.');
   out.push(`--- END COMMITS ${m} ---`);
   return out;
+}
+
+// The paths a session-start note names (hook-session-start.js): the
+// launcher and, in the Codex copy, the skills folder, each written only as
+// usablePath gives it. A note shortened to fit is never cut inside one, since
+// a cut path names a file that isn't there: the cut goes before the path,
+// and the note says a path was left out. A path runs on to the next space,
+// quote or bracket, so a file in the skills folder counts too.
+const NOTE_PATHS = [path.join(__dirname, '..', 'trailmark.js'), path.join(__dirname, '..', '..', 'skills')];
+const PATH_LEFT_OUT = '... (a path is left out here)';
+function shortNote(text, max) {
+  const t = oneLine(text, Infinity);
+  if (t.length <= max) return t;
+  const spans = [];
+  for (const p of NOTE_PATHS.map(x => usablePath(x)).filter(Boolean)) {
+    for (let i = t.indexOf(p); i >= 0; i = t.indexOf(p, i + 1)) {
+      let j = i + p.length;
+      while (j < t.length && !/[\s"'()<>\[\]]/.test(t[j])) j++;
+      spans.push([i, j]);
+    }
+  }
+  let end = max - 3, tail = '...';
+  for (;;) {
+    const s = spans.find(([i, j]) => i < end && j > end);
+    if (!s) break;
+    tail = PATH_LEFT_OUT;
+    end = Math.max(0, Math.min(s[0], max - tail.length));
+  }
+  return t.slice(0, end).trimEnd() + tail;
 }
 
 // The section headings a cut left out, for the truncation note. body is
@@ -2162,7 +2208,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   if (ho.overChars || ho.overLines) {
     add(`Budget: handoff is ${ho.chars} chars / ${ho.lines} lines, over its budget (${cfg.budgets.handoffChars} chars / ${cfg.budgets.handoffLines} lines). Archive completed items before adding more.`, 3);
   }
-  for (const n of extra) add(n, 100, { short: n.length > 300 ? oneLine(n, 300) : '', keep: true });
+  for (const n of extra) add(n, 100, { short: n.length > 300 ? shortNote(n, 300) : '', keep: true });
 
   // Claude Code replaces hook context over its cap with a short preview, so
   // whatever the budgets say, the whole stays inside injectChars (8,500 by
@@ -2196,7 +2242,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   }
   // And kept warnings to their first 150 characters each.
   if (text.length > limit) {
-    for (const r of rest) if (r.keep && r.text.length > 160) r.text = oneLine(r.text, 150);
+    for (const r of rest) if (r.keep && r.text.length > 160) r.text = shortNote(r.text, 150);
     text = assemble();
   }
   return { text, summary: `handoff ${age} old, ~${estTokens(text.length)} tokens injected${cut ? ', TRUNCATED' : ''}${ho.overChars || ho.overLines ? ', over budget' : ''}` };

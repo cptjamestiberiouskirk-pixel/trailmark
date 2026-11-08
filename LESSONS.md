@@ -16,6 +16,13 @@ Format:
 
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
+## 2026-11-07: A control's floor sat below what the control takes at rest
+
+- What went wrong: batch F's commit-list tests skip when git ran out of time at three session starts in a row and a control (the same lookup, run in the test with 30 s) shows the machine is slow. The first floor, "the control took at least 300 ms", let a forced fault through: with the launcher's budget forced to 0 ms, all 14 tests skipped, since the same lookup took 300 to 744 ms on this machine at rest (other sessions' tests running).
+- Why: the floor was a guess at "git is quick", not measured, and not tied to the budget the product had.
+- Rule going forward: before choosing a control's bound, run the control at rest and under the forced fault, and tie the bound to the product's budget (here three quarters of the launcher's 1.2 s: the forced 0 ms budget then failed 13 of 14, and 16 busy loops skipped 14 of 14 with controls of 2.4 to 4.2 s).
+- Status: open (a second sighting of [the cheaper-control lesson](#2026-11-07-the-control-was-a-cheaper-call-than-the-one-it-stood-in-for): both are about sizing a control; promote when it comes up again)
+
 ## 2026-11-07: The control was a cheaper call than the one it stood in for
 
 - What went wrong: round 1's fix for the busy-lock skip ran the subagent hook as the lock-free control even when the commit hook was the one stopped. The subagent hook takes 30 to 40% of the commit hook's time, so under 24 to 30 busy loops the control would have failed the test on load alone (round 2, A). The same round found that F2's "five tries" also fired on time alone, since both copy walks share one budget (C: 2.4% to 90% of calls in a simulation).
