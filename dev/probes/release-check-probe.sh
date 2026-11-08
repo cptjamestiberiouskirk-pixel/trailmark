@@ -11,6 +11,8 @@
 #       calling loop stops instead of starting its next round
 #   D2  a passing --only run does not push a failed run's kept folder out
 #   D3  --only with a name pattern passes --test-concurrency to node
+#   D4  --sums under a UTF-8 locale keeps SHA256SUMS in bytewise order (it
+#       runs in the repo and puts SHA256SUMS back afterwards)
 #
 # Run from inside the repo. A fake `node` first on PATH stands in for the test
 # runner (it logs its arguments, then sleeps or prints a passing TAP), so no
@@ -26,6 +28,8 @@ cd "$(git rev-parse --show-toplevel)" || exit 2
 P="$(mktemp -d 2>/dev/null || mktemp -d -t rcprobe)"
 [ -n "$P" ] && [ -d "$P" ] || { echo "no temp folder"; exit 2; }
 cleanup() {
+  # D4 runs --sums in the repo: put SHA256SUMS back as it was.
+  [ -f "$P/SHA256SUMS.saved" ] && cat "$P/SHA256SUMS.saved" > SHA256SUMS
   if [ "${JBMEM_TEST_KEEP:-}" = 1 ]; then echo "kept $P"; return; fi
   local i; for i in 1 2 3 4 5; do rm -rf "${P:?}" 2>/dev/null; [ -d "$P" ] || return 0; sleep 1; done
   echo "could not remove $P" >&2
@@ -114,4 +118,17 @@ if grep -q -- '--test-concurrency=[0-9]' "$P/node-calls"; then
 else
   result FAIL 'D3: --only runs node --test without --test-concurrency'
 fi
+
+# D4: --sums under a UTF-8 locale must list the files in the same (bytewise)
+# order as the committed SHA256SUMS. Only the order of the names is compared,
+# so uncommitted edits to listed files don't matter. SHA256SUMS is saved first
+# and put back by the cleanup.
+cp SHA256SUMS "$P/SHA256SUMS.saved"
+LC_ALL=en_US.UTF-8 bash "$TARGET" --sums --quick > "$P/d4.out" 2>&1
+if cmp -s <(git show HEAD:SHA256SUMS | cut -c67-) <(cut -c67- SHA256SUMS); then
+  result PASS 'D4: --sums under en_US.UTF-8 keeps the committed order'
+else
+  result FAIL "D4: --sums under en_US.UTF-8 reorders SHA256SUMS ($(diff <(git show HEAD:SHA256SUMS | cut -c67-) <(cut -c67- SHA256SUMS) | grep -c '^[<>]') lines move)"
+fi
+cat "$P/SHA256SUMS.saved" > SHA256SUMS
 exit $FAILS

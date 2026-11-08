@@ -219,10 +219,11 @@ if [ -n "$ONLY" ]; then
 fi
 
 # Files kept out of the release zip (export-ignore in .gitattributes) are
-# left out of SHA256SUMS too, so the zip's own list verifies.
+# left out of SHA256SUMS too, so the zip's own list verifies. Sorted bytewise
+# (LC_ALL=C): a UTF-8 locale's order would rewrite the file with every --sums.
 sums_list() {
   git ls-files | grep -v '^SHA256SUMS$' | git check-attr --stdin export-ignore \
-    | grep -v ': export-ignore: set$' | sed 's/: export-ignore: .*$//' | sort | sed 's|^|./|'
+    | grep -v ': export-ignore: set$' | sed 's/: export-ignore: .*$//' | LC_ALL=C sort | sed 's|^|./|'
 }
 if [ "$SUMS" = 1 ]; then sums_list | xargs sha256sum > SHA256SUMS; fi
 if sha256sum --quiet -c SHA256SUMS >/dev/null 2>&1 && [ "$(sums_list | wc -l)" = "$(wc -l < SHA256SUMS)" ]; then
