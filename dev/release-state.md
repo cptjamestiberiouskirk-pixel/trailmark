@@ -46,18 +46,22 @@ O1 to O6 of the approved scope, in `memory.js` and `hookio.js` (shared) in both 
   - status keeps the `session=` that follows `exec=`.
   - transcript lines skip NFC (`asIs`).
   - The long-path hint is conditional.
+- 4abc77a, round 3's fix (the user, through the review-strategy session: "Fix it first"): `status` keeps a trailing ` session=<8 hex>` only when the state file knows a session with that prefix. A Node path that ends that way is hidden with the rest. The writer's field order is unchanged: `tools/windows/check-trailmark-checkpoints.ps1` ties each log line to its session by that trailing tag. Test (each copy): "batch O4: status hides a Node path that ends like a session tag, and keeps only a tag naming a known session". It fails 2 of 2 on ef91ce2's `memory.js` (shows `exec=(path not shown) session=12345678`) and passes at 4abc77a. CONFIRMED here and by round 3. Of its four cases, the fake tag and the tag naming no known session reproduce the edge; the tag in mid-path and upper-case hex guard neighbors.
 - Each new or changed test fails on the commit before its fix, for the intended reason, and passes after it. CONFIRMED here (`--only 'batch O|session start: log line records'`: 14 of 14 fail on d86b628's scripts and 12 of 12 on 9c30cd0's), and CONFIRMED by both reviewers in their own copies.
+- `--sums --quick` at 4abc77a's tree (LC_ALL=C): PASS, handoff-checks 158/246 with 88 skipped. `--only 'batch O'` at 4abc77a: 14 of 14 pass.
+- The slip logged in LESSONS.md (8f7894c went in after a failed check, because `tail` hid the exit code): its content is right at HEAD. CONFIRMED here: 8f7894c's `SHA256SUMS` matches its own tree (112 of 112 lines); since then its files changed only by 4abc77a's status hunk and test; all its tests pass at 4abc77a (above).
 - `--sums --quick` at 8f7894c: PASS, handoff-checks 158/246 with 88 skipped (this desktop's static skips: 30 NO_LINKS, 9 WIN, 1 ODD_NAME, 4 others per copy). One earlier run failed 8 commit-list and cut-note tests with the listed sign (no COMMITS section, three tries, 57 to 64 node processes from the other batches). Those passed 10 of 10 alone, and the next full `--quick` passed.
 
 Reviews (Opus row only: no file in the security row, and no shipped doc changed):
 
 - Round 1 (`d86b628..9c30cd0`) found four CONFIRMED and two INFERRED items, all fixed in 8f7894c.
 - Kept by design: copying a handoff forward makes its escapes permanent in the file. `</div>` stays `<\/div>`, and a bidi control is dropped. It is the same escaped text session start shows the model. CONFIRMED by round 1; the user can pull a change back in.
-- Round 2 (`852a560..8f7894c`) found nothing that makes 8f7894c worse than 852a560, and one CONFIRMED edge, deferred below as harmless. Under the stop rule as written that edge counts, so the user decides whether it holds the PR.
+- Round 2 (`852a560..8f7894c`) found nothing that makes 8f7894c worse than 852a560, and one CONFIRMED edge. The user chose to fix it first (4abc77a).
+- Round 3 (`ef91ce2..4abc77a`) found nothing CONFIRMED. Clean under the stop rule. It probed: a tag in mid-path, upper-case or 9 hex digits, a fake tag then the real one, a tag equal to a known prefix, `exec=` earlier in the line, a line cut by `oneLine`, and odd or corrupt `sessions` values. None throws or shows path text.
+- Kept by design (round 3, INFERRED from code; the effect is CONFIRMED by its test's last case): a real session's tag drops from the `status` line when the state has no record for it. Session start writes the note before its state record, and that record is skipped on a busy lock (`hook-session-start.js` `recordSessionStart`). State also drops sessions after 14 days, while `lastNote` reads older logs. The effect is display only; the log is unchanged. A path that ends in a known session's prefix shows that prefix, which reveals nothing the state doesn't hold.
 
 Deferred to the release after, each seen on 8f7894c:
 
-- CONFIRMED by round 2, harmless: when the logged Node path itself ends in ` session=<8 hex>` and the note carries no session, `status` keeps that 17-character tail (`memory.js` status regex). It names no file. Repro: `'... exec=C:\\a session=deadbeef'` through the status regex.
 - INFERRED, low: `handoffShown` splits on `\r?\n` only, so a lone `<` before U+2028 or U+2029 isn't escaped. Session start's `framed` escapes it. A tag split across U+2028 is still caught. Repro: `handoffShown('- ends in <\u2028- next\n')`.
 - INFERRED, low: transcript's `fail()` prints the transcript path unescaped (round 1, not in the diff). Also `conflict()` repeats `frameMarker()` inline, since `store.js` (batch F) doesn't export it. Style only.
 - HYPOTHESIZED: a `//?/` prefix on a refused path isn't stripped. Node gives the `\\?\` form.
