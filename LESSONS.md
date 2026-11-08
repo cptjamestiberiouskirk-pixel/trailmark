@@ -16,6 +16,13 @@ Format:
 
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
+## 2026-11-08: A placeholder replace rewrote real tokens
+
+- What went wrong: batch F's commit 2f5987b put its new commit's sha into `dev/release-state.md` with a global find-and-replace of a placeholder, `COMMIT`. It also rewrote every real `COMMIT` token in the file: `COMMIT_UNRESOLVED` became `bfa24ad_UNRESOLVED`, the "no COMMITS section" sign in "Load-sensitive tests" became "no bfa24adS section", 21 lines in all. The S5 session saw it on main, and the coordinating session confirmed it. Fixed in PR #20 from 2f5987b's own diff: only lines whose sole change was `COMMIT` to `bfa24ad`.
+- Why: the placeholder was a word the file already used, and the commit went in without a look at its diff.
+- Rule going forward: a placeholder that a replace fills in must be text that can't match real text (for example `@@SHA@@`), and the diff is read before the commit.
+- Status: open
+
 ## 2026-11-08: Two sessions started the same four batch sessions
 
 - What went wrong: the triage session asked the user "Push this branch as a dev-only PR, then start the four batch sessions?" in its own next-step box, and the coordinating session asked the same question. The user answered both. Each session then started D, F, O and S, so eight batch sessions ran at once, two per batch, writing the same files on separate branches (CONFIRMED by `list_sessions`, 01:17Z).
