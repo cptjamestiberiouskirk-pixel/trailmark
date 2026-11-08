@@ -16,6 +16,34 @@ Format:
 
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
+## 2026-11-08: A size bound passed only on this machine's short paths
+
+- What went wrong: batch F's F4 test asserted that 9 shortened notes fit in injectChars 2000. It passed here and failed on all 3 macOS and 2 Windows CI jobs (2,007 to 2,041 characters). The injection's cut note names the handoff's full path, and the memory path holds the temp path twice, so the framing grows with the temp folder. `TMPDIR=E:\DevTemp` is short. Reproduced here with 15 and 30 more characters of TMPDIR (2,016 to 2,059).
+- Why: the bound was checked only with this machine's paths. The same "only checked here" blind spot as the POSIX error codes (above).
+- Rule going forward: a test that bounds a text's size, where the text holds a path, is also run with a longer TMPDIR (`--only` with TMPDIR 30 characters longer) and keeps a margin.
+- Status: promoted to PLAYBOOK (Writing code, step 3)
+
+## 2026-11-07: A Windows-only check missed what POSIX returns
+
+- What went wrong: batch F's F6 test (CODEX_HOME a file) passed here and would have failed on the 6 Linux and macOS CI jobs. Windows reports the cache under a file as missing (ENOENT), POSIX as not a folder (ENOTDIR), which F7 turned into a second reason. Opus found it in review round 1 by running the code in WSL.
+- Why: the code and the test were checked only on Windows. The same blind spot as 0.6.0's F1 on 71d7a78 ("F1's test on Linux and macOS", `dev/release-state.md`).
+- Rule going forward: a file-system error path lists what each system returns for it (ENOENT, ENOTDIR, EISDIR, EPERM, EACCES), and the test stubs the other systems' answer (`fs.opendirSync` throwing it) so every system runs the same check.
+- Status: promoted to PLAYBOOK (second sighting)
+
+## 2026-11-07: A control timed one step of the path that gives the sign
+
+- What went wrong: batch F's commit-list control timed git's lookup alone (at least 900 ms), so a session start slowed before git (Opus's probe: 3.2 s before `sinceHandoff`) failed the test though only load was behind it. The first replacement, "each late session start took 1.2 s or more", sat 8 ms above the 1,192 ms a forced 0 ms budget's session start took at rest. The second (that floor plus a slow lookup) held at 8 and 16 busy loops only because the first of three starts came in under 1,200 ms (up to 1,184 ms); the duplicate batch-f-2 saw a whole-run floor let a forced 0 ms budget skip at 37 to 68% CPU (CONFIRMED by batch-f-2, not re-run). Fixed in batch F with the launcher's own report (`JBMEM_SHOW_SINCE=1`: time left, budget, git's time): a forced 0 ms budget then failed 14 of 14 at rest and under 16 and 32 busy loops.
+- Why: the sign "git ran out of time" comes from the launcher's whole budget (`5000 - elapsed - 1500`, capped at 1.2 s), not from git alone. Any time measured from outside (whole runs, the test's own lookup) grows with load whatever the cause, so it can't tell load from a fault on a busy machine.
+- Rule going forward: a time-sign control reads the product's own report of the time each step had and spent, and checks the budget arithmetic against it. Each forced fault is run at rest and under load, before it ships.
+- Status: promoted to PLAYBOOK (third sighting, with the two entries below)
+
+## 2026-11-07: A control's floor sat below what the control takes at rest
+
+- What went wrong: batch F's commit-list tests skip when git ran out of time at three session starts in a row and a control (the same lookup, run in the test with 30 s) shows the machine is slow. The first floor, "the control took at least 300 ms", let a forced fault through: with the launcher's budget forced to 0 ms, all 14 tests skipped, since the same lookup took 300 to 744 ms on this machine at rest (other sessions' tests running).
+- Why: the floor was a guess at "git is quick", not measured, and not tied to the budget the product had.
+- Rule going forward: before choosing a control's bound, run the control at rest and under the forced fault, and tie the bound to the product's budget (here three quarters of the launcher's 1.2 s: the forced 0 ms budget then failed 13 of 14, and 16 busy loops skipped 14 of 14 with controls of 2.4 to 4.2 s).
+- Status: promoted to PLAYBOOK (with the entry above, 2026-11-07)
+
 ## 2026-11-07: A script edited while a run of it was going
 
 - What went wrong: in batch D, an edit to `dev/release-check.sh` landed while a background `--sums --quick` of it was still running. The run stopped with "syntax error near unexpected token" at a line that parses fine, and its result was lost. The same run's `--sums` had also reordered `SHA256SUMS` under the shell's UTF-8 locale (D4), which the coordinating session noticed in the worktree.
@@ -42,14 +70,14 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - What went wrong: round 1's fix for the busy-lock skip ran the subagent hook as the lock-free control even when the commit hook was the one stopped. The subagent hook takes 30 to 40% of the commit hook's time, so under 24 to 30 busy loops the control would have failed the test on load alone (round 2, A). The same round found that F2's "five tries" also fired on time alone, since both copy walks share one budget (C: 2.4% to 90% of calls in a simulation).
 - Why: the control was picked for convenience (one function for both calls), and the try count was picked without asking what else gives the same sign.
 - Rule going forward: a control repeats the exact call it controls, with only the suspected cause removed. Before bounding a "can't tell" case by a try count, list every cause that gives that sign, simulate each at a few rates, and make the bound depend on evidence (here: any time reason seen in the window) rather than a count alone.
-- Status: open
+- Status: promoted to PLAYBOOK (Testing, step 7, 2026-11-07)
 
 ## 2026-11-07: A skip on the time sign hid faults that give the same sign
 
 - What went wrong: two of the new load-proof helpers skipped on a fault, not only on load. Review round 1 of `claude/load-proof-tests` found both (F1, F2), and both were reproduced. `hookInTime` read a lock that hung the hook as "the machine is too slow" (with `updateState`'s wait at 20 s the busy-lock test skipped 2 of 2). `copiesInTime` repeated a session start cut short for a reason of its own until 30 s ran out, then skipped (1,708,788 tries in the probe).
 - Why: a sign like "the hook was stopped" or "cut short" is what a slow machine shows, but a bug that makes the same call slow or stop shows it too. The every-call-late runs proved some test still fails, not that each skip fires only on load.
 - Rule going forward: every skip on a time sign gets a control that only load passes, and a run with a forced non-time fault behind that sign (a hang, a throw) that must fail. Size the control from the budget arithmetic, not "it finished": the busy-lock control fails only when the lock-free run takes under the 9 s limit less the 2 s wait less 1 s. A plain "finished with the lock free" control would fail on a machine where hooks take 8 s, which brings the load sensitivity back.
-- Status: open
+- Status: promoted to PLAYBOOK (Testing, step 7, 2026-11-07)
 
 ## 2026-11-07: A quoted heredoc in the Bash tool still lost a backslash
 

@@ -122,7 +122,8 @@ function samePlace(a, b) {
 
 // Folder names in dir, a linked folder (symlink or junction) included: an
 // old copy behind a link still runs if someone points at it. Read one entry
-// at a time and stop after max; full is false when entries were left unread.
+// at a time and stop after max; full is false when entries were left unread,
+// and unread is true when that was a read error rather than max.
 function list(dir, max) {
   const out = [];
   // The folder itself may be a link (the cache, a marketplace): one that
@@ -130,9 +131,10 @@ function list(dir, max) {
   if (!local(dir)) return { names: out, full: false, net: true };
   let d;
   // A folder that is there but can't be listed is not an empty one.
-  try { d = fs.opendirSync(dir); } catch (e) { return { names: out, full: !!(e && e.code === 'ENOENT') }; }
+  try { d = fs.opendirSync(dir); } catch (e) { const gone = !!(e && e.code === 'ENOENT'); return { names: out, full: gone, unread: !gone }; }
   let seen = 0;
   let full = true;
+  let unread = false;
   try {
     for (;;) {
       const e = d.readSync();
@@ -147,10 +149,17 @@ function list(dir, max) {
         try { if (fs.statSync(p).isDirectory()) out.push(e.name); } catch { /* broken link */ }
       }
     }
-  } catch { full = false; /* unreadable mid-way: keep what was read */ } finally {
+  } catch { full = false; unread = true; /* unreadable mid-way: keep what was read */ } finally {
     try { d.closeSync(); } catch { /* ignore */ }
   }
-  return { names: out, full };
+  return { names: out, full, unread };
+}
+
+// Why a listing stopped short, for incomplete: a read error is said as one,
+// never as "too many folders".
+function shortBy(r, where) {
+  if (r.unread) return `${where} could not be read`;
+  return r.full ? '' : `${where} has too many folders`;
 }
 
 // A version as shown to the user and the model: plugin.json's version when
@@ -209,7 +218,7 @@ function otherCopies(configDir, ownRoot, { maxCopies = 10, budgetMs = 300, maxEn
   const late = () => { if (Date.now() > until) { why.add('it took too long'); return true; } return false; };
   const mkts = list(cache, maxEntries);
   if (mkts.net) why.add('the plugin cache leads to a network path');
-  else if (!mkts.full) why.add('the plugin cache has too many folders');
+  else if (!mkts.full) why.add(shortBy(mkts, 'the plugin cache'));
   // Pass 1: <marketplace>/trailmark/<version>, and the same under the old name.
   outer1:
   for (const [mkt, name] of mkts.names.flatMap(m => NAMES.map(n => [m, n]))) {
@@ -219,7 +228,7 @@ function otherCopies(configDir, ownRoot, { maxCopies = 10, budgetMs = 300, maxEn
     try { isDir = local(pdir) && fs.statSync(pdir).isDirectory(); } catch { isDir = false; }
     if (!isDir) continue;
     const vers = list(pdir, maxEntries);
-    if (!vers.full) why.add(`${showName(mkt)}/${name} has too many folders`);
+    if (!vers.full) why.add(shortBy(vers, `${showName(mkt)}/${name}`));
     for (const ver of vers.names) {
       if (late() || copies.length >= maxCopies) break outer1;
       consider(mkt, name, ver);
@@ -230,12 +239,12 @@ function otherCopies(configDir, ownRoot, { maxCopies = 10, budgetMs = 300, maxEn
   for (const mkt of mkts.names) {
     if (late() || copies.length >= maxCopies) break;
     const plugins = list(path.join(cache, mkt), maxEntries);
-    if (!plugins.full) why.add(`${showName(mkt)} has too many folders`);
+    if (!plugins.full) why.add(shortBy(plugins, showName(mkt)));
     for (const plugin of plugins.names) {
       if (NAMES.includes(plugin.toLowerCase())) continue;
       if (late()) break outer2;
       const vers = list(path.join(cache, mkt, plugin), maxEntries);
-      if (!vers.full) why.add('a plugin folder has too many folders');
+      if (!vers.full) why.add(shortBy(vers, 'a plugin folder'));
       for (const ver of vers.names) {
         if (late() || copies.length >= maxCopies) break outer2;
         consider(mkt, plugin, ver);
@@ -286,20 +295,38 @@ function nodeInside(execPath, folders, platform = process.platform) {
 // name, three levels down, local folders only. Returns their display paths
 // (a name outside SAFE_NAME shown as <unusual name>), at most maxCopies (as
 // otherCopies), all of which session start counts. With full, it returns their
-// paths as they are on disk, for --copies --show-names to print.
-function oldCodexCopies(codexHome, { maxEntries = 200, depth = 3, maxCopies = 10, full = false } = {}) {
+// paths as they are on disk, for --copies --show-names to print. With detail,
+// it returns { paths, incomplete }, where incomplete names why the search
+// stopped early ('' when it saw everything), as otherCopies does: at
+// maxCopies, at a folder it couldn't read, or at a Codex home that isn't a
+// folder.
+function oldCodexCopies(codexHome, { maxEntries = 200, depth = 3, maxCopies = 10, full = false, detail = false } = {}) {
   const found = [];
-  if (typeof codexHome !== 'string' || !path.isAbsolute(codexHome) || networkPath(codexHome)) return found;
+  const why = new Set();
+  const done = () => (detail ? { paths: found, incomplete: [...why].join('; ') } : found);
+  if (typeof codexHome !== 'string' || !path.isAbsolute(codexHome) || networkPath(codexHome)) return done();
+  // A Codex home that is a file: Windows reports the cache under it missing
+  // (ENOENT), which would read as "nothing there", and POSIX as unreadable
+  // (ENOTDIR). Said as what it is, with nothing else searched.
+  try {
+    if (local(codexHome) && !fs.statSync(codexHome).isDirectory()) { why.add("Codex's home folder (CODEX_HOME) isn't a folder"); return done(); }
+  } catch { /* missing: nothing to search */ }
+  // One folder past maxCopies is looked for, so that exactly maxCopies
+  // folders are not said to be a search that stopped early.
   const walk = (dir, rel, d) => {
-    if (d > depth || found.length >= maxCopies || !local(dir)) return;
-    for (const n of list(dir, maxEntries).names) {
+    if (d > depth || found.length > maxCopies || !local(dir)) return;
+    const r = list(dir, maxEntries);
+    if (!r.full) why.add(shortBy(r, rel.join('/')));
+    for (const n of r.names) {
+      if (found.length > maxCopies) break;
       const p = path.join(dir, n);
       if (n.toLowerCase() === 'jb-memory-codex') { if (local(p)) found.push(full ? p : [...rel, showName(n)].join('/')); continue; }
       walk(p, [...rel, showName(n)], d + 1);
     }
   };
   walk(path.join(codexHome, 'plugins', 'cache'), ['plugins', 'cache'], 1);
-  return found;
+  if (found.length > maxCopies) { found.length = maxCopies; why.add(`it stopped at ${maxCopies} folders`); }
+  return done();
 }
 
 module.exports = { oldCodexCopies, nodeAdvice, otherCopies, nodeInside, NODE_FLOORS, parseVersion, SAFE_NAME };

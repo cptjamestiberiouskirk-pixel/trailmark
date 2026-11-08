@@ -673,7 +673,7 @@ function hookMode(name, extraIn) {
     if (name === 'session-start') {
       // Commits since the handoff was written, and which repo this memory
       // folder was first used for.
-      const since = sinceHandoff(loc, cwd, 5000 - (Date.now() - started) - 1500);
+      const since = sinceHandoff(loc, cwd, 5000 - (Date.now() - started) - 1500, started);
       if (since) facts.since = since;
       const seen = rootSeen(loc, cwd);
       if (seen) facts.rootSeen = seen;
@@ -688,7 +688,11 @@ function hookMode(name, extraIn) {
       // Codex: the old jb-memory-codex in Codex's own plugin cache.
       try {
         const ch = process.env.CODEX_HOME && path.isAbsolute(process.env.CODEX_HOME) ? process.env.CODEX_HOME : path.join(require('os').homedir(), '.codex');
-        facts.health.oldCodex = oldCodexCopies(ch);
+        const old = oldCodexCopies(ch, { detail: true });
+        facts.health.oldCodex = old.paths;
+        // The search stopped early (at 10 folders, or at one it couldn't
+        // read): the note says there may be more.
+        if (old.incomplete) facts.health.oldCodexMore = true;
       } catch { /* not checked */ }
     }
   }
@@ -697,13 +701,28 @@ function hookMode(name, extraIn) {
 
 // The commits on HEAD since the handoff's HEAD (its Updated line), read
 // before the sandbox since the hook can't run git.
-function sinceHandoff(loc, cwd, left) {
-  if (left < 400) return null;
+function sinceHandoff(loc, cwd, left, started) {
+  const elapsed = Date.now() - started;
   let text = null;
   try { text = S.readText(path.join(loc.dir, S.HANDOFF)); } catch { return null; }
   const st = S.handoffStamp(text || '');
   if (!st.head) return null;
-  try { return commitsSince(cwd, st.head, { budgetMs: Math.min(1200, left) }); } catch { return null; }
+  // JBMEM_SHOW_SINCE=1 (the tests) says why the list ran out of time: the
+  // time since the launcher started (measured apart from left), the time
+  // left before git, the budget git got and what it spent. It only reports;
+  // no budget changes.
+  const show = (r, budget, spent) => {
+    if (r && (r.state === 'late' || r.unlisted === 'late') && process.env.JBMEM_SHOW_SINCE === '1') process.stderr.write(`trailmark since: late elapsed=${elapsed} left=${Math.round(left)} budget=${budget} git=${spent}\n`);
+    return r;
+  };
+  // Too little time left to start git: said as out of time (store.js,
+  // sinceSection).
+  if (left < 400) return show({ base: st.head, state: 'late' }, 0, 0);
+  const budgetMs = Math.min(1200, left);
+  const t0 = Date.now();
+  let r = null;
+  try { r = commitsSince(cwd, st.head, { budgetMs }); } catch { return null; }
+  return show(r, budgetMs, Date.now() - t0);
 }
 
 // The repo root recorded in the state file, and, when it differs from this
@@ -743,8 +762,13 @@ function printedCommits(resp) {
 
 // The commit sweep for one session: its own folder and every folder its
 // commits went to, each from where its last sweep ended (or the session's
-// start, at most a day back). Needs a session record with a start time;
-// returns undefined otherwise. When too little of the time budget is left to
+// start, at most a day back). Needs a session record; returns undefined
+// with none. When the session-start record is missing (its hook was stopped,
+// or the lock was busy for its write), the start is the earliest time the
+// record knows: when it was made (rec.first) or a folder's join. With none of
+// them nothing can be swept, and the result says so (stopped: 'no-start',
+// reported at write-handoff) instead of skipping in silence. When too little
+// of the time budget is left to
 // read every folder, the result says so (stopped: 'out-of-time', reported to
 // the user) and the folders not read keep their start for the next sweep.
 // JBMEM_TEST_SWEEP_MS can only lower the budget (the tests' way to run out).
@@ -758,8 +782,21 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   const deadline = Date.now() + budgetMs - 500;
   let rec = null;
   try { rec = S.sessionRecord(loc.dir, session); } catch { rec = null; }
-  if (!rec || !Number.isFinite(rec.start)) return undefined;
+  if (!rec) return undefined;
   const now = Date.now();
+  // A folder that joined the session's commit folders (store.addCommitDirs)
+  // is read no further back than the window of the command that added it;
+  // the session's own folder from the session's start.
+  const joined = rec.commitDirsAt && typeof rec.commitDirsAt === 'object' && !Array.isArray(rec.commitDirsAt) ? rec.commitDirsAt : {};
+  // A loop, not Math.min(...): the state file is untrusted, and a spread of
+  // a record with enough entries throws (review round 1, S1).
+  let start = Number.isFinite(rec.start) ? rec.start : (Number.isFinite(rec.first) ? rec.first : NaN);
+  if (!Number.isFinite(rec.start)) {
+    for (const v of Object.values(joined)) {
+      if (Array.isArray(v) && Number.isFinite(v[0]) && !(v[0] >= start)) start = v[0];
+    }
+  }
+  if (!Number.isFinite(start)) return { at: Math.floor(now / 1000) * 1000, folders: [], read: [], stopped: 'no-start' };
   const late = () => ({ at: Math.floor(now / 1000) * 1000, folders: [], read: [], stopped: 'out-of-time' });
   if (!(budgetMs >= 1500)) return late();
   const win = windowMs();
@@ -775,15 +812,11 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   };
   const own = held(loc.dir, session);
   const swept = rec.swept && typeof rec.swept === 'object' && !Array.isArray(rec.swept) ? rec.swept : {};
-  // A folder that joined the session's commit folders (store.addCommitDirs)
-  // is read no further back than the window of the command that added it;
-  // the session's own folder from the session's start.
-  const joined = rec.commitDirsAt && typeof rec.commitDirsAt === 'object' && !Array.isArray(rec.commitDirsAt) ? rec.commitDirsAt : {};
   const home = (d) => sameFolder(d, homeCwd) || (typeof rec.home === 'string' && path.isAbsolute(rec.home) && sameFolder(d, rec.home));
   const sinceFor = (d) => {
     const k = Object.keys(swept).find(x => Number.isFinite(swept[x]) && sameFolder(x, d));
     const j = home(d) ? undefined : Object.keys(joined).find(x => Array.isArray(joined[x]) && Number.isFinite(joined[x][0]) && sameFolder(x, d));
-    return Math.max(k ? swept[k] : rec.start, j ? joined[j][0] : -Infinity, now - 24 * 3600 * 1000);
+    return Math.max(k ? swept[k] : start, j ? joined[j][0] : -Infinity, now - 24 * 3600 * 1000);
   };
   const dirs = [];
   // The folders come from the state file, which a session can write: a
@@ -907,10 +940,10 @@ function cliMode(args) {
   // script opens it in the memory folder, which it may read anyway, so it
   // needs no extra grant. Text on stdin goes to the script as it is: the
   // launcher reads neither. Because this check happens before the sandbox
-  // starts, the file
-  // must be inside the memory folder, like the drop files the skills write
-  // there. A drop file (incoming-handoff*.md, incoming-park*.md) is removed
-  // once its text is saved; any other file is left alone.
+  // starts, the file must be inside the memory folder, like the drop files
+  // the skills write there. A drop file (incoming-handoff*.md,
+  // incoming-park*.md) is removed once its text is saved; any other file is
+  // left alone.
   let stdin;
   let from;
   let childArgs = args;
@@ -952,6 +985,12 @@ function cliMode(args) {
   }
   const code = run('memory.js', childArgs, { dir: loc.dir, method: loc.method, root: loc.root, cwd, stdin, from, reads, writes, facts, dirMissing });
   if (code === 0 && dropFile) { try { fs.unlinkSync(dropFile); } catch { /* left in place; the next write replaces it */ } }
+  // A sweep with no start to read from, said here: memory.js reports only a
+  // sweep that ran or ran out of time. This write records when the session
+  // is known from (store.js, rec.first), so the next sweep starts there.
+  if (code === 0 && facts && facts.sweep && facts.sweep.stopped === 'no-start') {
+    console.log('[trailmark] commit sweep skipped: this session\'s start isn\'t recorded, so commits no hook logged before now can\'t be looked for. Later sweeps start from this checkpoint.');
+  }
   process.exit(code);
 }
 
@@ -1008,14 +1047,17 @@ function listCopies(showNames) {
   let old = null;
   try {
     const ch = process.env.CODEX_HOME && path.isAbsolute(process.env.CODEX_HOME) ? process.env.CODEX_HOME : path.join(os.homedir(), '.codex');
-    old = oldCodexCopies(ch, { full: true });
+    old = oldCodexCopies(ch, { full: true, detail: true });
   } catch { old = null; }
+  // A search of Codex's cache that found nothing and stopped early could not
+  // check it; one that found some says there may be more.
+  const oldNone = old === null || (!old.paths.length && !!old.incomplete);
   if (!showNames) {
     console.log(`trailmark: ${copies.length ? `${copies.length} other ${copies.length === 1 ? 'copy' : 'copies'}` : 'no other copies'} in Claude Code's plugin cache.`);
     if (incomplete) console.log('trailmark: the check stopped early, so there may be more.');
-    if (old === null) console.log('trailmark: the Codex plugin cache could not be checked.');
-    else if (old.length) console.log(`trailmark: ${old.length} old jb-memory-codex ${old.length === 1 ? 'folder' : 'folders'} in Codex's plugin cache.`);
-    if (copies.length || incomplete || (old && old.length)) console.log(NAMES_HIDDEN);
+    if (oldNone) console.log('trailmark: the Codex plugin cache could not be checked.');
+    else if (old.paths.length) console.log(`trailmark: ${old.paths.length} old jb-memory-codex ${old.paths.length === 1 ? 'folder' : 'folders'} in Codex's plugin cache${old.incomplete ? '; the search stopped early, so there may be more' : ''}.`);
+    if (copies.length || incomplete || (old && (old.paths.length || old.incomplete))) console.log(NAMES_HIDDEN);
     process.exit(0);
   }
   const shown = (t, max) => S.escapeTags(S.visibleName(t, max), { asIs: true });
@@ -1025,7 +1067,10 @@ function listCopies(showNames) {
   for (const c of copies) console.log(`  ${shown(c.path)} (version ${shown(c.version || '?', 40)})`);
   if (incomplete) console.log(`  the check stopped early: ${shown(incomplete, 300)}`);
   if (old === null) console.log('  (the Codex plugin cache could not be checked)');
-  else for (const p of old) console.log(`  jb-memory-codex (old name): ${shown(p)}`);
+  else {
+    for (const p of old.paths) console.log(`  jb-memory-codex (old name): ${shown(p)}`);
+    if (old.incomplete) console.log(`  the search of the Codex plugin cache stopped early: ${shown(old.incomplete, 300)}`);
+  }
   process.exit(0);
 }
 
