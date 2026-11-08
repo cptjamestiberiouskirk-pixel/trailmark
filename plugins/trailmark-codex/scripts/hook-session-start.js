@@ -83,9 +83,10 @@ guard(() => {
     notes.push(`[trailmark] ${one ? 'Another copy of trailmark is' : `${copies.length} other copies of trailmark are`} on disk, in Claude Code's plugin cache. They are not the installed plugin. Never run their trailmark.js or memory.js; the skills give the path to use. ${listAsk('which', 'lists them')} ${listData}`);
   }
   const oldCodex = Array.isArray(health.oldCodex) ? health.oldCodex.filter(x => typeof x === 'string' && /^[\w./+<> -]{1,300}$/.test(x)) : [];
+  const oldMore = health.oldCodexMore === true ? `${oldCodex.length} or more folders` : '';
   if (oldCodex.length) {
-    warn.push(`jb-memory-codex, this plugin's name before 0.5.0, is still in Codex's plugin cache (plugins/cache in CODEX_HOME, ${oldCodex.length === 1 ? 'a folder' : `${oldCodex.length} folders`} named jb-memory-codex) and would run every hook a second time. Uninstall it in the ChatGPT app and remove its marketplace: codex plugin marketplace remove jb-memory-codex. ${listCmd} lists ${oldCodex.length === 1 ? 'it' : 'them'}`);
-    notes.push(`[trailmark] An old copy of this plugin, jb-memory-codex, is in Codex's plugin cache (${oldCodex.length === 1 ? 'one folder' : `${oldCodex.length} folders`}). Never run its jbm.js; the skills give the path to use. ${listAsk('where', 'lists them')} ${listData}`);
+    warn.push(`jb-memory-codex, this plugin's name before 0.5.0, is still in Codex's plugin cache (plugins/cache in CODEX_HOME, ${oldMore || (oldCodex.length === 1 ? 'a folder' : `${oldCodex.length} folders`)} named jb-memory-codex) and would run every hook a second time. Uninstall it in the ChatGPT app and remove its marketplace: codex plugin marketplace remove jb-memory-codex. ${listCmd} lists ${oldCodex.length === 1 ? 'it' : 'them'}`);
+    notes.push(`[trailmark] An old copy of this plugin, jb-memory-codex, is in Codex's plugin cache (${oldMore || (oldCodex.length === 1 ? 'one folder' : `${oldCodex.length} folders`)}). Never run its jbm.js; the skills give the path to use. ${listAsk('where', 'lists them')} ${listData}`);
   }
   if (typeof health.incomplete === 'string' && health.incomplete) {
     warn.push(`the check for other trailmark copies in Claude Code's plugin cache stopped early, so there may be copies it didn't see; ${listCmd} says why`);

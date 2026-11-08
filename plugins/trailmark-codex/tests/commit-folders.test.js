@@ -208,6 +208,84 @@ test('0.6.0 commit folders: a folder already swept keeps its sweep start when an
   assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${sha} in="${dp(clone)}" by a script (found later) session=11111111`)), notesOf(s));
 }));
 
+// RS:647: a session whose session-start record was missing (its hook was
+// stopped, or the lock was busy) got no commit sweep, and nothing said so.
+test('commit folders: a session whose session-start record is missing is still swept, from when its record was made (next version)', sweepTest(() => {
+  const { s, clone, gClone, head, hook } = multiFolder();
+  const write = () => settle(() => {
+    const r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], '# H\n- by A\n');
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    return r.stdout;
+  });
+  // No session-start hook: a commit command makes the session's record.
+  assert.strictEqual(hook(s.repo, SA, `git -C "${clone}" commit -q --allow-empty -m "one"`, { between: () => gClone('commit', '-q', '--allow-empty', '-m', 'one'), duration_ms: 500 }).status, 0);
+  const rec = JSON.parse(fs.readFileSync(path.join(s.memdir, '.jbmem-state.json'), 'utf8')).sessions[SA];
+  assert.ok(rec && !rec.start, JSON.stringify(rec));
+  // Past the slack the hook's window reaches back (about 2 s), a script
+  // commits in the clone and in the session's own folder, with no hook.
+  for (let i = 0; i < 4; i++) tick();
+  gClone('commit', '-q', '--allow-empty', '-m', 'by a script there');
+  const there = head(clone);
+  s.g('commit', '-q', '--allow-empty', '-m', 'by a script here');
+  const here = head(s.repo);
+  tick();
+  assert.doesNotMatch(write().out, /start isn't recorded/);
+  const lines = commitLines(s);
+  assert.ok(lines.some(l => l.endsWith(`COMMIT ${there} in="${dp(clone)}" by a script there (found later) session=11111111`)), notesOf(s));
+  assert.ok(lines.some(l => l.includes(`COMMIT ${here} `) && l.endsWith('by a script here (found later) session=11111111')), notesOf(s));
+  assert.ok(Number.isFinite(rec.first), JSON.stringify(rec));
+}));
+
+test('commit folders: a session record with no start at all says the sweep was skipped, and the next sweep has one (next version)', () => {
+  const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
+  const s = sandbox();
+  jbm(s, ['init']);
+  // A record from before rec.first, made by some hook, with no start.
+  S.updateState(s.memdir, SA, (state, rec) => { delete rec.first; delete rec.start; });
+  const write = () => {
+    const r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], '# H\n- x\n');
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    return r.stdout;
+  };
+  assert.match(write(), /^\[trailmark\] commit sweep skipped: this session's start isn't recorded, so commits no hook logged before now can't be looked for\. Later sweeps start from this checkpoint\.$/m);
+  const rec = JSON.parse(fs.readFileSync(path.join(s.memdir, '.jbmem-state.json'), 'utf8')).sessions[SA];
+  assert.ok(Number.isFinite(rec.first), JSON.stringify(rec));
+  assert.doesNotMatch(write(), /start isn't recorded/);
+  // A record with no start and a huge commitDirsAt (the state file is
+  // untrusted) still starts the session and saves the checkpoint (review
+  // round 1, S1: a spread of it threw).
+  const big = {};
+  for (let i = 0; i < 200000; i++) big[`k${i}`] = [1];
+  S.updateState(s.memdir, SA, (state, rec) => { delete rec.first; delete rec.start; rec.commitDirsAt = big; });
+  const st = jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'resume', hook_event_name: 'SessionStart' }));
+  assert.strictEqual(st.status, 0, st.stderr.slice(0, 500));
+  S.updateState(s.memdir, SA, (state, rec) => { delete rec.first; delete rec.start; rec.commitDirsAt = big; });
+  const r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], '# H\n- y\n');
+  assert.strictEqual(r.status, 0, r.stderr.slice(0, 500));
+});
+
+// RS:646 (review round 8, R1): a swept folder dropped past six and joined
+// again got the new command's start, so a commit made there in between was
+// never found.
+test('commit folders: a folder dropped past six and joined again keeps where its last sweep stopped (next version)', () => {
+  const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
+  const D = (n) => path.resolve(os.tmpdir(), `jbmem-r8probe-f${n}`);
+  const rec = {};
+  S.addCommitDirs(rec, [D(1)], 1000, 1500);
+  rec.swept = { [D(1)]: 2000 }; // a sweep read f1 past settled
+  for (let i = 2; i <= 7; i++) S.addCommitDirs(rec, [D(i)], 3000 + i * 100, 3500 + i * 100);
+  assert.ok(!rec.commitDirs.includes(D(1)), 'f1 was dropped');
+  S.addCommitDirs(rec, [D(1)], 9000, 9500);
+  assert.deepStrictEqual(rec.commitDirsAt[D(1)], [2000, 9500]);
+  // A folder never swept starts at its command's window, as before.
+  S.addCommitDirs(rec, [D(8)], 9100, 9600);
+  assert.deepStrictEqual(rec.commitDirsAt[D(8)], [9100, 9600]);
+  // A sweep that stopped later than the window doesn't move it.
+  rec.swept[D(9)] = 9900;
+  S.addCommitDirs(rec, [D(9)], 9200, 9700);
+  assert.deepStrictEqual(rec.commitDirsAt[D(9)], [9200, 9700]);
+});
+
 // ---------- 0.6.0: what a hook's script is handed ----------
 
 // Records, in the launcher, what it hands each hook script: stdin (input),
