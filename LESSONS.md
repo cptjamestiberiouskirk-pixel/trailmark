@@ -163,6 +163,13 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - Rule going forward: cleanup after stopping processes on Windows retries for a few seconds and says when it can't remove the folder.
 - Status: promoted to PLAYBOOK
 
+## 2026-11-08: A reviewer died on an API timeout and left its scratch worktree
+
+- What went wrong: batch H's round 2 reviewer ended on "Request timed out" with no report. Its scratch worktree stayed registered in `git worktree list`.
+- Why: a subagent that dies can't run its own cleanup.
+- Rule going forward: when a reviewer fails, check that its report exists, remove its worktree and temp folder (`git worktree list`, then `git worktree remove --force`), and run the round again with a fresh one.
+- Status: open
+
 ## 2026-11-08: An edit's trailing space was lost, twice
 
 - What went wrong: batch H's Edit calls whose old and new text ended in a space shortened the line (`const listCmd =launcher`), and the fix for that moved the gap (`launcher ?` then a backtick). Both reviewers reported it.
