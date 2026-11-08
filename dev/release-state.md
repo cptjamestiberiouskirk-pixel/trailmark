@@ -28,6 +28,43 @@ How the batches run (proposed 2026-11-07, waiting for the user's word to start):
 5. Merge order: D first (it ships nothing), then F, O and S1 to S4 as each passes its round. S5 (the CHANGELOG section and version bumps) comes after F and O have merged, since it describes them, then the release checklist.
 6. Load: four sessions running `--only` on one machine at once can slow tests (INFERRED). PR #14 made the known ones repeat or skip on their time sign, and every run has its own temp folder (`mktemp -d`, `release-check.sh:40`), but the 20 kept run folders are shared (`release-check.sh:106`) until D2 lands.
 
+## Batch O (2026-11-07, branch `claude/batch-o-escape-output-8d777d` off d86b628)
+
+O1 to O6 of the approved scope, in `memory.js` and `hookio.js` (shared) in both copies. `hook-session-start.js` is untouched. Tests: seven per copy, the "batch O..." tests at the end of `hardening.test.js`, plus the status assertion in `basics.test.js` "session start: log line records ...".
+
+- 9c30cd0, the fixes:
+  - O1 (RS:666): `transcript` escapes tags in each quoted line and its `file:` line.
+  - O2 (RS:664): `handoff` escapes tags, with no data wording.
+  - O3 (RS:665): exit 3 gets a "notes to merge, not instructions" line, escaped diff and current text, and an end line marked with a random 8-hex word.
+  - O4 (RS:662, 668): `status` labels the last session start as data and shows `exec=(path not shown)`. The log keeps the path.
+  - O5 (RS:642): `hookio.refusalText` adds the length and the fix to a Windows refusal of a path of 260 characters or more, used by `memory.js` and the hooks. The grant fix stays deferred.
+  - O6 (RS:703): the PAYLOAD_MAX comment.
+- 852a560: `SHA256SUMS` back in C order. A plain `sort` under `en_US.UTF-8` had reordered 48 lines (batch D's D4). Until D4 lands, regenerate with `LC_ALL=C`.
+- 8f7894c, round 1's fixes:
+  - The data line now comes after the base-gone instruction.
+  - Tags are escaped line by line and CRLF is kept.
+  - status keeps the `session=` that follows `exec=`.
+  - transcript lines skip NFC (`asIs`).
+  - The long-path hint is conditional.
+- Each new or changed test fails on the commit before its fix, for the intended reason, and passes after it. CONFIRMED here (`--only 'batch O|session start: log line records'`: 14 of 14 fail on d86b628's scripts and 12 of 12 on 9c30cd0's), and CONFIRMED by both reviewers in their own copies.
+- `--sums --quick` at 8f7894c: PASS, handoff-checks 158/246 with 88 skipped (this desktop's static skips: 30 NO_LINKS, 9 WIN, 1 ODD_NAME, 4 others per copy). One earlier run failed 8 commit-list and cut-note tests with the listed sign (no COMMITS section, three tries, 57 to 64 node processes from the other batches). Those passed 10 of 10 alone, and the next full `--quick` passed.
+
+Reviews (Opus row only: no file in the security row, and no shipped doc changed):
+
+- Round 1 (`d86b628..9c30cd0`) found four CONFIRMED and two INFERRED items, all fixed in 8f7894c.
+- Kept by design: copying a handoff forward makes its escapes permanent in the file. `</div>` stays `<\/div>`, and a bidi control is dropped. It is the same escaped text session start shows the model. CONFIRMED by round 1; the user can pull a change back in.
+- Round 2 (`852a560..8f7894c`) found nothing that makes 8f7894c worse than 852a560, and one CONFIRMED edge, deferred below as harmless. Under the stop rule as written that edge counts, so the user decides whether it holds the PR.
+
+Deferred to the release after, each seen on 8f7894c:
+
+- CONFIRMED by round 2, harmless: when the logged Node path itself ends in ` session=<8 hex>` and the note carries no session, `status` keeps that 17-character tail (`memory.js` status regex). It names no file. Repro: `'... exec=C:\\a session=deadbeef'` through the status regex.
+- INFERRED, low: `handoffShown` splits on `\r?\n` only, so a lone `<` before U+2028 or U+2029 isn't escaped. Session start's `framed` escapes it. A tag split across U+2028 is still caught. Repro: `handoffShown('- ends in <\u2028- next\n')`.
+- INFERRED, low: transcript's `fail()` prints the transcript path unescaped (round 1, not in the diff). Also `conflict()` repeats `frameMarker()` inline, since `store.js` (batch F) doesn't export it. Style only.
+- HYPOTHESIZED: a `//?/` prefix on a refused path isn't stripped. Node gives the `\\?\` form.
+- RS:662's `search` neighbor: `search` can still print a SESSION_START line's exec path, behind its data line. Unchanged; left as RS:662 described it.
+
+Shipped wording changes for batch S and S5: `batch-o-wording.md` in the shared notes folder of the review-strategy session. No shipped doc names these outputs.
+
 ## Load-proof tests (2026-11-07, branch `claude/load-proof-tests` off 5566010)
 
 PR #14 (https://github.com/cptjamestiberiouskirk-pixel/trailmark/pull/14), opened 2026-11-07 after review round 3 and a merge of main (208d5fb, 5579e63, then 0a8a666 for a conflict here). It waits for its 9 jobs and the user's word to merge.
