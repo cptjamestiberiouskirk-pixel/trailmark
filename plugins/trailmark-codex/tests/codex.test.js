@@ -373,3 +373,47 @@ test('codex 0.1.5: the exit code comes from the transcript\'s CommandExecution i
   post('exec-11111111-0000-4000-8000-000000000008', 'gh pr merge 6 --squash', '✓ Squashed and merged pull request #6 (fix)');
   assert.match(notesOf(s), /PR_MERGE gh pr merge 6/);
 });
+
+// Next version, S1 (RS:652 at a09ee5f): with no "Launcher:" in the note, the
+// skills said to take scripts/trailmark.js two folders up, which rebuilt the
+// very path usablePath had refused (one holding $(...), say). The fallback
+// now applies only when the session has no [trailmark] note at all, and only
+// to a path free of every character usablePath refuses, each named in the
+// skills. A change to usablePath's set fails here until the skills follow.
+test('codex skills: the launcher two folders up only with no [trailmark] note, never a path usablePath refuses', () => {
+  const S = require(path.join(ROOT, 'scripts', 'lib', 'store'));
+  const bs = String.fromCharCode(92);
+  const quotes = 'a curly double quote (U+201C to U+201E)', spaces = 'a space other than a plain one', hidden = 'a control or invisible character';
+  // [what usablePath refuses inside a folder name, the words the skills use]
+  const kinds = [['"', 'a double quote'], ['$', '`$`'], ['`', 'a backtick'], ['%', '`%`'], ['!', '`!`'],
+    ['“', quotes], ['”', quotes], ['„', quotes], [bs + bs, 'two backslashes in a row'],
+    ['  ', 'two spaces in a row'], [' ', spaces], ['　', spaces],
+    ['\u0007', hidden], ['\u007f', hidden], ['​', hidden], ['‮', hidden], [' ', hidden]];
+  const at = (c) => `/x/a${c}b/scripts/trailmark.js`;
+  for (const [c] of kinds) assert.strictEqual(S.usablePath(at(c)), '', `usablePath passes ${JSON.stringify(c)}`);
+  assert.strictEqual(S.usablePath(' /x/scripts/trailmark.js'), '');
+  assert.strictEqual(S.usablePath('/x/scripts/trailmark.js '), '');
+  assert.strictEqual(S.usablePath('/' + 'a'.repeat(1025)), '');
+  // Every printable ASCII character: refused exactly when the skills list it.
+  const listed = new Set(kinds.map(([c]) => c));
+  for (let i = 32; i < 127; i++) {
+    const c = String.fromCharCode(i);
+    assert.strictEqual(S.usablePath(at(c)) === '', listed.has(c), `usablePath and the skills disagree on ${JSON.stringify(c)}`);
+  }
+  // A plain path, one backslash and non-ASCII letters still pass, so the
+  // fallback keeps working for an ordinary install folder.
+  for (const ok of ['/home/me/.codex/plugins/cache/trailmark/trailmark-codex/0.6.0/scripts/trailmark.js', `C:${bs}Users${bs}Jürgen${bs}x${bs}trailmark.js`]) assert.strictEqual(S.usablePath(ok), ok);
+  const dir = path.join(ROOT, 'skills');
+  for (const n of fs.readdirSync(dir)) {
+    const t = fs.readFileSync(path.join(dir, n, 'SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+    assert.ok(!t.includes('If there is no such note'), `${n}: the old fallback`);
+    const refused = t.indexOf('If this session has `[trailmark]` notes but none gives "Launcher:", trailmark left its own path out on purpose');
+    const only = t.indexOf(`Only when this session has no \`[trailmark]\` note at all (the repo isn't set up yet, say) is the launcher \`scripts/trailmark.js\` two folders up from this SKILL.md (this file is \`<plugin folder>/skills/${n}/SKILL.md\`), and only when that path holds none of these:`);
+    assert.ok(refused > 0 && only > refused, `${n}: the fallback's conditions`);
+    assert.strictEqual(t.split('two folders up').length, 2, `${n}: one fallback`);
+    const list = t.slice(only, t.indexOf('Use that one path', only));
+    for (const [, words] of kinds) assert.ok(list.includes(words), `${n}: ${words}`);
+    assert.ok(list.includes('a space at either end') && list.includes('over 1,024 characters'), n);
+    assert.ok(list.includes("don't run it: tell the user to install trailmark in a folder with a plain path"), n);
+  }
+});
