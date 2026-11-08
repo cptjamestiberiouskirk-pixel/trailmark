@@ -13,5 +13,8 @@
     "handoff",
     "session",
     "checkpoint"
-  ]
+  ],
+  "interface": {
+    "websiteURL": "https://github.com/cptjamestiberiouskirk-pixel/trailmark"
+  }
 }

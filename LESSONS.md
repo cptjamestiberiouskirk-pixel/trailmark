@@ -16,6 +16,13 @@ Format:
 
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
+## 2026-11-08: The Codex plugin page ignored `homepage`
+
+- What went wrong: the ChatGPT app's page for trailmark-codex showed Website "Unavailable", though the manifests had set `homepage` since 0.5.x.
+- Why: Codex's details page draws on the manifest's `interface` block (INFERRED from the spec, not yet seen in the app), and `homepage` is a separate field. The manifests were checked for name and version only, and nobody opened the page after installing.
+- Rule going forward: when a Codex manifest changes, compare it with `plugin-creator/references/plugin-json-spec.md` under `~/.codex/.tmp/plugins` and look at the plugin's page in the app.
+- Status: open
+
 ## 2026-11-08: A placeholder replace rewrote real tokens
 
 - What went wrong: batch F's commit 2f5987b put its new commit's sha into `dev/release-state.md` with a global find-and-replace of a placeholder, `COMMIT`. It also rewrote every real `COMMIT` token in the file: `COMMIT_UNRESOLVED` became `bfa24ad_UNRESOLVED`, the "no COMMITS section" sign in "Load-sensitive tests" became "no bfa24adS section", 21 lines in all. The S5 session saw it on main, and the coordinating session confirmed it. Fixed in PR #20 from 2f5987b's own diff: only lines whose sole change was `COMMIT` to `bfa24ad`.

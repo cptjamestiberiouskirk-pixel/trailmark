@@ -231,6 +231,8 @@ test('codex skills: tm- names, no Claude Code placeholders, every command throug
     const m = JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8'));
     assert.strictEqual(m.name, 'trailmark-codex');
     assert.match(m.version, /^\d+\.\d+\.\d+$/);
+    // The ChatGPT app's plugin page reads this field, not "homepage".
+    assert.strictEqual((m.interface || {}).websiteURL, 'https://github.com/cptjamestiberiouskirk-pixel/trailmark', `${f}: interface.websiteURL`);
   }
   const mk = JSON.parse(fs.readFileSync(path.join(ROOT, '..', '..', '.agents', 'plugins', 'marketplace.json'), 'utf8'));
   assert.deepStrictEqual(mk.plugins.map(p => [p.name, p.source.source, p.source.path]), [['trailmark-codex', 'local', './plugins/trailmark-codex']]);

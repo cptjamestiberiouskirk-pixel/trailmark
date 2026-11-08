@@ -2,6 +2,14 @@
 
 Last updated 2026-11-08 by the coordinating session. 0.6.1 is published (2026-11-08 12:55:57Z, v0.6.1 at e6c3cec, the merge commit of PR #20, merged 12:31:07Z; checklist under "0.6.1: S5" below). Next: the next version, from the deferred items in the batch sections below. Before 0.6.1, 0.6.0 was published (v0.6.0 at cf06986, under 0.6.0). Between the two, main got PR #10, faster local checks (merge commit 5566010, 19:13:39Z), PR #12, PLAYBOOK.md and LESSONS.md (merge commit 208d5fb, 21:09:44Z), PR #11, the faster review process (merge commit 5579e63), PR #14, the load-proof tests (merge commit a09ee5f), PR #15, the next version's triage and scope (merge commit 47369e2), PR #17, batch D (merge commit 34add12), PR #18, batch O (merge commit aca7bf6), PR #16, batch S1 to S4 (merge commit 914c379), and PR #19, batch F (merge commit e5f5f7f), and PR #20, the S5 PR (the 0.6.1 CHANGELOG section and version bumps, merge commit e6c3cec).
 
+## After 0.6.1: Codex plugin page website (2026-11-08, branch `claude/latest-release-install-cefee8` off ebfdd7b)
+
+The ChatGPT app's page for trailmark-codex 0.6.1 showed Website "Unavailable". Both Codex manifests set `homepage` but had no `interface` block, and Codex's spec (`plugin-creator/references/plugin-json-spec.md` in `~/.codex/.tmp/plugins`) puts the plugin's public site in `interface.websiteURL` (CONFIRMED). Added that one field to `plugins/trailmark-codex/plugin.json` and `.codex-plugin/plugin.json`, and an assertion for both to the test `codex skills: tm- names`. No version bump: it ships with the next version, and its CHANGELOG line is still to be written.
+
+Test: the assertion failed on the old manifests with `plugin.json: interface.websiteURL` (run 20261108-120539-493), then passed with the field. `--sums --quick`: all PASS, handoff-checks 164/252 with 88 skipped, `claude plugin validate --strict` passes on 3 manifests.
+
+Not done: the review round (it runs on this change's push). Untested: that the field fills the row, and that the app accepts an `interface` block holding only this field (INFERRED; check in the ChatGPT app once a build with it is installed). Codex's `plugin-eval` scores every other `interface` field as missing, as it already did with no block.
+
 ## 0.6.1: S5, the CHANGELOG section and version bumps (2026-11-08, branch `claude/s5-changelog-version-f62761` off 34add12)
 
 Version 0.6.1: these are fixes plus wording with no new feature, the kind of release 0.5.1 was after 0.5.0. The CHANGELOG states no rule of its own. Bumped where 0.6.0 was (6df998d): the three `plugin.json` files and MANUAL.md's version line. `git grep 0.6.0` outside the CHANGELOG, `dev/` and the lessons finds only comments and test names that mean the release they came in. trailmark-watchdog stays 1.7.0: no batch touches `tools/windows`.
