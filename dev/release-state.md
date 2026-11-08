@@ -19,6 +19,15 @@ Not in the scope:
 - The flagged-serious items the triage keeps deferred stay deferred: RS:651 (the Claude Code skills take `${CLAUDE_PLUGIN_ROOT}` without the path check) and RS:658 (`createOnce` follows a planted junction on volumes without hard links).
 - Everything in section 2 of the triage, with the reasons given there.
 
+How the batches run (proposed 2026-11-07, waiting for the user's word to start):
+
+1. This branch (the triage and this section, `dev/` only) goes to main first as a small PR, so each batch starts from a main that holds the scope.
+2. Then one session per batch, each in its own worktree off main and with its own PR. Each owner runs its review rows as fresh subagents on `git diff <last reviewed>..HEAD`. Batch S does S1 to S4 now and leaves S5 for the end.
+3. Test files: batch F owns `handoff-checks.test.js`, `sweep.test.js`, `commit-folders.test.js` and `copies.test.js`; batch O puts its tests in `security.test.js` or `hardening.test.js`. Both copies each time.
+4. Shared files that will conflict: `SHA256SUMS` (F, O and S all change listed files) and this file. Merge one PR at a time; the next branch syncs with main, runs `--sums --quick` again and resolves this file by hand. Only the coordinating session edits this file's top line; a batch adds its own section.
+5. Merge order: D first (it ships nothing), then F, O and S1 to S4 as each passes its round. S5 (the CHANGELOG section and version bumps) comes after F and O have merged, since it describes them, then the release checklist.
+6. Load: four sessions running `--only` on one machine at once can slow tests (INFERRED). PR #14 made the known ones repeat or skip on their time sign, and every run has its own temp folder (`mktemp -d`, `release-check.sh:40`), but the 20 kept run folders are shared (`release-check.sh:106`) until D2 lands.
+
 ## Load-proof tests (2026-11-07, branch `claude/load-proof-tests` off 5566010)
 
 PR #14 (https://github.com/cptjamestiberiouskirk-pixel/trailmark/pull/14), opened 2026-11-07 after review round 3 and a merge of main (208d5fb, 5579e63, then 0a8a666 for a conflict here). It waits for its 9 jobs and the user's word to merge.
