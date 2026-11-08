@@ -112,7 +112,9 @@ function sandbox() {
   const g = repoAt(repo);
   const projectDir = path.join(cfg, 'projects', repo.replace(/[^a-zA-Z0-9]/g, '-'));
   fs.mkdirSync(projectDir, { recursive: true });
-  const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg };
+  // JBMEM_SHOW_SINCE: the launcher says why the commit list ran out of time
+  // (sinceInTime reads it).
+  const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg, JBMEM_SHOW_SINCE: '1' };
   delete env.JBMEM_DIR; delete env.CLAUDE_CODE_PROJECT_DIR_NAME; delete env.CLAUDE_CODE_ENTRYPOINT;
   const jbm = (args, input, cwd = repo) => spawnSync(process.execPath, [JBM, ...args], { cwd, env, input, encoding: 'utf8' });
   const memdir = path.join(projectDir, 'memory');
@@ -120,7 +122,7 @@ function sandbox() {
     const r = jbm(['--hook', 'session-start'], JSON.stringify({ cwd, source: 'startup', session_id: sid }), cwd);
     assert.strictEqual(r.status, 0, r.stderr);
     const out = JSON.parse(r.stdout);
-    return { context: out.hookSpecificOutput.additionalContext, message: out.systemMessage || '' };
+    return { context: out.hookSpecificOutput.additionalContext, message: out.systemMessage || '', stderr: r.stderr };
   };
   const write = (body, sid = SA) => {
     const v = /^\[trailmark\] handoff version: (\S+)/m.exec(jbm(['handoff']).stdout)[1];
@@ -188,32 +190,34 @@ const copiesTest = (fn) => (t) => {
 // any other way fails at once.
 const SINCE_LATE = /git ran out of time/;
 class CommitsOutOfTime extends Error {}
-// A session start that really ran out of time spent it: git's 1.2 s, or
-// more than 3.1 s before git ran (trailmark.js, sinceHandoff). So each one
-// took 1.2 s or more, and either the same lookup is slow here too (900 ms,
-// three quarters of git's 1.2 s) or each took past 3.1 s, the slowness
-// before git (review round 1, #2: a control that timed git alone failed
-// that). At rest, a forced 0 ms budget's session starts took 520 to 1,192
-// ms, the first of three always under 620, so the floor alone is too close.
-const LATE_FLOOR_MS = 1200, BEFORE_GIT_MS = 3100;
+// Each session start that says git ran out of time must show, in the
+// launcher's JBMEM_SHOW_SINCE line, that time really ran out: under 400 ms
+// left before git ran, or git spent its budget (a git call is refused with
+// under 250 ms left, gitfacts.js runner, so it spent at least budget - 250;
+// 300 here for rounding). Whole-run times grow with load whatever the
+// cause, so a forced 0 ms budget on a busy machine passed a control that
+// timed the run (batch-f-2, and review round 1, #2).
+const SHOW_SINCE = /^trailmark since: late left=(-?\d+) budget=(\d+) git=(\d+)$/m;
+function ranOutOfTime(r) {
+  const m = SHOW_SINCE.exec(r.stderr || '');
+  assert.ok(m, `git ran out of time, but the launcher wrote no JBMEM_SHOW_SINCE line (stderr: ${JSON.stringify(r.stderr)})`);
+  const [left, budget, git] = m.slice(1).map(Number);
+  assert.ok(left < 400 || (budget >= 400 && git >= budget - 300), `git ran out of time, but not for lack of it: ${m[0]}`);
+  return m[0].slice('trailmark since: late '.length);
+}
 function sinceInTime(s, call, tries = 3) {
-  const took = [];
+  const seen = [];
   for (let i = 1; ; i++) {
-    const t0 = Date.now();
     const r = call();
-    took.push(Date.now() - t0);
     if (!SINCE_LATE.test(r.context)) return r;
+    seen.push(ranOutOfTime(r));
     if (i < tries) continue;
+    // And git isn't stuck: the same lookup with 30 s answers.
     const G = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
     const base = S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8')).head;
-    const l0 = Date.now();
     const c = G.commitsSince(s.repo, base, { budgetMs: 30000 });
-    const ms = Date.now() - l0;
     assert.ok(c && c.state !== 'late' && !c.unlisted, `every session start ran out of time, and so did the same lookup with 30 s: ${JSON.stringify(c)}`);
-    const quick = took.filter(x => x < LATE_FLOOR_MS);
-    assert.strictEqual(quick.length, 0, `every session start said git ran out of time, but ${quick.length} of them took under ${LATE_FLOOR_MS} ms (${took.join(', ')} ms)`);
-    assert.ok(ms >= 900 || took.every(x => x >= BEFORE_GIT_MS), `every session start said git ran out of time, but the same lookup took ${ms} ms here and the starts ${took.join(', ')} ms`);
-    throw new CommitsOutOfTime(`git ran out of time at ${tries} session starts in a row, which took ${took.join(', ')} ms, and the same lookup ${ms} ms: the machine is too slow now`);
+    throw new CommitsOutOfTime(`git ran out of time at ${tries} session starts in a row (${seen.join('; ')}): the machine is too slow now`);
   }
 }
 const sinceTest = (fn) => (t) => {

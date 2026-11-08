@@ -706,10 +706,21 @@ function sinceHandoff(loc, cwd, left) {
   try { text = S.readText(path.join(loc.dir, S.HANDOFF)); } catch { return null; }
   const st = S.handoffStamp(text || '');
   if (!st.head) return null;
+  // JBMEM_SHOW_SINCE=1 (the tests) says why the list ran out of time: the
+  // time left before git, the budget git got and what it spent. It only
+  // reports; no budget changes.
+  const show = (r, budget, spent) => {
+    if (r && (r.state === 'late' || r.unlisted === 'late') && process.env.JBMEM_SHOW_SINCE === '1') process.stderr.write(`trailmark since: late left=${Math.round(left)} budget=${budget} git=${spent}\n`);
+    return r;
+  };
   // Too little time left to start git: said as out of time (store.js,
   // sinceSection).
-  if (left < 400) return { base: st.head, state: 'late' };
-  try { return commitsSince(cwd, st.head, { budgetMs: Math.min(1200, left) }); } catch { return null; }
+  if (left < 400) return show({ base: st.head, state: 'late' }, 0, 0);
+  const budgetMs = Math.min(1200, left);
+  const t0 = Date.now();
+  let r = null;
+  try { r = commitsSince(cwd, st.head, { budgetMs }); } catch { return null; }
+  return show(r, budgetMs, Date.now() - t0);
 }
 
 // The repo root recorded in the state file, and, when it differs from this

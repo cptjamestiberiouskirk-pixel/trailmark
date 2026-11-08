@@ -25,9 +25,9 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 
 ## 2026-11-07: A control timed one step of the path that gives the sign
 
-- What went wrong: batch F's commit-list control timed git's lookup alone (at least 900 ms), so a session start slowed before git (Opus's probe: 3.2 s before `sinceHandoff`) failed the test though only load was behind it. The first replacement, "each late session start took 1.2 s or more", sat 8 ms above the 1,192 ms a forced 0 ms budget's session start took at rest.
-- Why: the sign "git ran out of time" comes from the launcher's whole budget (`5000 - elapsed - 1500`, capped at 1.2 s), not from git alone, and the floor was again set from the arithmetic without measuring the forced fault at rest.
-- Rule going forward: a time-sign control covers every step whose time can give the sign, and each bound is checked against the forced fault at rest with a margin, before it ships.
+- What went wrong: batch F's commit-list control timed git's lookup alone (at least 900 ms), so a session start slowed before git (Opus's probe: 3.2 s before `sinceHandoff`) failed the test though only load was behind it. The first replacement, "each late session start took 1.2 s or more", sat 8 ms above the 1,192 ms a forced 0 ms budget's session start took at rest. The second (that floor plus a slow lookup) held at 8 and 16 busy loops only because the first of three starts came in under 1,200 ms (up to 1,184 ms); the duplicate batch-f-2 saw a whole-run floor let a forced 0 ms budget skip at 37 to 68% CPU (CONFIRMED by batch-f-2, not re-run). Fixed in batch F with the launcher's own report (`JBMEM_SHOW_SINCE=1`: time left, budget, git's time): a forced 0 ms budget then failed 14 of 14 at rest and under 16 and 32 busy loops.
+- Why: the sign "git ran out of time" comes from the launcher's whole budget (`5000 - elapsed - 1500`, capped at 1.2 s), not from git alone. Any time measured from outside (whole runs, the test's own lookup) grows with load whatever the cause, so it can't tell load from a fault on a busy machine.
+- Rule going forward: a time-sign control reads the product's own report of the time each step had and spent, and checks the budget arithmetic against it. Each forced fault is run at rest and under load, before it ships.
 - Status: promoted to PLAYBOOK (third sighting, with the two entries below)
 
 ## 2026-11-07: A control's floor sat below what the control takes at rest

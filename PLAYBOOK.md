@@ -50,7 +50,7 @@ Re-read this file and the latest `LESSONS.md` entries before each significant st
 4. A failure: read the kept TAP output under `<temp>/trailmark-release-check/<run>` first. Compare its sign with the load-sensitive list. A sign not on the list is a new failure.
 5. Intermittent failure: keep every run's output, log CPU, rerun with `--only` several times, and compare with the parent commit, alternating which runs first.
 6. Report each item as pass, fail or untested, with what the test showed and what it didn't.
-7. A test that skips on a time sign: its control repeats the exact call, covers every step whose time can give the sign, and takes its bounds from the product's budget. Before it ships, run it at rest, under busy loops, with a forced non-time fault (must fail) and with each step forced slow (must skip). Each bound keeps a margin over what the forced fault takes at rest.
+7. A test that skips on a time sign: its control repeats the exact call, covers every step whose time can give the sign, and takes its bounds from the product's budget. Prefer the product's own report of each step's time left and spent (a `JBMEM_SHOW_*` stderr line that only reports) over times measured from outside, which grow with load whatever the cause. Before it ships, run a forced non-time fault (must fail) at rest and under busy loops, and each step forced slow (must skip).
 
 ## Reviewing
 
