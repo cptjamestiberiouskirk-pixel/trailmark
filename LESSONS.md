@@ -16,12 +16,33 @@ Format:
 
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
+## 2026-11-08: A placeholder replace rewrote real tokens
+
+- What went wrong: batch F's commit 2f5987b put its new commit's sha into `dev/release-state.md` with a global find-and-replace of a placeholder, `COMMIT`. It also rewrote every real `COMMIT` token in the file: `COMMIT_UNRESOLVED` became `bfa24ad_UNRESOLVED`, the "no COMMITS section" sign in "Load-sensitive tests" became "no bfa24adS section", 21 lines in all. The S5 session saw it on main, and the coordinating session confirmed it. Fixed in PR #20 from 2f5987b's own diff: only lines whose sole change was `COMMIT` to `bfa24ad`.
+- Why: the placeholder was a word the file already used, and the commit went in without a look at its diff.
+- Rule going forward: a placeholder that a replace fills in must be text that can't match real text (for example `@@SHA@@`), and the diff is read before the commit.
+- Status: open
+
+## 2026-11-08: Two sessions started the same four batch sessions
+
+- What went wrong: the triage session asked the user "Push this branch as a dev-only PR, then start the four batch sessions?" in its own next-step box, and the coordinating session asked the same question. The user answered both. Each session then started D, F, O and S, so eight batch sessions ran at once, two per batch, writing the same files on separate branches (CONFIRMED by `list_sessions`, 01:17Z).
+- Why: two sessions owned the same step, and neither checked the other's sessions before acting on a yes. A relayed approval arrives a turn late (the same cause as "A push went out before a batch instruction arrived").
+- Rule going forward: one session owns each step that starts sessions or pushes. A side session reports and asks only its starter, never the user, about a step its starter owns. Before acting on a yes, `list_sessions {"linked": true}` checks whether that step has already been done.
+- Status: promoted to PLAYBOOK (seen twice: relayed instructions arriving after the act)
+
 ## 2026-11-08: A size bound passed only on this machine's short paths
 
 - What went wrong: batch F's F4 test asserted that 9 shortened notes fit in injectChars 2000. It passed here and failed on all 3 macOS and 2 Windows CI jobs (2,007 to 2,041 characters). The injection's cut note names the handoff's full path, and the memory path holds the temp path twice, so the framing grows with the temp folder. `TMPDIR=E:\DevTemp` is short. Reproduced here with 15 and 30 more characters of TMPDIR (2,016 to 2,059).
 - Why: the bound was checked only with this machine's paths. The same "only checked here" blind spot as the POSIX error codes (above).
 - Rule going forward: a test that bounds a text's size, where the text holds a path, is also run with a longer TMPDIR (`--only` with TMPDIR 30 characters longer) and keeps a margin.
 - Status: promoted to PLAYBOOK (Writing code, step 3)
+
+## 2026-11-07: Judged a CI cancel too early
+
+- What went wrong: the coordinating session reported that `cancel-in-progress` didn't fire, after watching the older run for 3 minutes. GitHub had cancelled that run about 2.5 minutes after the newer run was created ("Canceling since a higher priority waiting request for tests-14 exists").
+- Why: a run's status stays in_progress until every job has stopped, and the macOS and Windows jobs stop slowly.
+- Rule going forward: judge a CI setting from the job list after it settles, not from the run status.
+- Status: open
 
 ## 2026-11-07: A Windows-only check missed what POSIX returns
 

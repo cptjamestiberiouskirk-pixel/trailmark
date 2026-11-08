@@ -71,5 +71,6 @@ Follow the current version's "Release checklist" in `dev/release-state.md`. Olde
 ## At each milestone
 
 1. Sweep every project session, branch, worktree and open PR: unpushed work, untracked reports, pending asks.
-2. Update `dev/release-state.md` so the next session can start from it.
-3. Log any mistake, redo or surprise in `LESSONS.md` right away. A lesson seen twice, or clearly general, becomes a step here and is marked "promoted".
+2. One session owns each step that starts sessions, pushes or merges. A side session asks only its starter about such a step, not the user, and anyone acting on a yes first checks `list_sessions {"linked": true}` for the same step already done.
+3. Update `dev/release-state.md` so the next session can start from it.
+4. Log any mistake, redo or surprise in `LESSONS.md` right away. A lesson seen twice, or clearly general, becomes a step here and is marked "promoted".
