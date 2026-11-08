@@ -16,11 +16,18 @@ Format:
 
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
+## 2026-11-07: A script edited while a run of it was going
+
+- What went wrong: in batch D, an edit to `dev/release-check.sh` landed while a background `--sums --quick` of it was still running. The run stopped with "syntax error near unexpected token" at a line that parses fine, and its result was lost. The same run's `--sums` had also reordered `SHA256SUMS` under the shell's UTF-8 locale (D4), which the coordinating session noticed in the worktree.
+- Why: bash reads a script as it runs it, so an edit shifts the bytes under a running copy. A background check makes this easy to forget.
+- Rule going forward: don't edit a script while a run of it is going. Wait for the run, or run a copy. A run that overlapped an edit doesn't count as a check: rerun it.
+- Status: open
+
 ## 2026-11-07: A commit went in after a failed check (batch O)
 
 - What went wrong: `release-check.sh --sums --quick 2>&1 | tail -9 && git commit ...` committed 8f7894c although the check printed FAIL (8 handoff-checks tests, the listed commit-list load sign; they passed 10 of 10 when rerun with `--only`). In the same batch the first `--sums` wrote `SHA256SUMS` in the locale's order, so 48 lines changed for 8 files (the review-strategy session caught it; batch D's D4).
 - Why: a pipeline's status is its last command's, so `tail` hid the check's exit code. And `release-check.sh` sorts the list with a plain `sort`.
-- Rule going forward: never chain a commit after a check piped into `tail` or `head`. Run the check, read its summary, then commit. Until D4 lands, regenerate with `LC_ALL=C`, and check `git diff --stat -- SHA256SUMS` against the files you changed.
+- Rule going forward: never chain a commit after a check piped into `tail` or `head`. Run the check, read its summary, then commit. D4 has landed (PR #17 sorts with `LC_ALL=C`); still check `git diff --stat -- SHA256SUMS` against the files you changed.
 - Status: open
 
 ## 2026-11-07: The control was a cheaper call than the one it stood in for
