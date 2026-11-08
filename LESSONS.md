@@ -25,7 +25,7 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 
 ## 2026-11-07: Escapes in a test's source didn't survive the edit (batch S)
 
-- What went wrong: S1's new test in `codex.test.js` was written with `“`, `‮` and similar escapes in an Edit call, and the file got the raw characters, a bidi override among them (Opus round 1, finding 5). A mutation probe's `sed` pattern with `\\u201e` lost its backslashes in a Bash heredoc, so the edit never applied and the test "passed" the mutation.
+- What went wrong: S1's new test in `codex.test.js` was written with `\u201c`, `\u202e` and similar escapes in an Edit call, and the file got the raw characters, a bidi override among them (Opus round 1, finding 5). A mutation probe's `sed` pattern with `\\u201e` lost its backslashes in a Bash heredoc, so the edit never applied and the test "passed" the mutation.
 - Why: the edit tool wrote the escapes as the characters they name. The Bash tool collapses `\\` even in a quoted heredoc (PLAYBOOK's constraints).
 - Rule going forward: build non-ASCII and backslash characters in test source with `String.fromCharCode`, and grep the diff for non-ASCII after writing it. A mutation probe checks that its edit applied (count the new text) before reading the result.
 - Status: open
