@@ -3484,3 +3484,118 @@ test('0.6.0 hooks: the launcher hands a hook script every payload field the hook
   assert.deepStrictEqual(read({}, '\uFEFF{"session_id":"stdin"}'), { session_id: 'stdin' });
   assert.deepStrictEqual(read({ JBMEM_LAUNCHED: '1', JBMEM_PAYLOAD: 'not json' }, ''), {});
 });
+
+// ---------- batch H (next version) ----------
+
+// RS-F-sinceFor: one real path per key and folder of swept and commitDirsAt
+// (and of a long commitDirs) took 20 s for 130,000 keys, and session start
+// was killed holding the lock. The count of the launcher's real-path calls
+// shows it without a clock, so load can't make this pass or fail.
+test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the launcher a pass by name, not a real path per key (next version)', () => {
+  const s = sandbox();
+  s.write('# H\n- state\n');
+  s.g('commit', '-q', '--allow-empty', '-m', 'by a script');
+  // The sweep reads up to the current whole second: past it, this commit is
+  // one the sweep would log if the lookup below came back empty.
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1100);
+  const count = path.join(s.base, 'real-count.txt');
+  const spy = path.join(s.base, 'real-spy.js');
+  fs.writeFileSync(spy, `const fs=require('fs');let n=0;const r=fs.realpathSync.native;fs.realpathSync.native=function(){n++;return r.apply(this,arguments)};process.on('exit',()=>fs.writeFileSync(${JSON.stringify(count)},String(n)));`);
+  const now = Date.now();
+  const swept = {}, joined = {}, dirs = [];
+  for (let i = 0; i < 20000; i++) { swept[path.join(s.base, `no-such-s${i}`)] = 1; joined[path.join(s.base, `no-such-j${i}`)] = [1, 2]; }
+  for (let i = 0; i < 500; i++) dirs.push(path.join(s.base, `no-such-d${i}`));
+  // Where the session's folder is in the map, by name, it still counts: the
+  // sweep starts past the commit above, so the commit isn't "found".
+  swept[s.repo] = now + 60000;
+  S.updateState(s.memdir, SA, (state, rec) => { rec.start = now - 60000; rec.home = s.repo; rec.swept = swept; rec.commitDirsAt = joined; rec.commitDirs = dirs; });
+  const r = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, NODE_OPTIONS: `--require ${JSON.stringify(spy)}` }, input: JSON.stringify({ cwd: s.repo, source: 'resume', session_id: SA }), encoding: 'utf8', timeout: 120000 });
+  assert.strictEqual(r.status, 0, String(r.stderr).slice(0, 500));
+  const calls = Number(fs.readFileSync(count, 'utf8'));
+  assert.ok(calls < 2000, `${calls} real-path calls`);
+  const notes = fs.readdirSync(path.join(s.memdir, 'notes')).map(f => fs.readFileSync(path.join(s.memdir, 'notes', f), 'utf8')).join('\n');
+  assert.doesNotMatch(notes, /by a script \(found later\)/);
+});
+
+// RS-F2b: rec.swept kept 12 entries, so a folder dropped past six and joined
+// after 12 newer sweeps got its command's start and a commit made there in
+// between was never found.
+test('commit folders: a folder that joins again after 13 newer sweeps keeps where its last sweep stopped, and the map stays capped (next version)', () => {
+  const base = realTemp('jbmem-f2b-');
+  const memdir = path.join(base, 'memory');
+  S.init(memdir, {});
+  const D = (n) => path.join(base, `f${n}`);
+  S.updateState(memdir, SA, (state, rec) => { rec.swept = { [D(1)]: 2000 }; });
+  const sweep = (n) => S.logFoundCommits(memdir, SA, { read: [{ dir: D(n), at: 3000 + n }], commits: [], unresolved: [] });
+  for (let i = 2; i <= 14; i++) sweep(i);
+  const rec = { commitDirs: [], swept: S.sessionRecord(memdir, SA).swept };
+  S.addCommitDirs(rec, [D(1)], 9000, 9500);
+  assert.deepStrictEqual(rec.commitDirsAt[D(1)], [2000, 9500]);
+  for (let i = 15; i < S.MAX_SWEPT + 20; i++) sweep(i);
+  const keys = Object.keys(S.sessionRecord(memdir, SA).swept);
+  assert.strictEqual(keys.length, S.MAX_SWEPT);
+  assert.ok(!keys.includes(D(1)), 'the oldest entry goes first');
+});
+
+// RS-F-enotdir2: a file where the plugins folder should be. Windows says
+// ENOENT, nothing to search; Linux and macOS said ENOTDIR, which read as "the
+// cache could not be read". The POSIX answer is stubbed, so each system runs
+// the same check (PLAYBOOK, "Writing code and docs").
+test('health: a file where the plugins folder should be is nothing to search, on every system (next version)', () => {
+  const H = require(path.join(ROOT, 'scripts', 'lib', 'health'));
+  const base = realTemp('jbmem-enotdir-');
+  const home = path.join(base, 'codex'), cfg = path.join(base, 'cfg');
+  fs.mkdirSync(home); fs.mkdirSync(cfg);
+  const files = [path.join(home, 'plugins'), path.join(cfg, 'plugins')];
+  for (const f of files) fs.writeFileSync(f, 'not a folder');
+  const real = fs.opendirSync;
+  try {
+    fs.opendirSync = function (p, ...a) {
+      if (files.some(f => path.resolve(p) === path.resolve(f) || path.resolve(p).startsWith(path.resolve(f) + path.sep))) { const e = new Error('ENOTDIR'); e.code = 'ENOTDIR'; throw e; }
+      return real.call(fs, p, ...a);
+    };
+    assert.deepStrictEqual(H.oldCodexCopies(home, { detail: true }), { paths: [], incomplete: '' });
+    assert.deepStrictEqual(H.oldCodexCopies(path.join(files[0], 'sub'), { detail: true }), { paths: [], incomplete: '' });
+    assert.strictEqual(H.otherCopies(cfg, path.join(base, 'mine'), { budgetMs: 60000 }).incomplete, '');
+  } finally { fs.opendirSync = real; }
+});
+
+// RS:651: the Claude Code skills build their commands from
+// ${CLAUDE_PLUGIN_ROOT}, without usablePath. Session start tells the user when
+// usablePath refuses the install path. The Codex note already says so.
+test('session start: an install path usablePath refuses gets a warning with no path in it, a plain one none (next version)', { skip: S.AGENT === 'Codex' && 'the Codex note already says this' }, () => {
+  const s = sandbox();
+  s.write('# H\n- state\n');
+  const odd = path.join(s.base, 'a!b');
+  fs.cpSync(ROOT, odd, { recursive: true, filter: (src) => path.basename(src) !== 'tests' });
+  const r = spawnSync(process.execPath, [path.join(odd, 'scripts', 'trailmark.js'), '--hook', 'session-start'],
+    { cwd: s.repo, env: s.env, input: JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB }), encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.match(out.systemMessage, /WARNING: .*trailmark is installed in a folder whose path holds a character a shell can act on/);
+  assert.ok(!out.systemMessage.includes('a!b'), out.systemMessage);
+  assert.doesNotMatch(s.start().message, /installed in a folder whose path/);
+});
+
+// RS:658: where the drive has no hard links, createOnce wrote in place with
+// 'wx', and on Windows that goes through a junction whose target is missing
+// and makes the target, outside the memory folder (reproduced on 9c76a10:
+// the target was made and init threw EISDIR).
+test('init: where the drive has no hard links, a link planted at handoff.md is not written through (next version)', () => {
+  const base = realTemp('jbmem-nohardlinks-');
+  const dir = path.join(base, 'memory');
+  fs.mkdirSync(dir);
+  const target = path.join(base, 'planted');
+  const link = path.join(dir, 'handoff.md');
+  busyRetry(() => fs.symlinkSync(target, link, WIN ? 'junction' : undefined));
+  const real = fs.linkSync;
+  let created;
+  try {
+    fs.linkSync = () => { const e = new Error('EPERM'); e.code = 'EPERM'; throw e; };
+    created = S.init(dir, { repoName: 'x' });
+  } finally { fs.linkSync = real; }
+  assert.ok(!fs.existsSync(target), 'the link\'s target was made');
+  assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the link was replaced');
+  assert.ok(!created.includes('handoff.md'), created.join());
+  assert.ok(created.includes('.jbmem.json'), created.join());
+});

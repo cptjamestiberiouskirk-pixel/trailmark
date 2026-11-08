@@ -42,16 +42,16 @@ function expandHome(p) {
   return p;
 }
 
+// A path in the form the host OS compares it in.
+function pathKey(p, platform = process.platform) {
+  const x = path.resolve(p).replace(/[\\/]+$/, '');
+  return platform === 'win32' ? x.replace(/\//g, '\\').toLowerCase() : x;
+}
+
 // Compare paths the way the host OS does.
 function samePath(a, b, platform = process.platform) {
   if (!a || !b) return false;
-  let x = path.resolve(a).replace(/[\\/]+$/, '');
-  let y = path.resolve(b).replace(/[\\/]+$/, '');
-  if (platform === 'win32') {
-    x = x.replace(/\//g, '\\').toLowerCase();
-    y = y.replace(/\//g, '\\').toLowerCase();
-  }
-  return x === y;
+  return pathKey(a, platform) === pathKey(b, platform);
 }
 
 // Candidate folder names. The first is the rule observed on Linux and macOS
@@ -206,4 +206,4 @@ function findMemoryDir(ctx = {}) {
   return out(path.join(projectsRoot(), candidateKeys(root)[0], 'memory'), 'formula-unverified', root);
 }
 
-module.exports = { findMemoryDir, repoRoot, candidateKeys, samePath, projectsRoot, configDir };
+module.exports = { findMemoryDir, repoRoot, candidateKeys, samePath, pathKey, projectsRoot, configDir };

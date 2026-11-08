@@ -765,6 +765,10 @@ function init(dir, { publicRepo = false, repoName = 'this repo', repoRoot = '' }
     } catch (e) {
       if (e && e.code === 'EEXIST') return false;
       if (!(e && ['EPERM', 'ENOTSUP', 'ENOSYS', 'EXDEV', 'EINVAL'].includes(e.code))) throw e;
+      // 'wx' refuses a link on Linux and macOS, but on Windows it goes through
+      // a junction whose target is missing and makes the target, outside this
+      // folder (RS:658). A link at the name takes the name, as for linkSync.
+      try { fs.lstatSync(file); return false; } catch (e3) { if (!(e3 && e3.code === 'ENOENT')) throw e3; }
       try { fs.writeFileSync(file, text, { encoding: 'utf8', flag: 'wx' }); return true; } catch (e2) {
         if (e2 && e2.code === 'EEXIST') return false;
         throw e2;
@@ -1318,8 +1322,11 @@ function addCommitDirs(rec, dirs, from, settled = from) {
 // logged: made by a script, by hand, or while a hook didn't run. Logged as
 // COMMIT ... (found later). The record's swept map keeps, for each folder
 // read to the end, where its next sweep starts; a folder not read keeps its
-// old start. Returns how many were logged.
-const MAX_SWEPT = 12;
+// old start. Returns how many were logged. The map outlasts the folders in
+// rec.commitDirs, so one dropped there and joined again still finds where it
+// stopped (RS-F2b): past this many folders the oldest entry goes, and that
+// folder, if it joins again, starts at its command's window.
+const MAX_SWEPT = 64;
 function logFoundCommits(dir, session, sweep) {
   const sid = cleanSession(session);
   if (!sid || !isPlainObject(sweep)) return 0;
@@ -2233,7 +2240,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   return { text, summary: `handoff ${age} old, ~${estTokens(text.length)} tokens injected${cut ? ', TRUNCATED' : ''}${ho.overChars || ho.overLines ? ', over budget' : ''}` };
 }
 
-module.exports = { addCommitDirs, MAX_COMMIT_DIRS, addMemoryRoot, plainStat, plainExists, shownName, linkedFiles,
+module.exports = { addCommitDirs, MAX_COMMIT_DIRS, MAX_SWEPT, addMemoryRoot, plainStat, plainExists, shownName, linkedFiles,
   checkRepoRoot, escapeTags, TAG_LIKE, SHOWN_TAG_LIKE, readPlain, handoffStamp, checkSinceFacts, coveredSteps, pruneNotes, AGENT,
   MARKER, HANDOFF, HANDOFF_PREV, PRECOMPACT, SNAPSHOTS, LOCK, PENDING, DEFAULTS, HISTORY, CHECKPOINT_SKILL, SKILL_RULE,
   cleanSession, shortSession, versionOf, withLock, updateState, sessionRecord, otherSessions, lastWriterOf,

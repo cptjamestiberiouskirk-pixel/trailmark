@@ -43,7 +43,7 @@ const os = require('os');
 const path = require('path');
 const tty = require('tty');
 const { spawnSync } = require('child_process');
-const { findMemoryDir: findMemoryDirRaw, projectsRoot, samePath, repoRoot, configDir } = require('./lib/paths');
+const { findMemoryDir: findMemoryDirRaw, projectsRoot, samePath, pathKey, repoRoot, configDir } = require('./lib/paths');
 const { oldCodexCopies, nodeAdvice, otherCopies, nodeInside } = require('./lib/health');
 const S = require('./lib/store');
 // Every memory folder found here is told to the store, so its link checks
@@ -813,9 +813,23 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   const own = held(loc.dir, session);
   const swept = rec.swept && typeof rec.swept === 'object' && !Array.isArray(rec.swept) ? rec.swept : {};
   const home = (d) => sameFolder(d, homeCwd) || (typeof rec.home === 'string' && path.isAbsolute(rec.home) && sameFolder(d, rec.home));
+  // These maps come from the state file, which a session can write. Normal
+  // writes cap them, and every key is then compared by real path too. A map
+  // past its cap is a crafted one, matched by name in one pass: a real path
+  // per key and folder took 20 s for 130,000 keys, and the hook was killed
+  // holding the lock (RS-F-sinceFor).
+  const finder = (map, ok, cap) => {
+    const keys = Object.keys(map).filter(x => ok(map[x]));
+    if (keys.length <= cap) return (d) => keys.find(x => sameFolder(x, d));
+    const byName = new Map();
+    for (const x of keys) { const n = x && pathKey(x); if (n && !byName.has(n)) byName.set(n, x); }
+    return (d) => byName.get(pathKey(d));
+  };
+  const sweptKey = finder(swept, Number.isFinite, S.MAX_SWEPT);
+  const joinedKey = finder(joined, v => Array.isArray(v) && Number.isFinite(v[0]), S.MAX_COMMIT_DIRS);
   const sinceFor = (d) => {
-    const k = Object.keys(swept).find(x => Number.isFinite(swept[x]) && sameFolder(x, d));
-    const j = home(d) ? undefined : Object.keys(joined).find(x => Array.isArray(joined[x]) && Number.isFinite(joined[x][0]) && sameFolder(x, d));
+    const k = sweptKey(d);
+    const j = home(d) ? undefined : joinedKey(d);
     return Math.max(k ? swept[k] : start, j ? joined[j][0] : -Infinity, now - 24 * 3600 * 1000);
   };
   const dirs = [];
@@ -823,7 +837,8 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   // network one outside the session's folder is never touched.
   const add = (d) => { if (typeof d === 'string' && d.length < 4096 && path.isAbsolute(d) && !farNetwork(d, homeCwd) && localPathFrom(homeCwd, d) && !dirs.some(x => sameFolder(x, d))) dirs.push(d); };
   add(rec.home); add(homeCwd);
-  for (const d of Array.isArray(rec.commitDirs) ? rec.commitDirs : []) add(d);
+  // No more than a normal write leaves: each one read costs real paths too.
+  for (const d of Array.isArray(rec.commitDirs) ? rec.commitDirs.slice(0, S.MAX_COMMIT_DIRS) : []) add(d);
   add(rec.commitDir);
   const items = [];
   let short = false;

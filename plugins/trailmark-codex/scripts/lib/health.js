@@ -130,8 +130,10 @@ function list(dir, max) {
   // leads to a network path is never opened.
   if (!local(dir)) return { names: out, full: false, net: true };
   let d;
-  // A folder that is there but can't be listed is not an empty one.
-  try { d = fs.opendirSync(dir); } catch (e) { const gone = !!(e && e.code === 'ENOENT'); return { names: out, full: gone, unread: !gone }; }
+  // A folder that is there but can't be listed is not an empty one. A file
+  // where the folder or a folder above it should be is no folder at all: the
+  // answer is ENOTDIR, except on Windows for a path under a file (ENOENT).
+  try { d = fs.opendirSync(dir); } catch (e) { const gone = !!(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')); return { names: out, full: gone, unread: !gone }; }
   let seen = 0;
   let full = true;
   let unread = false;

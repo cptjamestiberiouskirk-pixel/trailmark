@@ -181,3 +181,25 @@ test('0.6.0 context watch: a transcript_path outside the projects folder, or dee
   assert.strictEqual(c.run({ transcript_path: c.transcript.replace(/\.jsonl$/, '.txt') }), null, 'not a .jsonl');
   assert.ok(c.run(), 'the real one asks');
 });
+
+// RS:638: two context-watch hooks whose launchers both read the record before
+// the first request was saved carry no `since`, and decide() took that as a
+// reason to start over: the same first request went out twice.
+test('context watch: a hook whose launcher read the record before the first request was saved does not ask again (next version)', () => {
+  const { decide } = require(path.join(__dirname, '..', 'scripts', 'hook-context-watch.js'));
+  const cfg = { on: true, steps: [85, 90, 95], reserve: 33000 };
+  const c = { tokens: 320000, base: 320000, win: 400000, pct: 0, since: null };
+  const a = decide({}, {}, c, cfg, 1000);
+  assert.deepStrictEqual(a.ask, { repeat: false, level: 1 });
+  const b = decide(a.w, {}, c, cfg, 1001);
+  assert.strictEqual(b.ask, null, JSON.stringify(b.ask));
+  assert.deepStrictEqual(b.w, a.w);
+  // With a checkpoint in between, too.
+  assert.strictEqual(decide(a.w, { lastWrite: 1000 + 500 }, c, cfg, 1600).ask, null);
+  // A later step is a repeat request as usual.
+  const later = decide(a.w, {}, { ...c, tokens: 335000 }, cfg, 1002);
+  assert.deepStrictEqual(later.ask, { repeat: true, level: 2 });
+  // A state with no seenAt says nothing about when it was saved: asking once
+  // more stays the safe side.
+  assert.deepStrictEqual(decide({ level: 1, firstAt: 1000, seen: 320000, point: 367000 }, {}, c, cfg, 1001).ask, { repeat: false, level: 1 });
+});

@@ -77,7 +77,12 @@ function decide(prev, rec, ctx, cfg, now) {
   // 75% of the compaction point, a compaction point bigger than any asked
   // under, or a transcript that couldn't be read back that far (asking once
   // more is the safe side).
-  if (w.level) {
+  // The launcher passes `since` only when the record it read had a seenAt, so
+  // a state that has one with no `since` here was saved after that read: two
+  // hooks ran at once (parallel tool calls) and the other one asked. Its state
+  // stands, or the same first request would go out twice (RS:638).
+  const crossed = !ctx.since && when(w.seenAt) > 0;
+  if (w.level && !crossed) {
     const s = ctx.since;
     const low = Math.min(ctx.base, s && Number.isFinite(s.min) ? s.min : Infinity);
     if (!s || s.boundary || !s.reached || (seen > 0 && low < seen * SHRINK) || pt > count(w.point)) w = {};

@@ -14,6 +14,27 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-08: A reviewer died on an API timeout and left its scratch worktree
+
+- What went wrong: batch H's round 2 reviewer ended on "Request timed out" with no report. Its scratch worktree stayed registered in `git worktree list`.
+- Why: a subagent that dies can't run its own cleanup.
+- Rule going forward: when a reviewer fails, check that its report exists, remove its worktree and temp folder (`git worktree list`, then `git worktree remove --force`), and run the round again with a fresh one.
+- Status: open
+
+## 2026-11-08: An edit's trailing space was lost, twice
+
+- What went wrong: batch H's Edit calls whose old and new text ended in a space shortened the line (`const listCmd =launcher`), and the fix for that moved the gap (`launcher ?` then a backtick). Both reviewers reported it.
+- Why: a string ending in whitespace is not a safe edit anchor: the new text lost its trailing space.
+- Rule going forward: an edit's old and new text end on a visible character.
+- Status: open
+
+## 2026-11-08: An assertion that something did not happen passed for the wrong reason
+
+- What went wrong: batch H's `huge swept` test asserted a commit was not "found later". With the lookup it was meant to check broken, it still passed in 7 of 16 runs on Linux: the sweep reads only up to the current whole second, and the commit was in that second (Opus, review round 1).
+- Why: the fail-first proof ran the whole test on the old code, where an earlier assertion failed first, so nothing showed this one could fail.
+- Rule going forward: when a test holds several assertions, break the code each one guards, one at a time. An assertion that something didn't happen gets its own forced fault.
+- Status: open
+
 ## 2026-11-08: Reviewers' proofs push out kept failed runs
 
 - What went wrong: a review round's deliberate failures (a mutation per run) count against the 20 kept failed runs in the shared `trailmark-release-check` folder. Two reviewers reported older folders gone during their runs, three of them named (INFERRED: `prune_kept`; another session's run isn't ruled out).
