@@ -1,6 +1,32 @@
 # Release state
 
-Last updated 2026-11-07. 0.6.0 is published (v0.6.0 at cf06986, under 0.6.0). Since then main has PR #10, faster local checks (merge commit 5566010, 19:13:39Z), and PR #12, PLAYBOOK.md and LESSONS.md (merge commit 208d5fb, 21:09:44Z). Open: the load-proof test fixes ("Load-proof tests", PR #14).
+Last updated 2026-11-07. 0.6.0 is published (v0.6.0 at cf06986, under 0.6.0). Since then main has PR #10, faster local checks (merge commit 5566010, 19:13:39Z), PR #12, PLAYBOOK.md and LESSONS.md (merge commit 208d5fb, 21:09:44Z), PR #11, the faster review process (merge commit 5579e63), and PR #14, the load-proof tests (merge commit a09ee5f). No PR is open. Next: the next version's scope, approved below.
+
+## Next version: approved scope (2026-11-07)
+
+The triage is `dev/next-version-triage.md` (commit 5f3b444, branch `claude/next-version-triage-b0d9a9`, written on a09ee5f). The user approved its core scope on 2026-11-07, relayed by the review-strategy session. Their words, to "Approve the triage's core scope as proposed?": "Approve as proposed". That is all four batches, not the tighter cut. The approval covers the scope only: every push, PR, merge, tag and publish still needs the user's own word.
+
+| Batch | Items | Review rows | Files it owns |
+|---|---|---|---|
+| F | F1 to F8 (RS:647, 646, 634, 645, 635, 672, 709, and the comment riders RS:696, 698, 708) | Fable and Opus | `store.js`, `trailmark.js`, `health.js` (shared), `handoff-checks.test.js` (shared), in both copies |
+| O | O1 to O6 (RS:666, 664, 665, 662 with 668, 642, 703) | Opus | `memory.js`, `hookio.js` (shared), maybe `hook-session-start.js`, in both copies; its tests in a test file batch F doesn't touch |
+| S | S1 to S5 (RS:652, the docs half of 703, 696 with 699, 673, and the release's CHANGELOG section and version bumps) | Sonnet, plus Opus for S1 | the six Codex `SKILL.md`, `docs/how-it-works.md`, `CHANGELOG.md`, `MANUAL.md`, the three `plugin.json` |
+| D | D1 to D3 (RS:707, 663, 705) | Opus | `dev/release-check.sh`; its own PR, ships nothing |
+
+Not in the scope:
+
+- O7 (RS:637, the lost repeat ask) was optional and stays deferred: the user said "Keep it deferred" during 0.6.0 and has not pulled it in.
+- The flagged-serious items the triage keeps deferred stay deferred: RS:651 (the Claude Code skills take `${CLAUDE_PLUGIN_ROOT}` without the path check) and RS:658 (`createOnce` follows a planted junction on volumes without hard links).
+- Everything in section 2 of the triage, with the reasons given there.
+
+How the batches run (proposed 2026-11-07, waiting for the user's word to start):
+
+1. This branch (the triage and this section, `dev/` only) goes to main first as a small PR, so each batch starts from a main that holds the scope.
+2. Then one session per batch, each in its own worktree off main and with its own PR. Each owner runs its review rows as fresh subagents on `git diff <last reviewed>..HEAD`. Batch S does S1 to S4 now and leaves S5 for the end.
+3. Test files: batch F owns `handoff-checks.test.js`, `sweep.test.js`, `commit-folders.test.js` and `copies.test.js`; batch O puts its tests in `security.test.js` or `hardening.test.js`. Both copies each time.
+4. Shared files that will conflict: `SHA256SUMS` (F, O and S all change listed files) and this file. Merge one PR at a time; the next branch syncs with main, runs `--sums --quick` again and resolves this file by hand. Only the coordinating session edits this file's top line; a batch adds its own section.
+5. Merge order: D first (it ships nothing), then F, O and S1 to S4 as each passes its round. S5 (the CHANGELOG section and version bumps) comes after F and O have merged, since it describes them, then the release checklist.
+6. Load: four sessions running `--only` on one machine at once can slow tests (INFERRED). PR #14 made the known ones repeat or skip on their time sign, and every run has its own temp folder (`mktemp -d`, `release-check.sh:40`), but the 20 kept run folders are shared (`release-check.sh:106`) until D2 lands.
 
 ## Load-proof tests (2026-11-07, branch `claude/load-proof-tests` off 5566010)
 
