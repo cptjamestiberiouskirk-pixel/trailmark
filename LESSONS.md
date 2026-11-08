@@ -19,7 +19,7 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 ## 2026-11-08: The Codex plugin page ignored `homepage`
 
 - What went wrong: the ChatGPT app's page for trailmark-codex showed Website "Unavailable", though the manifests had set `homepage` since 0.5.x.
-- Why: Codex's details page draws on the manifest's `interface` block (INFERRED from the spec, not yet seen in the app), and `homepage` is a separate field. The manifests were checked for name and version only, and nobody opened the page after installing.
+- Why: Codex returns the site as `interface.websiteUrl`, read from the manifest's `interface` block, and the app's Website row renders that value (CONFIRMED by Opus, not re-run). `homepage` is a separate field. The tests checked the manifests for name and version only, and `claude plugin validate --strict` doesn't read them: it passes with a corrupt Codex manifest (CONFIRMED).
 - Rule going forward: when a Codex manifest changes, compare it with `plugin-creator/references/plugin-json-spec.md` under `~/.codex/.tmp/plugins` and look at the plugin's page in the app.
 - Status: open
 
