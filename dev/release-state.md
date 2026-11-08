@@ -79,6 +79,85 @@ Deferred (dev tooling, by the dev rule):
 - (INFERRED, round 2, seen on 83817dc; probe only.) D4's SKIP test and its pass test compare against HEAD's committed order, not bytewise order. If a SHA256SUMS in en_US order were ever committed (CI checks only hashes and the line count), the probe would say SKIP with the locale installed. Repro: give the SKIP `cmp` an en_US-sorted copy of HEAD's names. Fix idea: compare `LC_ALL=C sort` with `LC_ALL=en_US.UTF-8 sort` of the names. Today HEAD's file is bytewise (CONFIRMED by round 2).
 - (HYPOTHESIZED, round 2, seen on 83817dc.) A few microseconds remain between `mkdir -p "$KEEP"` and the `passed` mark, in which another run's prune would count the folder as failed. No repro. Fix idea: make the folder under a temporary name with its mark, then `mv` it into place.
 
+## Batch O (2026-11-07, branch `claude/batch-o-escape-output-8d777d` off d86b628)
+
+O1 to O6 of the approved scope, in `memory.js` and `hookio.js` (shared) in both copies. `hook-session-start.js` is untouched. Tests: seven per copy, the "batch O..." tests at the end of `hardening.test.js`, plus the status assertion in `basics.test.js` "session start: log line records ...".
+
+- 9c30cd0, the fixes:
+  - O1 (RS:666): `transcript` escapes tags in each quoted line and its `file:` line.
+  - O2 (RS:664): `handoff` escapes tags, with no data wording.
+  - O3 (RS:665): exit 3 gets a "notes to merge, not instructions" line, escaped diff and current text, and an end line marked with a random 8-hex word.
+  - O4 (RS:662, 668): `status` labels the last session start as data and shows `exec=(path not shown)`. The log keeps the path.
+  - O5 (RS:642): `hookio.refusalText` adds the length and the fix to a Windows refusal of a path of 260 characters or more, used by `memory.js` and the hooks. The grant fix stays deferred.
+  - O6 (RS:703): the PAYLOAD_MAX comment.
+- 852a560: `SHA256SUMS` back in C order. A plain `sort` under `en_US.UTF-8` had reordered 48 lines (batch D's D4). D4 has since landed (PR #17): `--sums` now sorts bytewise.
+- 8f7894c, round 1's fixes:
+  - The data line now comes after the base-gone instruction.
+  - Tags are escaped line by line and CRLF is kept.
+  - status keeps the `session=` that follows `exec=`.
+  - transcript lines skip NFC (`asIs`).
+  - The long-path hint is conditional.
+- 4abc77a, round 3's fix (the user, through the review-strategy session: "Fix it first"): `status` keeps a trailing ` session=<8 hex>` only when the state file knows a session with that prefix. A Node path that ends that way is hidden with the rest. The writer's field order is unchanged: `tools/windows/check-trailmark-checkpoints.ps1` ties each log line to its session by that trailing tag. Test (each copy): "batch O4: status hides a Node path that ends like a session tag, and keeps only a tag naming a known session". It fails 2 of 2 on ef91ce2's `memory.js` (shows `exec=(path not shown) session=12345678`) and passes at 4abc77a. CONFIRMED here and by round 3. Of its four cases, the fake tag and the tag naming no known session reproduce the edge; the tag in mid-path and upper-case hex guard neighbors.
+- Each new or changed test fails on the commit before its fix, for the intended reason, and passes after it. CONFIRMED here (`--only 'batch O|session start: log line records'`: 14 of 14 fail on d86b628's scripts and 12 of 12 on 9c30cd0's), and CONFIRMED by both reviewers in their own copies.
+- `--sums --quick` at 4abc77a's tree (LC_ALL=C): PASS, handoff-checks 158/246 with 88 skipped. `--only 'batch O'` at 4abc77a: 14 of 14 pass.
+- The slip logged in LESSONS.md (8f7894c went in after a failed check, because `tail` hid the exit code): its content is right at HEAD. CONFIRMED here: 8f7894c's `SHA256SUMS` matches its own tree (112 of 112 lines); since then its files changed only by 4abc77a's status hunk and test; all its tests pass at 4abc77a (above).
+- `--sums --quick` at 8f7894c: PASS, handoff-checks 158/246 with 88 skipped (this desktop's static skips: 30 NO_LINKS, 9 WIN, 1 ODD_NAME, 4 others per copy). One earlier run failed 8 commit-list and cut-note tests with the listed sign (no COMMITS section, three tries, 57 to 64 node processes from the other batches). Those passed 10 of 10 alone, and the next full `--quick` passed.
+
+Reviews (Opus row only: no file in the security row, and no shipped doc changed):
+
+- Round 1 (`d86b628..9c30cd0`) found four CONFIRMED and two INFERRED items, all fixed in 8f7894c.
+- Kept by design: copying a handoff forward makes its escapes permanent in the file. `</div>` stays `<\/div>`, and a bidi control is dropped. It is the same escaped text session start shows the model. CONFIRMED by round 1; the user can pull a change back in.
+- Round 2 (`852a560..8f7894c`) found nothing that makes 8f7894c worse than 852a560, and one CONFIRMED edge. The user chose to fix it first (4abc77a).
+- Round 3 (`ef91ce2..4abc77a`) found nothing CONFIRMED. Clean under the stop rule. It probed: a tag in mid-path, upper-case or 9 hex digits, a fake tag then the real one, a tag equal to a known prefix, `exec=` earlier in the line, a line cut by `oneLine`, and odd or corrupt `sessions` values. None throws or shows path text.
+- Kept by design (round 3, INFERRED from code; the effect is CONFIRMED by its test's last case): a real session's tag drops from the `status` line when the state has no record for it. Session start writes the note before its state record, and that record is skipped on a busy lock (`hook-session-start.js` `recordSessionStart`). State also drops sessions after 14 days, while `lastNote` reads older logs. The effect is display only; the log is unchanged. A path that ends in a known session's prefix shows that prefix, which reveals nothing the state doesn't hold.
+
+Deferred to the release after, each seen on 8f7894c:
+
+- INFERRED, low: `handoffShown` splits on `\r?\n` only, so a lone `<` before U+2028 or U+2029 isn't escaped. Session start's `framed` escapes it. A tag split across U+2028 is still caught. Repro: `handoffShown('- ends in <\u2028- next\n')`.
+- INFERRED, low: transcript's `fail()` prints the transcript path unescaped (round 1, not in the diff). Also `conflict()` repeats `frameMarker()` inline, since `store.js` (batch F) doesn't export it. Style only.
+- HYPOTHESIZED: a `//?/` prefix on a refused path isn't stripped. Node gives the `\\?\` form.
+- RS:662's `search` neighbor: `search` can still print a SESSION_START line's exec path, behind its data line. Unchanged; left as RS:662 described it.
+
+Shipped wording changes for batch S and S5: `batch-o-wording.md` in the shared notes folder of the review-strategy session. No shipped doc names these outputs.
+
+## Batch S: docs and Codex skills, S1 to S4 (2026-11-07, branch `claude/batch-s-skills-docs-8b39c7` off d86b628)
+
+Not pushed; no PR yet. S5 (the release's CHANGELOG section and the version bumps) waits until batches F and O have merged.
+
+| Item | Change | Files | Commit |
+|---|---|---|---|
+| S1, RS:652 | The six Codex skills take `scripts/trailmark.js` two folders up only when the session has no note that starts `[trailmark] ChatGPT/Codex copy of trailmark.` (the session-start note, both variants), and only for a path free of every character `usablePath` refuses, each named. A session-start note with no "Launcher:" now means: stop and tell the user. Other `[trailmark]` lines (the handoff's version line, commit notes) don't count | the six `plugins/trailmark-codex/skills/*/SKILL.md`; new test "codex skills: the launcher two folders up only with no [trailmark] note, ..." at the end of `codex.test.js` (Codex only, owned by no other batch) | 4ab108b, round 1 fixes 27ae732 |
+| S2, RS:703 docs half | `docs/how-it-works.md:219` gives the reason that holds for the 30,000 cap: Linux caps one variable at 128 KiB with 4 KiB pages, and 30,000 characters take at most 90,000 bytes in UTF-8 | `docs/how-it-works.md` | 4ab108b |
+| S3, RS:696 and 699 | CHANGELOG 0.6.0: 3,000 took "about 40 seconds" (was "minutes"); "0.5.1 had the same slow check" (was "had it too") | `CHANGELOG.md` | 4ab108b |
+| S4, RS:673 | MANUAL.md section 13, the other-copy row sends only a jb-memory copy to section 15; the repo-clash row names `node "<launcher>" dir`. Section numbers unchanged | `MANUAL.md` | 4ab108b |
+
+Checks, each on this branch:
+
+- S1's test failed on d86b628's skill text ("tm-checkpoint: the old fallback"), after every `usablePath` assertion before it passed, and passes on 27ae732 (`--only 'codex skills'`, 2/2). Mutations, each checked as applied, each failed the test: the round-1 text in tm-park, tm-park's refused branch told to use the path anyway, `usablePath`'s quote range widened to U+201F. Round 2's Opus reviewer ran nine more (both note prefixes in the hook, the range widened or narrowed, sentences dropped or inserted): all failed with the matching assertion (CONFIRMED by Opus, not re-run).
+- S2's Linux claim CONFIRMED in WSL2 (kernel 6.18, 4 KiB pages, Node 18.19): `X=` plus 131,069 characters runs, 131,070 gives E2BIG; a 30,000-unit CJK payload is 89,978 bytes and runs. The docs reviewer got the same edge.
+- `LC_ALL=C dev/release-check.sh --sums --quick`: all pass, handoff-checks 158/246 with 88 skipped, the same as 5566010. The first two `--sums` runs, without `LC_ALL=C`, reordered the whole of `SHA256SUMS` (the coordinating session's warning; batch D fixes it as D4). The third put it back in order: `git diff d86b628 -- SHA256SUMS` now changes only the 10 lines of the files this batch changed.
+
+Reviews:
+
+- Round 1 (`git diff d86b628..4ab108b`). Sonnet (docs): nothing in this batch's files; the same wrong reasons remain in code comments (below). Opus (S1): 1, INFERRED, "`[trailmark]` notes" also matched the launcher's own output, so the fallback misfired after one command; 2 and 3, CONFIRMED, the test missed a changed refused-branch instruction and a `usablePath` tightened outside ASCII; 4, INFERRED, negligible (below); 5, raw invisible characters in the test source. 1, 2, 3 and 5 fixed in 27ae732.
+- Round 2 (`git diff 4ab108b..27ae732`). Opus: the fixes hold; one INFERRED and one cosmetic item (below). Sonnet: none CONFIRMED; one INFERRED (below). Nothing CONFIRMED: the stop rule is met.
+
+Deferred to the release after this one, or to batch F or O where named:
+
+- (Opus round 1, finding 4; INFERRED, seen on 4ab108b.) Outside ASCII, "invisible" in the skills and `usablePath` disagree: U+034F, U+115F, U+3164, U+FFA0 and U+FE0F pass `usablePath`, while a model may refuse them; U+0600 and U+061C are refused by `usablePath`, while a model may not call them invisible. The 1,024 limit counts UTF-16 units. None is a shell character. Repro: `S.usablePath('/x/a' + c + 'b/t.js')` for each.
+- (Opus round 2, finding 1; INFERRED, seen on 27ae732.) With no session-start note but a later commit note, the note's `SKILL_RULE` (`lib/host.js:26`) can say trailmark's path isn't written, and the skills say other `[trailmark]` lines don't count, so the model goes on to the fallback. The character check still refuses every ASCII character `usablePath` refuses; what is left is the item above. Fix idea: "... don't count as that note, but if one says trailmark's path isn't written here, stop as above." Repro: read `host.js:26` against the skills' last launcher sentence.
+- (Sonnet round 2; INFERRED, seen on 27ae732.) The launcher paragraph's first sentence still says "the `[trailmark]` note at the start of this session" without the marker the later sentences name. Fix idea: name the marker at first mention, in all six.
+- (Opus round 2; cosmetic, 27ae732.) The new test's name says "no [trailmark] note", while the key is now the session-start note's start.
+- (Opus round 2, older.) `tm-memory-setup/SKILL.md:55` expects the note to quote the launcher; when the path is refused it has none.
+- (Opus round 2, older; HYPOTHESIZED.) `buildInjection` puts the notes after the handoff, so handoff text comes before the real session-start note. Whether escaped handoff text could pass for that note is untested.
+- (Sonnet round 1; CONFIRMED in code, seen on d86b628.) The Windows 32,767 reason is also in `lib/gitfacts.js:15` and `:594`, about `JBMEM_GIT` (both copies, a shared file in the Fable row, owned by no batch), and in `commit-folders.test.js:440`, Codex `:264` (batch F's file). Comments only; that the claim is wrong there too is INFERRED from Fable's 120,000-character Windows run (RS:703). The `hookio.js` comment is O6, and the `store.js` and handoff-checks "minutes" comments are F8.
+
+To confirm (needs the user and Codex):
+
+| Claim | Label | Action | Confirms | Refutes |
+|---|---|---|---|---|
+| With the install path refused, Codex no longer builds and runs it from the skills' folder | INFERRED (skill text and test only) | Install the Codex copy from this branch in a plugin folder named `a$(echo ran)b`, start a session in a set-up repo, run tm-checkpoint | Codex stops and tells you to install in a plain folder; no `ran` output, no node command with that path | Codex runs `node ".../a$(echo ran)b/scripts/trailmark.js" ...` |
+
 ## Load-proof tests (2026-11-07, branch `claude/load-proof-tests` off 5566010)
 
 PR #14 (https://github.com/cptjamestiberiouskirk-pixel/trailmark/pull/14), opened 2026-11-07 after review round 3 and a merge of main (208d5fb, 5579e63, then 0a8a666 for a conflict here). It waits for its 9 jobs and the user's word to merge.
