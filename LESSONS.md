@@ -16,6 +16,13 @@ Format:
 
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
+## 2026-11-08: Two sessions started the same four batch sessions
+
+- What went wrong: the triage session asked the user "Push this branch as a dev-only PR, then start the four batch sessions?" in its own next-step box, and the coordinating session asked the same question. The user answered both. Each session then started D, F, O and S, so eight batch sessions ran at once, two per batch, writing the same files on separate branches (CONFIRMED by `list_sessions`, 01:17Z).
+- Why: two sessions owned the same step, and neither checked the other's sessions before acting on a yes. A relayed approval arrives a turn late (the same cause as "A push went out before a batch instruction arrived").
+- Rule going forward: one session owns each step that starts sessions or pushes. A side session reports and asks only its starter, never the user, about a step its starter owns. Before acting on a yes, `list_sessions {"linked": true}` checks whether that step has already been done.
+- Status: promoted to PLAYBOOK (seen twice: relayed instructions arriving after the act)
+
 ## 2026-11-07: A script edited while a run of it was going
 
 - What went wrong: in batch D, an edit to `dev/release-check.sh` landed while a background `--sums --quick` of it was still running. The run stopped with "syntax error near unexpected token" at a line that parses fine, and its result was lost. The same run's `--sums` had also reordered `SHA256SUMS` under the shell's UTF-8 locale (D4), which the coordinating session noticed in the worktree.
