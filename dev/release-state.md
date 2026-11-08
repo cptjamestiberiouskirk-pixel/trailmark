@@ -162,6 +162,44 @@ Deferred to the release after, each seen on 8f7894c:
 
 Shipped wording changes for batch S and S5: `batch-o-wording.md` in the shared notes folder of the review-strategy session. No shipped doc names these outputs.
 
+## Batch S: docs and Codex skills, S1 to S4 (2026-11-07, branch `claude/batch-s-skills-docs-8b39c7` off d86b628)
+
+Not pushed; no PR yet. S5 (the release's CHANGELOG section and the version bumps) waits until batches F and O have merged.
+
+| Item | Change | Files | Commit |
+|---|---|---|---|
+| S1, RS:652 | The six Codex skills take `scripts/trailmark.js` two folders up only when the session has no note that starts `[trailmark] ChatGPT/Codex copy of trailmark.` (the session-start note, both variants), and only for a path free of every character `usablePath` refuses, each named. A session-start note with no "Launcher:" now means: stop and tell the user. Other `[trailmark]` lines (the handoff's version line, commit notes) don't count | the six `plugins/trailmark-codex/skills/*/SKILL.md`; new test "codex skills: the launcher two folders up only with no [trailmark] note, ..." at the end of `codex.test.js` (Codex only, owned by no other batch) | 4ab108b, round 1 fixes 27ae732 |
+| S2, RS:703 docs half | `docs/how-it-works.md:219` gives the reason that holds for the 30,000 cap: Linux caps one variable at 128 KiB with 4 KiB pages, and 30,000 characters take at most 90,000 bytes in UTF-8 | `docs/how-it-works.md` | 4ab108b |
+| S3, RS:696 and 699 | CHANGELOG 0.6.0: 3,000 took "about 40 seconds" (was "minutes"); "0.5.1 had the same slow check" (was "had it too") | `CHANGELOG.md` | 4ab108b |
+| S4, RS:673 | MANUAL.md section 13, the other-copy row sends only a jb-memory copy to section 15; the repo-clash row names `node "<launcher>" dir`. Section numbers unchanged | `MANUAL.md` | 4ab108b |
+
+Checks, each on this branch:
+
+- S1's test failed on d86b628's skill text ("tm-checkpoint: the old fallback"), after every `usablePath` assertion before it passed, and passes on 27ae732 (`--only 'codex skills'`, 2/2). Mutations, each checked as applied, each failed the test: the round-1 text in tm-park, tm-park's refused branch told to use the path anyway, `usablePath`'s quote range widened to U+201F. Round 2's Opus reviewer ran nine more (both note prefixes in the hook, the range widened or narrowed, sentences dropped or inserted): all failed with the matching assertion (CONFIRMED by Opus, not re-run).
+- S2's Linux claim CONFIRMED in WSL2 (kernel 6.18, 4 KiB pages, Node 18.19): `X=` plus 131,069 characters runs, 131,070 gives E2BIG; a 30,000-unit CJK payload is 89,978 bytes and runs. The docs reviewer got the same edge.
+- `LC_ALL=C dev/release-check.sh --sums --quick`: all pass, handoff-checks 158/246 with 88 skipped, the same as 5566010. The first two `--sums` runs, without `LC_ALL=C`, reordered the whole of `SHA256SUMS` (the coordinating session's warning; batch D fixes it as D4). The third put it back in order: `git diff d86b628 -- SHA256SUMS` now changes only the 10 lines of the files this batch changed.
+
+Reviews:
+
+- Round 1 (`git diff d86b628..4ab108b`). Sonnet (docs): nothing in this batch's files; the same wrong reasons remain in code comments (below). Opus (S1): 1, INFERRED, "`[trailmark]` notes" also matched the launcher's own output, so the fallback misfired after one command; 2 and 3, CONFIRMED, the test missed a changed refused-branch instruction and a `usablePath` tightened outside ASCII; 4, INFERRED, negligible (below); 5, raw invisible characters in the test source. 1, 2, 3 and 5 fixed in 27ae732.
+- Round 2 (`git diff 4ab108b..27ae732`). Opus: the fixes hold; one INFERRED and one cosmetic item (below). Sonnet: none CONFIRMED; one INFERRED (below). Nothing CONFIRMED: the stop rule is met.
+
+Deferred to the release after this one, or to batch F or O where named:
+
+- (Opus round 1, finding 4; INFERRED, seen on 4ab108b.) Outside ASCII, "invisible" in the skills and `usablePath` disagree: U+034F, U+115F, U+3164, U+FFA0 and U+FE0F pass `usablePath`, while a model may refuse them; U+0600 and U+061C are refused by `usablePath`, while a model may not call them invisible. The 1,024 limit counts UTF-16 units. None is a shell character. Repro: `S.usablePath('/x/a' + c + 'b/t.js')` for each.
+- (Opus round 2, finding 1; INFERRED, seen on 27ae732.) With no session-start note but a later commit note, the note's `SKILL_RULE` (`lib/host.js:26`) can say trailmark's path isn't written, and the skills say other `[trailmark]` lines don't count, so the model goes on to the fallback. The character check still refuses every ASCII character `usablePath` refuses; what is left is the item above. Fix idea: "... don't count as that note, but if one says trailmark's path isn't written here, stop as above." Repro: read `host.js:26` against the skills' last launcher sentence.
+- (Sonnet round 2; INFERRED, seen on 27ae732.) The launcher paragraph's first sentence still says "the `[trailmark]` note at the start of this session" without the marker the later sentences name. Fix idea: name the marker at first mention, in all six.
+- (Opus round 2; cosmetic, 27ae732.) The new test's name says "no [trailmark] note", while the key is now the session-start note's start.
+- (Opus round 2, older.) `tm-memory-setup/SKILL.md:55` expects the note to quote the launcher; when the path is refused it has none.
+- (Opus round 2, older; HYPOTHESIZED.) `buildInjection` puts the notes after the handoff, so handoff text comes before the real session-start note. Whether escaped handoff text could pass for that note is untested.
+- (Sonnet round 1; CONFIRMED in code, seen on d86b628.) The Windows 32,767 reason is also in `lib/gitfacts.js:15` and `:594`, about `JBMEM_GIT` (both copies, a shared file in the Fable row, owned by no batch), and in `commit-folders.test.js:440`, Codex `:264` (batch F's file). Comments only; that the claim is wrong there too is INFERRED from Fable's 120,000-character Windows run (RS:703). The `hookio.js` comment is O6, and the `store.js` and handoff-checks "minutes" comments are F8.
+
+To confirm (needs the user and Codex):
+
+| Claim | Label | Action | Confirms | Refutes |
+|---|---|---|---|---|
+| With the install path refused, Codex no longer builds and runs it from the skills' folder | INFERRED (skill text and test only) | Install the Codex copy from this branch in a plugin folder named `a$(echo ran)b`, start a session in a set-up repo, run tm-checkpoint | Codex stops and tells you to install in a plain folder; no `ran` output, no node command with that path | Codex runs `node ".../a$(echo ran)b/scripts/trailmark.js" ...` |
+
 ## Load-proof tests (2026-11-07, branch `claude/load-proof-tests` off 5566010)
 
 PR #14 (https://github.com/cptjamestiberiouskirk-pixel/trailmark/pull/14), opened 2026-11-07 after review round 3 and a merge of main (208d5fb, 5579e63, then 0a8a666 for a conflict here). It waits for its 9 jobs and the user's word to merge.
