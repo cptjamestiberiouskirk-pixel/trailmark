@@ -196,13 +196,19 @@ class CommitsOutOfTime extends Error {}
 // under 250 ms left, gitfacts.js runner, so it spent at least budget - 250;
 // 300 here for rounding). Whole-run times grow with load whatever the
 // cause, so a forced 0 ms budget on a busy machine passed a control that
-// timed the run (batch-f-2, and review round 1, #2).
-const SHOW_SINCE = /^trailmark since: late left=(-?\d+) budget=(\d+) git=(\d+)$/m;
+// timed the run (batch-f-2, and review round 1, #2). The time left and the
+// budget are checked against the launcher's rule (trailmark.js main and
+// sinceHandoff: 5000 - elapsed - 1500, git gets at most 1,200 ms), with
+// elapsed measured apart, so a fault in that arithmetic fails too (review
+// round 3: a left of 5000 - elapsed - 4800 skipped every test at rest).
+const SHOW_SINCE = /^trailmark since: late elapsed=(\d+) left=(-?\d+) budget=(\d+) git=(\d+)$/m;
 function ranOutOfTime(r) {
   const m = SHOW_SINCE.exec(r.stderr || '');
   assert.ok(m, `git ran out of time, but the launcher wrote no JBMEM_SHOW_SINCE line (stderr: ${JSON.stringify(r.stderr)})`);
-  const [left, budget, git] = m.slice(1).map(Number);
-  assert.ok(left < 400 || (budget >= 400 && git >= budget - 300), `git ran out of time, but not for lack of it: ${m[0]}`);
+  const [elapsed, left, budget, git] = m.slice(1).map(Number);
+  assert.ok(Math.abs(left - (3500 - elapsed)) <= 50, `the time left isn't 5000 - elapsed - 1500: ${m[0]}`);
+  assert.strictEqual(budget, left < 400 ? 0 : Math.min(1200, left), `git's budget isn't the launcher's rule: ${m[0]}`);
+  assert.ok(left < 400 || git >= budget - 300, `git ran out of time, but not for lack of it: ${m[0]}`);
   return m[0].slice('trailmark since: late '.length);
 }
 function sinceInTime(s, call, tries = 3) {

@@ -673,7 +673,7 @@ function hookMode(name, extraIn) {
     if (name === 'session-start') {
       // Commits since the handoff was written, and which repo this memory
       // folder was first used for.
-      const since = sinceHandoff(loc, cwd, 5000 - (Date.now() - started) - 1500);
+      const since = sinceHandoff(loc, cwd, 5000 - (Date.now() - started) - 1500, started);
       if (since) facts.since = since;
       const seen = rootSeen(loc, cwd);
       if (seen) facts.rootSeen = seen;
@@ -701,16 +701,18 @@ function hookMode(name, extraIn) {
 
 // The commits on HEAD since the handoff's HEAD (its Updated line), read
 // before the sandbox since the hook can't run git.
-function sinceHandoff(loc, cwd, left) {
+function sinceHandoff(loc, cwd, left, started) {
+  const elapsed = Date.now() - started;
   let text = null;
   try { text = S.readText(path.join(loc.dir, S.HANDOFF)); } catch { return null; }
   const st = S.handoffStamp(text || '');
   if (!st.head) return null;
   // JBMEM_SHOW_SINCE=1 (the tests) says why the list ran out of time: the
-  // time left before git, the budget git got and what it spent. It only
-  // reports; no budget changes.
+  // time since the launcher started (measured apart from left), the time
+  // left before git, the budget git got and what it spent. It only reports;
+  // no budget changes.
   const show = (r, budget, spent) => {
-    if (r && (r.state === 'late' || r.unlisted === 'late') && process.env.JBMEM_SHOW_SINCE === '1') process.stderr.write(`trailmark since: late left=${Math.round(left)} budget=${budget} git=${spent}\n`);
+    if (r && (r.state === 'late' || r.unlisted === 'late') && process.env.JBMEM_SHOW_SINCE === '1') process.stderr.write(`trailmark since: late elapsed=${elapsed} left=${Math.round(left)} budget=${budget} git=${spent}\n`);
     return r;
   };
   // Too little time left to start git: said as out of time (store.js,
