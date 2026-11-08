@@ -24,8 +24,8 @@ Records fix (asked by the coordinating session): batch F's 2f5987b had replaced 
 2. CHANGELOG: a 0.6.1 section, dated when released. Written; re-checked after #16, #18 and #19 merge.
 3. Reviews: Sonnet docs on this branch's diff. Each batch ran its own rows.
 4. `dev/release-check.sh` passes on the final commit; CI green on all 9 jobs.
-5. `dev/release-check.sh --zip <dir>` from a clean tree at the release commit; record the commit and the zip hash here.
-6. Tag and publish: only when the user says so.
+5. `dev/release-check.sh --zip <dir>` from a clean tree at the release commit; record the commit and the zip hash here. Done (2026-11-08, on PR #20's final head before it merged): `dev/release-check.sh --zip D:\UserFiles\Downloads` from a clean tree at `0dcd2217649d5d914d4e008bc19ddcbfc3801a43`, exit 0, every check PASS (handoff-checks 164/252 with 88 skipped, Claude Code 171/187 with 16 skipped, Codex 164/181 with 17 skipped, `claude plugin validate --strict`). Zip: `D:\UserFiles\Downloads\trailmark-0.6.1.zip`, 1,467,541 bytes, sha256 `b149f5d24442558f4e7c54cc6f882f237d04216af7a639a00eb689d523648ba5`, inner sums verified, no links; its `.sha256` (86 bytes) matches `sha256sum`. Unzipped: the 0.6.1 strings are in (`(a path is left out here)` in `store.js`, the exit-3 data line in `memory.js`), the three manifests say 0.6.1, and `CLAUDE.md`, `PLAYBOOK.md`, `LESSONS.md` and `dev/` are absent. Commits after 0dcd221 touch only `dev/`, which the zip leaves out, so a merge commit of #20 with no other change on main ships the same files. If main gets another shipped change first, rebuild. No release notes file was written.
+6. Tag and publish: only when the user says so. Open first: PR #20 is a draft, because marking it ready and turning on auto-merge were refused by this session's permission check ("Merge Without Review") and wait for the user.
 
 ## Next version: approved scope (2026-11-07)
 
