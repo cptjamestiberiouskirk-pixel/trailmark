@@ -74,7 +74,7 @@ function refusalText(e, platform = process.platform) {
   let t = `sandbox refused ${(e && e.permission) || 'access'} to ${res || 'a path'}. Nothing was written there.`;
   const plain = res.replace(/^\\\\\?\\(?:UNC\\)?/, '');
   if (platform === 'win32' && plain.length >= LONG_PATH) {
-    t += ` That path is ${plain.length} characters long. On Windows the sandbox refuses writes in a memory folder whose path is about 268 characters or more, and the folder's name repeats the repo's path, so a repo at a shorter path fixes it.`;
+    t += ` That path is ${plain.length} characters long. On Windows the sandbox refuses writes in a memory folder whose path is about 268 characters or more. If this memory folder's path is that long, a repo at a shorter path fixes it: the folder's name repeats the repo's path.`;
   }
   return t;
 }
