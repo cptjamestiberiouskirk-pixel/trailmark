@@ -12,7 +12,8 @@
 #   D2  a passing --only run does not push a failed run's kept folder out
 #   D3  --only with a name pattern passes --test-concurrency to node
 #   D4  --sums under a UTF-8 locale keeps SHA256SUMS in bytewise order (it
-#       runs in the repo and puts SHA256SUMS back afterwards)
+#       runs in the repo and puts SHA256SUMS back afterwards, so don't run
+#       it while another release-check runs in the same worktree)
 #
 # Run from inside the repo. A fake `node` first on PATH stands in for the test
 # runner (it logs its arguments, then sleeps or prints a passing TAP), so no
@@ -87,7 +88,7 @@ wait "$sp"; rc=$?
 sleeping="$(ps -ef 2>/dev/null | grep -c '[s]leep 30')"
 left="$(ls "$P/tmp" 2>/dev/null | grep -v '^trailmark-release-check$' | tr '\n' ' ')"
 if [ "$rc" = 143 ] && [ "$sleeping" = 0 ] && [ -z "$left" ]; then
-  result PASS 'D1: TERM stops it by TERM (rc 143), its suite and temp folder gone'
+  result PASS 'D1 guard: after TERM rc 143, its suite and temp folder gone (exit 143 passes too)'
 else
   result FAIL "D1: after TERM rc $rc, $sleeping fake node(s) left, temp left: ${left:-none}"
 fi
@@ -122,10 +123,13 @@ fi
 # D4: --sums under a UTF-8 locale must list the files in the same (bytewise)
 # order as the committed SHA256SUMS. Only the order of the names is compared,
 # so uncommitted edits to listed files don't matter. SHA256SUMS is saved first
-# and put back by the cleanup.
+# and put back by the cleanup. Where the locale doesn't reorder the names (not
+# installed), the check can't tell the two orders apart and says SKIP.
 cp SHA256SUMS "$P/SHA256SUMS.saved"
 LC_ALL=en_US.UTF-8 bash "$TARGET" --sums --quick > "$P/d4.out" 2>&1
-if cmp -s <(git show HEAD:SHA256SUMS | cut -c67-) <(cut -c67- SHA256SUMS); then
+if cmp -s <(git show HEAD:SHA256SUMS | cut -c67-) <(git show HEAD:SHA256SUMS | cut -c67- | LC_ALL=en_US.UTF-8 sort); then
+  echo 'SKIP  D4: en_US.UTF-8 sorts these names in bytewise order here, so nothing to tell apart'
+elif cmp -s <(git show HEAD:SHA256SUMS | cut -c67-) <(cut -c67- SHA256SUMS); then
   result PASS 'D4: --sums under en_US.UTF-8 keeps the committed order'
 else
   result FAIL "D4: --sums under en_US.UTF-8 reorders SHA256SUMS ($(diff <(git show HEAD:SHA256SUMS | cut -c67-) <(cut -c67- SHA256SUMS) | grep -c '^[<>]') lines move)"

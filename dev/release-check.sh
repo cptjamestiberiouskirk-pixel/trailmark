@@ -58,7 +58,9 @@ trap clean_temp EXIT
 # soon as it starts; finished ones aren't listed. A suite still there after
 # about 10 s is killed, and a second signal during the stop changes nothing.
 # Then the script stops by the same signal, so a shell loop that runs it stops
-# too (bash goes on with its loop after a child that only exited 130).
+# too (bash goes on with its loop after a child that only exited 130). A bash
+# caller sees 128 + the signal's number; a Windows caller (pwsh, node) sees
+# 256 times it (512 for INT).
 stop_suites() { # status if the signal can't be raised again, the signal's name
   trap '' INT TERM HUP
   local groups p i alive
@@ -100,11 +102,13 @@ heading() {
   echo "release-check${ONLY:+ --only $ONLY} at $(git rev-parse --short HEAD)$( [ -n "$(git status --porcelain)" ] && echo ' (uncommitted changes)')"
 }
 # This run's folder for kept output, made on first use, with what was run
-# where in run.txt.
-keep_dir() {
+# where in run.txt. A passing --only run's folder is marked as it is made, so
+# a prune in another run at that moment doesn't count it as failed.
+keep_dir() { # 1 if the suite passed
   [ -n "$KEEP" ] && return 0
   KEEP="$KEEPROOT/$(date +%Y%m%d-%H%M%S)-$$"
   mkdir -p "$KEEP" || { KEEP=''; return 1; }
+  if [ "$1" = 1 ]; then : > "$KEEP/passed"; fi
   { heading; echo "commit $(git rev-parse HEAD)"; echo "started $(date)"; } > "$KEEP/run.txt"
   return 0
 }
@@ -125,9 +129,8 @@ prune_kept() {
 # Keep a suite's full output and the folders its failed tests kept (they are
 # in the suite's own folder in $T, which goes at the end of the run).
 keep_suite() { # slug, output, the suite's folder, 1 if the suite passed
-  keep_dir || { echo "      could not make $(shown "$KEEPROOT") to keep the output" >> "$T/failures"; return 0; }
+  keep_dir "$4" || { echo "      could not make $(shown "$KEEPROOT") to keep the output" >> "$T/failures"; return 0; }
   printf '%s\n' "$2" > "$KEEP/$1.tap"
-  if [ "$4" = 1 ]; then : > "$KEEP/passed"; else rm -f -- "$KEEP/passed"; fi
   prune_kept
   local d
   for d in "$3/tmp"/jbmem-*; do
