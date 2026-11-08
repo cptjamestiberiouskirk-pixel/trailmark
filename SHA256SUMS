@@ -18,11 +18,11 @@ ac41959746ec265208a98ce70458fb596737baaed84ae066d684425b7c253577 *./README.md
 06c1f76c849c59a57c19ba2d107ef119aea12d4013f32389e413b94da2dddcbe *./install.ps1
 3f806bcd82345561c3a48ede8a0d5d6c5df37740a058859e997404c9191d8a5b *./install.sh
 71b690b15ec0b8f77c4cbee65895e1b9cefae06d4effe68e9799e6c9993367bd *./migrate-from-jb-memory.cmd
-aa8c340e22de0895d7f9fd68bf4ea53f992ac0a5bf34736cbc4ba2c6550d2a38 *./plugins/trailmark-codex/.codex-plugin/plugin.json
+a300282d261fdf7762d2607933ce3a70216de081f4f2c505461f3febffb339b7 *./plugins/trailmark-codex/.codex-plugin/plugin.json
 2d172f3f7cebcf8c0ffd6db4720e86ce14fd91a6b152e07dc6102eb3c2f6ffc4 *./plugins/trailmark-codex/LICENSE
 ddab26841b8fde4b2291b96c35d1619ebb35512fb70c1d65150987cd81272831 *./plugins/trailmark-codex/README.md
 846670429ebebc278f20a05d3a26838af6031455e9457e9eccc72d028d43ec0f *./plugins/trailmark-codex/hooks/hooks.json
-aa8c340e22de0895d7f9fd68bf4ea53f992ac0a5bf34736cbc4ba2c6550d2a38 *./plugins/trailmark-codex/plugin.json
+a300282d261fdf7762d2607933ce3a70216de081f4f2c505461f3febffb339b7 *./plugins/trailmark-codex/plugin.json
 99162c38fe4e1132b253b429b0ce1c894a8f7ee0e44a408939acfea59efaaa42 *./plugins/trailmark-codex/scripts/hook-commit-start.js
 70be822e50bf2be86b24703f29f5873f0dd4fc378580eb3b644fad4afc008bcb *./plugins/trailmark-codex/scripts/hook-milestone.js
 831b1615a07d44cd93379d9200d369456178738bc302cbcebc575203bb62a3ae *./plugins/trailmark-codex/scripts/hook-precompact.js
@@ -46,7 +46,7 @@ baedabf34f6d8d6b4bda376989958b3e8691c7dfc25f92a1328a2ee164e1bacb *./plugins/trai
 b77364f82af73a431befc1e08294163fef0979c0059d90407cc6412283dcf71b *./plugins/trailmark-codex/skills/tm-recall/SKILL.md
 d7a459f288b3e590e675ade465db6d62e373b63ec407c84d6f0784e823132842 *./plugins/trailmark-codex/skills/tm-session-end/SKILL.md
 ed41410d057f632e64637bf2b7cd2db3973f6c9b832d3f0182845bd1824d70ad *./plugins/trailmark-codex/tests/basics.test.js
-7d1ecce2fedfb7c191365757f90e754727d49627e5c83bbf8662466cb577beef *./plugins/trailmark-codex/tests/codex.test.js
+6032b29fc9f7889c68065b71f6037a3773a385dd98c0e183824cb091215dc326 *./plugins/trailmark-codex/tests/codex.test.js
 723f14098258b419e6d2c4e5dab588a5ad8ebba94c01ccfb6255805554b3834e *./plugins/trailmark-codex/tests/commit-folders.test.js
 c0704aea54e588b9f3bd3811d28ea26cb4292a7bca92fac4f961af3429670803 *./plugins/trailmark-codex/tests/commits.test.js
 c21cd38f587c7f245bcbe4f4dbda8fea61e682a8ad552fb338729c3ef3910b64 *./plugins/trailmark-codex/tests/copies.test.js
