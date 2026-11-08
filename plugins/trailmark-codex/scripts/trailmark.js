@@ -688,7 +688,11 @@ function hookMode(name, extraIn) {
       // Codex: the old jb-memory-codex in Codex's own plugin cache.
       try {
         const ch = process.env.CODEX_HOME && path.isAbsolute(process.env.CODEX_HOME) ? process.env.CODEX_HOME : path.join(require('os').homedir(), '.codex');
-        facts.health.oldCodex = oldCodexCopies(ch);
+        const old = oldCodexCopies(ch, { detail: true });
+        facts.health.oldCodex = old.paths;
+        // The search stopped early (at 10 folders, or at one it couldn't
+        // read): the note says there may be more.
+        if (old.incomplete) facts.health.oldCodexMore = true;
       } catch { /* not checked */ }
     }
   }

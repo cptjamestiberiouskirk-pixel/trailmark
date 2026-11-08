@@ -2235,6 +2235,12 @@ test('copies: --copies says when the search of Codex\'s cache stopped early, or 
     assert.match(copies(home, '--show-names'), /^  the search of the Codex plugin cache stopped early: it stopped at 10 folders$/m);
     assert.match(copies(file), /^trailmark: the Codex plugin cache could not be checked\.$/m);
     assert.match(copies(file, '--show-names'), /^  the search of the Codex plugin cache stopped early: Codex's home folder \(CODEX_HOME\) isn't a folder$/m);
+    // Session start: the note and the warning say there may be more.
+    s.write('# H\n- state\n');
+    const r = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, CODEX_HOME: home }, input: JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB }), encoding: 'utf8' });
+    const out = JSON.parse(r.stdout);
+    assert.match(out.hookSpecificOutput.additionalContext, /jb-memory-codex, is in Codex's plugin cache \(10 or more folders\)/);
+    assert.match(out.systemMessage || '', /plugins\/cache in CODEX_HOME, 10 or more folders named jb-memory-codex/);
   }
   const d = oldCodexCopies(home, { detail: true });
   assert.strictEqual(d.paths.length, 10);
