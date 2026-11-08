@@ -16,6 +16,13 @@ Format:
 
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
+## 2026-11-07: A script edited while a run of it was going
+
+- What went wrong: in batch D, an edit to `dev/release-check.sh` landed while a background `--sums --quick` of it was still running. The run stopped with "syntax error near unexpected token" at a line that parses fine, and its result was lost. The same run's `--sums` had also reordered `SHA256SUMS` under the shell's UTF-8 locale (D4), which the coordinating session noticed in the worktree.
+- Why: bash reads a script as it runs it, so an edit shifts the bytes under a running copy. A background check makes this easy to forget.
+- Rule going forward: don't edit a script while a run of it is going. Wait for the run, or run a copy. A run that overlapped an edit doesn't count as a check: rerun it.
+- Status: open
+
 ## 2026-11-07: Escapes in a test's source didn't survive the edit (batch S)
 
 - What went wrong: S1's new test in `codex.test.js` was written with `“`, `‮` and similar escapes in an Edit call, and the file got the raw characters, a bidi override among them (Opus round 1, finding 5). A mutation probe's `sed` pattern with `\\u201e` lost its backslashes in a Bash heredoc, so the edit never applied and the test "passed" the mutation.
