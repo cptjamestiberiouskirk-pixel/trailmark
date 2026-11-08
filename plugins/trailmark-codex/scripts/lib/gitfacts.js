@@ -12,8 +12,9 @@ const { oneLine, displayPath, inside } = require('./store');
 const { farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
-// and Linux caps a variable at 128 KiB (PAYLOAD_MAX in hookio.js), so only
-// the first STATUS_KEEP lines travel, with the full count beside them.
+// and Linux caps a variable at 128 KiB (the comment on PAYLOAD_MAX in
+// hookio.js says more), so only the first STATUS_KEEP lines travel, with the
+// full count beside them.
 const STATUS_KEEP = 50;
 
 // Whitespace of any kind, control and format characters (zero-width, bidi,
