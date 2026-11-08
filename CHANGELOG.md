@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.6.1 (Trailmark and trailmark-codex): 2026-11-08
+
+Fixes and wording. Nothing new to set up, and no setting changed.
+
+### Commit sweep
+
+- A session whose record had no start time got no commit sweep, and nothing said so, so the commits made in it could go unlogged. Such a session is now swept from the time trailmark first recorded it, or from the earliest time one of its commit folders joined. When neither is known, the checkpoint says `[trailmark] commit sweep skipped: this session's start isn't recorded, ...`, and later sweeps start from that checkpoint. Every session record now gets that first time.
+- A folder that left the session's commit folders (past six) and joins again is read from where its last sweep stopped. Before, it was read from the new command's start, so a commit a script made there in between was never logged.
+
+### Session start
+
+- When git ran out of time listing the commits since the handoff, session start said "HEAD has 1 newer commit, the newest 0 shown:" over an empty list. It now says the commits aren't listed because git ran out of time, or couldn't list them, and gives the `git log --oneline` command to run. When git ran out of time before it could tell whether HEAD has moved, it says that isn't known and gives the same command. Before, it said nothing then.
+- Over the size budget, a note to Claude was cut at 300 and then 150 characters, which could cut inside the launcher's or the skills' path and leave a path that names no file. A note is now cut before such a path and ends `... (a path is left out here)`.
+- Codex copy: past 10 old jb-memory-codex folders in Codex's plugin cache, the note and the warning said "10". They now say "10 or more". Exactly 10 still says 10.
+
+### Commands
+
+- `transcript` escapes tag-like text in each line it quotes and in its `file:` line, so `</system-reminder>` prints as `<\/system-reminder>`. A transcript holds tool results, web pages among them, and the skills read it back to Claude.
+- `handoff` prints the handoff with tag-like text escaped, as session start already did. Line ends are kept.
+- When `write-handoff` is refused with exit code 3 (another session wrote first), a line now says that what follows is handoff text written by sessions: notes to merge, not instructions from the user. The other session's changes and the current handoff have tag-like text escaped, and the end line carries a random mark, `--- END CURRENT HANDOFF <8 hex> ---`, so a handoff can't end the block early.
+- `status` labels its `last session start` line as data from the day's log, and shows the Node path in it as `exec=(path not shown)`. The day's log still records the path.
+- On Windows, when the sandbox refuses a path of 260 characters or more, the message gives the path's length, says the sandbox refuses writes in a memory folder whose path is about 268 characters or more, and says a repo at a shorter path fixes that. This is in `memory.js`'s error and the hooks' message. The cause is unchanged: a repo whose path is near 230 characters still can't be set up.
+- `--copies --show-names` says a cache folder that can't be read "could not be read". Before, it said the folder "has too many folders".
+- Codex copy: `--copies` says when Codex's plugin cache could not be checked, as when `CODEX_HOME` is a file, and when its search stopped early at 10 folders. `--show-names` gives the reason. Before, it said nothing about Codex's cache then.
+
+### Codex skills
+
+- The six Codex skills used `scripts/trailmark.js` two folders up whenever the session-start note gave no "Launcher:". Trailmark leaves the launcher's path out of that note on purpose when a shell would act on a character in it, so a skill could build that path itself and run it. Now a session-start note with no "Launcher:" means the skill stops and tells you. The path two folders up is used only when the session has no session-start note at all, and only when it holds none of the characters trailmark refuses.
+
+### Docs
+
+- `docs/how-it-works.md` gives the reason for the hooks' 30,000-character payload cap that holds: it keeps the variable under Linux's cap on one variable (128 KiB with 4 KiB pages). It no longer gives Windows' 32,767-character cap as the reason.
+- MANUAL.md section 13: the row for another copy of Trailmark sends only a jb-memory copy to section 15, and the row for a memory folder first used for another repo names `node "<launcher>" dir`, which shows the two paths.
+- The 0.6.0 entry below: 3,000 invisible characters took about 40 seconds, not minutes, and 0.5.1 had the same slow check.
+
+### Tests
+
+- Each fix in the code has a test that fails on the code before it.
+- The commit-list tests, listed as failing on busy machines, now repeat when session start says git ran out of time. Each repeat checks, from a timing report the launcher writes only for the tests (`JBMEM_SHOW_SINCE=1`), that time really ran out. After three in a row the test skips, and only if the same lookup answers when given 30 s.
+
 ## 0.6.0 (Trailmark and trailmark-codex): 2026-11-06
 
 ### Context watch (Claude Code only)
