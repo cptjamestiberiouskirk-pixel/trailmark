@@ -1,6 +1,23 @@
 # Release state
 
-Last updated 2026-11-07. 0.6.0 is published (v0.6.0 at cf06986, under 0.6.0). Since then main has PR #10, faster local checks (merge commit 5566010, 19:13:39Z), PR #12, PLAYBOOK.md and LESSONS.md (merge commit 208d5fb, 21:09:44Z), PR #11, the faster review process (merge commit 5579e63), and PR #14, the load-proof tests (merge commit a09ee5f). No PR is open. Next: the next version's scope, approved below.
+Last updated 2026-11-08 by the S5 session, for the coordinating session. 0.6.0 is published (v0.6.0 at cf06986, under 0.6.0). Since then main has PR #10, faster local checks (merge commit 5566010, 19:13:39Z), PR #12, PLAYBOOK.md and LESSONS.md (merge commit 208d5fb, 21:09:44Z), PR #11, the faster review process (merge commit 5579e63), PR #14, the load-proof tests (merge commit a09ee5f), PR #15, the next version's triage and scope (merge commit 47369e2), and PR #17, batch D (merge commit 34add12). Open, on auto-merge: PR #16 (batch S, S1 to S4), PR #18 (batch O) and PR #19 (batch F). Open as a draft until those three merge: the S5 PR (the 0.6.1 CHANGELOG section and version bumps, section "0.6.1: S5" below). Next: the 0.6.1 release checklist there. Tagging and publishing wait for the user.
+
+## 0.6.1: S5, the CHANGELOG section and version bumps (2026-11-08, branch `claude/s5-changelog-version-f62761` off 34add12)
+
+Version 0.6.1: these are fixes plus wording with no new feature, the kind of release 0.5.1 was after 0.5.0. The CHANGELOG states no rule of its own. Bumped where 0.6.0 was (6df998d): the three `plugin.json` files and MANUAL.md's version line. `git grep 0.6.0` outside the CHANGELOG, `dev/` and the lessons finds only comments and test names that mean the release they came in. trailmark-watchdog stays 1.7.0: no batch touches `tools/windows`.
+
+The CHANGELOG section was written from the three batch PRs' diffs (`gh pr diff 16`, `18`, `19`), their sections here and batch O's wording note, before they merged. It gets re-checked against main once all three have merged, and its date is the day it is published.
+
+Also on this branch: ebdac09 cherry-picked (LESSONS and PLAYBOOK: one session owns each step that starts sessions), the lesson "Judged a CI cancel too early", and the top line of this file.
+
+### 0.6.1 release checklist
+
+1. Version bumps to 0.6.1 (above). Done on this branch.
+2. CHANGELOG: a 0.6.1 section, dated when released. Written; re-checked after #16, #18 and #19 merge.
+3. Reviews: Sonnet docs on this branch's diff. Each batch ran its own rows.
+4. `dev/release-check.sh` passes on the final commit; CI green on all 9 jobs.
+5. `dev/release-check.sh --zip <dir>` from a clean tree at the release commit; record the commit and the zip hash here.
+6. Tag and publish: only when the user says so.
 
 ## Next version: approved scope (2026-11-07)
 

@@ -23,6 +23,13 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - Rule going forward: one session owns each step that starts sessions or pushes. A side session reports and asks only its starter, never the user, about a step its starter owns. Before acting on a yes, `list_sessions {"linked": true}` checks whether that step has already been done.
 - Status: promoted to PLAYBOOK (seen twice: relayed instructions arriving after the act)
 
+## 2026-11-07: Judged a CI cancel too early
+
+- What went wrong: the coordinating session reported that `cancel-in-progress` didn't fire, after watching the older run for 3 minutes. GitHub had cancelled that run about 2.5 minutes after the newer run was created ("Canceling since a higher priority waiting request for tests-14 exists").
+- Why: a run's status stays in_progress until every job has stopped, and the macOS and Windows jobs stop slowly.
+- Rule going forward: judge a CI setting from the job list after it settles, not from the run status.
+- Status: open
+
 ## 2026-11-07: A script edited while a run of it was going
 
 - What went wrong: in batch D, an edit to `dev/release-check.sh` landed while a background `--sums --quick` of it was still running. The run stopped with "syntax error near unexpected token" at a line that parses fine, and its result was lost. The same run's `--sums` had also reordered `SHA256SUMS` under the shell's UTF-8 locale (D4), which the coordinating session noticed in the worktree.
