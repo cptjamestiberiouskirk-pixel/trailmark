@@ -21,6 +21,13 @@ Format:
 - Rule going forward: the session that started a session resumes it at once when it ends on an error, after checking that its branch and worktree are intact. A review whose report never arrived is run again, and sessions commit before a long review. Whoever changes another session's PR tells that session in the same step.
 - Status: promoted to PLAYBOOK
 
+## 2026-11-08: A read-only reviewer ran the sums script in the owner's worktree
+
+- What went wrong: the 0.6.2 docs reviewer started `dev/release-check.sh --sums --quick`, which rewrites `SHA256SUMS`, in the worktree it was told not to change. It stopped the run itself, and nothing was left changed. Its finding 1 also did not reproduce: it took Windows' ENOENT for a path under a file as the answer for the file itself.
+- Why: "read-only" named no commands, and `--sums` is the habit the project's docs teach. The finding came from a code comment, with no run behind it.
+- Rule going forward: a review brief that says read-only names `dev/release-check.sh` as off limits. Reproduce a reviewer's finding before changing text for it, also when it is labeled CONFIRMED.
+- Status: open
+
 ## 2026-11-08: A batch's changelog notes said more than the code does
 
 - What went wrong: writing 0.6.2's CHANGELOG, two batch H notes didn't match the code. RS:658's note said setup "no longer writes through a link", while the batch's own re-check found the text was written nowhere and the change matters on Windows only. RS:638's note read as covering two hooks in general, while the fix covers only a record read with no `seenAt`.

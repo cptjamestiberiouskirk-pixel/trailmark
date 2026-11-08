@@ -13,7 +13,7 @@ The CHANGELOG section was written from the batch H and batch W changelog notes a
 - RS:658. The note says setup "no longer writes through a link". The batch's own re-check found the text was written nowhere: the junction's missing target was made as a folder and `init` threw EISDIR. The change matters on Windows only, since `'wx'` already refuses a link on Linux and macOS. The CHANGELOG says that.
 - RS:638. The note says two hooks "no longer ask for the same first checkpoint twice", which is true, but `crossed` in `hook-context-watch.js` covers only a record read with no `seenAt`. The CHANGELOG says the fix doesn't reach a repeat after a compaction or a shrink, which is RS-H-samesince below.
 
-Limits the section states: RS-F2b's fix moves the limit to 64 folders and doesn't remove it, and RS:651 is only a warning. The Website line says what the manifests now provide. That the app shows it is not yet seen (below).
+Limits the section states: RS-F2b's fix moves the limit to 64 folders and doesn't remove it, and RS:651 is only a warning. The Codex plugin page line says what the manifests now provide. That the app shows it is not yet seen (below).
 
 Docs. MANUAL.md section 13 has a row for the RS:651 warning, quoting `hook-session-start.js` with the `WARNING: ` that `emit` puts before it. Checked and left alone, because nothing there is now wrong (CONFIRMED by reading each):
 
@@ -28,7 +28,7 @@ Docs. MANUAL.md section 13 has a row for the RS:651 warning, quoting `hook-sessi
 2. CHANGELOG: a 0.6.2 section. Written and dated 2026-11-08, the day it was written. **Re-check the date at publish time**: if it publishes on another day, change the heading and run `--sums --quick` again.
 3. Reviews: Sonnet docs on this branch's diff (round below). Batches W and H ran their own rows.
 4. `dev/release-check.sh` passes on the final commit; CI green on all 9 jobs. CI not run yet: nothing is pushed.
-5. `dev/release-check.sh --zip <dir>` from a clean tree at the release commit; record the commit and the zip hash here. Then unzip it, look for a string only this release adds (`installed in a folder whose path` in `hook-session-start.js`; `"websiteURL"` in both Codex manifests; `"version": "0.6.2"` in all three), and check that `CLAUDE.md`, `PLAYBOOK.md`, `LESSONS.md` and `dev/` are absent. Not done: waits for the user's word.
+5. `dev/release-check.sh --zip <dir>` from a clean tree at the release commit; record the commit and the zip hash here. Check that the run reports the inner sums verified and no links, and that the zip's `.sha256` matches `sha256sum`. Then unzip it, look for a string only this release adds (`installed in a folder whose path` in `hook-session-start.js`; `"websiteURL"` in both Codex manifests; `"version": "0.6.2"` in all three), and check that `CLAUDE.md`, `PLAYBOOK.md`, `LESSONS.md` and `dev/` are absent. Not done: waits for the user's word.
 6. Tag and publish: only when the user says so. Lightweight tag `v0.6.2` at the merge commit, like v0.6.1; release "Trailmark 0.6.2" with the zip and its `.sha256`; notes from the CHANGELOG section. Download the assets back into an empty folder and run `sha256sum -c`.
 7. Still open, for the user (table below).
 
@@ -53,9 +53,17 @@ From batch W (below): RS-W-shortnote (CONFIRMED by Opus, not re-run), RS-W-gitca
 
 From batch F (below): RS-F-ninenotes (CONFIRMED) and RS-F-codexwalk (INFERRED by Fable). Older lists stand as they were: "Deferred to the release after this one" in batch S, "Deferred to the release after" in batch O, section 2 of `dev/next-version-triage.md`, and O7 (RS:637), which the user said to keep deferred.
 
-### Review round 1 (docs, `git diff 14ff243..HEAD`)
+### Review round 1 (docs, `git diff 14ff243..dc8cacc`, 2026-11-08)
 
-Not run yet.
+Sonnet, a fresh subagent. Report: `release-062/round1-docs.md` in the notes folder. Nothing CONFIRMED wrong in a shipped claim about the code. Checked and fine by the reviewer (CONFIRMED by Sonnet, not re-run): every other CHANGELOG claim and its copy label against the merged code, the MANUAL row's quote, section references, how-it-works and SECURITY left as they were, every batch H and W deferred item listed, style, versions.
+
+- Sonnet 1, RULED OUT here: it said the ENOTDIR line's "on every system" is wrong because Windows already answered ENOENT. On this machine (Node 26.13, Windows) `opendirSync` of a file at `plugins/cache` itself answers ENOTDIR, and only a path under a file answers ENOENT, so 0.6.1 said "could not be read" on Windows too. The line stands. Repro: write a file at the name, call `opendirSync` on it and on a path under it.
+- Sonnet 2, INFERRED, fixed: the MANUAL row's "move the release folder" doesn't fit an install from a git host, which has no release folder (section 3, CONFIRMED by reading it). A clause says so. That such a path sits in the cache is from section 3; no install was tried.
+- Sonnet 3, CONFIRMED here, fixed: two batch H lines still said MANUAL.md has no row.
+- Sonnet 4, CONFIRMED here, fixed: checklist item 5 left out the inner sums, the link check and the `.sha256` match that 0.6.1's item recorded (`release-check.sh:277-283`).
+- Sonnet 5, wording, fixed: "The Website line" is now "The Codex plugin page line".
+
+The reviewer also ran `dev/release-check.sh --sums --quick` in this worktree against a read-only brief and stopped it. Checked here afterwards: the tree was clean at dc8cacc and `sha256sum -c SHA256SUMS` passed. See `LESSONS.md`.
 
 ## Batch H: shipped-code hardening for 0.6.2 (2026-11-08, branch `claude/batch-h-hardening-e2a832` off 9c76a10)
 
@@ -72,7 +80,7 @@ Six items from the deferred lists, in the scope the user approved on 2026-11-08 
 
 Each fix has a "(next version)" test (end of `handoff-checks.test.js`, both copies; last test of `context-watch.test.js`). All fail on 9c76a10 with the new tests over the old code: 10 failed of 11, 1 skipped, the skip being the Codex copy of the RS:651 test. Each failed at its own assertion (run 20261108-130710-482): 250,505 real-path calls against a limit of 2,000; `[9000,9500]`; "could not be read"; EISDIR; the second request; no warning. The RS-F-sinceFor test counts real-path calls in the launcher, so no clock is involved. RS:658's test passes on the old code on Linux and macOS, where `'wx'` already refuses a link. On 047dab7: 10/11 with the same skip, `--sums --quick` all PASS (handoff-checks 173/262 with 89 skipped: the baseline 88 and the new Codex skip), and by name `context watch|commit folders|0\.3\.4 sweep|copies:` 85/89 with 4 skipped.
 
-Changelog notes (for the 0.6.2 section, not written here): A crafted session state with very large folder maps no longer stops session start. A folder that joins a session's commit folders again keeps where its last sweep stopped for up to 64 folders, up from 12. A file where the plugins folder or its cache folder should be is treated as nothing to search on every system, where it could be said to be unreadable. Two context-watch hooks running at once no longer ask for the same first checkpoint twice. Session start warns when Claude Code's copy of Trailmark is installed in a path that its commands can't be written for safely (new wording: MANUAL.md has no row for this warning yet). On a drive without hard links, setup no longer writes through a link planted at the handoff or marker name.
+Changelog notes (for the 0.6.2 section, not written here): A crafted session state with very large folder maps no longer stops session start. A folder that joins a session's commit folders again keeps where its last sweep stopped for up to 64 folders, up from 12. A file where the plugins folder or its cache folder should be is treated as nothing to search on every system, where it could be said to be unreadable. Two context-watch hooks running at once no longer ask for the same first checkpoint twice. Session start warns when Claude Code's copy of Trailmark is installed in a path that its commands can't be written for safely (new wording: MANUAL.md has no row for this warning yet) (row added in 0.6.2). On a drive without hard links, setup no longer writes through a link planted at the handoff or marker name.
 
 ### Review round 1 (`git diff 9c76a10..047dab7`, 2026-11-08)
 
@@ -95,7 +103,7 @@ Opus (regression), a fresh subagent; the diff touches no security-row code. The 
 - RS-H-capdeep, CONFIRMED by Fable for one start, not re-run, INFERRED for every start (seen on 047dab7; the real-path walk is older). 64 `swept` keys that are real folders 300 deep cost 3.9 s and 113,000 lstats, the sweep is skipped as out of time, and `swept` isn't rewritten when nothing was read, so each start repeats it with the "git was slow" warning. Inside the 10 s hook limit here, and it needs deep folders on disk. Repro: `node probe-sweep.js <pluginRoot> capdeep 300` (same folder).
 - RS-H-samesince, CONFIRMED by Opus with `decide()`, not re-run (seen on 047dab7; older logic). Two hooks that carry the same `since` (`reached:false`, `boundary` or a shrink) with the context still past the first step each reset and ask. This fix covers only RS:638's no-`since` shape. That parallel hooks reach it is INFERRED. Fix idea: the launcher passes the `seenAt` it read. Repro: `decide()` twice with `since: { reached: false }`, the second on the first's state.
 - RS-F2b-limit, by design here (047dab7): past 64 folders in one session the oldest `swept` entry goes, so RS-F2b's loss can still happen there. About 11 KB per session at that size (arithmetic, Opus).
-- RS:651, the rest: the warning is the cheap first step. The skills still take the path from `${CLAUDE_PLUGIN_ROOT}` unchecked, and MANUAL.md has no row for the warning.
+- RS:651, the rest: the warning is the cheap first step. The skills still take the path from `${CLAUDE_PLUGIN_ROOT}` unchecked, and MANUAL.md has no row for the warning (row added in 0.6.2).
 
 ## After 0.6.1: Codex plugin page website (2026-11-08, branch `claude/latest-release-install-cefee8` off ebfdd7b)
 
