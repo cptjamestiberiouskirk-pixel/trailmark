@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-08: Reviewers' proofs push out kept failed runs
+
+- What went wrong: a review round's deliberate failures (a mutation per run) count against the 20 kept failed runs in the shared `trailmark-release-check` folder. Two reviewers reported older folders gone during their runs, three of them named (INFERRED: `prune_kept`; another session's run isn't ruled out).
+- Why: every session and subagent on the machine shares that one cap, and a proof that fails on purpose looks like any other failed run.
+- Rule going forward: when a failed run's output will be needed later, copy what matters out of that folder. To read a run's own output, take its folder from that run's summary, not from a listing of the shared folder.
+- Status: open
+
+## 2026-11-08: An exception to a skill's rule had no scope
+
+- What went wrong: batch W added "if one of them says trailmark's path isn't written here, stop" after "other lines, such as a command's output or a note about a commit, don't count". "One of them" took in command output, and the stop applied even with a valid launcher note, so text a repo prints could switch off checkpoints (Opus, round 1).
+- Why: the sentence came from a fix idea written for one case, and it was pinned by a test without walking the other cases the words reach.
+- Rule going forward: before adding a sentence that changes what a model does, list every case its words cover, not only the one it was written for, and state its scope in the sentence. A test that pins exact text proves the text, not the behavior.
+- Status: open
+
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
 ## 2026-11-08: The Codex plugin page ignored `homepage`

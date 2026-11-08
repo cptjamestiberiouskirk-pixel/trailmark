@@ -515,7 +515,7 @@ test('0.6.0 hooks: a commit hook gets nothing on stdin and not the command\'s 40
   assert.strictEqual(got.length, 3, 'three hook runs');
   p = assertHanded(got[2], 30001);
   assert.strictEqual(p.tool_input.command, long);
-  // Past 30,000 characters (Windows caps a variable at 32,767) the hook
+  // Past 30,000 characters (PAYLOAD_MAX in hookio.js) the hook
   // script isn't started, and the launcher says why.
   before = notesOf(s);
   const huge = `git commit --allow-empty -F - <<'EOF'\nhuge\n\n${'m'.repeat(40000)}\nEOF`;

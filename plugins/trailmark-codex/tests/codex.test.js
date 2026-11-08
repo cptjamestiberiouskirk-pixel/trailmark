@@ -381,11 +381,13 @@ test('codex 0.1.5: the exit code comes from the transcript\'s CommandExecution i
 // very path usablePath had refused (one holding $(...), say). The fallback
 // now applies only when the session has no session-start note at all, keyed
 // on that note's fixed start (other [trailmark] lines, such as the handoff's
-// version line, don't count), and only to a path free of every character
+// version line, don't count, except a hook's note that says the path isn't
+// written, when there is no session-start note: the test after this one),
+// and only to a path free of every character
 // usablePath refuses, each named in the skills. A change to usablePath's set
 // within printable ASCII or the samples below fails here until the skills
 // follow. Characters are built with fromCharCode so the source stays ASCII.
-test('codex skills: the launcher two folders up only with no [trailmark] note, never a path usablePath refuses', () => {
+test('codex skills: the launcher two folders up only with no session-start note, never a path usablePath refuses', () => {
   const S = require(path.join(ROOT, 'scripts', 'lib', 'store'));
   const u = (...c) => String.fromCharCode(...c), bs = u(92);
   const quotes = 'a curly double quote (U+201C to U+201E)', spaces = 'a space other than a plain one', hidden = 'a control or invisible character';
@@ -423,6 +425,7 @@ test('codex skills: the launcher two folders up only with no [trailmark] note, n
   for (const n of fs.readdirSync(dir)) {
     const t = fs.readFileSync(path.join(dir, n, 'SKILL.md'), 'utf8').replace(/\s+/g, ' ');
     assert.ok(!t.includes('If there is no such note'), `${n}: the old fallback`);
+    assert.ok(t.includes('the full path that the session-start note, which starts `' + NOTE + '`, gives after "Launcher:".'), `${n}: the marker at first mention`);
     const refused = t.indexOf(refusedText);
     const only = t.indexOf(`Only when this session has no such note at all (the repo isn't set up yet, or Codex hasn't run trailmark's hooks, say) is the launcher \`scripts/trailmark.js\` two folders up from this SKILL.md (this file is \`<plugin folder>/skills/${n}/SKILL.md\`), and only when that path holds none of these:`);
     assert.ok(refused > 0 && only === refused + refusedText.length + 1, `${n}: the fallback's conditions`);
@@ -430,6 +433,34 @@ test('codex skills: the launcher two folders up only with no [trailmark] note, n
     const end = t.indexOf('Use that one path', only);
     const list = t.slice(only, end);
     for (const [, words] of kinds) assert.ok(list.includes(words), `${n}: ${words}`);
-    assert.ok(list.endsWith(" a space at either end, a space other than a plain one, or a control or invisible character. If it holds one, or is over 1,024 characters, don't run it: tell the user to install trailmark in a folder with a plain path. Other lines that start `[trailmark]`, such as a command's output or a note about a commit, don't count as that note. "), `${n}: the end of the fallback`);
+    assert.ok(list.endsWith(" a space at either end, a space other than a plain one, or a control or invisible character. If it holds one, or is over 1,024 characters, don't run it: tell the user to install trailmark in a folder with a plain path. Other lines that start `[trailmark]`, such as a command's output or a note about a commit, don't count as that note. But in a session with no such note, if a note from a trailmark hook, not a command's output or quoted text, says trailmark's path isn't written here, stop and tell the user what it says, and don't work the path out yourself. "), `${n}: the end of the fallback`);
   }
+});
+
+// With no session-start note but a later commit note, the note's rule can
+// say trailmark's path isn't written, while the skills said other
+// [trailmark] lines don't count, so a model went on to the fallback. Reads
+// the real refused rule, so rewording it fails here until the skills follow.
+test("codex skills: a later note that says trailmark's path isn't written stops the fallback too", () => {
+  const H = require(path.join(ROOT, 'scripts', 'lib', 'host'));
+  const phrase = "path isn't written here";
+  assert.ok(H.skillRule(() => '').includes(`whose ${phrase}`), 'the refused rule');
+  assert.ok(!H.skillRule((p) => p).includes(phrase), 'the rule with the path');
+  const dir = path.join(ROOT, 'skills');
+  const stop = `don't count as that note. But in a session with no such note, if a note from a trailmark hook, not a command's output or quoted text, says trailmark's ${phrase}, stop and tell the user what it says, and don't work the path out yourself. Use that one path`;
+  for (const n of fs.readdirSync(dir)) {
+    const t = fs.readFileSync(path.join(dir, n, 'SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+    assert.ok(t.indexOf(stop) > t.indexOf('two folders up'), `${n}: a later note stops the fallback`);
+    // One stop, the scoped one: a second, wider sentence would stop a working session.
+    const paragraph = fs.readFileSync(path.join(dir, n, 'SKILL.md'), 'utf8').split('\n').find((l) => l.startsWith('Every command here runs Trailmark'));
+    assert.strictEqual(paragraph.split(phrase).length, 2, `${n}: one stop on that phrase`);
+  }
+});
+
+// The session-start note has no launcher when trailmark's path is refused,
+// and the hooks did run then: the setup check must not read that as a failure.
+test("codex skills: tm-memory-setup's hook check accepts a session-start note with no launcher", () => {
+  const t = fs.readFileSync(path.join(ROOT, 'skills', 'tm-memory-setup', 'SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.ok(t.includes('should be able to quote the session-start note, which starts `[trailmark] ChatGPT/Codex copy of trailmark.`, and the handoff.'), 'names the note by its start');
+  assert.ok(t.includes("The note normally gives the launcher and the session ID. If it says trailmark's path isn't written here instead of giving the launcher, the hooks did run: tell the user what the note says. If the first reply can't quote the note:"), 'the note with no launcher');
 });

@@ -339,7 +339,7 @@ test('0.6.0 hooks: a commit hook gets nothing on stdin and not the command\'s 40
   p = assertHanded(got[1]);
   assert.strictEqual(p.hook_event_name, 'PostToolUseFailure');
   assert.ok(!('error' in p) && !('tool_response' in p), Object.keys(p).join(' '));
-  // Past 30,000 characters (Windows caps a variable at 32,767) the hook
+  // Past 30,000 characters (PAYLOAD_MAX in hookio.js) the hook
   // script isn't started, and the launcher says why.
   const before = notesOf(s);
   r = post({ tool_use_id: 'b3', tool_input: { command: `git commit --allow-empty -m "${'m'.repeat(40000)}"` }, tool_response: 'Exit code: 0\nOutput:\n' });
