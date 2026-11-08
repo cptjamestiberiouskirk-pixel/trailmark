@@ -16,6 +16,13 @@ Format:
 
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
+## 2026-11-08: A size bound passed only on this machine's short paths
+
+- What went wrong: batch F's F4 test asserted that 9 shortened notes fit in injectChars 2000. It passed here and failed on all 3 macOS and 2 Windows CI jobs (2,007 to 2,041 characters). The injection's cut note names the handoff's full path, and the memory path holds the temp path twice, so the framing grows with the temp folder. `TMPDIR=E:\DevTemp` is short. Reproduced here with 15 and 30 more characters of TMPDIR (2,016 to 2,059).
+- Why: the bound was checked only with this machine's paths. The same "only checked here" blind spot as the POSIX error codes (above).
+- Rule going forward: a test that bounds a text's size, where the text holds a path, is also run with a longer TMPDIR (`--only` with TMPDIR 30 characters longer) and keeps a margin.
+- Status: promoted to PLAYBOOK (Writing code, step 3)
+
 ## 2026-11-07: A Windows-only check missed what POSIX returns
 
 - What went wrong: batch F's F6 test (CODEX_HOME a file) passed here and would have failed on the 6 Linux and macOS CI jobs. Windows reports the cache under a file as missing (ENOENT), POSIX as not a folder (ENOTDIR), which F7 turned into a second reason. Opus found it in review round 1 by running the code in WSL.

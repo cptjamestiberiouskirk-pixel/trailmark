@@ -338,7 +338,10 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   assert.ok(launcher.length > 20, 'the test install path is written as it is');
   // A note whose launcher path starts at character n, just before a cut.
   const noteAt = (n, tag) => `[trailmark] ${tag} ${'a'.repeat(n - 13 - tag.length - 7)} node "${launcher}" --copies says why. ${'more words '.repeat(30)}`;
-  for (const [cut, count] of [[300, 3], [150, 9]]) {
+  // 7 notes at 150: 7 x 300 is still over the budget, so the 150 cut is
+  // reached, and 7 x 150 leaves room for the framing, whose cut note names
+  // the full handoff path (9 notes went over on CI's longer temp paths).
+  for (const [cut, count] of [[300, 3], [150, 7]]) {
     const notes = Array.from({ length: count }, (_, i) => noteAt(cut - 10, `n${i}`));
     assert.strictEqual(notes[0].indexOf(launcher), cut - 10);
     const { text } = S.buildInjection(s.memdir, { notes });
