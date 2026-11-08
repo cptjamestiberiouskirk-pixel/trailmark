@@ -187,6 +187,23 @@ test('health: a cache folder that can\'t be read is said as one, not as "too man
   assert.match(H.otherCopies(cfg, path.join(base, 'mine'), { budgetMs: 60000 }).incomplete, /the plugin cache has too many folders/);
 });
 
+// Review round 1, #1: with CODEX_HOME a file, Linux and macOS report the
+// cache under it as ENOTDIR, a second reason, where Windows reports ENOENT.
+// The POSIX answer is stubbed, so each system runs the same check.
+test('health: a Codex home that is a file is one reason on every system, not also an unreadable cache (next version)', () => {
+  const H = require(path.join(ROOT, 'scripts', 'lib', 'health'));
+  const file = path.join(realTemp('jbmem-codexhomefile-'), 'codex-home');
+  fs.writeFileSync(file, 'not a folder');
+  const real = fs.opendirSync;
+  try {
+    fs.opendirSync = function (p, ...a) {
+      if (path.resolve(p).startsWith(path.resolve(file) + path.sep)) { const e = new Error('ENOTDIR'); e.code = 'ENOTDIR'; throw e; }
+      return real.call(fs, p, ...a);
+    };
+    assert.deepStrictEqual(H.oldCodexCopies(file, { detail: true }), { paths: [], incomplete: "Codex's home folder (CODEX_HOME) isn't a folder" });
+  } finally { fs.opendirSync = real; }
+});
+
 test('session start: odd cache folder names stay out of the context, an incomplete check is a warning', () => {
   const s = sandbox();
   jbm(s, ['init']);

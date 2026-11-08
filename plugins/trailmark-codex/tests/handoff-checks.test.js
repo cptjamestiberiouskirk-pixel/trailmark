@@ -188,19 +188,32 @@ const copiesTest = (fn) => (t) => {
 // any other way fails at once.
 const SINCE_LATE = /git ran out of time/;
 class CommitsOutOfTime extends Error {}
+// A session start that really ran out of time spent it: git's 1.2 s, or
+// more than 3.1 s before git ran (trailmark.js, sinceHandoff). So each one
+// took 1.2 s or more, and either the same lookup is slow here too (900 ms,
+// three quarters of git's 1.2 s) or each took past 3.1 s, the slowness
+// before git (review round 1, #2: a control that timed git alone failed
+// that). At rest, a forced 0 ms budget's session starts took 520 to 1,192
+// ms, the first of three always under 620, so the floor alone is too close.
+const LATE_FLOOR_MS = 1200, BEFORE_GIT_MS = 3100;
 function sinceInTime(s, call, tries = 3) {
+  const took = [];
   for (let i = 1; ; i++) {
+    const t0 = Date.now();
     const r = call();
+    took.push(Date.now() - t0);
     if (!SINCE_LATE.test(r.context)) return r;
     if (i < tries) continue;
     const G = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
     const base = S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8')).head;
-    const t0 = Date.now();
+    const l0 = Date.now();
     const c = G.commitsSince(s.repo, base, { budgetMs: 30000 });
-    const ms = Date.now() - t0;
+    const ms = Date.now() - l0;
     assert.ok(c && c.state !== 'late' && !c.unlisted, `every session start ran out of time, and so did the same lookup with 30 s: ${JSON.stringify(c)}`);
-    assert.ok(ms >= 900, `every session start ran out of time, but the same lookup took ${ms} ms here, inside the launcher's 1.2 s`);
-    throw new CommitsOutOfTime(`git ran out of time at ${tries} session starts in a row, and the same lookup took ${ms} ms here: the machine is too slow now`);
+    const quick = took.filter(x => x < LATE_FLOOR_MS);
+    assert.strictEqual(quick.length, 0, `every session start said git ran out of time, but ${quick.length} of them took under ${LATE_FLOOR_MS} ms (${took.join(', ')} ms)`);
+    assert.ok(ms >= 900 || took.every(x => x >= BEFORE_GIT_MS), `every session start said git ran out of time, but the same lookup took ${ms} ms here and the starts ${took.join(', ')} ms`);
+    throw new CommitsOutOfTime(`git ran out of time at ${tries} session starts in a row, which took ${took.join(', ')} ms, and the same lookup ${ms} ms: the machine is too slow now`);
   }
 }
 const sinceTest = (fn) => (t) => {
@@ -280,6 +293,23 @@ test('commits since the handoff: git running out of time is said, never "the new
   assert.match(failed, /HEAD has 2 newer commits, not listed: git could not list them\./);
   assert.doesNotMatch(failed, /git ran out of time|the newest 0 shown/);
   assert.match(at({ base: 'abc1234', state: 'late' }), /Whether HEAD has commits since the handoff's HEAD abc1234 isn't known: git ran out of time\./);
+  // At a budget too small for everything, the line stays and keeps its
+  // reason (review round 1, #3: it was left out, or said "to fit").
+  const tight = sandbox();
+  const cfgFile = path.join(tight.memdir, '.jbmem.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), budgets: { injectChars: 2000 } }));
+  tight.write('# H\n## State\n' + Array.from({ length: 60 }, (_, i) => `- item ${i} ${'x'.repeat(70)}`).join('\n') + '\n');
+  const notes = Array.from({ length: 4 }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(150)}`);
+  const atTight = (since) => S.buildInjection(tight.memdir, { since, notes }).text;
+  for (const [since, want] of [
+    [{ base: 'abc1234', state: 'late' }, /HEAD abc1234 isn't known: git ran out of time/],
+    [{ base: 'abc1234', state: 'ok', count: 3, entries: [], unlisted: 'late' }, /3 commits on HEAD since the handoff's HEAD abc1234, not listed here: git ran out of time\./],
+    [{ base: 'abc1234', state: 'ok', count: 3, entries: [], unlisted: 'error' }, /3 commits on HEAD since the handoff's HEAD abc1234, not listed here: git could not list them\./],
+  ]) {
+    const text = atTight(since);
+    assert.ok(text.length <= 2000, `${text.length} chars`);
+    assert.match(text, want, JSON.stringify(since));
+  }
   // commitsSince with no time left says so (before, null: no section).
   const G = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8')).head;
@@ -313,6 +343,16 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
       assert.ok(l.endsWith('... (a path is left out here)'), l);
     }
   }
+  // Every note is first held to 1,200 characters, at any budget (review
+  // round 1, S2): that cut never lands inside the path either.
+  const s2 = sandbox();
+  s2.write('# H\n- state\n');
+  const long = noteAt(1190, 'n9');
+  assert.strictEqual(long.indexOf(launcher), 1190);
+  const line = S.buildInjection(s2.memdir, { notes: [long] }).text.split('\n').find(l => l.startsWith('[trailmark] n9 '));
+  assert.ok(line && line.length <= 1200, line);
+  assert.ok(!line.includes(launcher.slice(0, 20)) || line.includes(launcher), `a note cut inside the path at 1,200: ${line.slice(-200)}`);
+  assert.ok(line.endsWith('... (a path is left out here)'), line.slice(-200));
 });
 
 test('agent tag: the Updated line names the agent, and the next session is told who wrote it', () => {
@@ -2248,6 +2288,24 @@ test('copies: --copies says when the search of Codex\'s cache stopped early, or 
   assert.deepStrictEqual(oldCodexCopies(file, { detail: true }), { paths: [], incomplete: "Codex's home folder (CODEX_HOME) isn't a folder" });
   assert.deepStrictEqual(oldCodexCopies(file), []);
   assert.deepStrictEqual(oldCodexCopies(realTemp('jbmem-codexnone-'), { detail: true }), { paths: [], incomplete: '' }, 'an empty Codex home is all seen');
+  // Exactly 10 is all of them, not a search that stopped early; 11 is
+  // (review round 1, #5).
+  const ten = realTemp('jbmem-codexten-');
+  for (let i = 1; i <= 11; i++) {
+    if (i === 11) assert.deepStrictEqual(oldCodexCopies(ten, { detail: true }).incomplete, '', 'exactly 10 folders said to be a search that stopped');
+    fs.mkdirSync(path.join(ten, 'plugins', 'cache', `m${String(i).padStart(2, '0')}`, 'jb-memory-codex', '0.2.3'), { recursive: true });
+  }
+  const eleven = oldCodexCopies(ten, { detail: true });
+  assert.strictEqual(eleven.paths.length, 10);
+  assert.strictEqual(eleven.incomplete, 'it stopped at 10 folders');
+  if (S.AGENT === 'Codex') {
+    fs.rmSync(path.join(ten, 'plugins', 'cache', 'm11'), { recursive: true });
+    const s = sandbox();
+    s.write('# H\n- state\n');
+    const r = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, CODEX_HOME: ten }, input: JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB }), encoding: 'utf8' });
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /jb-memory-codex, is in Codex's plugin cache \(10 folders\)/);
+    assert.match(spawnSync(process.execPath, [JBM, '--copies'], { cwd: s.repo, env: { ...s.env, CODEX_HOME: ten }, encoding: 'utf8' }).stdout, /^trailmark: 10 old jb-memory-codex folders in Codex's plugin cache\.$/m);
+  }
 });
 
 test('launcher: a memory folder named notes, reached through a link, still starts the session (loop round 8)', { skip: NO_LINKS }, () => {

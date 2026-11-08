@@ -306,20 +306,26 @@ function oldCodexCopies(codexHome, { maxEntries = 200, depth = 3, maxCopies = 10
   const done = () => (detail ? { paths: found, incomplete: [...why].join('; ') } : found);
   if (typeof codexHome !== 'string' || !path.isAbsolute(codexHome) || networkPath(codexHome)) return done();
   // A Codex home that is a file: Windows reports the cache under it missing
-  // (ENOENT), which would read as "nothing there".
-  try { if (local(codexHome) && !fs.statSync(codexHome).isDirectory()) why.add("Codex's home folder (CODEX_HOME) isn't a folder"); } catch { /* missing: nothing to search */ }
+  // (ENOENT), which would read as "nothing there", and POSIX as unreadable
+  // (ENOTDIR). Said as what it is, with nothing else searched.
+  try {
+    if (local(codexHome) && !fs.statSync(codexHome).isDirectory()) { why.add("Codex's home folder (CODEX_HOME) isn't a folder"); return done(); }
+  } catch { /* missing: nothing to search */ }
+  // One folder past maxCopies is looked for, so that exactly maxCopies
+  // folders are not said to be a search that stopped early.
   const walk = (dir, rel, d) => {
-    if (d > depth || found.length >= maxCopies || !local(dir)) return;
+    if (d > depth || found.length > maxCopies || !local(dir)) return;
     const r = list(dir, maxEntries);
     if (!r.full) why.add(shortBy(r, rel.join('/')));
     for (const n of r.names) {
+      if (found.length > maxCopies) break;
       const p = path.join(dir, n);
       if (n.toLowerCase() === 'jb-memory-codex') { if (local(p)) found.push(full ? p : [...rel, showName(n)].join('/')); continue; }
       walk(p, [...rel, showName(n)], d + 1);
     }
   };
   walk(path.join(codexHome, 'plugins', 'cache'), ['plugins', 'cache'], 1);
-  if (found.length >= maxCopies) why.add(`it stopped at ${maxCopies} folders`);
+  if (found.length > maxCopies) { found.length = maxCopies; why.add(`it stopped at ${maxCopies} folders`); }
   return done();
 }
 

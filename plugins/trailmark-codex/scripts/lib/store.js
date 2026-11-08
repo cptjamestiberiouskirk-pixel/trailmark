@@ -2091,7 +2091,7 @@ function checkRepoRoot(dir, root, seen) {
 // notes: extra lines for Claude (warnings from the launcher's checks), kept
 // inside the size cap like the rest.
 function buildInjection(dir, { source = 'startup', now = Date.now(), session = '', worktree = '', marker = '', notes = [], since = null } = {}) {
-  const extra = (Array.isArray(notes) ? notes : []).filter(n => typeof n === 'string' && n).map(n => oneLine(n, 1200));
+  const extra = (Array.isArray(notes) ? notes : []).filter(n => typeof n === 'string' && n).map(n => shortNote(n, 1200));
   const withNotes = (r) => (extra.length ? { ...r, text: [r.text, ...extra].join('\n') } : r);
   const cfg = loadConfig(dir);
   const handoffFile = path.join(dir, HANDOFF);
@@ -2150,8 +2150,11 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   const sinceFacts = checkSinceFacts(since);
   const sinceLines = sinceSection(sinceFacts, plainBody, m, now);
   if (sinceLines.length) {
+    // Kept when there are commits, or when git ran out of time before it
+    // could say (one line, cut to 150 characters last, the sign first).
     const n = sinceFacts.count;
-    add(sinceLines.join('\n'), 5, { short: n ? `${n} commit${n === 1 ? '' : 's'} on HEAD since the handoff's HEAD ${sinceFacts.base}, not listed here to fit the budget. Run git log --oneline ${sinceFacts.base}..HEAD and check the next steps against them before redoing work.` : '', keep: !!n });
+    const why = sinceFacts.unlisted === 'late' ? ': git ran out of time' : sinceFacts.unlisted ? ': git could not list them' : ' to fit the budget';
+    add(sinceLines.join('\n'), 5, { short: n ? `${n} commit${n === 1 ? '' : 's'} on HEAD since the handoff's HEAD ${sinceFacts.base}, not listed here${why}. Run git log --oneline ${sinceFacts.base}..HEAD and check the next steps against them before redoing work.` : '', keep: !!n || sinceFacts.state === 'late' });
   }
 
   // After this session's own compaction: its own snapshot. At a fresh start:

@@ -775,8 +775,14 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   // is read no further back than the window of the command that added it;
   // the session's own folder from the session's start.
   const joined = rec.commitDirsAt && typeof rec.commitDirsAt === 'object' && !Array.isArray(rec.commitDirsAt) ? rec.commitDirsAt : {};
-  const known = [rec.first, ...Object.values(joined).map(v => (Array.isArray(v) ? v[0] : NaN))].filter(Number.isFinite);
-  const start = Number.isFinite(rec.start) ? rec.start : (known.length ? Math.min(...known) : NaN);
+  // A loop, not Math.min(...): the state file is untrusted, and a spread of
+  // a record with enough entries throws (review round 1, S1).
+  let start = Number.isFinite(rec.start) ? rec.start : (Number.isFinite(rec.first) ? rec.first : NaN);
+  if (!Number.isFinite(rec.start)) {
+    for (const v of Object.values(joined)) {
+      if (Array.isArray(v) && Number.isFinite(v[0]) && !(v[0] >= start)) start = v[0];
+    }
+  }
   if (!Number.isFinite(start)) return { at: Math.floor(now / 1000) * 1000, folders: [], read: [], stopped: 'no-start' };
   const late = () => ({ at: Math.floor(now / 1000) * 1000, folders: [], read: [], stopped: 'out-of-time' });
   if (!(budgetMs >= 1500)) return late();

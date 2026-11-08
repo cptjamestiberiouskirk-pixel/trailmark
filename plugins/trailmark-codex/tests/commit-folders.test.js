@@ -251,6 +251,17 @@ test('commit folders: a session record with no start at all says the sweep was s
   const rec = JSON.parse(fs.readFileSync(path.join(s.memdir, '.jbmem-state.json'), 'utf8')).sessions[SA];
   assert.ok(Number.isFinite(rec.first), JSON.stringify(rec));
   assert.doesNotMatch(write(), /start isn't recorded/);
+  // A record with no start and a huge commitDirsAt (the state file is
+  // untrusted) still starts the session and saves the checkpoint (review
+  // round 1, S1: a spread of it threw).
+  const big = {};
+  for (let i = 0; i < 200000; i++) big[`k${i}`] = [1];
+  S.updateState(s.memdir, SA, (state, rec) => { delete rec.first; delete rec.start; rec.commitDirsAt = big; });
+  const st = jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, session_id: SA, source: 'resume', hook_event_name: 'SessionStart' }));
+  assert.strictEqual(st.status, 0, st.stderr.slice(0, 500));
+  S.updateState(s.memdir, SA, (state, rec) => { delete rec.first; delete rec.start; rec.commitDirsAt = big; });
+  const r = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], '# H\n- y\n');
+  assert.strictEqual(r.status, 0, r.stderr.slice(0, 500));
 });
 
 // RS:646 (review round 8, R1): a swept folder dropped past six and joined
