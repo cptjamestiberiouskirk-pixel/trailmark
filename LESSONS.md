@@ -16,6 +16,13 @@ Format:
 
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
+## 2026-11-07: A script edited while a run of it was going
+
+- What went wrong: in batch D, an edit to `dev/release-check.sh` landed while a background `--sums --quick` of it was still running. The run stopped with "syntax error near unexpected token" at a line that parses fine, and its result was lost. The same run's `--sums` had also reordered `SHA256SUMS` under the shell's UTF-8 locale (D4), which the coordinating session noticed in the worktree.
+- Why: bash reads a script as it runs it, so an edit shifts the bytes under a running copy. A background check makes this easy to forget.
+- Rule going forward: don't edit a script while a run of it is going. Wait for the run, or run a copy. A run that overlapped an edit doesn't count as a check: rerun it.
+- Status: open
+
 ## 2026-11-07: The control was a cheaper call than the one it stood in for
 
 - What went wrong: round 1's fix for the busy-lock skip ran the subagent hook as the lock-free control even when the commit hook was the one stopped. The subagent hook takes 30 to 40% of the commit hook's time, so under 24 to 30 busy loops the control would have failed the test on load alone (round 2, A). The same round found that F2's "five tries" also fired on time alone, since both copy walks share one budget (C: 2.4% to 90% of calls in a simulation).

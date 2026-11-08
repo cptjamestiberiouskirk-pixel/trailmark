@@ -15,7 +15,8 @@
 # only SHA256SUMS (with --sums), its own temp folder (removed at the end), the
 # zip folder you name and, when a test suite fails or --only runs, a folder
 # under <temp>/trailmark-release-check with the suite's full TAP output and
-# the folders its failed tests kept (the 20 newest such folders stay). It
+# the folders its failed tests kept (the 20 newest failed runs' folders stay,
+# and the 20 newest passing --only runs' apart from them). It
 # makes no network requests. The test suites run at the same time, and each
 # summary line gives the suite's own time.
 set -u
@@ -56,7 +57,11 @@ trap clean_temp EXIT
 # caller's group. The suites are read from the job table, which has a suite as
 # soon as it starts; finished ones aren't listed. A suite still there after
 # about 10 s is killed, and a second signal during the stop changes nothing.
-stop_suites() { # exit status: 128 + the signal's number
+# Then the script stops by the same signal, so a shell loop that runs it stops
+# too (bash goes on with its loop after a child that only exited 130). A bash
+# caller sees 128 + the signal's number; a Windows caller (pwsh, node) sees
+# 256 times it (512 for INT).
+stop_suites() { # status if the signal can't be raised again, the signal's name
   trap '' INT TERM HUP
   local groups p i alive
   jobs -rp > "$T/stopping" 2>/dev/null
@@ -74,11 +79,13 @@ stop_suites() { # exit status: 128 + the signal's number
   fi
   # Let them end before the EXIT trap removes their folders.
   wait 2>/dev/null
+  clean_temp; trap - EXIT "$2"
+  kill -s "$2" $$
   exit "$1"
 }
-trap 'stop_suites 130' INT
-trap 'stop_suites 143' TERM
-trap 'stop_suites 129' HUP
+trap 'stop_suites 130 INT' INT
+trap 'stop_suites 143 TERM' TERM
+trap 'stop_suites 129 HUP' HUP
 # Kept output goes next to $T, not inside it, so it outlives the run.
 KEEPROOT="$(dirname "$T")/trailmark-release-check"
 KEEP=''
@@ -95,22 +102,36 @@ heading() {
   echo "release-check${ONLY:+ --only $ONLY} at $(git rev-parse --short HEAD)$( [ -n "$(git status --porcelain)" ] && echo ' (uncommitted changes)')"
 }
 # This run's folder for kept output, made on first use, with what was run
-# where in run.txt. Only the 20 newest run folders under $KEEPROOT stay, so
-# a failure stays through a few reruns of the test with --only.
-keep_dir() {
+# where in run.txt. A passing --only run's folder is marked as it is made, so
+# a prune in another run at that moment doesn't count it as failed.
+keep_dir() { # 1 if the suite passed
   [ -n "$KEEP" ] && return 0
   KEEP="$KEEPROOT/$(date +%Y%m%d-%H%M%S)-$$"
   mkdir -p "$KEEP" || { KEEP=''; return 1; }
+  if [ "$1" = 1 ]; then : > "$KEEP/passed"; fi
   { heading; echo "commit $(git rev-parse HEAD)"; echo "started $(date)"; } > "$KEEP/run.txt"
-  local old=("$KEEPROOT"/[0-9]*-[0-9]*-[0-9]*) i
-  for (( i = 0; i < ${#old[@]} - 20; i++ )); do rm -rf -- "${old[i]}"; done
+  return 0
+}
+# The 20 newest failed runs' folders under $KEEPROOT stay, and apart from them
+# the 20 newest passing --only runs' (marked by a file named passed), so a
+# series of --only runs can't push out a failure's output. A folder without
+# the mark counts as failed.
+prune_kept() {
+  local d i passed=() failed=()
+  for d in "$KEEPROOT"/[0-9]*-[0-9]*-[0-9]*; do
+    [ -d "$d" ] || continue
+    if [ -e "$d/passed" ]; then passed+=("$d"); else failed+=("$d"); fi
+  done
+  for (( i = 0; i < ${#passed[@]} - 20; i++ )); do rm -rf -- "${passed[i]}"; done
+  for (( i = 0; i < ${#failed[@]} - 20; i++ )); do rm -rf -- "${failed[i]}"; done
   return 0
 }
 # Keep a suite's full output and the folders its failed tests kept (they are
 # in the suite's own folder in $T, which goes at the end of the run).
-keep_suite() { # slug, output, the suite's folder
-  keep_dir || { echo "      could not make $(shown "$KEEPROOT") to keep the output" >> "$T/failures"; return 0; }
+keep_suite() { # slug, output, the suite's folder, 1 if the suite passed
+  keep_dir "$4" || { echo "      could not make $(shown "$KEEPROOT") to keep the output" >> "$T/failures"; return 0; }
   printf '%s\n' "$2" > "$KEEP/$1.tap"
+  prune_kept
   local d
   for d in "$3/tmp"/jbmem-*; do
     [ -e "$d" ] || continue
@@ -167,7 +188,7 @@ report_suite() { # name, slug, the suite's folder, seconds
   else record FAIL "$name: ${fail:-?} failed of ${tests:-?} ($secs s)"; fi
   [ $ok = 1 ] || grep -E '^not ok' <<<"$out" | head -5 | sed "s|^|      $slug: |" >> "$T/failures"
   # Kept when the suite failed, and always with --only: a skip's reason is in it too.
-  if [ $ok = 0 ] || [ -n "$ONLY" ]; then keep_suite "$slug" "$out" "$dir"; fi
+  if [ $ok = 0 ] || [ -n "$ONLY" ]; then keep_suite "$slug" "$out" "$dir" $ok; fi
   rm -rf "$dir" 2>/dev/null
 }
 summary() {
@@ -183,21 +204,29 @@ HC=(plugins/trailmark/tests/handoff-checks.test.js plugins/trailmark-codex/tests
 TCC=(); TCX=()
 for f in plugins/trailmark/tests/*.test.js; do [ "${f##*/}" = handoff-checks.test.js ] || TCC+=("$f"); done
 for f in plugins/trailmark-codex/tests/*.test.js; do [ "${f##*/}" = handoff-checks.test.js ] || TCX+=("$f"); done
+# Two files at a time in each trailmark suite, and in --only across every
+# file. Measured 2026-11-06 on 16 cores (dev/release-state.md, "Faster local
+# checks"): all files at once took 4.5 min but one full check in two failed a
+# load-sensitive test, and three at a time skipped one in every run. Two at a
+# time took 6.5 to 7 min: in three runs nothing failed and that test skipped
+# once, in one copy.
+AT_ONCE=2
 
 # --only: the one suite file or the matching tests, and nothing else.
 if [ -n "$ONLY" ]; then
   if [ -f "$ONLY" ]; then start_suite "--only $ONLY" only "$ONLY"
-  else start_suite "--only (tests named like /$ONLY/, every test file)" only --test-name-pattern="$ONLY" "${HC[@]}" ${TCC[@]+"${TCC[@]}"} ${TCX[@]+"${TCX[@]}"}; fi
+  else start_suite "--only (tests named like /$ONLY/, every test file)" only --test-concurrency=$AT_ONCE --test-name-pattern="$ONLY" "${HC[@]}" ${TCC[@]+"${TCC[@]}"} ${TCX[@]+"${TCX[@]}"}; fi
   finish_suites
   summary
   exit $FAILED
 fi
 
 # Files kept out of the release zip (export-ignore in .gitattributes) are
-# left out of SHA256SUMS too, so the zip's own list verifies.
+# left out of SHA256SUMS too, so the zip's own list verifies. Sorted bytewise
+# (LC_ALL=C): a UTF-8 locale's order would rewrite the file with every --sums.
 sums_list() {
   git ls-files | grep -v '^SHA256SUMS$' | git check-attr --stdin export-ignore \
-    | grep -v ': export-ignore: set$' | sed 's/: export-ignore: .*$//' | sort | sed 's|^|./|'
+    | grep -v ': export-ignore: set$' | sed 's/: export-ignore: .*$//' | LC_ALL=C sort | sed 's|^|./|'
 }
 if [ "$SUMS" = 1 ]; then sums_list | xargs sha256sum > SHA256SUMS; fi
 if sha256sum --quiet -c SHA256SUMS >/dev/null 2>&1 && [ "$(sums_list | wc -l)" = "$(wc -l < SHA256SUMS)" ]; then
@@ -225,12 +254,6 @@ for c in trailmark trailmark-codex; do
   else record PASS "$c sandbox check"; fi
 done
 
-# Two files at a time in each trailmark suite. Measured 2026-11-06 on 16
-# cores (dev/release-state.md, "Faster local checks"): all files at once took
-# 4.5 min but one full check in two failed a load-sensitive test, and three
-# at a time skipped one in every run. Two at a time took 6.5 to 7 min: in
-# three runs nothing failed and that test skipped once, in one copy.
-AT_ONCE=2
 start_suite 'handoff-checks (both copies)' handoff-checks "${HC[@]}"
 if [ "$QUICK" = 0 ]; then
   start_suite "trailmark tests (Claude Code, ${#TCC[@]} files)" trailmark-claude-code --test-concurrency=$AT_ONCE ${TCC[@]+"${TCC[@]}"}
