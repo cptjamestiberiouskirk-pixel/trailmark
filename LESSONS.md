@@ -14,6 +14,41 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-08: A reviewer died on an API timeout and left its scratch worktree
+
+- What went wrong: batch H's round 2 reviewer ended on "Request timed out" with no report. Its scratch worktree stayed registered in `git worktree list`.
+- Why: a subagent that dies can't run its own cleanup.
+- Rule going forward: when a reviewer fails, check that its report exists, remove its worktree and temp folder (`git worktree list`, then `git worktree remove --force`), and run the round again with a fresh one.
+- Status: open
+
+## 2026-11-08: An edit's trailing space was lost, twice
+
+- What went wrong: batch H's Edit calls whose old and new text ended in a space shortened the line (`const listCmd =launcher`), and the fix for that moved the gap (`launcher ?` then a backtick). Both reviewers reported it.
+- Why: a string ending in whitespace is not a safe edit anchor: the new text lost its trailing space.
+- Rule going forward: an edit's old and new text end on a visible character.
+- Status: open
+
+## 2026-11-08: An assertion that something did not happen passed for the wrong reason
+
+- What went wrong: batch H's `huge swept` test asserted a commit was not "found later". With the lookup it was meant to check broken, it still passed in 7 of 16 runs on Linux: the sweep reads only up to the current whole second, and the commit was in that second (Opus, review round 1).
+- Why: the fail-first proof ran the whole test on the old code, where an earlier assertion failed first, so nothing showed this one could fail.
+- Rule going forward: when a test holds several assertions, break the code each one guards, one at a time. An assertion that something didn't happen gets its own forced fault.
+- Status: open
+
+## 2026-11-08: Reviewers' proofs push out kept failed runs
+
+- What went wrong: a review round's deliberate failures (a mutation per run) count against the 20 kept failed runs in the shared `trailmark-release-check` folder. Two reviewers reported older folders gone during their runs, three of them named (INFERRED: `prune_kept`; another session's run isn't ruled out).
+- Why: every session and subagent on the machine shares that one cap, and a proof that fails on purpose looks like any other failed run.
+- Rule going forward: when a failed run's output will be needed later, copy what matters out of that folder. To read a run's own output, take its folder from that run's summary, not from a listing of the shared folder.
+- Status: open
+
+## 2026-11-08: An exception to a skill's rule had no scope
+
+- What went wrong: batch W added "if one of them says trailmark's path isn't written here, stop" after "other lines, such as a command's output or a note about a commit, don't count". "One of them" took in command output, and the stop applied even with a valid launcher note, so text a repo prints could switch off checkpoints (Opus, round 1).
+- Why: the sentence came from a fix idea written for one case, and it was pinned by a test without walking the other cases the words reach.
+- Rule going forward: before adding a sentence that changes what a model does, list every case its words cover, not only the one it was written for, and state its scope in the sentence. A test that pins exact text proves the text, not the behavior.
+- Status: open
+
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
 ## 2026-11-08: The Codex plugin page ignored `homepage`
@@ -162,27 +197,6 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - Why: on Windows a terminated process gives back its file handles a moment after it is gone.
 - Rule going forward: cleanup after stopping processes on Windows retries for a few seconds and says when it can't remove the folder.
 - Status: promoted to PLAYBOOK
-
-## 2026-11-08: A reviewer died on an API timeout and left its scratch worktree
-
-- What went wrong: batch H's round 2 reviewer ended on "Request timed out" with no report. Its scratch worktree stayed registered in `git worktree list`.
-- Why: a subagent that dies can't run its own cleanup.
-- Rule going forward: when a reviewer fails, check that its report exists, remove its worktree and temp folder (`git worktree list`, then `git worktree remove --force`), and run the round again with a fresh one.
-- Status: open
-
-## 2026-11-08: An edit's trailing space was lost, twice
-
-- What went wrong: batch H's Edit calls whose old and new text ended in a space shortened the line (`const listCmd =launcher`), and the fix for that moved the gap (`launcher ?` then a backtick). Both reviewers reported it.
-- Why: a string ending in whitespace is not a safe edit anchor: the new text lost its trailing space.
-- Rule going forward: an edit's old and new text end on a visible character.
-- Status: open
-
-## 2026-11-08: An assertion that something did not happen passed for the wrong reason
-
-- What went wrong: batch H's `huge swept` test asserted a commit was not "found later". With the lookup it was meant to check broken, it still passed in 7 of 16 runs on Linux: the sweep reads only up to the current whole second, and the commit was in that second (Opus, review round 1).
-- Why: the fail-first proof ran the whole test on the old code, where an earlier assertion failed first, so nothing showed this one could fail.
-- Rule going forward: when a test holds several assertions, break the code each one guards, one at a time. An assertion that something didn't happen gets its own forced fault.
-- Status: open
 
 ## 2026-11-07: A test's time budget was taken for a fault
 

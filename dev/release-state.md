@@ -52,6 +52,61 @@ Codex accepts an `interface` block holding only this field and returns the URL a
 
 Review round 1 (Opus, `git diff ebfdd7b..f35bb88`): no code defect. Its two findings were wording in these notes, fixed above: the validator claim, reproduced here, and the stale INFERRED labels. Checked and fine by the reviewer: the new assertion fails on the old manifests, nothing else that reads these manifests is affected, and exactly 3 `SHA256SUMS` entries changed. Codex's code and security reviews of f35bb88 completed with no comments, and the repo has no code-scanning analysis for this PR. Nothing CONFIRMED in code, so by the stop rule the round is clean.
 
+## Batch W: comments and skill wording for 0.6.2 (2026-11-08, branch `claude/batch-w-wording-17f3c0` off 9c76a10)
+
+Scope approved by the user on 2026-11-08 ("Approve both", relayed by the coordinating session): batch W and batch H. Items are from the deferred list in "Batch S" below. All five still held on 9c76a10 (CONFIRMED by reading each one). Not pushed; no PR yet.
+
+| # | Item | Result | Files |
+|---|---|---|---|
+| 1 | The Windows 32,767 reason | Fixed, comments only. The comments now give Linux's 128 KiB per variable and point at `PAYLOAD_MAX` | `scripts/lib/gitfacts.js` and `tests/commit-folders.test.js`, both copies |
+| 2 | `SKILL_RULE` against the skills | Fixed in the six skills, scoped: with no session-start note, a note from a trailmark hook (not a command's output or quoted text) that says trailmark's path isn't written stops the fallback. `host.js` is unchanged | the six Codex `SKILL.md` |
+| 3 | The marker at first mention | Fixed: the first sentence says "the session-start note, which starts ..." | the six Codex `SKILL.md` |
+| 4 | The test name | Fixed: "... only with no session-start note, ..." | Codex `tests/codex.test.js` |
+| 5 | `tm-memory-setup` step 4 | Fixed: a note saying the path isn't written counts as the hooks having run | `tm-memory-setup/SKILL.md` |
+
+Commits: 130c6e9 (items 1 to 5), b91e7de (round 1's fixes), bc038a2 (round 2's fix).
+
+Item 1's check: the reason was wrong for `JBMEM_GIT` too. On this machine (Node 26.13, Windows 11) variables of 32,768, 40,000, 120,000, 500,000 and 2,000,000 characters reached a `spawnSync` child whole, by length and sha256, with and without `--permission` (CONFIRMED, probe in the session's scratch folder). Linux's limit: WSL (kernel 6.18, 4 KiB pages) takes a `NAME=value` string of 131,072 bytes and refuses 131,073 with `E2BIG`, and the 30,000-character limit takes at most 90,000 bytes (CONFIRMED by Fable, not re-run).
+
+Tests, each shown failing before the text it pins changed (`--only 'codex skills'`):
+
+- Against 9c76a10's skills: "codex skills: a later note that says trailmark's path isn't written stops the fallback too" failed with `tm-checkpoint: a later note stops the fallback`, and the renamed test with `tm-checkpoint: the marker at first mention` (CONFIRMED here and by Opus).
+- Against 130c6e9's skills: those two with `the end of the fallback` and `a later note stops the fallback`, and the new "tm-memory-setup's hook check accepts a session-start note with no launcher" with `the note with no launcher` (CONFIRMED here and by Opus).
+- bc038a2's assertion can't fail on the old text, which has one such sentence. Its proof is a mutation: a second, wider stop sentence added to all six skills fails with `tm-checkpoint: one stop on that phrase`, expected 2, actual 3 (CONFIRMED here; the same mutation passes with the parent's test file, CONFIRMED by Opus, not re-run).
+- `--sums --quick` at bc038a2's tree: all PASS, handoff-checks 164/252 with 88 skipped. `--only 'codex skills'` at bc038a2: 4/4.
+
+Not tested: no live Codex model has followed the new text, so what a model does with it is INFERRED from the words. A reviewer read Codex's docs on hook context, which support a model telling a hook note from command output (docs only, not run).
+
+### Review round 1 (`git diff 9c76a10..130c6e9`, 2026-11-08)
+
+Sonnet (docs), Opus (the skills' behavior), Fable (`gitfacts.js`). Reports: `batch-w/` in the notes folder.
+
+- Opus F1, CONFIRMED in the text, effect INFERRED: "if one of them says ..." reached a command's output and sessions with a valid launcher note, so text a repo prints could switch off checkpoints. Fixed in b91e7de. Repro: a valid note, then a command printing a `[trailmark]` line with the phrase, read against 130c6e9's paragraph.
+- Opus F2, CONFIRMED: step 4 of `tm-memory-setup` had no test. Fixed: the new test above.
+- Sonnet 1, INFERRED: step 4 "gives the launcher" then "instead of giving". Fixed: "normally gives".
+- Sonnet 3 and Fable 5, INFERRED: `gitfacts.js:15` could read as if `PAYLOAD_MAX` were 128 KiB. Fixed: "the comment on `PAYLOAD_MAX` ... says more".
+- Sonnet 2, INFERRED, no change: the session-start note and the skills word the refusal differently. That note is handled by the earlier sentence, keyed on its marker.
+- Fable: the diff is comments only and the copies are identical (CONFIRMED by Fable, not re-run).
+
+### Review round 2 (`git diff 130c6e9..b91e7de`, 2026-11-08)
+
+Sonnet, Opus and Fable, fresh subagents. No defect in the changed text. Opus walked six cases and found no wrong or contradictory instruction (INFERRED: read, not run on a model). Opus, CONFIRMED test gap: a second, wider stop sentence survived the tests. Fixed in bc038a2, with the long comment line it and Sonnet noted.
+
+### Review round 3 (`git diff b91e7de..bc038a2`, 2026-11-08)
+
+Opus: nothing to fix. The assertion catches the mutation, can't fail for a false reason in the six skills, and `SHA256SUMS` changes one line (CONFIRMED by Opus, not re-run). A limit it noted: a second sentence reworded away from the phrase would pass. Nothing CONFIRMED in code changed since round 2, so batch W stops here (the stop rule).
+
+### Deferred from batch W
+
+- RS-W-shortnote, CONFIRMED by Opus, not re-run (seen on 130c6e9, older code): a session-start note shortened by `buildInjection` can read `[trailmark] ChatGPT/Codex copy of trailmark. Launcher:... (a path is left out here)`. It has "Launcher:" and no path, so no branch of the skills fits it, and "on purpose" would be untrue there. A model likely stops (INFERRED), which is safe but stops a working install. Fix idea, skills only: `gives no path after "Launcher:"`. Repro: `injectChars` 2000, five long notes and a 110-character launcher through `buildInjection`.
+- RS-W-gitcap, INFERRED by Fable (seen on 130c6e9, older code, `trailmark.js:350-367`). Flag: availability only, it fails closed. Session start's `JBMEM_GIT` has no overall cap. With every field at its cap and 4,095-character paths it comes to 142,906 bytes, which `spawnSync` in WSL refused with `E2BIG`, so the hook would not run. Built facts only, not a real session. Repro: the estimate script in `batch-w/round1-security.md`.
+- RS-W-milestonerule, CONFIRMED by Opus, not re-run (seen on b91e7de, older test gap): dropping `${S.SKILL_RULE}` from `hook-milestone.js:287` passes all of `codex.test.js`, so the real refused commit note isn't tested end to end. Whether the other test files catch it is INFERRED no. Repro: remove it, then `--only plugins/trailmark-codex/tests/codex.test.js`.
+
+### Changelog notes for the 0.6.2 section
+
+Codex skills: when no session-start note is present but a note from a trailmark hook says trailmark's path isn't written, the skills now stop and tell the user instead of working the path out. The launcher paragraph names the session-start note by how it starts. `tm-memory-setup`'s hook check now treats a session-start note with no launcher as the hooks having run. No change for Claude Code users. The comment changes in `gitfacts.js` change no behavior and need no line.
+
+
 ## 0.6.1: S5, the CHANGELOG section and version bumps (2026-11-08, branch `claude/s5-changelog-version-f62761` off 34add12)
 
 Version 0.6.1: these are fixes plus wording with no new feature, the kind of release 0.5.1 was after 0.5.0. The CHANGELOG states no rule of its own. Bumped where 0.6.0 was (6df998d): the three `plugin.json` files and MANUAL.md's version line. `git grep 0.6.0` outside the CHANGELOG, `dev/` and the lessons finds only comments and test names that mean the release they came in. trailmark-watchdog stays 1.7.0: no batch touches `tools/windows`.
@@ -264,12 +319,12 @@ Reviews:
 Deferred to the release after this one, or to batch F or O where named:
 
 - (Opus round 1, finding 4; INFERRED, seen on 4ab108b.) Outside ASCII, "invisible" in the skills and `usablePath` disagree: U+034F, U+115F, U+3164, U+FFA0 and U+FE0F pass `usablePath`, while a model may refuse them; U+0600 and U+061C are refused by `usablePath`, while a model may not call them invisible. The 1,024 limit counts UTF-16 units. None is a shell character. Repro: `S.usablePath('/x/a' + c + 'b/t.js')` for each.
-- (Opus round 2, finding 1; INFERRED, seen on 27ae732.) With no session-start note but a later commit note, the note's `SKILL_RULE` (`lib/host.js:26`) can say trailmark's path isn't written, and the skills say other `[trailmark]` lines don't count, so the model goes on to the fallback. The character check still refuses every ASCII character `usablePath` refuses; what is left is the item above. Fix idea: "... don't count as that note, but if one says trailmark's path isn't written here, stop as above." Repro: read `host.js:26` against the skills' last launcher sentence.
-- (Sonnet round 2; INFERRED, seen on 27ae732.) The launcher paragraph's first sentence still says "the `[trailmark]` note at the start of this session" without the marker the later sentences name. Fix idea: name the marker at first mention, in all six.
-- (Opus round 2; cosmetic, 27ae732.) The new test's name says "no [trailmark] note", while the key is now the session-start note's start.
-- (Opus round 2, older.) `tm-memory-setup/SKILL.md:55` expects the note to quote the launcher; when the path is refused it has none.
+- (Fixed in batch W, 2026-11-08.) (Opus round 2, finding 1; INFERRED, seen on 27ae732.) With no session-start note but a later commit note, the note's `SKILL_RULE` (`lib/host.js:26`) can say trailmark's path isn't written, and the skills say other `[trailmark]` lines don't count, so the model goes on to the fallback. The character check still refuses every ASCII character `usablePath` refuses; what is left is the item above. Fix idea: "... don't count as that note, but if one says trailmark's path isn't written here, stop as above." Repro: read `host.js:26` against the skills' last launcher sentence.
+- (Fixed in batch W, 2026-11-08.) (Sonnet round 2; INFERRED, seen on 27ae732.) The launcher paragraph's first sentence still says "the `[trailmark]` note at the start of this session" without the marker the later sentences name. Fix idea: name the marker at first mention, in all six.
+- (Fixed in batch W, 2026-11-08.) (Opus round 2; cosmetic, 27ae732.) The new test's name says "no [trailmark] note", while the key is now the session-start note's start.
+- (Fixed in batch W, 2026-11-08.) (Opus round 2, older.) `tm-memory-setup/SKILL.md:55` expects the note to quote the launcher; when the path is refused it has none.
 - (Opus round 2, older; HYPOTHESIZED.) `buildInjection` puts the notes after the handoff, so handoff text comes before the real session-start note. Whether escaped handoff text could pass for that note is untested.
-- (Sonnet round 1; CONFIRMED in code, seen on d86b628.) The Windows 32,767 reason is also in `lib/gitfacts.js:15` and `:594`, about `JBMEM_GIT` (both copies, a shared file in the Fable row, owned by no batch), and in `commit-folders.test.js:440`, Codex `:264` (batch F's file). Comments only; that the claim is wrong there too is INFERRED from Fable's 120,000-character Windows run (RS:703). The `hookio.js` comment is O6, and the `store.js` and handoff-checks "minutes" comments are F8.
+- (Fixed in batch W, 2026-11-08.) (Sonnet round 1; CONFIRMED in code, seen on d86b628.) The Windows 32,767 reason is also in `lib/gitfacts.js:15` and `:594`, about `JBMEM_GIT` (both copies, a shared file in the Fable row, owned by no batch), and in `commit-folders.test.js:440`, Codex `:264` (batch F's file). Comments only; that the claim is wrong there too is INFERRED from Fable's 120,000-character Windows run (RS:703). The `hookio.js` comment is O6, and the `store.js` and handoff-checks "minutes" comments are F8.
 
 To confirm (needs the user and Codex):
 
