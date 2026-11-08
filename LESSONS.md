@@ -37,6 +37,13 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - Rule going forward: before choosing a control's bound, run the control at rest and under the forced fault, and tie the bound to the product's budget (here three quarters of the launcher's 1.2 s: the forced 0 ms budget then failed 13 of 14, and 16 busy loops skipped 14 of 14 with controls of 2.4 to 4.2 s).
 - Status: promoted to PLAYBOOK (with the entry above, 2026-11-07)
 
+## 2026-11-07: A script edited while a run of it was going
+
+- What went wrong: in batch D, an edit to `dev/release-check.sh` landed while a background `--sums --quick` of it was still running. The run stopped with "syntax error near unexpected token" at a line that parses fine, and its result was lost. The same run's `--sums` had also reordered `SHA256SUMS` under the shell's UTF-8 locale (D4), which the coordinating session noticed in the worktree.
+- Why: bash reads a script as it runs it, so an edit shifts the bytes under a running copy. A background check makes this easy to forget.
+- Rule going forward: don't edit a script while a run of it is going. Wait for the run, or run a copy. A run that overlapped an edit doesn't count as a check: rerun it.
+- Status: open
+
 ## 2026-11-07: The control was a cheaper call than the one it stood in for
 
 - What went wrong: round 1's fix for the busy-lock skip ran the subagent hook as the lock-free control even when the commit hook was the one stopped. The subagent hook takes 30 to 40% of the commit hook's time, so under 24 to 30 busy loops the control would have failed the test on load alone (round 2, A). The same round found that F2's "five tries" also fired on time alone, since both copy walks share one budget (C: 2.4% to 90% of calls in a simulation).
