@@ -163,6 +163,20 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - Rule going forward: cleanup after stopping processes on Windows retries for a few seconds and says when it can't remove the folder.
 - Status: promoted to PLAYBOOK
 
+## 2026-11-08: An edit's trailing space was lost, twice
+
+- What went wrong: batch H's Edit calls whose old and new text ended in a space shortened the line (`const listCmd =launcher`), and the fix for that moved the gap (`launcher ?` then a backtick). Both reviewers reported it.
+- Why: a string ending in whitespace is not a safe edit anchor: the new text lost its trailing space.
+- Rule going forward: an edit's old and new text end on a visible character.
+- Status: open
+
+## 2026-11-08: An assertion that something did not happen passed for the wrong reason
+
+- What went wrong: batch H's `huge swept` test asserted a commit was not "found later". With the lookup it was meant to check broken, it still passed in 7 of 16 runs on Linux: the sweep reads only up to the current whole second, and the commit was in that second (Opus, review round 1).
+- Why: the fail-first proof ran the whole test on the old code, where an earlier assertion failed first, so nothing showed this one could fail.
+- Rule going forward: when a test holds several assertions, break the code each one guards, one at a time. An assertion that something didn't happen gets its own forced fault.
+- Status: open
+
 ## 2026-11-07: A test's time budget was taken for a fault
 
 - What went wrong: CI failed handoff-checks "copies: the command the note gives ..." once on windows-latest, Node 26 (5a1e1a4). Session start's copy check (`otherCopies`) ran past its 300 ms budget and said it stopped early, which the test didn't accept. The sign was not on the load-sensitive list. The first fix accepted "stopped early", and round 4 found it then also passed an early stop for a reason other than time. Reported by both PR #10 sessions.

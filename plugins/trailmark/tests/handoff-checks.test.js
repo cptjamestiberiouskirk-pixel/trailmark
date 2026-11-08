@@ -3495,6 +3495,9 @@ test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the la
   const s = sandbox();
   s.write('# H\n- state\n');
   s.g('commit', '-q', '--allow-empty', '-m', 'by a script');
+  // The sweep reads up to the current whole second: past it, this commit is
+  // one the sweep would log if the lookup below came back empty.
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1100);
   const count = path.join(s.base, 'real-count.txt');
   const spy = path.join(s.base, 'real-spy.js');
   fs.writeFileSync(spy, `const fs=require('fs');let n=0;const r=fs.realpathSync.native;fs.realpathSync.native=function(){n++;return r.apply(this,arguments)};process.on('exit',()=>fs.writeFileSync(${JSON.stringify(count)},String(n)));`);
@@ -3506,7 +3509,7 @@ test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the la
   // sweep starts past the commit above, so the commit isn't "found".
   swept[s.repo] = now + 60000;
   S.updateState(s.memdir, SA, (state, rec) => { rec.start = now - 60000; rec.home = s.repo; rec.swept = swept; rec.commitDirsAt = joined; rec.commitDirs = dirs; });
-  const r = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, NODE_OPTIONS: `--require ${spy}` }, input: JSON.stringify({ cwd: s.repo, source: 'resume', session_id: SA }), encoding: 'utf8', timeout: 120000 });
+  const r = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, NODE_OPTIONS: `--require ${JSON.stringify(spy)}` }, input: JSON.stringify({ cwd: s.repo, source: 'resume', session_id: SA }), encoding: 'utf8', timeout: 120000 });
   assert.strictEqual(r.status, 0, String(r.stderr).slice(0, 500));
   const calls = Number(fs.readFileSync(count, 'utf8'));
   assert.ok(calls < 2000, `${calls} real-path calls`);

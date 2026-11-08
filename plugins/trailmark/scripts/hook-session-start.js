@@ -50,7 +50,7 @@ guard(() => {
   // which doesn't go through usablePath, so a path it refuses reaches them
   // as it is. Fixed text: the path itself is what can't be written here.
   if (!launcher) warn.push(`trailmark is installed in a folder whose path holds a character a shell can act on or that trailmark doesn't pass on, or is too long, so its skills' commands may fail or do something else. Install trailmark in a folder with a plain path`);
-  const listCmd =launcher ? `node "${launcher}" --copies --show-names` : `the --copies --show-names command of the trailmark.js in trailmark's install folder (its path isn't written here: it holds characters trailmark doesn't pass on, or is too long)`;
+  const listCmd = launcher ? `node "${launcher}" --copies --show-names` : `the --copies --show-names command of the trailmark.js in trailmark's install folder (its path isn't written here: it holds characters trailmark doesn't pass on, or is too long)`;
   // What --copies --show-names prints is folder names from disk, which
   // whoever can write to a plugin cache chose. Only the warning, which the
   // user reads, gives that command. The note gives plain --copies, which
