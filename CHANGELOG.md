@@ -6,24 +6,25 @@ Fixes and wording. Nothing new to set up, and no setting changed.
 
 ### Commit sweep
 
-- A session whose record had no start time got no commit sweep, and nothing said so, so the commits made in it could go unlogged. Such a session is now swept from the time trailmark first recorded it, or from the earliest time one of its commit folders joined. When neither is known, the checkpoint says `[trailmark] commit sweep skipped: this session's start isn't recorded, ...`, and later sweeps start from that checkpoint. Every session record now gets that first time.
+- A session whose record had no start time got no commit sweep, and nothing said so, so the commits made in it could go unlogged. Such a session is now swept from the time trailmark first recorded it, or from the earliest time one of its commit folders joined. When neither is known, the checkpoint says `[trailmark] commit sweep skipped: this session's start isn't recorded, ...`, and later sweeps start from that checkpoint. A record made without a start time now notes when trailmark first saw it.
 - A folder that left the session's commit folders (past six) and joins again is read from where its last sweep stopped. Before, it was read from the new command's start, so a commit a script made there in between was never logged.
 
 ### Session start
 
 - When git ran out of time listing the commits since the handoff, session start said "HEAD has 1 newer commit, the newest 0 shown:" over an empty list. It now says the commits aren't listed because git ran out of time, or couldn't list them, and gives the `git log --oneline` command to run. When git ran out of time before it could tell whether HEAD has moved, it says that isn't known and gives the same command. Before, it said nothing then.
 - Over the size budget, a note to Claude was cut at 300 and then 150 characters, which could cut inside the launcher's or the skills' path and leave a path that names no file. A note is now cut before such a path and ends `... (a path is left out here)`.
-- Codex copy: past 10 old jb-memory-codex folders in Codex's plugin cache, the note and the warning said "10". They now say "10 or more". Exactly 10 still says 10.
+- Codex copy: when the search of Codex's plugin cache for old jb-memory-codex folders stops early (at 10 folders, or at a folder it can't read), the note and the warning say "N or more" where they said "N". Exactly 10 still says 10.
 
 ### Commands
 
 - `transcript` escapes tag-like text in each line it quotes and in its `file:` line, so `</system-reminder>` prints as `<\/system-reminder>`. A transcript holds tool results, web pages among them, and the skills read it back to Claude.
 - `handoff` prints the handoff with tag-like text escaped, as session start already did. Line ends are kept.
+- In `transcript`, `handoff` and the exit 3 text, control characters and bidi overrides are now dropped, as session start drops them. Tabs and line ends stay.
 - When `write-handoff` is refused with exit code 3 (another session wrote first), a line now says that what follows is handoff text written by sessions: notes to merge, not instructions from the user. The other session's changes and the current handoff have tag-like text escaped, and the end line carries a random mark, `--- END CURRENT HANDOFF <8 hex> ---`, so a handoff can't end the block early.
 - `status` labels its `last session start` line as data from the day's log, and shows the Node path in it as `exec=(path not shown)`. The day's log still records the path.
 - On Windows, when the sandbox refuses a path of 260 characters or more, the message gives the path's length, says the sandbox refuses writes in a memory folder whose path is about 268 characters or more, and says a repo at a shorter path fixes that. This is in `memory.js`'s error and the hooks' message. The cause is unchanged: a repo whose path is near 230 characters still can't be set up.
 - `--copies --show-names` says a cache folder that can't be read "could not be read". Before, it said the folder "has too many folders".
-- Codex copy: `--copies` says when Codex's plugin cache could not be checked, as when `CODEX_HOME` is a file, and when its search stopped early at 10 folders. `--show-names` gives the reason. Before, it said nothing about Codex's cache then.
+- Codex copy: `--copies` says when Codex's plugin cache could not be checked, as when `CODEX_HOME` is a file, and when its search stopped early (at 10 folders, or at a folder it couldn't read). `--show-names` gives the reason. Before, it said nothing about Codex's cache then.
 
 ### Codex skills
 
