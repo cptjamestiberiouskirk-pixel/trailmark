@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.6.2 (Trailmark and trailmark-codex): 2026-11-08
+
+Fixes and wording. Nothing new to set up, and no setting changed.
+
+### Session start
+
+- A crafted session state with folder maps far larger than trailmark ever writes (130,000 entries) no longer gets session start stopped at its time limit. A map past what trailmark's own writes leave is now matched by folder name in one pass, and no more commit folders are read than those writes leave (six). At or under those sizes nothing changes. The same sweep runs at a checkpoint. Both copies.
+- Claude Code copy: session start now warns when trailmark's own install path can't be written safely: `trailmark is installed in a folder whose path holds a character a shell can act on or that trailmark doesn't pass on, or is too long, so its skills' commands may fail or do something else. Install trailmark in a folder with a plain path`. It is only a warning: the skills still take the path as it is from Claude Code's `${CLAUDE_PLUGIN_ROOT}` until you install in a plain path (MANUAL.md, section 13). The Codex copy's session-start note already says when its path isn't written.
+- A file where the `plugins` folder or its `cache` folder should be now counts as nothing to search, on every system. Before, the check for other copies could say the cache "could not be read". Both copies.
+
+### Commit sweep
+
+- A folder that joins a session's commit folders again is read from where its last sweep stopped as long as its entry is kept, and a session now keeps 64 such entries, up from 12. The limit moved and is still there: past 64 folders in one session the entry swept longest ago goes, and that folder, if it joins again, is read from the new command's start, so a commit made there in between can go unlogged. Both copies.
+
+### Context watch (Claude Code only)
+
+- Two context-watch hooks running at once (parallel tool calls) could both send a first checkpoint request. The second now finds the first's record and doesn't ask again. This covers the first request only, not a repeat after a compaction or after the context shrinks.
+
+### Setup
+
+- On Windows, where a drive has no hard links (FAT, some network drives), a junction planted at the handoff's or the marker's name had its missing target made as a folder outside the memory folder, and setup stopped with EISDIR. Anything at either name, a link included, is now left alone, as on a drive with hard links. A link swapped in between that look and the write is still followed (SECURITY.md, "Links in the memory folder"). Linux and macOS already refused such a link. Both copies.
+
+### Codex skills (Codex copy only)
+
+- When a session has no session-start note but a note from a trailmark hook says trailmark's path isn't written, the six skills now tell Codex to stop and tell you, and not to work the path out. A command's output or quoted text doesn't count as such a note.
+- The skills' launcher paragraph names the session-start note by how it starts, `[trailmark] ChatGPT/Codex copy of trailmark.`, at its first mention.
+- `tm-memory-setup`'s hook check (step 4) counts a session-start note that says trailmark's path isn't written as the hooks having run.
+
+### Codex plugin page (Codex copy only)
+
+- Both Codex manifests now give the plugin's website in `interface.websiteURL`, the field Codex's plugin spec names for it. `homepage` stays as it was.
+
+### Docs
+
+- MANUAL.md section 13 has a row for the new install-path warning.
+
+### Tests
+
+- Each fix in the code has a test that fails on the code before it. The setup test does so on Windows only, where the old code went wrong.
+
 ## 0.6.1 (Trailmark and trailmark-codex): 2026-11-08
 
 Fixes and wording. Nothing new to set up, and no setting changed.
