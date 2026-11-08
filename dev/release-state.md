@@ -1,6 +1,23 @@
 # Release state
 
-Last updated 2026-11-07. 0.6.0 is published (v0.6.0 at cf06986, under 0.6.0). Since then main has PR #10, faster local checks (merge commit 5566010, 19:13:39Z), and PR #12, PLAYBOOK.md and LESSONS.md (merge commit 208d5fb, 21:09:44Z). Open: the load-proof test fixes ("Load-proof tests", PR #14).
+Last updated 2026-11-07. 0.6.0 is published (v0.6.0 at cf06986, under 0.6.0). Since then main has PR #10, faster local checks (merge commit 5566010, 19:13:39Z), PR #12, PLAYBOOK.md and LESSONS.md (merge commit 208d5fb, 21:09:44Z), PR #11, the faster review process (merge commit 5579e63), and PR #14, the load-proof tests (merge commit a09ee5f). No PR is open. Next: the next version's scope, approved below.
+
+## Next version: approved scope (2026-11-07)
+
+The triage is `dev/next-version-triage.md` (commit 5f3b444, branch `claude/next-version-triage-b0d9a9`, written on a09ee5f). The user approved its core scope on 2026-11-07, relayed by the review-strategy session. Their words, to "Approve the triage's core scope as proposed?": "Approve as proposed". That is all four batches, not the tighter cut. The approval covers the scope only: every push, PR, merge, tag and publish still needs the user's own word.
+
+| Batch | Items | Review rows | Files it owns |
+|---|---|---|---|
+| F | F1 to F8 (RS:647, 646, 634, 645, 635, 672, 709, and the comment riders RS:696, 698, 708) | Fable and Opus | `store.js`, `trailmark.js`, `health.js` (shared), `handoff-checks.test.js` (shared), in both copies |
+| O | O1 to O6 (RS:666, 664, 665, 662 with 668, 642, 703) | Opus | `memory.js`, `hookio.js` (shared), maybe `hook-session-start.js`, in both copies; its tests in a test file batch F doesn't touch |
+| S | S1 to S5 (RS:652, the docs half of 703, 696 with 699, 673, and the release's CHANGELOG section and version bumps) | Sonnet, plus Opus for S1 | the six Codex `SKILL.md`, `docs/how-it-works.md`, `CHANGELOG.md`, `MANUAL.md`, the three `plugin.json` |
+| D | D1 to D3 (RS:707, 663, 705) | Opus | `dev/release-check.sh`; its own PR, ships nothing |
+
+Not in the scope:
+
+- O7 (RS:637, the lost repeat ask) was optional and stays deferred: the user said "Keep it deferred" during 0.6.0 and has not pulled it in.
+- The flagged-serious items the triage keeps deferred stay deferred: RS:651 (the Claude Code skills take `${CLAUDE_PLUGIN_ROOT}` without the path check) and RS:658 (`createOnce` follows a planted junction on volumes without hard links).
+- Everything in section 2 of the triage, with the reasons given there.
 
 ## Load-proof tests (2026-11-07, branch `claude/load-proof-tests` off 5566010)
 
