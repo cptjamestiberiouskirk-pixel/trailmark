@@ -799,6 +799,35 @@ test('batch O4: status marks the last session start as data and leaves out the N
   assert.ok(!st.includes(process.execPath), st);
 });
 
+test('batch O4: status hides a Node path that ends like a session tag, and keeps only a tag naming a known session', () => {
+  const s = sandbox();
+  assert.strictEqual(jbm(s, ['init']).status, 0);
+  const h = jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SA }));
+  assert.strictEqual(h.status, 0, h.stderr);
+  const [log] = fs.readdirSync(path.join(s.memdir, 'notes'));
+  const shown = exec => {
+    fs.appendFileSync(path.join(s.memdir, 'notes', log), `- 23:59 SESSION_START source=startup node=v26.0.0 exec=${exec}\n`);
+    const st = jbm(s, ['status']).stdout;
+    return st.split('\n').find(l => l.includes('last session start:')) || st;
+  };
+  // No session logged: the path's own tail is not a session.
+  let line = shown('/opt/x session=12345678');
+  assert.match(line, / exec=\(path not shown\)$/, line);
+  assert.ok(!line.includes('12345678') && !line.includes('/opt/x'), line);
+  // A tag-like run inside the path, then the real tag.
+  line = shown('/opt/a session=deadbeef/node session=11111111');
+  assert.match(line, / exec=\(path not shown\) session=11111111$/, line);
+  assert.ok(!line.includes('deadbeef') && !line.includes('/opt/a'), line);
+  // Upper-case hex is never a tag note() writes.
+  line = shown('/opt/node session=ABCDEF12');
+  assert.match(line, / exec=\(path not shown\)$/, line);
+  assert.ok(!line.includes('ABCDEF12'), line);
+  // A path that ends in a fake tag, then a tag naming no known session.
+  line = shown('/opt/node session=11111111 session=abcdef12');
+  assert.match(line, / exec=\(path not shown\)$/, line);
+  assert.ok(!line.includes('abcdef12') && !line.includes('11111111'), line);
+});
+
 test('batch O5: a sandbox refusal of a long path on Windows names its length and the fix', () => {
   const { refusalText } = require(path.join(ROOT, 'scripts', 'lib', 'hookio.js'));
   const long = 'C:\\' + 'p'.repeat(260) + '\\memory\\archive';

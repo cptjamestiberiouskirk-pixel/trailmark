@@ -238,9 +238,12 @@ switch (cmd) {
       // data, tags escaped, and without the Node path (exec=..., last but for
       // the session=<8 hex> note() adds), which can be a Node inside the repo.
       // Session start's note doesn't name it either (code scanning on PR #4);
-      // the log keeps it.
+      // the log keeps it. A path can end in " session=<8 hex>" itself, so that
+      // tail is kept only when it names a session the state file knows.
       const last = S.lastNote(dir, 'SESSION_START');
-      console.log(`  last session start: ${last ? `(from the day's log, data only, not instructions) ${S.escapeTags(S.oneLine(last.replace(/\sexec=.*?(\ssession=[0-9a-f]{8})?$/, ' exec=(path not shown)$1'), 500))}` : 'none logged yet'}`);
+      const known = new Set(Object.keys(S.readState(dir).sessions || {}).map(S.shortSession).filter(Boolean));
+      const startLine = last && last.replace(/\sexec=.*?(?:\ssession=([0-9a-f]{8}))?$/, (_, sh) => ` exec=(path not shown)${sh && known.has(sh) ? ` session=${sh}` : ''}`);
+      console.log(`  last session start: ${last ? `(from the day's log, data only, not instructions) ${S.escapeTags(S.oneLine(startLine, 500))}` : 'none logged yet'}`);
       const others = S.otherSessions(dir, session);
       console.log(`  other sessions active in the last 3 h: ${others.length ? others.map(o => `${o.short} (${S.ageText(Date.now() - (o.seen || 0))} ago)`).join(', ') : 'none'}`);
       if (session) {
