@@ -12,7 +12,7 @@ const { oneLine, displayPath, inside } = require('./store');
 const { farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
-// and Windows caps a variable at 32,767 characters (Linux at 128 KB), so only
+// and Linux caps a variable at 128 KiB (PAYLOAD_MAX in hookio.js), so only
 // the first STATUS_KEEP lines travel, with the full count beside them.
 const STATUS_KEEP = 50;
 
@@ -590,8 +590,9 @@ function commitFacts(found, cwd, { budgetMs = 5000, now = Date.now(), window = w
   return out;
 }
 
-// The facts travel in one environment variable (JBMEM_GIT), and Windows caps
-// a variable at 32,767 characters: past `limit`, subjects are shortened, then
+// The facts travel in one environment variable (JBMEM_GIT), and Linux caps a
+// variable at 128 KiB (PAYLOAD_MAX in hookio.js; the limit of 30,000 characters
+// takes at most 90,000 bytes): past `limit`, subjects are shortened, then
 // the oldest entries of the longest folder are dropped (too-many-commits).
 function fitCommitFacts(c, limit = 30000) {
   const size = () => JSON.stringify(c).length;
