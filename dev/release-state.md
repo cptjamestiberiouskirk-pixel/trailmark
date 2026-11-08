@@ -10,6 +10,10 @@ The CHANGELOG section was written from the three batch PRs' diffs (`gh pr diff 1
 
 Also on this branch: ebdac09 cherry-picked (LESSONS and PLAYBOOK: one session owns each step that starts sessions), the lesson "Judged a CI cancel too early", and the top line of this file.
 
+Review round 1 (Sonnet docs, `git diff 34add12..64209b5` against the three batch branches' code): four findings, each CONFIRMED here in the branch code and fixed in 81e851a. "Every session record now gets that first time" was wrong: `first` is set only on a record with no `start` (F's `store.js:699`). The Codex "10 or more" also comes from a folder the search can't read, not only the 10-folder stop (F's `health.js` `oldCodexCopies`, Codex `hook-session-start.js` `oldMore`). The same holds for Codex `--copies`. Left out: `transcript`, `handoff` and exit 3 now drop control characters and bidi overrides through `escapeTags` (O's `store.js:1924`). Checked and fine by the reviewer: the other claims, the version (no shipped file names 0.6.0 as current), section numbers 13 and 15, no dashes.
+
+Checks: `--sums --quick` at 64209b5 and again at 81e851a: all PASS, handoff-checks 158/246 with 88 skipped (the baseline).
+
 ### 0.6.1 release checklist
 
 1. Version bumps to 0.6.1 (above). Done on this branch.
