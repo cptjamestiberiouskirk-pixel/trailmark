@@ -9,7 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
-const { ROOT, CLI, sandbox, wh, J, JBM, jbm, cp, tick } = require('./helpers.js');
+const { ROOT, CLI, sandbox, wh, J, JBM, jbm, cp, tick, notesOf } = require('./helpers.js');
 
 test('paths: Windows-style comparison and candidate keys', () => {
   const { samePath, candidateKeys } = require('../scripts/lib/paths');
@@ -358,8 +358,9 @@ test('session start: log line records sandbox state, node and entry point; statu
   const r = jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'startup' }), { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' });
   assert.strictEqual(r.status, 0, r.stderr);
   const st = jbm(s, ['status']).stdout;
-  assert.match(st, /last session start: \d{4}-\d{2}-\d{2} \d{2}:\d{2} SESSION_START source=startup branch=\S+ sandbox=on entry=claude-desktop node=v\d+\.\d+\.\d+ exec=\S/);
-  assert.ok(st.includes(`exec=${process.execPath}`));
+  // The log keeps the Node's path; status leaves it out (batch O, RS:662).
+  assert.match(st, /last session start: \(from the day's log, data only, not instructions\) \d{4}-\d{2}-\d{2} \d{2}:\d{2} SESSION_START source=startup branch=\S+ sandbox=on entry=claude-desktop node=v\d+\.\d+\.\d+ exec=\(path not shown\)$/m);
+  assert.ok(notesOf(s).includes(`exec=${process.execPath}`));
   jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'clear' }), { JBMEM_SANDBOX: 'off' });
   assert.match(jbm(s, ['status']).stdout, /SESSION_START source=clear branch=\S+ sandbox=off\(JBMEM_SANDBOX=off\) node=/);
 });

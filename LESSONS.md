@@ -23,6 +23,13 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - Rule going forward: don't edit a script while a run of it is going. Wait for the run, or run a copy. A run that overlapped an edit doesn't count as a check: rerun it.
 - Status: open
 
+## 2026-11-07: A commit went in after a failed check (batch O)
+
+- What went wrong: `release-check.sh --sums --quick 2>&1 | tail -9 && git commit ...` committed 8f7894c although the check printed FAIL (8 handoff-checks tests, the listed commit-list load sign; they passed 10 of 10 when rerun with `--only`). In the same batch the first `--sums` wrote `SHA256SUMS` in the locale's order, so 48 lines changed for 8 files (the review-strategy session caught it; batch D's D4).
+- Why: a pipeline's status is its last command's, so `tail` hid the check's exit code. And `release-check.sh` sorts the list with a plain `sort`.
+- Rule going forward: never chain a commit after a check piped into `tail` or `head`. Run the check, read its summary, then commit. D4 has landed (PR #17 sorts with `LC_ALL=C`); still check `git diff --stat -- SHA256SUMS` against the files you changed.
+- Status: open
+
 ## 2026-11-07: Escapes in a test's source didn't survive the edit (batch S)
 
 - What went wrong: S1's new test in `codex.test.js` was written with `\u201c`, `\u202e` and similar escapes in an Edit call, and the file got the raw characters, a bidi override among them (Opus round 1, finding 5). A mutation probe's `sed` pattern with `\\u201e` lost its backslashes in a Bash heredoc, so the edit never applied and the test "passed" the mutation.
