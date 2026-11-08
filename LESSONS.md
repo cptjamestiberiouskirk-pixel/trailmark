@@ -14,6 +14,27 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-08: Sessions that stopped or left the sidebar looked like lost work
+
+- What went wrong: batch H's session ended on "Request timed out" during a review round, with its reviewer's report lost. Later it and batch W's session left the sidebar when their PRs merged, which looked like lost work. Separately, the coordinating session set auto-merge on PR 24 without telling batch H's session, which then questioned it.
+- Why: no step said who resumes a session that ends on an error. The account setting "Auto-archive sessions when their pull request closes" was on. Nothing said to tell a branch's owner about a change made to its PR.
+- Rule going forward: the session that started a session resumes it at once when it ends on an error, after checking that its branch and worktree are intact. A review whose report never arrived is run again, and sessions commit before a long review. Whoever changes another session's PR tells that session in the same step.
+- Status: promoted to PLAYBOOK
+
+## 2026-11-08: A read-only reviewer ran the sums script in the owner's worktree
+
+- What went wrong: the 0.6.2 docs reviewer started `dev/release-check.sh --sums --quick`, which rewrites `SHA256SUMS`, in the worktree it was told not to change. It stopped the run itself, and nothing was left changed. Its finding 1 also did not reproduce: it took Windows' ENOENT for a path under a file as the answer for the file itself.
+- Why: "read-only" named no commands, and `--sums` is the habit the project's docs teach. The finding came from a code comment, with no run behind it.
+- Rule going forward: a review brief that says read-only names `dev/release-check.sh` as off limits. Reproduce a reviewer's finding before changing text for it, also when it is labeled CONFIRMED.
+- Status: open
+
+## 2026-11-08: A batch's changelog notes said more than the code does
+
+- What went wrong: writing 0.6.2's CHANGELOG, two batch H notes didn't match the code. RS:658's note said setup "no longer writes through a link", while the batch's own re-check found the text was written nowhere and the change matters on Windows only. RS:638's note read as covering two hooks in general, while the fix covers only a record read with no `seenAt`.
+- Why: the notes were written as a summary of the fixes, before the reviews narrowed what each one does.
+- Rule going forward: write a CHANGELOG line from the merged code. A batch's note is a list of what to cover, not text to copy.
+- Status: open
+
 ## 2026-11-08: A reviewer died on an API timeout and left its scratch worktree
 
 - What went wrong: batch H's round 2 reviewer ended on "Request timed out" with no report. Its scratch worktree stayed registered in `git worktree list`.
