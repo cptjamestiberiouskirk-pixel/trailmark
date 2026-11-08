@@ -180,12 +180,10 @@ const copiesTest = (fn) => (t) => {
 // git runs out of that time, the text says "git ran out of time" (before the
 // next version it left the section out, or read "the newest 0 shown"). A
 // session start with that sign is made again, three times in all. When all
-// three ran out, the same lookup runs here with 30 s, as a control: a fault
-// that makes git fail or hang fails it, and one that leaves the launcher too
-// little time shows as a control that takes under three quarters of the
-// launcher's 1.2 s (the lookup took 300 to 744 ms on a machine at rest, so a
-// quarter let a forced 0 ms budget in the launcher skip). Both fail the
-// test; otherwise it is skipped with the reason. A text
+// three ran out, each must show in the launcher's JBMEM_SHOW_SINCE line that
+// time really ran out (ranOutOfTime, below), and the same lookup runs here
+// with 30 s, as a control: a fault that makes git fail or hang fails it.
+// Either fails the test; otherwise it is skipped with the reason. A text
 // without the sign is returned as it is, so a fault that loses the section
 // any other way fails at once.
 const SINCE_LATE = /git ran out of time/;
