@@ -705,6 +705,23 @@ test('git pointers: a config path value longer than any path is refused without 
     // either, and not called a network path.
     assert.strictEqual(farGitConfig(repoWith(`${key}-edge`, section, key, 'a'.repeat(32767))), 'odd-config-path', `${key}, 32,767 letters`);
   }
+  // A value over the limit is refused before it is joined to a folder: the
+  // join normalizes the whole text, which took seconds on a megabyte of parts
+  // ending in b/../ pairs. Counted, not timed: no path function is handed a
+  // text over the limit. (A repo of its own each time: an answer is kept.)
+  const watched = ['resolve', 'join', 'parse', 'dirname', 'isAbsolute'];
+  const real = watched.map(f => path[f]);
+  for (const [section, key] of [['core', 'attributesFile'], ['core', 'worktree'], ['include', 'path'], ['lfs', 'storage']]) {
+    for (const [name, value] of [['pairs', 'a/'.repeat(30000) + 'b/../'.repeat(2000) + 'x'], ['home', '~/' + 'a/'.repeat(30000) + 'x']]) {
+      const r = repoWith(`${key}-${name}`, section, key, value);
+      let longest = 0;
+      watched.forEach((f, i) => { path[f] = (...a) => { for (const x of a) if (typeof x === 'string' && x.length > longest) longest = x.length; return real[i](...a); }; });
+      let why;
+      try { why = farGitConfig(r); } finally { watched.forEach((f, i) => { path[f] = real[i]; }); }
+      assert.strictEqual(why, 'odd-config-path', `${key}, ${name}`);
+      assert.ok(longest <= 32767, `${key}, ${name}: a path function was handed ${longest} characters`);
+    }
+  }
   // The walk itself, for callers with a path from somewhere else (a
   // command's text): refused, not thrown.
   assert.strictEqual(localPath(path.join(base, 'a'.repeat(40000))), null);

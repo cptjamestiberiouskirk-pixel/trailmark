@@ -266,7 +266,11 @@ function rawJoin(a, b) {
 // Windows maps them to other characters), a path this check can't name.
 // The look-behind keeps the trim linear: a config value can decode to
 // millions of line breaks, and without it each one starts a new scan.
+// A text longer than MAX_PATH_TEXT is refused here, before it is joined to a
+// folder: the join itself normalizes the whole text, and that took seconds
+// on a megabyte of parts ending in b/../ pairs.
 function exactPointer(t) {
+  if (String(t).length > MAX_PATH_TEXT) return null;
   const v = String(t).replace(/(?<![\r\n])[\r\n]+$/, '');
   return /^\s|\s$|[\r\n\0\uFFFD]/.test(v) ? null : v;
 }

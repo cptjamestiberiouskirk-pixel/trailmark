@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: A line no test needed was removed, and it was holding time
+
+- What went wrong: a mutation run showed that the length limit in `exactPointer` could go without any test failing, so it was removed as redundant. The next review found an input that then took 6 s here and 42 s on Linux: the line had kept megabytes of text away from `path.resolve`.
+- Why: every test looked at the answer, and the answer was the same with and without the line. What the line saved was time, which no test measured.
+- Rule going forward: a line that no test needs gets a look at what else it does (time, memory, what is handed to the next function) before it is removed, and if it stays it gets an assertion of its own. For time, count the work (calls, sizes) where that is possible, not seconds.
+- Status: open
 ## 2026-11-09: A test's expected count was worked out by hand and was one off
 
 - What went wrong: the RS-F-codexwalk test expected the search to look in 45 folders. It looks in 44, so the "one fewer" case passed where it should have been cut short, and the test failed with the fix in place.
