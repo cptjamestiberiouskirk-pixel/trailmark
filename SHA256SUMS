@@ -64,7 +64,7 @@ c4639be388dedef69e648ff60ba7996d8007f34dc3c91fdc2395ba4b10c0bfaf *./plugins/trai
 eef454a2985dca988a9dc4c51ef6a96e9ec0ff349a66347d1835d182fe3ee8c0 *./plugins/trailmark/docs/session-start.png
 712177787f01e45d53b9ee69a9ffd8dc200752f693e2808c1f499c57a9746def *./plugins/trailmark/hooks/hooks.json
 f766e56215274b399e7f2dce156a5e5fbfbdf197ffd54e903bcef41937c6a06f *./plugins/trailmark/scripts/hook-commit-start.js
-7f89c48a229ca7698cfca38e9b05e8b25fb4414940e7a9bf3e6de0dacd2fb680 *./plugins/trailmark/scripts/hook-context-watch.js
+4f126aabe574bac2eb77f0f6b03de17b40e1c5917727e3c03e889f6c1d4390a1 *./plugins/trailmark/scripts/hook-context-watch.js
 70be822e50bf2be86b24703f29f5873f0dd4fc378580eb3b644fad4afc008bcb *./plugins/trailmark/scripts/hook-milestone.js
 831b1615a07d44cd93379d9200d369456178738bc302cbcebc575203bb62a3ae *./plugins/trailmark/scripts/hook-precompact.js
 b9088b3fb5b85c987e0bba0bccc417c7f4b52be3de48ac3337380138b8d32690 *./plugins/trailmark/scripts/hook-session-start.js
