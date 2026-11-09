@@ -54,6 +54,12 @@ From batch W (below): RS-W-shortnote (CONFIRMED by Opus, not re-run), RS-W-gitca
 
 From batch F (below): RS-F-ninenotes (CONFIRMED) and RS-F-codexwalk (INFERRED by Fable). Older lists stand as they were: "Deferred to the release after this one" in batch S, "Deferred to the release after" in batch O, section 2 of `dev/next-version-triage.md`, and O7 (RS:637), which the user said to keep deferred.
 
+From the draft-release job (`dev/release-draft.sh`, seen on 1282cba, development tooling outside the zip). Review round 4 by Opus, on the diff since round 3, found nothing that needs a fix, and test R3 fails on round 3's script and passes on 1282cba (CONFIRMED by Opus, not re-run):
+
+- RS-D-oddanswer, CONFIRMED by Opus, not re-run; that GitHub can give this answer is HYPOTHESIZED, since the API should always return a boolean. Line 90 treats an empty, `null` or `TRUE` answer as "not a draft". The job stays green, nothing is deleted and the old draft stays until the next push. Repro: a fake `gh` that prints that output with exit 0 for the `--jq .draft` call.
+- RS-D-gonedraft, INFERRED by Opus. An old draft deleted by hand during the upload gives a 404 at line 89, so the job goes red with the new draft in place. A rerun finishes the job, by the code. Repro: a fake `gh` that exits 1 there; real `gh`'s exit code is untested.
+- RS-D-publishgap, INFERRED by Opus, not reproduced. A publish in the one API call between lines 89 and 91 could still delete a published release. Repro: none, it needs a publish inside that call.
+
 ### Review round 1 (docs, `git diff 14ff243..dc8cacc`, 2026-11-08)
 
 Sonnet, a fresh subagent. Report: `release-062/round1-docs.md` in the notes folder. Nothing CONFIRMED wrong in a shipped claim about the code. Checked and fine by the reviewer (CONFIRMED by Sonnet, not re-run): every other CHANGELOG claim and its copy label against the merged code, the MANUAL row's quote, section references, how-it-works and SECURITY left as they were, every batch H and W deferred item listed, style, versions.
