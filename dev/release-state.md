@@ -44,9 +44,7 @@ Docs. MANUAL.md section 13 has a row for the RS:651 warning, quoting `hook-sessi
 
 The user still sees every one. Each keeps its label, commit and repro in the section named. None is pulled into 0.6.2.
 
-**Flagged:**
-
-- **RS-H-addcommitdirs**, CONFIRMED by Fable, not re-run (seen on 047dab7, older code). The same class as RS-F-sinceFor, which 0.6.2 fixes, but in the writer, and 0.6.2 doesn't fix this one. A crafted state file of 3,000 entries of each kind takes 8.2 s under the lock in `hook-milestone.js`, and 20,000 run past 180 s, so the 9 s hook limit kills it holding `.jbmem.lock`. It needs a commit command in another folder or sent to the background. The CHANGELOG's line on crafted state is about session start only, for this reason. Repro and fix idea: "Deferred from batch H" below.
+RS-H-addcommitdirs, flagged here for 0.6.2, is fixed on `claude/rs-h-addcommitdirs` for the next version (section above). 0.6.2's CHANGELOG line on crafted state is about session start only, for this reason.
 
 From batch H (below): RS-H-capdeep (CONFIRMED by Fable for one start, not re-run), RS-H-samesince (CONFIRMED by Opus with `decide()`, not re-run; that parallel hooks reach it is INFERRED), RS-F2b-limit (by design), and the rest of RS:651 (the skills still take the path unchecked; MANUAL.md's row is now written).
 
@@ -59,6 +57,13 @@ From the draft-release job (`dev/release-draft.sh`, seen on 1282cba, development
 - RS-D-oddanswer, CONFIRMED by Opus, not re-run; that GitHub can give this answer is HYPOTHESIZED, since the API should always return a boolean. Line 90 treats an empty, `null` or `TRUE` answer as "not a draft". The job stays green, nothing is deleted and the old draft stays until the next push. Repro: a fake `gh` that prints that output with exit 0 for the `--jq .draft` call.
 - RS-D-gonedraft, INFERRED by Opus. An old draft deleted by hand during the upload gives a 404 at line 89, so the job goes red with the new draft in place. A rerun finishes the job, by the code. Repro: a fake `gh` that exits 1 there; real `gh`'s exit code is untested.
 - RS-D-publishgap, INFERRED by Opus, not reproduced. A publish in the one API call between lines 89 and 91 could still delete a published release. Repro: none, it needs a publish inside that call.
+
+From the RS-H-addcommitdirs reviews (seen on 121748d, older code, none in that diff):
+
+- RS-A-foundcommits, CONFIRMED by Fable, not re-run, and measured here: `logFoundCommits` (`store.js`) still searches `swept` once per folder read, at most 12, under the lock. It is linear: 130,000 keys in an 18 MB file take 1.4 s. That it needs about 1M keys (a 50 MB file) to reach the hook limit is INFERRED by Fable. Repro: a record with N `swept` keys, then `logFoundCommits` with 12 `read` folders.
+- RS-A-migrate, CONFIRMED by Opus, not re-run, that `tools/migrate-from-jb-memory.js:287` keeps the old regex. A hang there is HYPOTHESIZED: its input includes marketplace paths from config, and it wasn't run. Repro: a config path with a long run of backslashes, on Linux.
+- RS-A-displaypath, CONFIRMED by Opus, not re-run: `displayPath`'s `/\/+$/` (`store.js`, both copies) is quadratic, 35.8 s on 200,000 slashes followed by a character. Unreachable is INFERRED: the callers checked pass resolved paths or under 4,096 characters. Repro: `displayPath('/x' + '/'.repeat(200000) + 'y')`.
+- RS-A-spread, CONFIRMED by Fable, not re-run, in isolation on Linux: `sameFolder('/x' + '\\/'.repeat(2e6), '/y')` throws RangeError (`gitbin.js:285` spreads every segment). Reachable is HYPOTHESIZED: callers cap the length or need an existing folder, and `gitfacts.js:511` on a command-text site is the one path not bounded.
 
 ### Review round 1 (docs, `git diff 14ff243..dc8cacc`, 2026-11-08)
 
@@ -114,7 +119,7 @@ Opus (regression), a fresh subagent; the diff touches no security-row code. The 
 
 ### Deferred from batch H
 
-- RS-H-addcommitdirs, CONFIRMED by Fable, not re-run (seen on 047dab7; older, `store.js addCommitDirs` unchanged). Flagged: the same class as RS-F-sinceFor, in the writer. `done()` walks every `swept` key for each `commitDirs` candidate per eviction, so 3,000 crafted entries of each take 8.2 s under the lock in `hook-milestone.js`, and 20,000 run past 180 s; the 9 s hook limit then kills it holding `.jbmem.lock`. Needs a commit command in another folder or sent to the background. Fix idea: cut `list` to `MAX_COMMIT_DIRS` plus the added folders before the loop, and index `swept` by `pathKey`. Repro: `node probe-addcommitdirs.js <pluginRoot> 3000` (notes folder, `batch-h/review1-security-probes/`).
+- RS-H-addcommitdirs, fixed on `claude/rs-h-addcommitdirs` (the section at the top). Was: CONFIRMED by Fable, not re-run (seen on 047dab7; older, `store.js addCommitDirs` unchanged). Flagged: the same class as RS-F-sinceFor, in the writer. `done()` walks every `swept` key for each `commitDirs` candidate per eviction, so 3,000 crafted entries of each take 8.2 s under the lock in `hook-milestone.js`, and 20,000 run past 180 s; the 9 s hook limit then kills it holding `.jbmem.lock`. Needs a commit command in another folder or sent to the background. Fix idea: cut `list` to `MAX_COMMIT_DIRS` plus the added folders before the loop, and index `swept` by `pathKey`. Repro: `node probe-addcommitdirs.js <pluginRoot> 3000` (notes folder, `batch-h/review1-security-probes/`).
 - RS-H-capdeep, CONFIRMED by Fable for one start, not re-run, INFERRED for every start (seen on 047dab7; the real-path walk is older). 64 `swept` keys that are real folders 300 deep cost 3.9 s and 113,000 lstats, the sweep is skipped as out of time, and `swept` isn't rewritten when nothing was read, so each start repeats it with the "git was slow" warning. Inside the 10 s hook limit here, and it needs deep folders on disk. Repro: `node probe-sweep.js <pluginRoot> capdeep 300` (same folder).
 - RS-H-samesince, CONFIRMED by Opus with `decide()`, not re-run (seen on 047dab7; older logic). Two hooks that carry the same `since` (`reached:false`, `boundary` or a shrink) with the context still past the first step each reset and ask. This fix covers only RS:638's no-`since` shape. That parallel hooks reach it is INFERRED. Fix idea: the launcher passes the `seenAt` it read. Repro: `decide()` twice with `since: { reached: false }`, the second on the first's state.
 - RS-F2b-limit, by design here (047dab7): past 64 folders in one session the oldest `swept` entry goes, so RS-F2b's loss can still happen there. About 11 KB per session at that size (arithmetic, Opus).
