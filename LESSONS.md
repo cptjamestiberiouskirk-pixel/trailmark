@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: One edit in a batch failed and the commit in the same message still ran
+
+- What went wrong: of several parallel Edits to `dev/release-state.md`, one failed because its text sat mid-paragraph. The commit sent in the same message ran anyway, so d54c4e9 had references to a section that wasn't there. 9284d1a fixed it.
+- Why: calls sent together don't wait on each other, so nothing stopped the commit when an edit failed.
+- Rule going forward: send a commit in a later message than the edits it depends on, or have the commit command check for the edited text first.
+- Status: open
+
 ## 2026-11-09: A new assertion failed for the wrong reason and looked like a pass
 
 - What went wrong: the milestone test's new line used `S`, which that test's scope doesn't define. It failed on the old code with a ReferenceError, so "fails first" looked met until the list of failures was read. The check it was meant to add is a test gap, which passes on the old code.
