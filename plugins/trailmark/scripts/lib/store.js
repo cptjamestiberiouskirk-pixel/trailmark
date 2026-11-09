@@ -530,7 +530,8 @@ function visibleName(text, max = 600) {
 function displayPath(p, platform = process.platform) {
   let t = String(p || '');
   if (platform === 'win32') t = t.replace(/\\/g, '/').replace(/^([a-z]):/, (m, d) => d.toUpperCase() + ':');
-  if (t.length > 1 && !/^[A-Za-z]:\/$/.test(t)) t = t.replace(/\/+$/, '');
+  // The look-behind keeps a long run of slashes linear: see pathKey.
+  if (t.length > 1 && !/^[A-Za-z]:\/$/.test(t)) t = t.replace(/(?<!\/)\/+$/, '');
   t = t.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, '').replace(/\p{Cf}+/gu, '');
   t = t.replace(/%/g, '%25').replace(/"/g, '%22').replace(/\|/g, '%7C');
   return t.length > 160 ? '...' + t.slice(-157) : t;

@@ -3577,12 +3577,14 @@ test('paths: the end of a path is trimmed in linear time, whatever a crafted key
   const dir = path.resolve('/crafted', 'f');
   assert.strictEqual(pathKey(`${dir}\\\\`), pathKey(dir));
   assert.strictEqual(pathKey(`${dir}/`), pathKey(dir));
+  assert.strictEqual(S.displayPath('/a/b//'), '/a/b');
   const key = `'/x' + '\\\\'.repeat(400000) + 'y'`;
   const calls = {
     pathKey: `require(${lib('paths.js')}).pathKey(${key})`,
     sameFolder: `require(${lib('gitfacts.js')}).sameFolder(${key}, '/y')`,
     findGit: `require(${lib('gitbin.js')}).findGit({ env: { PATH: ${key} }, cwd: '/y', platform: 'linux', isExec: () => false, realpath: (p) => p })`,
     nodeInside: `require(${lib('health.js')}).nodeInside('/usr/bin/node', [${key}], 'linux')`,
+    displayPath: `require(${lib('store.js')}).displayPath('/x' + '/'.repeat(400000) + 'y')`,
   };
   for (const [name, code] of Object.entries(calls)) {
     const r = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 30000 });

@@ -59,6 +59,7 @@ function contextFacts() {
   if (!(out.tokens > 0) || !(out.base > 0) || !(out.win >= 100000) || out.win > 1000000) return null;
   const s = isObj(c.since) ? c.since : null;
   out.since = s ? { min: count(s.min), boundary: s.boundary === true, reached: s.reached === true } : null;
+  out.seenAt = when(c.seenAt);
   return out;
 }
 
@@ -80,8 +81,10 @@ function decide(prev, rec, ctx, cfg, now) {
   // The launcher passes `since` only when the record it read had a seenAt, so
   // a state that has one with no `since` here was saved after that read: two
   // hooks ran at once (parallel tool calls) and the other one asked. Its state
-  // stands, or the same first request would go out twice (RS:638).
-  const crossed = !ctx.since && when(w.seenAt) > 0;
+  // stands, or the same first request would go out twice (RS:638). A saved
+  // seenAt newer than the one the launcher read says the same when there is a
+  // `since`: it was measured from that older point (RS-H-samesince).
+  const crossed = ctx.since ? ctx.seenAt > 0 && when(w.seenAt) > ctx.seenAt : when(w.seenAt) > 0;
   if (w.level && !crossed) {
     const s = ctx.since;
     const low = Math.min(ctx.base, s && Number.isFinite(s.min) ? s.min : Infinity);
@@ -147,4 +150,4 @@ function main() {
 
 if (require.main === module) guard(main);
 
-module.exports = { decide };
+module.exports = { decide, contextFacts };

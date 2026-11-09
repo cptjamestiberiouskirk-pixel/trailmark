@@ -182,6 +182,55 @@ test('0.6.0 context watch: a transcript_path outside the projects folder, or dee
   assert.ok(c.run(), 'the real one asks');
 });
 
+// RS-H-samesince: two hooks whose launchers read the same seenAt carry the same
+// `since`. Where it said to start over (a transcript not read that far, a
+// compaction, a shrink), each one did, and the same request went out twice.
+test('context watch: a hook whose launcher read an older seenAt than the saved one does not start over (next version)', () => {
+  const { decide } = require(path.join(__dirname, '..', 'scripts', 'hook-context-watch.js'));
+  const cfg = { on: true, steps: [85, 90, 95], reserve: 33000 };
+  const before = { level: 1, firstAt: 900, seen: 320000, seenAt: 900, point: 367000 };
+  for (const since of [{ reached: false }, { min: 320000, boundary: true, reached: true }, { min: 1000, boundary: false, reached: true }]) {
+    const c = { tokens: 320000, base: 320000, win: 400000, pct: 0, since, seenAt: 900 };
+    const a = decide(before, {}, c, cfg, 1000);
+    assert.deepStrictEqual(a.ask, { repeat: false, level: 1 }, 'the first hook starts over and asks');
+    const b = decide(a.w, {}, c, cfg, 1001);
+    assert.strictEqual(b.ask, null, JSON.stringify(since));
+    assert.deepStrictEqual(b.w, a.w);
+    // A later step is a repeat request as usual.
+    assert.deepStrictEqual(decide(a.w, {}, { ...c, tokens: 335000 }, cfg, 1002).ask, { repeat: true, level: 2 });
+    // With no seenAt from the launcher, nothing is known: as before.
+    assert.deepStrictEqual(decide(a.w, {}, { ...c, seenAt: 0 }, cfg, 1002).ask, { repeat: false, level: 1 });
+  }
+});
+
+test('context watch: the launcher tells the hook which seenAt it read, and the hook checks it (next version)', () => {
+  const { contextFacts } = require(path.join(__dirname, '..', 'scripts', 'hook-context-watch.js'));
+  const facts = (seenAt) => JSON.stringify({ context: { tokens: 320000, base: 320000, win: 400000, pct: 0, since: { reached: false }, seenAt } });
+  const saved = process.env.JBMEM_GIT;
+  try {
+    process.env.JBMEM_GIT = facts(900);
+    assert.strictEqual(contextFacts().seenAt, 900);
+    for (const bad of ['900', -1, 1e15, null]) {
+      process.env.JBMEM_GIT = facts(bad);
+      assert.strictEqual(contextFacts().seenAt, 0, String(bad));
+    }
+  } finally {
+    if (saved === undefined) delete process.env.JBMEM_GIT; else process.env.JBMEM_GIT = saved;
+  }
+  const c = contextWatchSetup();
+  c.usage(320000);
+  assert.match(askText(c.run()), /about 320k/);
+  const seenAt = c.rec().contextWatch.seenAt;
+  assert.ok(seenAt > 0);
+  const log = path.join(c.s.base, 'facts.jsonl');
+  const spy = path.join(c.s.base, 'facts-spy.js');
+  fs.writeFileSync(spy, `const cp=require('child_process'),fs=require('fs');const o=cp.spawnSync;cp.spawnSync=function(f,a,opt){if(opt&&opt.env&&opt.env.JBMEM_GIT)fs.appendFileSync(${JSON.stringify(log)},opt.env.JBMEM_GIT+'\\n');return o.apply(this,arguments)};`);
+  c.usage(320100);
+  c.run({}, { NODE_OPTIONS: `--require ${JSON.stringify(spy)}` });
+  const got = JSON.parse(fs.readFileSync(log, 'utf8').trim().split('\n').pop());
+  assert.strictEqual(got.context.seenAt, seenAt);
+});
+
 // RS:638: two context-watch hooks whose launchers both read the record before
 // the first request was saved carry no `since`, and decide() took that as a
 // reason to start over: the same first request went out twice.
