@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: A deferred note named one route to a function that had others
+
+- What went wrong: RS-A-newlines was deferred on the belief that its input was git's own small pointer files. `exactPointer` also takes config values, which reach it decoded from an 8 MB file, and that route stalls for tens of seconds.
+- Why: the note looked at the six lines holding the regex and not at who calls the function around them.
+- Rule going forward: before labeling how far an input can reach, list every caller of the function that holds the code, and find each one's size limit.
+- Status: open
+
+## 2026-11-09: A test input used an escape git does not have
+
+- What went wrong: the new test's `attrs\n\r\n` made an invalid config, since git's parser has no `\r` escape, and it failed with the fix in place. The mutation runs built on it all reported failures that proved nothing.
+- Why: the input was written from the regex's character class and not from what the format allows, and the first run's summary was read only after the mutations had run.
+- Rule going forward: run a new test with the fix in place and see it pass before running any mutation against it.
+- Status: open
+
 ## 2026-11-09: A new awk variable overwrote a counter
 
 - What went wrong: the fence fix stored a line number in `opened`, already the count of open lessons. The summary printed "31 open" and "-15 promoted", and the format check still passed because counts don't affect it.
