@@ -368,7 +368,8 @@ const SPAN_MS = 60000;
 const SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
 function folderKey(p) {
-  const r = path.resolve(p).replace(/[\\/]+$/, '');
+  // The look-behind keeps a long run of separators linear: see pathKey.
+  const r = path.resolve(p).replace(/(?<![\\/])[\\/]+$/, '');
   return process.platform === 'win32' ? r.replace(/\//g, '\\').toLowerCase() : r;
 }
 

@@ -3548,9 +3548,11 @@ test('commit folders: huge commitDirs and swept in a state file cost one pass by
   const small = { commitDirs: [], swept: { [same + path.sep]: 'not a time', [same]: 2000, [same + path.sep + path.sep]: 3000 } };
   S.addCommitDirs(small, [same], 9000, 9500);
   assert.deepStrictEqual(small.commitDirsAt[same], [2000, 9500]);
+  // Swept before each folder's settled time, so an eviction looks at every
+  // folder it can keep: a list not cut at the cap costs a pass per eviction.
   const N = 400;
   const rec = { commitDirs: [], commitDirsAt: {}, swept: {} };
-  for (let i = 0; i < N; i++) { rec.commitDirs.push(D(i)); rec.commitDirsAt[D(i)] = [1, 2]; rec.swept[D(i)] = 5000; }
+  for (let i = 0; i < N; i++) { rec.commitDirs.push(D(i)); rec.commitDirsAt[D(i)] = [1, 2]; rec.swept[D(i)] = 1; }
   const added = D('added');
   const resolve = path.resolve;
   let calls = 0;
@@ -3562,19 +3564,30 @@ test('commit folders: huge commitDirs and swept in a state file cost one pass by
   assert.ok(calls < 2 * N, `${calls} path.resolve calls for ${N} entries`);
 });
 
-// RS-H-addcommitdirs, its neighbor: backslashes are ordinary characters on
+// RS-H-addcommitdirs, its neighbors: backslashes are ordinary characters on
 // Linux and macOS, so path.resolve keeps a run of them, and the regex that
-// trimmed a path's end took time quadratic in the run. Windows folds the run,
-// so this passes there on the old code too. A child with a time limit: the
-// old code takes minutes on such a key, the new one milliseconds.
+// trimmed a path's end took time quadratic in the run. findGit and nodeInside
+// are asked about Linux, so they show it on every system. pathKey and
+// sameFolder use the running system's rules, and Windows folds the run, so
+// those two pass there on the old code too. A child with a time limit: the
+// old code takes minutes on such a path, the new one milliseconds.
 test('paths: the end of a path is trimmed in linear time, whatever a crafted key holds (next version)', () => {
-  const lib = path.join(__dirname, '..', 'scripts', 'lib', 'paths.js');
-  const { pathKey } = require(lib);
+  const lib = (f) => JSON.stringify(path.join(__dirname, '..', 'scripts', 'lib', f));
+  const { pathKey } = require(path.join(__dirname, '..', 'scripts', 'lib', 'paths.js'));
   const dir = path.resolve('/crafted', 'f');
   assert.strictEqual(pathKey(`${dir}\\\\`), pathKey(dir));
   assert.strictEqual(pathKey(`${dir}/`), pathKey(dir));
-  const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(lib)}).pathKey('/x' + '\\\\'.repeat(400000) + 'y')`], { encoding: 'utf8', timeout: 30000 });
-  assert.strictEqual(r.status, 0, `status ${r.status}, signal ${r.signal}, ${String(r.stderr).slice(0, 300)}`);
+  const key = `'/x' + '\\\\'.repeat(400000) + 'y'`;
+  const calls = {
+    pathKey: `require(${lib('paths.js')}).pathKey(${key})`,
+    sameFolder: `require(${lib('gitfacts.js')}).sameFolder(${key}, '/y')`,
+    findGit: `require(${lib('gitbin.js')}).findGit({ env: { PATH: ${key} }, cwd: '/y', platform: 'linux', isExec: () => false, realpath: (p) => p })`,
+    nodeInside: `require(${lib('health.js')}).nodeInside('/usr/bin/node', [${key}], 'linux')`,
+  };
+  for (const [name, code] of Object.entries(calls)) {
+    const r = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 30000 });
+    assert.strictEqual(r.status, 0, `${name}: status ${r.status}, signal ${r.signal}, ${String(r.stderr).slice(0, 300)}`);
+  }
 });
 
 // RS-F-enotdir2: a file where the plugins folder should be. Windows says

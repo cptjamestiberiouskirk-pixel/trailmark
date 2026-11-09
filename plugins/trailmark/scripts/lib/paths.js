@@ -44,12 +44,10 @@ function expandHome(p) {
 
 // A path in the form the host OS compares it in.
 function pathKey(p, platform = process.platform) {
-  const r = path.resolve(p);
-  // A loop, not a regex: Linux and macOS keep a run of backslashes in a path,
-  // and a regex on one takes time quadratic in its length.
-  let end = r.length;
-  while (end > 0 && (r[end - 1] === '/' || r[end - 1] === '\\')) end--;
-  const x = r.slice(0, end);
+  // Linux and macOS keep a run of backslashes in a path. The look-behind
+  // starts a match only at the start of a run: without it, a long run takes
+  // time quadratic in its length.
+  const x = path.resolve(p).replace(/(?<![\\/])[\\/]+$/, '');
   return platform === 'win32' ? x.replace(/\//g, '\\').toLowerCase() : x;
 }
 

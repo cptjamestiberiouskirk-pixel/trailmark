@@ -272,7 +272,8 @@ function nodeInside(execPath, folders, platform = process.platform) {
   const norm = (s) => {
     const r = P.resolve(String(s));
     const root = P.parse(r).root;
-    return fold(r.length > root.length ? r.replace(/[\\/]+$/, '') : r);
+    // The look-behind keeps a long run of separators linear: see pathKey.
+    return fold(r.length > root.length ? r.replace(/(?<![\\/])[\\/]+$/, '') : r);
   };
   // Only a node directly in the folder: the working-folder lookup doesn't
   // look in subfolders.
