@@ -689,24 +689,26 @@ test('git pointers: a config path value longer than any path is refused without 
     fs.appendFileSync(path.join(r, '.git', 'config'), `[${section}]\n\t${key} = ${value}\n`);
     return r;
   };
+  const fine = ('a'.repeat(200) + '/').repeat(3) + 'x';
   for (const [section, key] of [['core', 'attributesFile'], ['core', 'worktree'], ['include', 'path']]) {
     // One long name, then many short parts: each was accepted or threw.
     const long = repoWith(`${key}-long`, section, key, 'a'.repeat(40000));
     assert.strictEqual(farGitConfig(long), 'odd-config-path', `${key}, one long name`);
     assert.strictEqual(farGitConfig(repoWith(`${key}-parts`, section, key, 'a/'.repeat(200000) + 'x')), 'odd-config-path', `${key}, many parts`);
     assert.strictEqual(gf.gitFacts(long, ['head']).gitRefused, 'odd-config-path', `${key}: git is kept out`);
-    // A long path that a system could still open is read as before.
-    assert.strictEqual(farGitConfig(repoWith(`${key}-fine`, section, key, 'a'.repeat(4000))), '', `${key}, 4,000 letters`);
-  }
-  // Under the limit alone and over it once joined to its folder: no path
-  // either, and not called a network path.
-  for (const key of ['attributesFile', 'worktree']) {
-    assert.strictEqual(farGitConfig(repoWith(`${key}-edge`, 'core', key, 'a'.repeat(32767))), 'odd-config-path', `${key}, 32,767 letters`);
+    // A long path that every system could still open is read as before:
+    // parts of 200 letters, 604 characters in all (a name stops at 255 bytes
+    // on Linux and macOS, and a path at 1,024 on macOS; a longer include is
+    // answered unreadable-config there, before and after this limit).
+    assert.strictEqual(farGitConfig(repoWith(`${key}-fine`, section, key, fine)), '', `${key}, 604 characters`);
+    // Under the limit alone and over it once joined to its folder: no path
+    // either, and not called a network path.
+    assert.strictEqual(farGitConfig(repoWith(`${key}-edge`, section, key, 'a'.repeat(32767))), 'odd-config-path', `${key}, 32,767 letters`);
   }
   // The walk itself, for callers with a path from somewhere else (a
   // command's text): refused, not thrown.
   assert.strictEqual(localPath(path.join(base, 'a'.repeat(40000))), null);
-  assert.strictEqual(localPath(path.join(base, 'a'.repeat(3000))), path.join(base, 'a'.repeat(3000)));
+  assert.strictEqual(localPath(path.join(base, fine)), path.join(base, fine));
   assert.strictEqual(gf.sameFolder(base + (path.sep + 'x').repeat(300000), base), false);
 });
 
@@ -2320,6 +2322,38 @@ test('copies: every old jb-memory-codex folder is counted, not the first three (
     const r = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, CODEX_HOME: home }, input: JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB }), encoding: 'utf8' });
     assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /jb-memory-codex, is in Codex's plugin cache \(5 folders\)/);
   }
+});
+
+// RS-F-codexwalk: the search had no limit but 200 entries a folder, three
+// levels down.
+test('copies: the search of Codex\'s cache stops after a number of folders and says so (next version)', () => {
+  const { oldCodexCopies } = require(path.join(ROOT, 'scripts', 'lib', 'health.js'));
+  const home = realTemp('jbmem-codexwide-');
+  const cache = path.join(home, 'plugins', 'cache');
+  // 6 marketplaces of 6 plugins of 2 versions, and an old copy in a seventh:
+  // the search looks in the cache, 7 marketplaces and 36 plugin folders (44),
+  // and never in a version folder.
+  for (let a = 0; a < 6; a++) for (let b = 0; b < 6; b++) for (let c = 0; c < 2; c++) fs.mkdirSync(path.join(cache, `m${a}`, `p${b}`, `v${c}`), { recursive: true });
+  fs.mkdirSync(path.join(cache, 'zz', 'jb-memory-codex', '0.2.3'), { recursive: true });
+  const whole = { paths: ['plugins/cache/zz/jb-memory-codex'], incomplete: '' };
+  assert.deepStrictEqual(oldCodexCopies(home, { detail: true }), whole, 'the default limit is far above a cache this size');
+  assert.deepStrictEqual(oldCodexCopies(home, { detail: true, maxFolders: 44 }), whole, 'exactly as many as there are: not cut short');
+  // One fewer: it stops, says so, and looks in no folder past the limit.
+  // (Which folder is left out depends on the order the system lists them in.)
+  const cut = oldCodexCopies(home, { detail: true, maxFolders: 43 });
+  assert.strictEqual(cut.incomplete, 'it stopped after looking in 43 folders');
+  const real = fs.opendirSync;
+  let opened = 0;
+  fs.opendirSync = (...a) => { opened++; return real(...a); };
+  try {
+    assert.strictEqual(oldCodexCopies(home, { detail: true, maxFolders: 10 }).incomplete, 'it stopped after looking in 10 folders');
+    assert.strictEqual(opened, 10, 'folders listed');
+    opened = 0;
+    assert.deepStrictEqual(oldCodexCopies(home, { detail: true, maxFolders: 0 }), { paths: [], incomplete: 'it stopped after looking in 0 folders' });
+    assert.strictEqual(opened, 0);
+  } finally { fs.opendirSync = real; }
+  // Without detail the list alone comes back, as before.
+  assert.deepStrictEqual(oldCodexCopies(home), whole.paths);
 });
 
 // RS:635 and RS:672: past 10 old jb-memory-codex folders --copies said "10

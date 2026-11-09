@@ -266,9 +266,7 @@ function rawJoin(a, b) {
 // Windows maps them to other characters), a path this check can't name.
 // The look-behind keeps the trim linear: a config value can decode to
 // millions of line breaks, and without it each one starts a new scan.
-// A text longer than MAX_PATH_TEXT is refused before any of that.
 function exactPointer(t) {
-  if (String(t).length > MAX_PATH_TEXT) return null;
   const v = String(t).replace(/(?<![\r\n])[\r\n]+$/, '');
   return /^\s|\s$|[\r\n\0\uFFFD]/.test(v) ? null : v;
 }
@@ -469,7 +467,9 @@ function farConfig(file, depth, st) {
     if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) p = path.join(os.homedir(), p.slice(2));
     else if (ownTilde(p)) p = path.join(os.homedir(), p.slice(ownTilde(p)));
     else if (p.startsWith('~')) return 'odd-config-path';
-    const why = farConfig(rawJoin(path.dirname(file), p), depth + 1, st);
+    const inc = rawJoin(path.dirname(file), p);
+    if (inc.length > MAX_PATH_TEXT) return 'odd-config-path';
+    const why = farConfig(inc, depth + 1, st);
     if (why) return why;
   }
   return '';

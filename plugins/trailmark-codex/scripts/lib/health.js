@@ -301,9 +301,12 @@ function nodeInside(execPath, folders, platform = process.platform) {
 // paths as they are on disk, for --copies --show-names to print. With detail,
 // it returns { paths, incomplete }, where incomplete names why the search
 // stopped early ('' when it saw everything), as otherCopies does: at
-// maxCopies, at a folder it couldn't read, or at a Codex home that isn't a
-// folder.
-function oldCodexCopies(codexHome, { maxEntries = 200, depth = 3, maxCopies = 10, full = false, detail = false } = {}) {
+// maxCopies, at a folder it couldn't read, at a Codex home that isn't a
+// folder, or after maxFolders folders: three levels of 200 entries each are
+// 8 million entries in 40,000 folders, and 931 folders of 30 entries took
+// 1.6 s (RS-F-codexwalk). A real
+// cache has a few hundred.
+function oldCodexCopies(codexHome, { maxEntries = 200, depth = 3, maxCopies = 10, maxFolders = 1000, full = false, detail = false } = {}) {
   const found = [];
   const why = new Set();
   const done = () => (detail ? { paths: found, incomplete: [...why].join('; ') } : found);
@@ -316,8 +319,12 @@ function oldCodexCopies(codexHome, { maxEntries = 200, depth = 3, maxCopies = 10
   } catch { /* missing: nothing to search */ }
   // One folder past maxCopies is looked for, so that exactly maxCopies
   // folders are not said to be a search that stopped early.
+  let looked = 0;
   const walk = (dir, rel, d) => {
-    if (d > depth || found.length > maxCopies || !local(dir)) return;
+    if (d > depth || found.length > maxCopies) return;
+    if (looked >= maxFolders) { why.add(`it stopped after looking in ${maxFolders} folders`); return; }
+    looked++;
+    if (!local(dir)) return;
     const r = list(dir, maxEntries);
     if (!r.full) why.add(shortBy(r, rel.join('/')));
     for (const n of r.names) {
