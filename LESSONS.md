@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: A review's commit was copied from another reviewer's
+
+- What went wrong: the release-state note for PR 33 said Copilot reviewed b37f215. GitHub records its review on e466077. Copilot found it on PR 34.
+- Why: Codex's summary named b37f215, and the Copilot line was written with the same commit without reading that review's own `commit_id`.
+- Rule going forward: take each review's commit from its own record (`gh api repos/<repo>/pulls/<n>/reviews`, field `commit_id`), one reviewer at a time.
+- Status: open
+
 ## 2026-11-09: A red CI run had no failed job, and two jobs had never been created
 
 - What went wrong: PR 31's run ended "failure" with 7 jobs listed, all passing. macOS Node 22 and Windows Node 26 had no job record and no log, so the required checks stayed missing and the merge was blocked. The `main` run for b970008 did the same with 6 of 9. Both ran inside GitHub's Actions incident of 18:12 to 18:59Z.
