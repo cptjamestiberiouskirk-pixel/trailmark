@@ -166,7 +166,7 @@ After the handoff, session start also lists the commits made on HEAD since the h
 
 The reminders are rate-limited (20 minutes apart by default), and Claude may skip one when nothing material changed.
 
-The context watch is not: it is the last chance before the compaction summarizes the session. It asks at 85% of the point where Claude Code compacts, then at 90% and 95% only if no checkpoint was written since. It starts over after a compaction, and when the window grows past any it has asked in. Section 7 has its settings.
+The context watch is not: it is the last chance before the compaction summarizes the session. It asks at 85% of the point where Claude Code compacts, then at 90% and 95% only if no checkpoint was written since. It starts over after a compaction, and when the window grows past any it has asked in and the context reaches a step of the bigger one. Section 7 has its settings.
 
 You call the skills by their full names:
 
