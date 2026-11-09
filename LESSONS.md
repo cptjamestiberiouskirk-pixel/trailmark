@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: A new format check passed the shapes just outside the format
+
+- What went wrong: `dev/lessons.sh --check` accepted a heading with no colon or no date, and the fields under it landed in the entry above, so one entry's rule showed under another's title. Copilot found it on PR #29. The probes had removed fields but never bent a heading.
+- Why: the negative cases were chosen from what the check looks for, not from what could get past it.
+- Rule going forward: a validator's negative cases include inputs one small edit away from valid, and what happens to the data after a line it doesn't recognize.
+- Status: open
+
 ## 2026-11-09: A test passed through a different reset than the one it meant to pin
 
 - What went wrong: a new assertion that a bigger point starts over kept passing with that check removed. Its reading was low enough that the shrink rule cleared the state instead.

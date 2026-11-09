@@ -23,6 +23,7 @@ esac
 
 awk -v mode="$MODE" -v words="$WORDS" '
 function field(line, name) { return index(line, "- " name ":") == 1 }
+function repeated(name) { printf "BAD   line %d: %s: %s appears twice\n", NR, title, name; bad++ }
 function flush(   miss, i, hit, text) {
   if (title == "") return
   miss = ""
@@ -43,6 +44,8 @@ function flush(   miss, i, hit, text) {
 }
 BEGIN { nw = split(tolower(words), w, " ") }
 { sub(/\r$/, "") }
+/^```/ { fence = !fence; if (title != "") body = body " " $0; next }
+fence { if (title != "") body = body " " $0; next }
 /^## [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]: / {
   flush()
   title = substr($0, 4); at = NR; body = title; what = 0; why = 0; rule = ""; status = ""
@@ -51,12 +54,14 @@ BEGIN { nw = split(tolower(words), w, " ") }
   last = date
   next
 }
+# Any other heading outside a fence: its fields must not land in the entry above.
+/^## / { flush(); printf "BAD   line %d: heading is not in the dated form: %s\n", NR, substr($0, 4); bad++; title = ""; next }
 title != "" {
   body = body " " $0
-  if (field($0, "What went wrong")) what = 1
-  else if (field($0, "Why")) why = 1
-  else if (field($0, "Rule going forward")) rule = substr($0, 23)
-  else if (field($0, "Status")) status = substr($0, 11)
+  if (field($0, "What went wrong")) { if (what) repeated("What-went-wrong"); what = 1 }
+  else if (field($0, "Why")) { if (why) repeated("Why"); why = 1 }
+  else if (field($0, "Rule going forward")) { if (rule != "") repeated("Rule-going-forward"); else rule = substr($0, 23) }
+  else if (field($0, "Status")) { if (status != "") repeated("Status"); else status = substr($0, 11) }
 }
 END {
   flush()
