@@ -86,7 +86,8 @@ function absoluteEntry(entry, platform) {
 function sameDir(a, b, platform) {
   const p = platform === 'win32' ? path.win32 : path.posix;
   const norm = x => {
-    let r = p.resolve(x).replace(/[\\/]+$/, '');
+    // The look-behind keeps a long run of separators linear: see pathKey.
+    let r = p.resolve(x).replace(/(?<![\\/])[\\/]+$/, '');
     if (platform === 'win32') r = r.replace(/\//g, '\\').toLowerCase();
     return r;
   };

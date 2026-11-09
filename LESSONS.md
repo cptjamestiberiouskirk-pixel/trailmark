@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: A fix for one regex left the same regex at three other sites
+
+- What went wrong: the RS-H-addcommitdirs fix replaced the quadratic trailing-separator regex in `pathKey`. `folderKey` had the same line and could still stall session start, and `sameDir` and `nodeInside` had it too. Opus found `folderKey` in the review round.
+- Why: the search that found the problem started from the function being fixed, not from the pattern.
+- Rule going forward: after fixing a pattern, search the whole repo for that pattern before the first review.
+- Status: open
+
+## 2026-11-09: A cost test's data never reached the branch it was guarding
+
+- What went wrong: the count test for `addCommitDirs` still passed with the list cap removed. All its folders were settled, so each eviction stopped at the first one and the cost of a long list never showed (CONFIRMED by Opus and Fable, not re-run; 796 calls against 80,586 once the folders were unsettled, the second number also seen here).
+- Why: the test was checked against the whole old code, which failed for another reason, and not against each part of the fix.
+- Rule going forward: for a fix with two parts, remove each part alone and check that a test fails.
+- Status: open
+
 ## 2026-11-09: A zip built a day before publishing went stale on its date
 
 - What went wrong: the 0.6.2 zip was built and verified on 2026-11-08 and publishing waited until the next day. The checklist's date rule then meant a new commit, so that zip was dropped and the checks ran again on a new one. The session had told the user to publish before merging, and had to withdraw that advice.
