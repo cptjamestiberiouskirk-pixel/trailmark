@@ -14,7 +14,7 @@ e901e3a96439c4b825456ee72b30d18025a84c58cdda7ec98421aa208e0479f8 *./.github/work
 292e2ba9df719fac55d11563461dcddc9178a947ddd44d80199457af4b8732fb *./MANUAL.md
 ac41959746ec265208a98ce70458fb596737baaed84ae066d684425b7c253577 *./README.md
 52896a8040d51fb4526d9472e530b4cc56a25490821b933b86891f2043e454c8 *./SECURITY.md
-75dea03d9dfb0a002e8978e3cffad803e50fc8eccefedc9105d778a64b3e755d *./docs/how-it-works.md
+e20d644b04bad6a752029ba04d627226a1a1cfa445f3b0801118504a8dd2ed59 *./docs/how-it-works.md
 53c222f6021e268dd2bf274fd79f4a96c008931b22977c0260ae7a52682bbe82 *./install.cmd
 06c1f76c849c59a57c19ba2d107ef119aea12d4013f32389e413b94da2dddcbe *./install.ps1
 3f806bcd82345561c3a48ede8a0d5d6c5df37740a058859e997404c9191d8a5b *./install.sh
@@ -64,7 +64,7 @@ c4639be388dedef69e648ff60ba7996d8007f34dc3c91fdc2395ba4b10c0bfaf *./plugins/trai
 eef454a2985dca988a9dc4c51ef6a96e9ec0ff349a66347d1835d182fe3ee8c0 *./plugins/trailmark/docs/session-start.png
 712177787f01e45d53b9ee69a9ffd8dc200752f693e2808c1f499c57a9746def *./plugins/trailmark/hooks/hooks.json
 f766e56215274b399e7f2dce156a5e5fbfbdf197ffd54e903bcef41937c6a06f *./plugins/trailmark/scripts/hook-commit-start.js
-f463ee6c0d117cddd1e465e32d1831c70e4d229e405b3d190e968d984e416446 *./plugins/trailmark/scripts/hook-context-watch.js
+00919f7d49b90f1f2f47c7e3bfa976d7b238905dfd5ebe137c555d48bf29904c *./plugins/trailmark/scripts/hook-context-watch.js
 70be822e50bf2be86b24703f29f5873f0dd4fc378580eb3b644fad4afc008bcb *./plugins/trailmark/scripts/hook-milestone.js
 831b1615a07d44cd93379d9200d369456178738bc302cbcebc575203bb62a3ae *./plugins/trailmark/scripts/hook-precompact.js
 b9088b3fb5b85c987e0bba0bccc417c7f4b52be3de48ac3337380138b8d32690 *./plugins/trailmark/scripts/hook-session-start.js
@@ -87,9 +87,9 @@ a0f27188b6bb03b0316665f98b6eb193509678623a3d604f39c7aac20bdfab8d *./plugins/trai
 400a90486a0d7761aa26aaac702b4c9c5538d2ca5abd97854571ce0cd00d5d67 *./plugins/trailmark/skills/recall/SKILL.md
 b3c91fccd2d47a5834a9efbaf666ffa125a7019fa615d8213e8772b6d0a7deac *./plugins/trailmark/skills/session-end/SKILL.md
 c7a79ce10b5a906c8b215b812486f4249b7f82db226376ed2e64ea0bc401ebeb *./plugins/trailmark/tests/basics.test.js
-fc9673a8b04e49ce0aa2ca8e62795786228dfe8795a8fb48294eaa07b7579d3b *./plugins/trailmark/tests/commit-folders.test.js
+a00a373a93f3ebbf81ab65d3704b1bc4df9d87063d6480d287e0d47148ec46f5 *./plugins/trailmark/tests/commit-folders.test.js
 bf3221207f85b17983af4511f876c3c1045084985c3aef3ae250381ba69f27a4 *./plugins/trailmark/tests/commits.test.js
-b272b26cafeb2af97fefe946e41ecf2a55af7d998afe9889345a1e2b4597d783 *./plugins/trailmark/tests/context-watch.test.js
+314af4072cc623109bd7468c3a503a75eb0fecb3b3d6726b05d777a5cdc339b3 *./plugins/trailmark/tests/context-watch.test.js
 f1263e7d4a1850f09583acb4f148cfb38ca1f261d04d262d99bb6c020fdb6a36 *./plugins/trailmark/tests/copies.test.js
 ce9d748c545efc5f7ad555d0fd4750b3a9eeed3eb394e8b6ed20aa648274ea8e *./plugins/trailmark/tests/handoff-checks.test.js
 7f4479f7de48efe7f3112a3c27629653f11d767fe5d70bb85c4e2923c572b23a *./plugins/trailmark/tests/hardening.test.js

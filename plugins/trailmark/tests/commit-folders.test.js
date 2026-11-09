@@ -300,6 +300,20 @@ test('0.6.0 context watch: a window that flips between two sizes starts the step
   assert.deepStrictEqual(asked, ['202k', '198k', '-', '-', '-', '-']);
 });
 
+test('context watch: a window that flips to one whose first step is not reached asks once (next version)', () => {
+  // RS-H-flipwipe. A request over 200k proves the 300k window the setting
+  // allows (compaction near 267k, first step near 227k): nothing to ask there.
+  const c = contextWatchSetup({ model: 'claude-sonnet-4-5', settings: { autoCompactWindow: 300000 } });
+  const asked = [];
+  for (const n of [198000, 201000, 199000, 202000, 198000]) { c.usage(n); asked.push(askText(c.run()) ? `${n / 1000}k` : '-'); }
+  assert.deepStrictEqual(asked, ['198k', '-', '-', '-', '-']);
+  // The bigger window's own first step still asks, as a first request.
+  c.usage(230000);
+  const d = c.run();
+  assert.match(askText(d), /about 230k tokens.*about 267k/);
+  assert.doesNotMatch(askText(d), /has not written/);
+});
+
 test('0.6.0 context watch: a prompt after /compact, before the next request, doesn\'t ask with the size from before the compaction', () => {
   const c = contextWatchSetup(); // 400k window: compaction near 367k
   c.usage(315000);

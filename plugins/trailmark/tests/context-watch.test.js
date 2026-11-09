@@ -240,10 +240,43 @@ test('context watch: a hook behind a sibling with no step to ask leaves the save
     assert.deepStrictEqual(b.w, a.w, 'a bigger point with nothing to ask keeps the state');
     assert.strictEqual(decide(b.w, {}, { ...small, ...read }, cfg, 998).ask, null, 'no second first request');
   }
-  // A hook not behind a sibling still starts over at a bigger point, as before.
-  // Its reading is above the shrink and 75% lines, so only the point can do it.
-  const a = decide({}, {}, { ...small, since: null, seenAt: 0 }, cfg, 1000);
-  assert.deepStrictEqual(decide(a.w, {}, { ...mid, since: { min: 201000, boundary: false, reached: true }, seenAt: 1000 }, cfg, 1001).w, {});
+});
+
+// RS-H-flipwipe: a bigger point with no step to ask cleared the saved state,
+// so each flip back to the smaller window sent the first request again.
+test('context watch: a window that flips to a bigger one with no step to ask asks once, not on every flip back (next version)', () => {
+  const { decide } = require(path.join(__dirname, '..', 'scripts', 'hook-context-watch.js'));
+  const cfg = { on: true, steps: [85, 90, 95], reserve: 33000 };
+  // One hook after another: each launcher read the saved seenAt, and the
+  // transcript was read back to it.
+  const at = (t, win, w, now, since) => decide(w, {}, { tokens: t, base: t, win, pct: 0, since: since || { min: t, boundary: false, reached: true }, seenAt: w.seenAt }, cfg, now);
+  const a = decide({}, {}, { tokens: 198000, base: 198000, win: 200000, pct: 0, since: null, seenAt: 0 }, cfg, 1000);
+  assert.deepStrictEqual(a.ask, { repeat: false, level: 3 });
+  // A 300k window compacts near 267k, and its first step is near 227k.
+  let w = a.w;
+  let now = 1000;
+  for (const [t, win] of [[201000, 300000], [199000, 200000], [202000, 300000], [198000, 200000]]) {
+    const d = at(t, win, w, ++now);
+    assert.strictEqual(d.ask, null, `${t / 1000}k in the ${win / 1000}k window`);
+    assert.deepStrictEqual(d.w, a.w, `${t / 1000}k in the ${win / 1000}k window`);
+    assert.strictEqual(d.changed, false, 'nothing to write');
+    w = d.w;
+  }
+  // The bigger point still starts the steps over once it has a step to ask.
+  const grew = at(230000, 300000, a.w, 1001);
+  assert.deepStrictEqual(grew.ask, { repeat: false, level: 1 });
+  assert.strictEqual(grew.w.point, 267000);
+  // Under the bigger point, a compaction or a shrink still starts over.
+  assert.deepStrictEqual(at(201000, 300000, a.w, 1001, { min: 201000, boundary: true, reached: true }).w, {});
+  assert.deepStrictEqual(at(201000, 300000, a.w, 1001, { min: 150000, boundary: false, reached: true }).w, {});
+  assert.deepStrictEqual(at(201000, 300000, a.w, 1001, { reached: false }).w, {});
+  // Until then the 75% line is the saved point's (125k), not the bigger
+  // one's: 200k is under 75% of a 400k window's point (275k) and stays.
+  assert.deepStrictEqual(at(200000, 400000, a.w, 1001).w, a.w);
+  // So is the first step: a request made at 145k was from the real size, and
+  // 120k is under the saved point's 75% line (above the shrink line, 116k).
+  const low = { level: 1, firstAt: 900, seen: 145000, seenAt: 900, point: 167000 };
+  assert.deepStrictEqual(at(120000, 400000, low, 1001).w, {});
 });
 
 test('context watch: a hook that ran late moves the saved seenAt forward, never back (next version)', () => {

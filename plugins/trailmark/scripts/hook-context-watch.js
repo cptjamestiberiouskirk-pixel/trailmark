@@ -17,10 +17,12 @@
 //   - It starts over after a compaction, or when the context has shrunk by a
 //     fifth from the last size seen, or fell below 75% of the compaction point
 //     (the launcher reads that from the transcript since the last request),
-//     or when the compaction point grew past the biggest one it asked under,
-//     since the steps it passed were a smaller point's. A point that shrinks
-//     keeps the state: its steps come sooner. Keeping the biggest point means
-//     a window that flips back and forth starts the steps over only once.
+//     or when the compaction point grew past the biggest one it asked under
+//     and the context reaches a step of the bigger point, since the steps it
+//     passed were a smaller point's. Before that step the state stays as the
+//     smaller point left it. A point that shrinks keeps the state: its steps
+//     come sooner. Keeping the biggest point means a window that flips back
+//     and forth starts the steps over only once.
 //     Between 75% and the first step nothing changes, so a large tool result
 //     that lifts the estimate over a step and drops back asks only once.
 //   - An ask made while the transcript's own size (before the estimate for
@@ -69,11 +71,18 @@ function contextFacts() {
 function decide(prev, rec, ctx, cfg, now) {
   let w = isObj(prev) ? { ...prev } : {};
   const point = compactPoint(ctx.win, cfg.reserve, ctx.pct);
-  const line = point * FORGET_BELOW;
-  const first = cfg.steps.length ? point * Math.min(...cfg.steps) / 100 : Infinity;
   const level = cfg.steps.filter(s => ctx.tokens >= point * s / 100).length;
   const seen = count(w.seen);
   const pt = Math.round(point);
+  // A point bigger than the saved one starts the steps over only once it has
+  // a step to ask. Until then the state stays as the smaller point left it,
+  // and the 75% line and the first step below are that point's: clearing it
+  // here made every flip back to the smaller window ask the first request
+  // again (RS-H-flipwipe).
+  const grown = Boolean(w.level) && pt > count(w.point);
+  const ref = grown ? count(w.point) : point;
+  const line = ref * FORGET_BELOW;
+  const first = cfg.steps.length ? ref * Math.min(...cfg.steps) / 100 : Infinity;
   // Start over: a compaction since the last request, a shrink, a fall below
   // 75% of the compaction point, a compaction point bigger than any asked
   // under, or a transcript that couldn't be read back that far (asking once
@@ -90,10 +99,10 @@ function decide(prev, rec, ctx, cfg, now) {
   // a third hook that read the sibling's seenAt couldn't tell it was crossed.
   const stamp = crossed ? Math.max(now, when(w.seenAt) + 1) : now;
   // A bigger point is measured against the saved one, not against what the
-  // launcher read, so it holds whichever hook saved first. A hook behind a
-  // sibling starts over only to ask: with nothing to ask it would just wipe
-  // what the sibling saved, and the next hook would ask the same thing again.
-  if (w.level && pt > count(w.point) && (level || !crossed)) w = {};
+  // launcher read, so it holds whichever hook saved first. It starts over
+  // only to ask, behind a sibling or not: with nothing to ask it would just
+  // wipe what was saved, and the next hook would ask the same thing again.
+  if (grown && level) w = {};
   else if (w.level && !crossed) {
     const s = ctx.since;
     const low = Math.min(ctx.base, s && Number.isFinite(s.min) ? s.min : Infinity);
