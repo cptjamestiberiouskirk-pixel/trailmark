@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.2 (Trailmark and trailmark-codex): 2026-11-08
+## 0.6.2 (Trailmark and trailmark-codex): 2026-11-09
 
 Fixes and wording. Nothing new to set up, and no setting changed.
 
