@@ -5,6 +5,9 @@
 #   dev/release-check.sh --sums          regenerate SHA256SUMS first, then check
 #   dev/release-check.sh --zip <dir>     also build <dir>/trailmark-<version>.zip
 #                                        and its .sha256 from HEAD, and verify them
+#   dev/release-check.sh --zip-only <dir>  check SHA256SUMS and build the zip, with
+#                                        no other check (for the release-draft
+#                                        job, which leaves the tests to tests.yml)
 #   dev/release-check.sh --quick         skip the two long trailmark test suites
 #   dev/release-check.sh --only <x>      run only the tests in file <x> (a path
 #                                        from the repo's top folder), or else the
@@ -22,12 +25,13 @@
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
 
-SUMS=0; QUICK=0; ZIPDIR=''; ONLY=''
+SUMS=0; QUICK=0; ZIPDIR=''; ONLY=''; ZIPONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --sums) SUMS=1 ;;
     --quick) QUICK=1 ;;
     --zip) shift; ZIPDIR="${1:-}"; [ -n "$ZIPDIR" ] || { echo 'usage: --zip <dir>'; exit 2; } ;;
+    --zip-only) shift; ZIPDIR="${1:-}"; ZIPONLY=1; [ -n "$ZIPDIR" ] || { echo 'usage: --zip-only <dir>'; exit 2; } ;;
     --only) shift; ONLY="${1:-}"; [ -n "$ONLY" ] || { echo 'usage: --only <test file or name pattern>'; exit 2; } ;;
     -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) echo "unknown option: $1"; exit 2 ;;
@@ -36,6 +40,9 @@ while [ $# -gt 0 ]; do
 done
 if [ -n "$ONLY" ] && { [ "$SUMS" = 1 ] || [ -n "$ZIPDIR" ]; }; then
   echo '--only runs tests alone: leave out --sums and --zip'; exit 2
+fi
+if [ "$ZIPONLY" = 1 ] && { [ "$SUMS" = 1 ] || [ "$QUICK" = 1 ]; }; then
+  echo '--zip-only builds from HEAD as it is: leave out --sums and --quick'; exit 2
 fi
 
 T="$(mktemp -d 2>/dev/null || mktemp -d -t tmcheck)"
@@ -235,6 +242,30 @@ else
   record FAIL 'SHA256SUMS is stale: run with --sums after staging your change'
 fi
 
+build_zip() {
+  if [ -n "$(git status --porcelain)" ]; then
+    record FAIL 'zip not built: the working tree has uncommitted changes (the zip is built from HEAD)'
+  else
+    ver="$(node -p "require('./plugins/trailmark/.claude-plugin/plugin.json').version")"
+    mkdir -p "$ZIPDIR"; z="$ZIPDIR/trailmark-$ver.zip"
+    git archive --format=zip --prefix=trailmark/ HEAD > "$z"
+    (cd "$ZIPDIR" && sha256sum "trailmark-$ver.zip" > "trailmark-$ver.zip.sha256")
+    mkdir "$T/zip" && (cd "$T/zip" && unzip -q "$z")
+    if (cd "$T/zip/trailmark" && sha256sum --quiet -c SHA256SUMS >/dev/null 2>&1) && [ "$(find "$T/zip" -type l | wc -l)" = 0 ]; then
+      record PASS "zip $(basename "$z") from $(git rev-parse --short HEAD): inner sums verify, no links"
+      record INFO "sha256 $(cut -d' ' -f1 "$z.sha256")"
+      record INFO "commit $(git rev-parse HEAD)"
+    else record FAIL 'zip: inner SHA256SUMS or link check failed'; fi
+  fi
+}
+
+# --zip-only: stale sums build nothing, and the other checks don't run.
+if [ "$ZIPONLY" = 1 ]; then
+  if [ "$FAILED" = 0 ]; then build_zip; fi
+  summary
+  exit $FAILED
+fi
+
 bash -n install.sh && record PASS 'install.sh parses' || record FAIL 'install.sh does not parse'
 if node --check tools/migrate-from-jb-memory.js && node tools/migrate-from-jb-memory.js --help >/dev/null; then
   record PASS 'migration script parses and --help runs'
@@ -267,22 +298,7 @@ if command -v claude >/dev/null 2>&1; then
   [ $v = 1 ] && record PASS 'claude plugin validate --strict (3 manifests)' || record FAIL 'claude plugin validate --strict'
 else record SKIP 'claude plugin validate (claude not on PATH)'; fi
 
-if [ -n "$ZIPDIR" ]; then
-  if [ -n "$(git status --porcelain)" ]; then
-    record FAIL 'zip not built: the working tree has uncommitted changes (the zip is built from HEAD)'
-  else
-    ver="$(node -p "require('./plugins/trailmark/.claude-plugin/plugin.json').version")"
-    mkdir -p "$ZIPDIR"; z="$ZIPDIR/trailmark-$ver.zip"
-    git archive --format=zip --prefix=trailmark/ HEAD > "$z"
-    (cd "$ZIPDIR" && sha256sum "trailmark-$ver.zip" > "trailmark-$ver.zip.sha256")
-    mkdir "$T/zip" && (cd "$T/zip" && unzip -q "$z")
-    if (cd "$T/zip/trailmark" && sha256sum --quiet -c SHA256SUMS >/dev/null 2>&1) && [ "$(find "$T/zip" -type l | wc -l)" = 0 ]; then
-      record PASS "zip $(basename "$z") from $(git rev-parse --short HEAD): inner sums verify, no links"
-      record INFO "sha256 $(cut -d' ' -f1 "$z.sha256")"
-      record INFO "commit $(git rev-parse HEAD)"
-    else record FAIL 'zip: inner SHA256SUMS or link check failed'; fi
-  fi
-fi
+if [ -n "$ZIPDIR" ]; then build_zip; fi
 
 summary
 exit $FAILED

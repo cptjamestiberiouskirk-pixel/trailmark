@@ -14,6 +14,27 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-08: Reordering a delete made its list stale
+
+- What went wrong: `release-draft.sh` was changed to create the new draft before deleting the old one. The list of drafts to delete was then read before the upload, so a draft published during the upload would have been deleted as a published release (CONFIRMED by Opus, round 2; the new test fails on the round 2 script).
+- Why: the fix looked only at what happens when a step fails, not at what the longer gap between reading the list and acting on it allows.
+- Rule going forward: when a fix puts a slow step between reading a thing and destroying it, look at the thing again just before destroying it. Read it into a variable first: `set -e` doesn't see a command that fails inside `[ "$(...)" = x ]` (round 3 found that in this fix).
+- Status: open
+
+## 2026-11-08: A throwaway test's negative checks passed because grep errored
+
+- What went wrong: the fake-gh harness for `release-draft.sh` passed its "nothing was deleted or created" checks without checking anything. The pattern began with `-X DELETE`, so grep took it as an option and exited 2, and the check read that as "not found".
+- Why: a check of the form `if grep ...; then fail` treats a broken grep the same as no match. The stderr line was the only sign.
+- Rule going forward: `grep -- "$pattern"` for any pattern held in a variable. A harness of negative checks includes one control that must report a failure.
+- Status: open
+
+## 2026-11-08: A promised report on a merge had nothing to trigger it
+
+- What went wrong: after auto-merge was set on PR 25, the coordinating session said it would report back. The PR merged at 21:00:49Z and no report came, until the user asked what we were waiting for. When the user then asked for a fix, the session answered "No response requested", which was wrong.
+- Why: the app wakes a session on CI failures, merge conflicts and review comments, and when a linked session ends a turn. A successful merge wakes nobody (CONFIRMED in the `set_monitor` tool description; no event arrived for PR 25). Sessions are also told not to poll CI. So the promise could not be kept.
+- Rule going forward: never say "I'll report when X" unless something named will wake the session on X. A turn's closing line says who acts next and what triggers it.
+- Status: promoted to PLAYBOOK
+
 ## 2026-11-08: Sessions that stopped or left the sidebar looked like lost work
 
 - What went wrong: batch H's session ended on "Request timed out" during a review round, with its reviewer's report lost. Later it and batch W's session left the sidebar when their PRs merged, which looked like lost work. Separately, the coordinating session set auto-merge on PR 24 without telling batch H's session, which then questioned it.

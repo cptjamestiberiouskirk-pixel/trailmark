@@ -5,6 +5,7 @@ eaaab81e68d95dd9fe1a4a88970e019282c961928ace328213f60ea9025ca257 *./.claude-plug
 f81f737038bd2de241a3a63161e5921405dd786a885f2325ec1c7928b1405c05 *./.github/ISSUE_TEMPLATE/config.yml
 57e80bb102e6ac1936e1c4498da9added34688cc00fd0b37a1b5b59d65fe6b98 *./.github/pull_request_template.md
 2a8cd05372f0ae35b43633c00630c5c4f54e250811830e65d5ac813c1c32ad01 *./.github/tap-annotate.js
+58aa2555721f29db8cff4757671ac9e4f9b9bb9859c5f19613b03b3138e4a943 *./.github/workflows/release-draft.yml
 e901e3a96439c4b825456ee72b30d18025a84c58cdda7ec98421aa208e0479f8 *./.github/workflows/tests.yml
 0c4783ef9495551da26bd242a0cace9f7ad39e46bf1d5af8f51aeb8f338a9112 *./.gitignore
 10e6428188e73889a8a6bbcd00f92defabab69e3d1b614e88962322a77331475 *./CHANGELOG.md
