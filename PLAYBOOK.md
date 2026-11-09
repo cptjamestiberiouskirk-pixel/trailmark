@@ -56,7 +56,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 4. Wording edits across several files go through a script of exact old/new pairs that asserts each old text occurs once before it writes.
 5. Before handing over a script or file, read it for destructive or malicious operations, and say what you found.
 6. After fixing a pattern, search the whole repo for that pattern before the first review.
-7. A condition that skips a block: list each thing the block does and ask whether the condition is about that thing. A value read before a lock can be older than the state under it: try the other order.
+7. A condition that skips a block, or code moved out of one: list each thing the block does in each case and ask whether the condition is about that thing. A value read before a lock can be older than the state under it: try the other order.
 
 ## Testing
 

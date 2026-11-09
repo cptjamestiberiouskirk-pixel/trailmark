@@ -90,8 +90,10 @@ function decide(prev, rec, ctx, cfg, now) {
   // a third hook that read the sibling's seenAt couldn't tell it was crossed.
   const stamp = crossed ? Math.max(now, when(w.seenAt) + 1) : now;
   // A bigger point is measured against the saved one, not against what the
-  // launcher read, so it holds whichever hook saved first.
-  if (w.level && pt > count(w.point)) w = {};
+  // launcher read, so it holds whichever hook saved first. A hook behind a
+  // sibling starts over only to ask: with nothing to ask it would just wipe
+  // what the sibling saved, and the next hook would ask the same thing again.
+  if (w.level && pt > count(w.point) && (level || !crossed)) w = {};
   else if (w.level && !crossed) {
     const s = ctx.since;
     const low = Math.min(ctx.base, s && Number.isFinite(s.min) ? s.min : Infinity);

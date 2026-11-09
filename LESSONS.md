@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: A test passed through a different reset than the one it meant to pin
+
+- What went wrong: a new assertion that a bigger point starts over kept passing with that check removed. Its reading was low enough that the shrink rule cleared the state instead.
+- Why: the assertion looked only at the result, and two rules give the same result.
+- Rule going forward: when several rules give the same result, pick inputs where only the rule under test can give it. Removing the part alone is what found this.
+- Status: open
+
+## 2026-11-09: Moving a reset out of a guard let a hook with nothing to ask wipe a sibling
+
+- What went wrong: the fix for Copilot's finding moved the bigger-point reset out of the `crossed` guard. A late hook at a bigger point with no step to ask then saved `{}` over its sibling's state, and the next hook made the same first request again. The regression review found it on 9733991.
+- Why: the moved check was judged by the case it was moved for (a hook that asks), not by every case the guard used to skip.
+- Rule going forward: moving code out of a condition is the same question as adding one: list what it now does in each case the condition used to cover.
+- Status: promoted to PLAYBOOK (Writing code, step 7, second sighting)
+
 ## 2026-11-09: A negative probe removed the field from the format template
 
 - What went wrong: to prove `dev/lessons.sh --check` catches a missing "Why", a `sed` removed the first such line in `LESSONS.md`. That line is in the format template at the top, so the check rightly passed and the probe looked like a bug in the script.

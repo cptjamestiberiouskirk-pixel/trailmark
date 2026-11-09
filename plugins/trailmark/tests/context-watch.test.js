@@ -225,6 +225,27 @@ test('context watch: a bigger compaction point starts the steps over even when a
   assert.strictEqual(decide(saved, {}, { tokens: 150000, base: 150000, win: 200000, pct: 0, since, seenAt: 900 }, cfg, 1002).ask, null);
 });
 
+test('context watch: a hook behind a sibling with no step to ask leaves the saved state alone (next version)', () => {
+  const { decide } = require(path.join(__dirname, '..', 'scripts', 'hook-context-watch.js'));
+  const cfg = { on: true, steps: [85, 90, 95], reserve: 33000 };
+  const small = { tokens: 198000, base: 198000, win: 200000, pct: 0 };
+  const mid = { tokens: 201000, base: 201000, win: 300000, pct: 0 };
+  const since = { min: 150000, boundary: false, reached: true };
+  // With no `since`, or with one read before the sibling saved.
+  for (const read of [{ since: null, seenAt: 0 }, { since, seenAt: 900 }]) {
+    const a = decide({}, {}, { ...small, ...read }, cfg, 1000);
+    assert.deepStrictEqual(a.ask, { repeat: false, level: 3 });
+    const b = decide(a.w, {}, { ...mid, ...read }, cfg, 999);
+    assert.strictEqual(b.ask, null);
+    assert.deepStrictEqual(b.w, a.w, 'a bigger point with nothing to ask keeps the state');
+    assert.strictEqual(decide(b.w, {}, { ...small, ...read }, cfg, 998).ask, null, 'no second first request');
+  }
+  // A hook not behind a sibling still starts over at a bigger point, as before.
+  // Its reading is above the shrink and 75% lines, so only the point can do it.
+  const a = decide({}, {}, { ...small, since: null, seenAt: 0 }, cfg, 1000);
+  assert.deepStrictEqual(decide(a.w, {}, { ...mid, since: { min: 201000, boundary: false, reached: true }, seenAt: 1000 }, cfg, 1001).w, {});
+});
+
 test('context watch: a hook that ran late moves the saved seenAt forward, never back (next version)', () => {
   const { decide } = require(path.join(__dirname, '..', 'scripts', 'hook-context-watch.js'));
   const cfg = { on: true, steps: [85, 90, 95], reserve: 33000 };
