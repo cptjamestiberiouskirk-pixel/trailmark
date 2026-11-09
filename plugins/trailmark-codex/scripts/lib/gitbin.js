@@ -257,8 +257,10 @@ function rawJoin(a, b) {
 // look at a different path than git opens. So is U+FFFD, which is what Node
 // makes of bytes that aren't valid UTF-8: git opens the raw bytes (Git for
 // Windows maps them to other characters), a path this check can't name.
+// The look-behind keeps the trim linear: a config value can decode to
+// millions of line breaks, and without it each one starts a new scan.
 function exactPointer(t) {
-  const v = String(t).replace(/[\r\n]+$/, '');
+  const v = String(t).replace(/(?<![\r\n])[\r\n]+$/, '');
   return /^\s|\s$|[\r\n\0\uFFFD]/.test(v) ? null : v;
 }
 function localPath(p) {

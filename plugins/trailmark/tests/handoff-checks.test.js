@@ -657,6 +657,27 @@ test('git pointers: config is read as git reads it, and alternates are followed'
   assert.strictEqual(farGitConfig(ok), '');
 });
 
+// A quoted \n is two bytes in the file and one line break in the value. It
+// runs in a child with a kill limit: the trim this guards took about 40 s on
+// this value, and would hold up every test after it.
+test('git pointers: a config value of many line breaks is refused without a long scan', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far-nl-');
+  const repoWith = (name, value) => {
+    const r = path.join(base, name); repoAt(r);
+    fs.appendFileSync(path.join(r, '.git', 'config'), `[core]\n\tattributesFile = "${value}"\n`);
+    return r;
+  };
+  const long = repoWith('long', '\\n'.repeat(250000) + 'x');
+  const code = `console.log(require(${JSON.stringify(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'))}).farGitConfig(${JSON.stringify(long)}))`;
+  const p = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 15000 });
+  assert.ok(!p.error, `the check did not finish: ${p.error && p.error.code}`);
+  assert.strictEqual(p.stdout.trim(), 'odd-config-path');
+  // What the trim is for: line breaks at the end go, any other is refused.
+  assert.strictEqual(farGitConfig(repoWith('end', 'attrs\\n\\n')), '');
+  assert.strictEqual(farGitConfig(repoWith('middle', 'at\\ntrs')), 'odd-config-path');
+});
+
 test('git pointers: a linked config is followed and checked where it leads', { skip: NO_LINKS }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far3-');
