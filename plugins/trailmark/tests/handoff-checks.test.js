@@ -3537,6 +3537,46 @@ test('commit folders: a folder that joins again after 13 newer sweeps keeps wher
   assert.ok(!keys.includes(D(1)), 'the oldest entry goes first');
 });
 
+// RS-H-addcommitdirs: each candidate folder read all of swept again, on every
+// eviction, under the lock. A crafted state file of 3,000 entries of each took
+// seconds, and past the 9 s hook limit the writer is killed holding the lock.
+// The count of path.resolve calls shows it without a clock.
+test('commit folders: huge commitDirs and swept in a state file cost one pass by name, not a pass per folder (next version)', () => {
+  const D = (n) => path.resolve('/crafted', `f${n}`);
+  // By name as before: the first key for the folder with a usable time counts.
+  const same = D('same');
+  const small = { commitDirs: [], swept: { [same + path.sep]: 'not a time', [same]: 2000, [same + path.sep + path.sep]: 3000 } };
+  S.addCommitDirs(small, [same], 9000, 9500);
+  assert.deepStrictEqual(small.commitDirsAt[same], [2000, 9500]);
+  const N = 400;
+  const rec = { commitDirs: [], commitDirsAt: {}, swept: {} };
+  for (let i = 0; i < N; i++) { rec.commitDirs.push(D(i)); rec.commitDirsAt[D(i)] = [1, 2]; rec.swept[D(i)] = 5000; }
+  const added = D('added');
+  const resolve = path.resolve;
+  let calls = 0;
+  path.resolve = function () { calls++; return resolve.apply(this, arguments); };
+  try { S.addCommitDirs(rec, [added], 9000, 9500); } finally { path.resolve = resolve; }
+  assert.strictEqual(rec.commitDirs.length, S.MAX_COMMIT_DIRS);
+  assert.ok(rec.commitDirs.includes(added));
+  assert.deepStrictEqual(Object.keys(rec.commitDirsAt).sort(), [...rec.commitDirs].sort());
+  assert.ok(calls < 2 * N, `${calls} path.resolve calls for ${N} entries`);
+});
+
+// RS-H-addcommitdirs, its neighbor: backslashes are ordinary characters on
+// Linux and macOS, so path.resolve keeps a run of them, and the regex that
+// trimmed a path's end took time quadratic in the run. Windows folds the run,
+// so this passes there on the old code too. A child with a time limit: the
+// old code takes minutes on such a key, the new one milliseconds.
+test('paths: the end of a path is trimmed in linear time, whatever a crafted key holds (next version)', () => {
+  const lib = path.join(__dirname, '..', 'scripts', 'lib', 'paths.js');
+  const { pathKey } = require(lib);
+  const dir = path.resolve('/crafted', 'f');
+  assert.strictEqual(pathKey(`${dir}\\\\`), pathKey(dir));
+  assert.strictEqual(pathKey(`${dir}/`), pathKey(dir));
+  const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(lib)}).pathKey('/x' + '\\\\'.repeat(400000) + 'y')`], { encoding: 'utf8', timeout: 30000 });
+  assert.strictEqual(r.status, 0, `status ${r.status}, signal ${r.signal}, ${String(r.stderr).slice(0, 300)}`);
+});
+
 // RS-F-enotdir2: a file where the plugins folder should be. Windows says
 // ENOENT, nothing to search; Linux and macOS said ENOTDIR, which read as "the
 // cache could not be read". The POSIX answer is stubbed, so each system runs

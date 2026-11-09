@@ -15,7 +15,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { samePath } = require('./paths');
+const { samePath, pathKey } = require('./paths');
 
 const MARKER = '.jbmem.json';
 const STATE = '.jbmem-state.json';
@@ -1303,7 +1303,9 @@ function rememberCommits(state, shas) {
 // and is swept from the session's start, as before.
 const MAX_COMMIT_DIRS = 6;
 function addCommitDirs(rec, dirs, from, settled = from) {
-  const list = Array.isArray(rec.commitDirs) ? rec.commitDirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
+  // A session can write the state file, and this runs under the lock. Normal
+  // writes leave no more than this many, and the launcher reads no further.
+  const list = Array.isArray(rec.commitDirs) ? rec.commitDirs.slice(0, MAX_COMMIT_DIRS).filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
   const old = isPlainObject(rec.commitDirsAt) ? rec.commitDirsAt : {};
   const at = {};
   for (const d of list) {
@@ -1311,7 +1313,15 @@ function addCommitDirs(rec, dirs, from, settled = from) {
     if (Array.isArray(v) && v.length === 2 && v.every(Number.isFinite)) at[d] = [v[0], v[1]];
   }
   const swept = isPlainObject(rec.swept) ? rec.swept : {};
-  const sweptAt = (d) => { const k = Object.keys(swept).find(x => Number.isFinite(swept[x]) && samePath(x, d)); return k ? swept[k] : -Infinity; };
+  // One pass by name, the first key for a folder counting: a pass per folder
+  // and eviction took seconds on a crafted map (RS-H-addcommitdirs).
+  const sweptByName = new Map();
+  for (const x of Object.keys(swept)) {
+    if (!x || !Number.isFinite(swept[x])) continue;
+    const n = pathKey(x);
+    if (!sweptByName.has(n)) sweptByName.set(n, swept[x]);
+  }
+  const sweptAt = (d) => { const v = sweptByName.get(pathKey(d)); return v === undefined ? -Infinity : v; };
   const done = (d) => !!at[d] && sweptAt(d) >= at[d][1];
   const timed = Number.isFinite(from) && Number.isFinite(settled);
   const added = new Set();
