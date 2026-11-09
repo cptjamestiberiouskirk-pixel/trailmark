@@ -678,6 +678,38 @@ test('git pointers: a config value of many line breaks is refused without a long
   assert.strictEqual(farGitConfig(repoWith('middle', 'at\\ntrs')), 'odd-config-path');
 });
 
+// RS-A-longpath, RS-A-spread: a path value of megabytes was walked for
+// seconds, and one of 130,000 parts overflowed the stack.
+test('git pointers: a config path value longer than any path is refused without being walked', () => {
+  const { farGitConfig, localPath } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const gf = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-far-long-');
+  const repoWith = (name, section, key, value) => {
+    const r = path.join(base, name); repoAt(r);
+    fs.appendFileSync(path.join(r, '.git', 'config'), `[${section}]\n\t${key} = ${value}\n`);
+    return r;
+  };
+  for (const [section, key] of [['core', 'attributesFile'], ['core', 'worktree'], ['include', 'path']]) {
+    // One long name, then many short parts: each was accepted or threw.
+    const long = repoWith(`${key}-long`, section, key, 'a'.repeat(40000));
+    assert.strictEqual(farGitConfig(long), 'odd-config-path', `${key}, one long name`);
+    assert.strictEqual(farGitConfig(repoWith(`${key}-parts`, section, key, 'a/'.repeat(200000) + 'x')), 'odd-config-path', `${key}, many parts`);
+    assert.strictEqual(gf.gitFacts(long, ['head']).gitRefused, 'odd-config-path', `${key}: git is kept out`);
+    // A long path that a system could still open is read as before.
+    assert.strictEqual(farGitConfig(repoWith(`${key}-fine`, section, key, 'a'.repeat(4000))), '', `${key}, 4,000 letters`);
+  }
+  // Under the limit alone and over it once joined to its folder: no path
+  // either, and not called a network path.
+  for (const key of ['attributesFile', 'worktree']) {
+    assert.strictEqual(farGitConfig(repoWith(`${key}-edge`, 'core', key, 'a'.repeat(32767))), 'odd-config-path', `${key}, 32,767 letters`);
+  }
+  // The walk itself, for callers with a path from somewhere else (a
+  // command's text): refused, not thrown.
+  assert.strictEqual(localPath(path.join(base, 'a'.repeat(40000))), null);
+  assert.strictEqual(localPath(path.join(base, 'a'.repeat(3000))), path.join(base, 'a'.repeat(3000)));
+  assert.strictEqual(gf.sameFolder(base + (path.sep + 'x').repeat(300000), base), false);
+});
+
 test('git pointers: a linked config is followed and checked where it leads', { skip: NO_LINKS }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far3-');

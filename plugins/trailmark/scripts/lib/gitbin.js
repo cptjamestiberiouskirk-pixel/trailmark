@@ -239,6 +239,13 @@ function oddRelative(t) {
   return /^[A-Za-z]:(?![\\/])/.test(v) || /^[\\/](?![\\/])/.test(v);
 }
 const UNSAFE = Symbol('unsafe');
+// The longest path any system opens is 32,767 characters (Windows; Linux
+// stops at 4,096 bytes and macOS at 1,024). A longer text is never a path
+// git could open, and it is refused before it is walked: a config value can
+// be megabytes long, where the walk took seconds (8 MB as core.worktree: 13 s)
+// and a value of 130,000 parts overflowed the stack (RS-A-longpath,
+// RS-A-spread).
+const MAX_PATH_TEXT = 32767;
 // p with every link on the way read and replaced by its target, one part at
 // a time from the root; null when a link leads to a network path or the
 // links loop. Parts that don't exist are kept as they are.
@@ -259,11 +266,14 @@ function rawJoin(a, b) {
 // Windows maps them to other characters), a path this check can't name.
 // The look-behind keeps the trim linear: a config value can decode to
 // millions of line breaks, and without it each one starts a new scan.
+// A text longer than MAX_PATH_TEXT is refused before any of that.
 function exactPointer(t) {
+  if (String(t).length > MAX_PATH_TEXT) return null;
   const v = String(t).replace(/(?<![\r\n])[\r\n]+$/, '');
   return /^\s|\s$|[\r\n\0\uFFFD]/.test(v) ? null : v;
 }
 function localPath(p) {
+  if (String(p).length > MAX_PATH_TEXT) return null;
   // A NUL ends the path for git but makes Node throw, and U+FFFD stands for
   // bytes that aren't valid UTF-8 (see exactPointer): never taken as local.
   if (/[\0\uFFFD]/.test(String(p))) return null;
@@ -406,6 +416,8 @@ function farPathValue(value, bases, key = '') {
   const tries = path.isAbsolute(p) ? [p, path.resolve(p)] : bases.filter(Boolean).flatMap(b => (missingBase(b) ? [path.resolve(b, p)] : [rawJoin(b, p), path.resolve(b, p)]));
   const walked = new Set();
   for (const t of tries) {
+    // Too long once joined to its base: no path, and no share either.
+    if (t.length > MAX_PATH_TEXT) return 'odd-config-path';
     const real = localPath(t);
     if (!real) return 'network-config';
     // git-lfs keeps objects and temp files in lfs.storage: walked like a gitdir.
@@ -873,6 +885,7 @@ function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
     const v = exactPointer(e.value);
     if (v === null || !v) continue;
     for (const w of path.isAbsolute(v) ? [v] : [rawJoin(gitdir, v), rawJoin(path.dirname(e.file), v)]) {
+      if (w.length > MAX_PATH_TEXT) return 'odd-config-path';
       const real = localPath(w);
       if (!real) return 'network-config';
       bases.push(real, path.resolve(w));
