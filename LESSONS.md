@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: A wider guard switched off an unrelated reset inside it
+
+- What went wrong: RS-H-samesince widened `crossed`, which skips the whole start-over block. The block also held the check for a bigger compaction point, which has nothing to do with stale readings, so a 400k hook behind a 200k sibling asked nothing. `seenAt: now` could also move the saved value backward, since `now` is read before the lock. Copilot found both on PR #29, and tests on the old code reproduced both. No test here and no reviewer's report had covered a window change between two sibling hooks.
+- Why: the guard was judged by the reason it was added for, not by everything it skips. The block's conditions were written as one `if`, so the unrelated one didn't stand out.
+- Rule going forward: when a condition skips a block, list each thing the block does and ask whether the condition is about that thing. A value read before a lock can be older than the state under it: check what happens when two hooks land in the other order.
+- Status: open
+
 ## 2026-11-09: One edit in a batch failed and the commit in the same message still ran
 
 - What went wrong: of several parallel Edits to `dev/release-state.md`, one failed because its text sat mid-paragraph. The commit sent in the same message ran anyway, so d54c4e9 had references to a section that wasn't there. 9284d1a fixed it.

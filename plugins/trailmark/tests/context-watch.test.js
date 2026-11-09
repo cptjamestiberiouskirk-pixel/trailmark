@@ -203,6 +203,54 @@ test('context watch: a hook whose launcher read an older seenAt than the saved o
   }
 });
 
+test('context watch: a bigger compaction point starts the steps over even when a sibling hook saved first (next version)', () => {
+  const { decide } = require(path.join(__dirname, '..', 'scripts', 'hook-context-watch.js'));
+  const cfg = { on: true, steps: [85, 90, 95], reserve: 33000 };
+  const before = { level: 1, firstAt: 900, seen: 142000, seenAt: 900, point: 167000 };
+  const since = { min: 142000, boundary: false, reached: true };
+  // Both launchers read seenAt 900. The 200k hook saves first, at the top step.
+  const small = decide(before, {}, { tokens: 160000, base: 160000, win: 200000, pct: 0, since, seenAt: 900 }, cfg, 1000);
+  assert.deepStrictEqual(small.ask, { repeat: true, level: 3 });
+  // The steps it passed were the smaller point's, with or without a `since`.
+  const big = { tokens: 320000, base: 320000, win: 400000, pct: 0, since, seenAt: 900 };
+  for (const c of [big, { ...big, since: null, seenAt: 0 }]) {
+    const a = decide(small.w, {}, c, cfg, 1001);
+    assert.deepStrictEqual(a.ask, { repeat: false, level: 1 }, JSON.stringify(c.since));
+    assert.strictEqual(a.w.point, 367000);
+    // A sibling with the same facts doesn't ask a second time.
+    assert.strictEqual(decide(a.w, {}, c, cfg, 1002).ask, null, JSON.stringify(c.since));
+  }
+  // A smaller point than the saved one keeps the state, as before.
+  const saved = decide(small.w, {}, big, cfg, 1001).w;
+  assert.strictEqual(decide(saved, {}, { tokens: 150000, base: 150000, win: 200000, pct: 0, since, seenAt: 900 }, cfg, 1002).ask, null);
+});
+
+test('context watch: a hook that ran late moves the saved seenAt forward, never back (next version)', () => {
+  const { decide } = require(path.join(__dirname, '..', 'scripts', 'hook-context-watch.js'));
+  const cfg = { on: true, steps: [85, 90, 95], reserve: 33000 };
+  const since = { min: 320000, boundary: false, reached: true };
+  const saved = { level: 1, firstAt: 900, seen: 320000, seenAt: 1001, point: 367000 };
+  // This hook's launcher read 900 and its clock was read before the lock, at
+  // 1000 or in the same millisecond as the saved state. It still raises the step.
+  for (const now of [1000, 1001]) {
+    const late = decide(saved, {}, { tokens: 335000, base: 335000, win: 400000, pct: 0, since, seenAt: 900 }, cfg, now);
+    assert.deepStrictEqual(late.ask, { repeat: true, level: 2 });
+    assert.ok(late.w.seenAt > 1001, String(late.w.seenAt));
+    // A third hook, whose launcher read 1001, must see that a sibling saved after it.
+    const third = decide(late.w, {}, { tokens: 320000, base: 320000, win: 400000, pct: 0, since: { reached: false }, seenAt: 1001 }, cfg, 1003);
+    assert.strictEqual(third.ask, null, String(now));
+  }
+  // The same when the late hook starts the steps over for a bigger point.
+  const grew = decide({ ...saved, point: 167000 }, {}, { tokens: 320000, base: 320000, win: 400000, pct: 0, since, seenAt: 900 }, cfg, 1000);
+  assert.deepStrictEqual(grew.ask, { repeat: false, level: 1 });
+  assert.ok(grew.w.seenAt > 1001, String(grew.w.seenAt));
+  // A hook that isn't behind a sibling saves its own clock, as before.
+  const own = decide(saved, {}, { tokens: 335000, base: 335000, win: 400000, pct: 0, since, seenAt: 1001 }, cfg, 2000);
+  assert.strictEqual(own.w.seenAt, 2000);
+  // A late hook with a later clock than the saved state keeps its own too.
+  assert.strictEqual(decide(saved, {}, { tokens: 335000, base: 335000, win: 400000, pct: 0, since, seenAt: 900 }, cfg, 2000).w.seenAt, 2000);
+});
+
 test('context watch: the launcher tells the hook which seenAt it read, and the hook checks it (next version)', () => {
   const { contextFacts } = require(path.join(__dirname, '..', 'scripts', 'hook-context-watch.js'));
   const facts = (seenAt) => JSON.stringify({ context: { tokens: 320000, base: 320000, win: 400000, pct: 0, since: { reached: false }, seenAt } });

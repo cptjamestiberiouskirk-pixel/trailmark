@@ -85,10 +85,17 @@ function decide(prev, rec, ctx, cfg, now) {
   // seenAt newer than the one the launcher read says the same when there is a
   // `since`: it was measured from that older point (RS-H-samesince).
   const crossed = ctx.since ? ctx.seenAt > 0 && when(w.seenAt) > ctx.seenAt : when(w.seenAt) > 0;
-  if (w.level && !crossed) {
+  // `now` was read before the lock, so a hook behind a sibling can hold an
+  // older clock than the saved state. What it saves still has to be newer, or
+  // a third hook that read the sibling's seenAt couldn't tell it was crossed.
+  const stamp = crossed ? Math.max(now, when(w.seenAt) + 1) : now;
+  // A bigger point is measured against the saved one, not against what the
+  // launcher read, so it holds whichever hook saved first.
+  if (w.level && pt > count(w.point)) w = {};
+  else if (w.level && !crossed) {
     const s = ctx.since;
     const low = Math.min(ctx.base, s && Number.isFinite(s.min) ? s.min : Infinity);
-    if (!s || s.boundary || !s.reached || (seen > 0 && low < seen * SHRINK) || pt > count(w.point)) w = {};
+    if (!s || s.boundary || !s.reached || (seen > 0 && low < seen * SHRINK)) w = {};
     else if (seen > 0 && seen < first) {
       // Asked from an estimate: kept until the transcript reaches the first
       // step; there, start over if the handoff was written since, else carry
@@ -105,7 +112,7 @@ function decide(prev, rec, ctx, cfg, now) {
   // The biggest point asked under: a smaller one kept here would let the next
   // flip back to the bigger window start the steps over again.
   const keep = Math.max(pt, count(w.point) || 0);
-  return { w: { level, firstAt: firstAt > 0 ? firstAt : now, seen: ctx.base, seenAt: now, point: keep }, ask: { repeat, level }, point, changed: true };
+  return { w: { level, firstAt: firstAt > 0 ? firstAt : now, seen: ctx.base, seenAt: stamp, point: keep }, ask: { repeat, level }, point, changed: true };
 }
 
 const k = n => `${Math.round(n / 1000)}k`;

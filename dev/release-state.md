@@ -12,6 +12,7 @@ The user's "Yes, next batch", on the remaining CONFIRMED items. Commit a9ffb25. 
 - RS-W-milestonerule: the milestone test checks the hint holds `SKILL_RULE`, in both copies.
 - Tests: each fix removed alone fails a test, six mutations here (`mutate2.sh`, scratchpad), more by the reviewers. The first run of the milestone assertion failed for the wrong reason (LESSONS).
 - Review on `git diff 77004be..a9ffb25` (Fable, Opus, Sonnet): nothing CONFIRMED that needs a fix, so the stop rule is met.
+- Copilot on PR #29 (6b8ee8e), two findings, both reproduced by tests on that commit and fixed: the bigger-compaction-point reset now runs outside the `crossed` guard, and a hook behind a sibling saves a `seenAt` newer than the saved one (`stamp`). Removing each part alone fails a test (four mutations, `mutate3.sh`, scratchpad); 21 of 21 context-watch tests pass. Real concurrent hook processes were not run. Codex's code and security reviews of 6b8ee8e finished with no comments.
 - Changelog note: two hooks running at once no longer both ask for a checkpoint after a compaction, a shrink or a transcript not read that far (0.6.2 covered the first request only). The Codex skills now say what to do when a shortened session-start note has no path after "Launcher:".
 
 Still deferred, and why: RS-F-ninenotes needs 9 notes and session start makes at most 5. RS-H-capdeep stays inside the hook limit and needs very deep folders on disk. RS-A-foundcommits is linear. RS-A-migrate and RS-A-spread have no shown way to reach them.
