@@ -14,40 +14,68 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: A negative probe removed the field from the format template
+
+- What went wrong: to prove `dev/lessons.sh --check` catches a missing "Why", a `sed` removed the first such line in `LESSONS.md`. That line is in the format template at the top, so the check rightly passed and the probe looked like a bug in the script.
+- Why: the probe checked that its edit applied, not where it applied.
+- Rule going forward: a probe's edit names the exact entry or line it means to change.
+- Status: open
+
+## 2026-11-09: The lessons check left nothing to show it had happened
+
+- What went wrong: the user asked for a formal process that checks lessons before decisions. The only process was a sentence in `CLAUDE.md` asking each session to re-read two files, and many general lessons had stayed "open" instead of becoming playbook steps.
+- Why: a rule with no visible output can be skipped without anyone seeing it.
+- Rule going forward: the check leaves a `Lessons checked:` line the user can read, and each rule named gets a result.
+- Status: promoted to PLAYBOOK (The lessons check)
+
+## 2026-11-09: An empty search of a CI log meant the download had failed
+
+- What went wrong: `gh api .../logs` refused output holding escape sequences, so the log file was empty and a grep of it found nothing. That read as the line being absent.
+- Why: the result of the search was read without checking its input.
+- Rule going forward: show the input exists and has size before reading an empty search as an answer. `gh api` on job logs needs `--allow-escape-sequences`.
+- Status: promoted to PLAYBOOK (Testing, step 9, second sighting)
+
+## 2026-11-09: A cd in one Bash call moved the next one
+
+- What went wrong: a `cd` inside a Bash call changed the working directory of the calls after it.
+- Why: the main session's shell keeps a `cd` that succeeds inside the working directories.
+- Rule going forward: use absolute paths or `git -C`.
+- Status: open
+
 ## 2026-11-09: A wider guard switched off an unrelated reset inside it
 
 - What went wrong: RS-H-samesince widened `crossed`, which skips the whole start-over block. The block also held the check for a bigger compaction point, which has nothing to do with stale readings, so a 400k hook behind a 200k sibling asked nothing. `seenAt: now` could also move the saved value backward, since `now` is read before the lock. Copilot found both on PR #29, and tests on the old code reproduced both. No test here and no reviewer's report had covered a window change between two sibling hooks.
 - Why: the guard was judged by the reason it was added for, not by everything it skips. The block's conditions were written as one `if`, so the unrelated one didn't stand out.
 - Rule going forward: when a condition skips a block, list each thing the block does and ask whether the condition is about that thing. A value read before a lock can be older than the state under it: check what happens when two hooks land in the other order.
-- Status: open
+- Status: promoted to PLAYBOOK (Writing code, step 7)
 
 ## 2026-11-09: One edit in a batch failed and the commit in the same message still ran
 
 - What went wrong: of several parallel Edits to `dev/release-state.md`, one failed because its text sat mid-paragraph. The commit sent in the same message ran anyway, so d54c4e9 had references to a section that wasn't there. 9284d1a fixed it.
 - Why: calls sent together don't wait on each other, so nothing stopped the commit when an edit failed.
 - Rule going forward: send a commit in a later message than the edits it depends on, or have the commit command check for the edited text first.
-- Status: open
+- Status: promoted to PLAYBOOK (Committing, seen twice)
 
 ## 2026-11-09: A new assertion failed for the wrong reason and looked like a pass
 
 - What went wrong: the milestone test's new line used `S`, which that test's scope doesn't define. It failed on the old code with a ReferenceError, so "fails first" looked met until the list of failures was read. The check it was meant to add is a test gap, which passes on the old code.
 - Why: the first run was read as a count of failures, not by each failure's reason.
 - Rule going forward: read why each new test fails on the old code. A test for a gap proves itself by removing the code it guards.
-- Status: open
+- Status: promoted to PLAYBOOK (Testing, step 8)
 
 ## 2026-11-09: A fix for one regex left the same regex at three other sites
 
 - What went wrong: the RS-H-addcommitdirs fix replaced the quadratic trailing-separator regex in `pathKey`. `folderKey` had the same line and could still stall session start, and `sameDir` and `nodeInside` had it too. Opus found `folderKey` in the review round.
 - Why: the search that found the problem started from the function being fixed, not from the pattern.
 - Rule going forward: after fixing a pattern, search the whole repo for that pattern before the first review.
-- Status: open
+- Status: promoted to PLAYBOOK (Writing code, step 6)
 
 ## 2026-11-09: A cost test's data never reached the branch it was guarding
 
 - What went wrong: the count test for `addCommitDirs` still passed with the list cap removed. All its folders were settled, so each eviction stopped at the first one and the cost of a long list never showed (CONFIRMED by Opus and Fable, not re-run; 796 calls against 80,586 once the folders were unsettled, the second number also seen here).
 - Why: the test was checked against the whole old code, which failed for another reason, and not against each part of the fix.
 - Rule going forward: for a fix with two parts, remove each part alone and check that a test fails.
-- Status: open
+- Status: promoted to PLAYBOOK (Testing, step 8)
 
 ## 2026-11-09: A zip built a day before publishing went stale on its date
 
@@ -61,7 +89,7 @@ Format:
 - What went wrong: the session counted "Use the draft job" as the user's word to merge PR 26, because its message had said so. The app's permission check refused auto-merge as a merge without review. The merge was chained after a commit and push, so those didn't run either.
 - Why: a yes to a plan isn't a yes to its one hard-to-undo step, and one long command fails as a whole.
 - Rule going forward: ask for a merge, tag or publish by name, as its own question. Run it as its own command.
-- Status: open
+- Status: promoted to PLAYBOOK (Do not attempt)
 
 ## 2026-11-08: Reordering a delete made its list stale
 
@@ -75,7 +103,7 @@ Format:
 - What went wrong: the fake-gh harness for `release-draft.sh` passed its "nothing was deleted or created" checks without checking anything. The pattern began with `-X DELETE`, so grep took it as an option and exited 2, and the check read that as "not found".
 - Why: a check of the form `if grep ...; then fail` treats a broken grep the same as no match. The stderr line was the only sign.
 - Rule going forward: `grep -- "$pattern"` for any pattern held in a variable. A harness of negative checks includes one control that must report a failure.
-- Status: open
+- Status: promoted to PLAYBOOK (Testing, step 9, second sighting)
 
 ## 2026-11-08: A promised report on a merge had nothing to trigger it
 
@@ -124,7 +152,7 @@ Format:
 - What went wrong: batch H's `huge swept` test asserted a commit was not "found later". With the lookup it was meant to check broken, it still passed in 7 of 16 runs on Linux: the sweep reads only up to the current whole second, and the commit was in that second (Opus, review round 1).
 - Why: the fail-first proof ran the whole test on the old code, where an earlier assertion failed first, so nothing showed this one could fail.
 - Rule going forward: when a test holds several assertions, break the code each one guards, one at a time. An assertion that something didn't happen gets its own forced fault.
-- Status: open
+- Status: promoted to PLAYBOOK (Testing, step 8)
 
 ## 2026-11-08: Reviewers' proofs push out kept failed runs
 
@@ -210,7 +238,7 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - What went wrong: `release-check.sh --sums --quick 2>&1 | tail -9 && git commit ...` committed 8f7894c although the check printed FAIL (8 handoff-checks tests, the listed commit-list load sign; they passed 10 of 10 when rerun with `--only`). In the same batch the first `--sums` wrote `SHA256SUMS` in the locale's order, so 48 lines changed for 8 files (the review-strategy session caught it; batch D's D4).
 - Why: a pipeline's status is its last command's, so `tail` hid the check's exit code. And `release-check.sh` sorts the list with a plain `sort`.
 - Rule going forward: never chain a commit after a check piped into `tail` or `head`. Run the check, read its summary, then commit. D4 has landed (PR #17 sorts with `LC_ALL=C`); still check `git diff --stat -- SHA256SUMS` against the files you changed.
-- Status: open
+- Status: promoted to PLAYBOOK (Committing, seen twice)
 
 ## 2026-11-07: Escapes in a test's source didn't survive the edit (batch S)
 

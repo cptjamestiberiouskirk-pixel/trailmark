@@ -15,6 +15,8 @@ The user's "Yes, next batch", on the remaining CONFIRMED items. Commit a9ffb25. 
 - Copilot on PR #29 (6b8ee8e), two findings, both reproduced by tests on that commit and fixed: the bigger-compaction-point reset now runs outside the `crossed` guard, and a hook behind a sibling saves a `seenAt` newer than the saved one (`stamp`). Removing each part alone fails a test (four mutations, `mutate3.sh`, scratchpad); 21 of 21 context-watch tests pass. Real concurrent hook processes were not run. Codex's code and security reviews of 6b8ee8e finished with no comments.
 - Changelog note: two hooks running at once no longer both ask for a checkpoint after a compaction, a shrink or a transcript not read that far (0.6.2 covered the first request only). The Codex skills now say what to do when a shortened session-start note has no path after "Launcher:".
 
+Process, at the user's request on 2026-11-09: `PLAYBOOK.md` opens with "The lessons check", run before each decision, with `dev/lessons.sh` printing the rules and `dev/release-check.sh` failing on a broken entry. Nine general lessons became playbook steps. A session still follows the check by hand: only the log's format is checked by a tool.
+
 Still deferred, and why: RS-F-ninenotes needs 9 notes and session start makes at most 5. RS-H-capdeep stays inside the hook limit and needs very deep folders on disk. RS-A-foundcommits is linear. RS-A-migrate and RS-A-spread have no shown way to reach them.
 
 New from this batch, seen on a9ffb25, older code:

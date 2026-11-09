@@ -271,6 +271,9 @@ if node --check tools/migrate-from-jb-memory.js && node tools/migrate-from-jb-me
   record PASS 'migration script parses and --help runs'
 else record FAIL 'migration script'; fi
 
+if out="$(bash dev/lessons.sh --check)"; then record PASS "LESSONS.md format: $(tail -1 <<<"$out")"
+else record FAIL "LESSONS.md format: $(head -1 <<<"$out" | cut -c1-90)"; fi
+
 # The shared-file list is read from CI, so the two can't drift apart.
 SHARED="$(sed -n 's/^ *for f in \(.*\); do$/\1/p' .github/workflows/tests.yml | head -1)"
 bad=''
