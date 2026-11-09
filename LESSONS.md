@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: A new assertion failed for the wrong reason and looked like a pass
+
+- What went wrong: the milestone test's new line used `S`, which that test's scope doesn't define. It failed on the old code with a ReferenceError, so "fails first" looked met until the list of failures was read. The check it was meant to add is a test gap, which passes on the old code.
+- Why: the first run was read as a count of failures, not by each failure's reason.
+- Rule going forward: read why each new test fails on the old code. A test for a gap proves itself by removing the code it guards.
+- Status: open
+
 ## 2026-11-09: A fix for one regex left the same regex at three other sites
 
 - What went wrong: the RS-H-addcommitdirs fix replaced the quadratic trailing-separator regex in `pathKey`. `folderKey` had the same line and could still stall session start, and `sameDir` and `nodeInside` had it too. Opus found `folderKey` in the review round.
