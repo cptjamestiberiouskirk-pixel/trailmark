@@ -67,6 +67,7 @@ Follow the current version's "Release checklist" in `dev/release-state.md`. Olde
 1. `dev/release-check.sh --zip <dir>` from a clean tree at the release commit. Record the commit and the zip's sha256 in `dev/release-state.md`.
 2. Check the zip holds the change: unzip it and search for a string only the change adds. Check that `CLAUDE.md`, `PLAYBOOK.md`, `LESSONS.md` and `dev/` are absent.
 3. After publishing, download the assets back and run `sha256sum -c`.
+4. `.github/workflows/release-draft.yml` puts the zip of a version with no tag in a draft release after each push to `main`, replacing an earlier push's draft. Steps 1 and 2 can use the draft's zip instead of a local build. Publishing the draft makes the tag, and that stays the user's word. The job doesn't wait for `tests.yml`, so check that its jobs passed on that commit before publishing. A draft with the job's hidden mark in its notes is replaced by the next push, edited notes included. A draft without the mark stops the job with nothing changed.
 
 ## At each milestone
 
@@ -76,3 +77,4 @@ Follow the current version's "Release checklist" in `dev/release-state.md`. Olde
 4. Log any mistake, redo or surprise in `LESSONS.md` right away. A lesson seen twice, or clearly general, becomes a step here and is marked "promoted".
 5. A session that ends on an error (a request timeout, say) is resumed at once by the session that started it: check that its branch and worktree are intact, then send it the next step. A review whose report never arrived is run again. Sessions commit before starting a long review, so a stop can lose only that review.
 6. When one session changes another session's PR (auto-merge, a merge), it tells that session in the same step.
+7. Nothing wakes a session when a PR merges, and sessions don't poll CI. A session never promises to report on something that can't wake it. Its closing line says who acts next and what triggers that.

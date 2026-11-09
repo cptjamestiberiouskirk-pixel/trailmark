@@ -1,0 +1,34 @@
+name: release draft
+
+# After each push to main, a version with no tag yet gets a draft release
+# holding its zip, so nobody has to wait on a local build after a merge. A
+# draft has no tag and publishes nothing: a person publishes it.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Two quick pushes run one after the other, so each sees what the last one did.
+concurrency:
+  group: release-draft
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    name: draft release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Build the zip and update the draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: bash dev/release-draft.sh
