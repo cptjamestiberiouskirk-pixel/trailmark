@@ -85,8 +85,8 @@ function decide(prev, rec, ctx, cfg, now) {
   const first = cfg.steps.length ? ref * Math.min(...cfg.steps) / 100 : Infinity;
   // Start over: a compaction since the last request, a shrink, a fall below
   // 75% of the compaction point, a compaction point bigger than any asked
-  // under, or a transcript that couldn't be read back that far (asking once
-  // more is the safe side).
+  // under once the context reaches one of its steps, or a transcript that
+  // couldn't be read back that far (asking once more is the safe side).
   // The launcher passes `since` only when the record it read had a seenAt, so
   // a state that has one with no `since` here was saved after that read: two
   // hooks ran at once (parallel tool calls) and the other one asked. Its state
