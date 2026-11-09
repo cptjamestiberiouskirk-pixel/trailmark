@@ -44,7 +44,7 @@ function flush(   miss, i, hit, text) {
 }
 BEGIN { nw = split(tolower(words), w, " ") }
 { sub(/\r$/, "") }
-/^```/ { fence = !fence; if (title != "") body = body " " $0; next }
+/^```/ { fence = !fence; if (fence) fence_line = NR; if (title != "") body = body " " $0; next }
 fence { if (title != "") body = body " " $0; next }
 /^## [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]: / {
   flush()
@@ -65,6 +65,8 @@ title != "" {
 }
 END {
   flush()
+  # Everything after an open fence was skipped, so the counts below are short.
+  if (fence) { printf "BAD   line %d: code fence is never closed\n", fence_line; bad++ }
   if (entries == 0) { print "BAD   no entries found"; bad++ }
   if (mode == "check") printf "%d entries, %d open, %d promoted, %d bad\n", entries, opened, entries - opened, bad
   else printf "-- %d shown of %d lessons (%d open)\n", shown, entries, opened
