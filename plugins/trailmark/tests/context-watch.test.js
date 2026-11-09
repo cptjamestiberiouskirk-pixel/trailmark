@@ -279,6 +279,35 @@ test('context watch: a window that flips to a bigger one with no step to ask ask
   assert.deepStrictEqual(at(120000, 400000, low, 1001).w, {});
 });
 
+// RS-H-nopoint: a state with a level and no usable point never started over
+// when the window grew, because a comparison with NaN is false.
+test('context watch: a saved state with no usable point starts over at a step of the current point (next version)', () => {
+  const { decide } = require(path.join(__dirname, '..', 'scripts', 'hook-context-watch.js'));
+  const cfg = { on: true, steps: [85, 90, 95], reserve: 33000 };
+  const at = (t, win, w, now) => decide(w, {}, { tokens: t, base: t, win, pct: 0, since: { min: t, boundary: false, reached: true }, seenAt: w.seenAt }, cfg, now);
+  // Asked at the top step of a 200k window, saved without its point. 320k is
+  // the first step of a 400k window: a lower level than the saved one, so
+  // only starting over can ask.
+  const old = { level: 3, firstAt: 900, seen: 160000, seenAt: 900 };
+  for (const point of [undefined, null, -5, 0, '167000', 1e9]) {
+    const w = point === undefined ? old : { ...old, point };
+    const d = at(320000, 400000, w, 1000);
+    assert.deepStrictEqual(d.ask, { repeat: false, level: 1 }, `point ${JSON.stringify(point)}`);
+    assert.strictEqual(d.w.point, 367000, 'the new state has its point');
+    assert.strictEqual(at(321000, 400000, d.w, 1001).ask, null, 'and asks once');
+  }
+  // With no step to ask the state stays, and the 75% line and the first step
+  // are the current point's: 195k is under 75% of a 300k window's point
+  // (200k) and above the shrink line (184k), and 230k was past its first step.
+  const mid = { level: 1, firstAt: 900, seen: 230000, seenAt: 900 };
+  assert.deepStrictEqual(at(215000, 300000, mid, 1000).w, mid);
+  assert.deepStrictEqual(at(195000, 300000, mid, 1000).w, {});
+  assert.deepStrictEqual(at(195000, 300000, { ...mid, point: 0 }, 1000).w, {}, 'a point of 0 is no point');
+  // A usable point is read as before: a smaller window keeps the state.
+  const kept = { ...old, point: 367000 };
+  assert.deepStrictEqual(at(160000, 200000, kept, 1000).w, kept);
+});
+
 test('context watch: a hook that ran late moves the saved seenAt forward, never back (next version)', () => {
   const { decide } = require(path.join(__dirname, '..', 'scripts', 'hook-context-watch.js'));
   const cfg = { on: true, steps: [85, 90, 95], reserve: 33000 };

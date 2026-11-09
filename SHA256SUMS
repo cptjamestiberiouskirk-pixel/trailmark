@@ -64,7 +64,7 @@ c4639be388dedef69e648ff60ba7996d8007f34dc3c91fdc2395ba4b10c0bfaf *./plugins/trai
 eef454a2985dca988a9dc4c51ef6a96e9ec0ff349a66347d1835d182fe3ee8c0 *./plugins/trailmark/docs/session-start.png
 712177787f01e45d53b9ee69a9ffd8dc200752f693e2808c1f499c57a9746def *./plugins/trailmark/hooks/hooks.json
 f766e56215274b399e7f2dce156a5e5fbfbdf197ffd54e903bcef41937c6a06f *./plugins/trailmark/scripts/hook-commit-start.js
-9b0ba30f3a8730fdb4f3f64ba9e128b7f8d9f94bbc5c0749dbba8486c4e9b0bf *./plugins/trailmark/scripts/hook-context-watch.js
+4f126aabe574bac2eb77f0f6b03de17b40e1c5917727e3c03e889f6c1d4390a1 *./plugins/trailmark/scripts/hook-context-watch.js
 70be822e50bf2be86b24703f29f5873f0dd4fc378580eb3b644fad4afc008bcb *./plugins/trailmark/scripts/hook-milestone.js
 831b1615a07d44cd93379d9200d369456178738bc302cbcebc575203bb62a3ae *./plugins/trailmark/scripts/hook-precompact.js
 b9088b3fb5b85c987e0bba0bccc417c7f4b52be3de48ac3337380138b8d32690 *./plugins/trailmark/scripts/hook-session-start.js
@@ -89,7 +89,7 @@ b3c91fccd2d47a5834a9efbaf666ffa125a7019fa615d8213e8772b6d0a7deac *./plugins/trai
 c7a79ce10b5a906c8b215b812486f4249b7f82db226376ed2e64ea0bc401ebeb *./plugins/trailmark/tests/basics.test.js
 a00a373a93f3ebbf81ab65d3704b1bc4df9d87063d6480d287e0d47148ec46f5 *./plugins/trailmark/tests/commit-folders.test.js
 bf3221207f85b17983af4511f876c3c1045084985c3aef3ae250381ba69f27a4 *./plugins/trailmark/tests/commits.test.js
-314af4072cc623109bd7468c3a503a75eb0fecb3b3d6726b05d777a5cdc339b3 *./plugins/trailmark/tests/context-watch.test.js
+65e2998f2c76fa03c601b731a6302bf7fffd6ad4f39a2bd2d619912f5f60d55d *./plugins/trailmark/tests/context-watch.test.js
 f1263e7d4a1850f09583acb4f148cfb38ca1f261d04d262d99bb6c020fdb6a36 *./plugins/trailmark/tests/copies.test.js
 ce9d748c545efc5f7ad555d0fd4750b3a9eeed3eb394e8b6ed20aa648274ea8e *./plugins/trailmark/tests/handoff-checks.test.js
 7f4479f7de48efe7f3112a3c27629653f11d767fe5d70bb85c4e2923c572b23a *./plugins/trailmark/tests/hardening.test.js

@@ -22,7 +22,9 @@
 //     passed were a smaller point's. Before that step the state stays as the
 //     smaller point left it. A point that shrinks keeps the state: its steps
 //     come sooner. Keeping the biggest point means a window that flips back
-//     and forth starts the steps over only once.
+//     and forth starts the steps over only once. A saved state whose point
+//     isn't a number above 0 (a file edited by hand) starts over at the next
+//     step it reaches, in any window, and its 75% line is the current point's.
 //     Between 75% and the first step nothing changes, so a large tool result
 //     that lifts the estimate over a step and drops back asks only once.
 //   - An ask made while the transcript's own size (before the estimate for
@@ -79,8 +81,14 @@ function decide(prev, rec, ctx, cfg, now) {
   // and the 75% line and the first step below are that point's: clearing it
   // here made every flip back to the smaller window ask the first request
   // again (RS-H-flipwipe).
-  const grown = Boolean(w.level) && pt > count(w.point);
-  const ref = grown ? count(w.point) : point;
+  // A saved state always has the point it asked under. One without a usable
+  // point (a file edited by hand) counts as a smaller point's, measured from
+  // the current one: left as it was, its level would stand whatever the
+  // window became (RS-H-nopoint).
+  const saved = count(w.point);
+  const known = saved > 0;
+  const grown = Boolean(w.level) && !(known && pt <= saved);
+  const ref = grown && known ? saved : point;
   const line = ref * FORGET_BELOW;
   const first = cfg.steps.length ? ref * Math.min(...cfg.steps) / 100 : Infinity;
   // Start over: a compaction since the last request, a shrink, a fall below
