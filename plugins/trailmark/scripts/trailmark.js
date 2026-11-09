@@ -390,6 +390,7 @@ function contextWatch(early) {
   if (seenAt) {
     const r = CW.readUsage(tp, { since: seenAt });
     context.since = r ? { min: r.min, boundary: r.boundary, reached: r.reached } : { reached: false };
+    context.seenAt = seenAt;
   }
   const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, payload: hookInput(payload), reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
   process.exit(run(HOOKS['context-watch'].script, [], { ...opts, facts: { context } }));

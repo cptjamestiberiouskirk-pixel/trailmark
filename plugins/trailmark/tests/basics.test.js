@@ -144,6 +144,8 @@ test('milestone: hint after a new commit, throttled, silent when checkpoint is f
   assert.match(hint, /run the trailmark:checkpoint skill/);
   assert.match(hint, /plain "checkpoint" is Claude Code's \/rewind/);
   assert.match(hint, /don't look for or run another trailmark\.js/);
+  // RS-W-milestonerule: the rule itself, as the hook's own install path gives it.
+  assert.ok(hint.includes(require(path.join(ROOT, 'scripts', 'lib', 'store.js')).SKILL_RULE), hint);
   fs.writeFileSync(path.join(s.repo, 'c'), 'c'); s.g('add', 'c'); s.g('commit', '-qm', 'third');
   assert.strictEqual(s.hook('hook-milestone.js', p, ['commit']).stdout, '', 'throttled');
   const notes = fs.readdirSync(path.join(s.memdir, 'notes')).map(f => fs.readFileSync(path.join(s.memdir, 'notes', f), 'utf8')).join('');

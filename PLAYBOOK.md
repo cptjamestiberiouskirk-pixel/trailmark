@@ -2,7 +2,21 @@
 
 The current best way to do Trailmark's recurring work. For development only: `export-ignore` in `.gitattributes` keeps it out of the release zip and out of `SHA256SUMS`.
 
-Re-read this file and the latest `LESSONS.md` entries before each significant step (a design decision, a code change, a test run, a release, a deliverable). `CLAUDE.md` holds the user's rules and `dev/release-state.md` holds where the release stands. When this file disagrees with either one, they win and this file gets fixed.
+Run the lessons check below before each significant step. `CLAUDE.md` holds the user's rules and `dev/release-state.md` holds where the release stands. When this file disagrees with either one, they win and this file gets fixed.
+
+## The lessons check
+
+Run it before each of these: a design decision, a code change, a test run, a review brief, acting on a review finding, a push, a merge, a tag or a publish.
+
+1. Get the rules. At the start of a session and after a compaction: `dev/lessons.sh` (every open rule). Before a later step: `dev/lessons.sh <words>`, with the step's topics (`commit`, `regex`, `review`). The steps in this file count too.
+2. Write one line before acting, where the user can see it: `Lessons checked: <the rules that apply>`, or `Lessons checked: none apply`.
+3. Follow each rule named. One that can't be followed goes to the user, with the reason, before the step.
+4. After the step, report pass, fail or untested for each rule named.
+5. Anything that broke, needed a redo, surprised you or drew a correction gets an entry in `LESSONS.md` before the next step. `dev/release-check.sh` fails on a broken entry (`dev/lessons.sh --check`).
+6. A PR body ends with its `Lessons checked:` line, and a review brief tells the reviewer to run step 1.
+7. A lesson seen twice, or clearly general, becomes a step here and is marked "promoted".
+
+Limit: a session follows this by hand. Only the format in step 5 is checked by a tool.
 
 ## Constraints and known limits
 
@@ -24,7 +38,7 @@ Re-read this file and the latest `LESSONS.md` entries before each significant st
 
 - A plain `node --test`: it leaves `jbmem-*` folders in the system temp folder. Use `dev/release-check.sh --only`.
 - Calling a failure "flaky", or adding a test to the load-sensitive list, without a reproduced cause.
-- Pushing, opening a PR, merging, tagging, publishing or downloading anything without the user's word.
+- Pushing, opening a PR, merging, tagging, publishing or downloading anything without the user's word. A merge, tag or publish is asked for by name, as its own question, and run as its own command.
 - Attribution lines (`Co-Authored-By`, "Generated with") in commits, PRs, code or docs.
 
 ## Planning a change
@@ -41,6 +55,8 @@ Re-read this file and the latest `LESSONS.md` entries before each significant st
 3. A file-system error path: list what Windows, Linux and macOS each return for it (ENOENT, ENOTDIR, EPERM, ...). This machine runs only Windows, so the test stubs the other systems' answer. A test that bounds the size of a text holding a path also runs with a TMPDIR 30 characters longer: CI's temp paths are longer than `E:\DevTemp`.
 4. Wording edits across several files go through a script of exact old/new pairs that asserts each old text occurs once before it writes.
 5. Before handing over a script or file, read it for destructive or malicious operations, and say what you found.
+6. After fixing a pattern, search the whole repo for that pattern before the first review.
+7. A condition that skips a block, or code moved out of one: list each thing the block does in each case and ask whether the condition is about that thing. A value read before a lock can be older than the state under it: try the other order.
 
 ## Testing
 
@@ -51,6 +67,14 @@ Re-read this file and the latest `LESSONS.md` entries before each significant st
 5. Intermittent failure: keep every run's output, log CPU, rerun with `--only` several times, and compare with the parent commit, alternating which runs first.
 6. Report each item as pass, fail or untested, with what the test showed and what it didn't.
 7. A test that skips on a time sign: its control repeats the exact call, covers every step whose time can give the sign, and takes its bounds from the product's budget. Prefer the product's own report of each step's time left and spent (a `JBMEM_SHOW_*` stderr line that only reports) over times measured from outside, which grow with load whatever the cause. Before it ships, run a forced non-time fault (must fail) at rest and under busy loops, and each step forced slow (must skip).
+8. Read why each new test fails on the old code: a failure for another reason proves nothing. Remove each part of a fix alone and check that a test fails. An assertion that something didn't happen gets its own forced fault.
+9. A search that finds nothing proves nothing until the input is shown to exist and the search to work (a download that failed, a grep that errored).
+10. A validator's negative cases include inputs one small edit away from valid, what happens to the data after a line it doesn't recognize, and state left open when the input ends.
+
+## Committing
+
+1. A commit goes in a later message than the edits it depends on, after they succeeded.
+2. Never chain a commit after a check piped into `tail` or `head`: read the check's summary, then commit.
 
 ## Reviewing
 

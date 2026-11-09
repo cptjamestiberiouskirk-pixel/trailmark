@@ -59,6 +59,7 @@ function contextFacts() {
   if (!(out.tokens > 0) || !(out.base > 0) || !(out.win >= 100000) || out.win > 1000000) return null;
   const s = isObj(c.since) ? c.since : null;
   out.since = s ? { min: count(s.min), boundary: s.boundary === true, reached: s.reached === true } : null;
+  out.seenAt = when(c.seenAt);
   return out;
 }
 
@@ -80,12 +81,23 @@ function decide(prev, rec, ctx, cfg, now) {
   // The launcher passes `since` only when the record it read had a seenAt, so
   // a state that has one with no `since` here was saved after that read: two
   // hooks ran at once (parallel tool calls) and the other one asked. Its state
-  // stands, or the same first request would go out twice (RS:638).
-  const crossed = !ctx.since && when(w.seenAt) > 0;
-  if (w.level && !crossed) {
+  // stands, or the same first request would go out twice (RS:638). A saved
+  // seenAt newer than the one the launcher read says the same when there is a
+  // `since`: it was measured from that older point (RS-H-samesince).
+  const crossed = ctx.since ? ctx.seenAt > 0 && when(w.seenAt) > ctx.seenAt : when(w.seenAt) > 0;
+  // `now` was read before the lock, so a hook behind a sibling can hold an
+  // older clock than the saved state. What it saves still has to be newer, or
+  // a third hook that read the sibling's seenAt couldn't tell it was crossed.
+  const stamp = crossed ? Math.max(now, when(w.seenAt) + 1) : now;
+  // A bigger point is measured against the saved one, not against what the
+  // launcher read, so it holds whichever hook saved first. A hook behind a
+  // sibling starts over only to ask: with nothing to ask it would just wipe
+  // what the sibling saved, and the next hook would ask the same thing again.
+  if (w.level && pt > count(w.point) && (level || !crossed)) w = {};
+  else if (w.level && !crossed) {
     const s = ctx.since;
     const low = Math.min(ctx.base, s && Number.isFinite(s.min) ? s.min : Infinity);
-    if (!s || s.boundary || !s.reached || (seen > 0 && low < seen * SHRINK) || pt > count(w.point)) w = {};
+    if (!s || s.boundary || !s.reached || (seen > 0 && low < seen * SHRINK)) w = {};
     else if (seen > 0 && seen < first) {
       // Asked from an estimate: kept until the transcript reaches the first
       // step; there, start over if the handoff was written since, else carry
@@ -102,7 +114,7 @@ function decide(prev, rec, ctx, cfg, now) {
   // The biggest point asked under: a smaller one kept here would let the next
   // flip back to the bigger window start the steps over again.
   const keep = Math.max(pt, count(w.point) || 0);
-  return { w: { level, firstAt: firstAt > 0 ? firstAt : now, seen: ctx.base, seenAt: now, point: keep }, ask: { repeat, level }, point, changed: true };
+  return { w: { level, firstAt: firstAt > 0 ? firstAt : now, seen: ctx.base, seenAt: stamp, point: keep }, ask: { repeat, level }, point, changed: true };
 }
 
 const k = n => `${Math.round(n / 1000)}k`;
@@ -147,4 +159,4 @@ function main() {
 
 if (require.main === module) guard(main);
 
-module.exports = { decide };
+module.exports = { decide, contextFacts };

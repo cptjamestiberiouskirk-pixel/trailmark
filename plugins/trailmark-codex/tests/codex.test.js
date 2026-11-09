@@ -420,7 +420,7 @@ test('codex skills: the launcher two folders up only with no session-start note,
   const hook = fs.readFileSync(path.join(ROOT, 'scripts', 'hook-session-start.js'), 'utf8');
   assert.strictEqual(hook.split('`' + NOTE + ' Launcher: ${launcherPath}').length, 2, 'the note with the launcher');
   assert.strictEqual(hook.split('`' + NOTE + " The path of the folder it is installed in isn't written here").length, 2, 'the note without it');
-  const refusedText = `If this session has a note that starts \`${NOTE}\` but gives no "Launcher:", trailmark left its own path out on purpose, since it holds characters trailmark doesn't pass on or is too long: stop and tell the user what the note says, and don't work the path out yourself.`;
+  const refusedText = `If this session has a note that starts \`${NOTE}\` but gives no path after "Launcher:", trailmark left its own path out, since it can't be passed on as written or didn't fit in the note: stop and tell the user what the note says, and don't work the path out yourself.`;
   const dir = path.join(ROOT, 'skills');
   for (const n of fs.readdirSync(dir)) {
     const t = fs.readFileSync(path.join(dir, n, 'SKILL.md'), 'utf8').replace(/\s+/g, ' ');
