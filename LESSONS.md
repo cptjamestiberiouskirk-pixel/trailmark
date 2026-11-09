@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: A red CI run had no failed job, and two jobs had never been created
+
+- What went wrong: PR 31's run ended "failure" with 7 jobs listed, all passing. macOS Node 22 and Windows Node 26 had no job record and no log, so the required checks stayed missing and the merge was blocked. The `main` run for b970008 did the same with 6 of 9. Both ran inside GitHub's Actions incident of 18:12 to 18:59Z.
+- Why: `gh pr checks` lists only the jobs that exist, so a short list reads as all green unless the jobs are counted.
+- Rule going forward: read a run's result as a count, 9 jobs against the 9 required names. A red run with no failed job means reading GitHub's incident feed before suspecting the code.
+- Status: open
+
 ## 2026-11-09: A deferred note named one route to a function that had others
 
 - What went wrong: RS-A-newlines was deferred on the belief that its input was git's own small pointer files. `exactPointer` also takes config values, which reach it decoded from an 8 MB file, and that route stalls for tens of seconds.
