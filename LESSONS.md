@@ -23,7 +23,7 @@ Format:
 
 ## 2026-11-09: A cost test's data never reached the branch it was guarding
 
-- What went wrong: the count test for `addCommitDirs` still passed with the list cap removed. All its folders were settled, so each eviction stopped at the first one and the cost of a long list never showed (CONFIRMED by Opus; 796 calls against 80,586 once the folders were unsettled).
+- What went wrong: the count test for `addCommitDirs` still passed with the list cap removed. All its folders were settled, so each eviction stopped at the first one and the cost of a long list never showed (CONFIRMED by Opus and Fable, not re-run; 796 calls against 80,586 once the folders were unsettled, the second number also seen here).
 - Why: the test was checked against the whole old code, which failed for another reason, and not against each part of the fix.
 - Rule going forward: for a fix with two parts, remove each part alone and check that a test fails.
 - Status: open
