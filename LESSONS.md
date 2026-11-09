@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: A zip built a day before publishing went stale on its date
+
+- What went wrong: the 0.6.2 zip was built and verified on 2026-11-08 and publishing waited until the next day. The checklist's date rule then meant a new commit, so that zip was dropped and the checks ran again on a new one. The session had told the user to publish before merging, and had to withdraw that advice.
+- Why: the CHANGELOG date is inside the zip, and the date check sat at the end of the checklist, so nobody looked at it while giving the merge order.
+- Rule going forward: before advising on release order, compare the CHANGELOG date with today. With the draft job, the release commit can carry the publish date, and any push to `main` before publishing replaces a draft that was already checked.
+- Status: open
+
+## 2026-11-09: A merge bundled into another yes was refused
+
+- What went wrong: the session counted "Use the draft job" as the user's word to merge PR 26, because its message had said so. The app's permission check refused auto-merge as a merge without review. The merge was chained after a commit and push, so those didn't run either.
+- Why: a yes to a plan isn't a yes to its one hard-to-undo step, and one long command fails as a whole.
+- Rule going forward: ask for a merge, tag or publish by name, as its own question. Run it as its own command.
+- Status: open
+
 ## 2026-11-08: Reordering a delete made its list stale
 
 - What went wrong: `release-draft.sh` was changed to create the new draft before deleting the old one. The list of drafts to delete was then read before the upload, so a draft published during the upload would have been deleted as a published release (CONFIRMED by Opus, round 2; the new test fails on the round 2 script).
