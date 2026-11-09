@@ -79,8 +79,14 @@ function decide(prev, rec, ctx, cfg, now) {
   // and the 75% line and the first step below are that point's: clearing it
   // here made every flip back to the smaller window ask the first request
   // again (RS-H-flipwipe).
-  const grown = Boolean(w.level) && pt > count(w.point);
-  const ref = grown ? count(w.point) : point;
+  // A saved state always has the point it asked under. One without a usable
+  // point (a file edited by hand) counts as a smaller point's, measured from
+  // the current one: left as it was, its level would stand whatever the
+  // window became (RS-H-nopoint).
+  const saved = count(w.point);
+  const known = saved > 0;
+  const grown = Boolean(w.level) && !(known && pt <= saved);
+  const ref = grown && known ? saved : point;
   const line = ref * FORGET_BELOW;
   const first = cfg.steps.length ? ref * Math.min(...cfg.steps) / 100 : Infinity;
   // Start over: a compaction since the last request, a shrink, a fall below
