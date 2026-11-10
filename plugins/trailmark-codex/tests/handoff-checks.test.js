@@ -938,6 +938,101 @@ test('git pointers: many path values are checked once each, and too many are ref
   assert.strictEqual(farGitConfig(two), 'network-config', 'core.worktree from an included file');
 });
 
+test('git pointers: an LFS store next to an alternate is walked once, and too many are refused (RS-A-altstores)', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far-altstores-');
+  const alts = path.join(base, 'alts');
+  // A repo of its own for each check: an answer is kept for its folder.
+  let made = 0;
+  const repoWith = (lines, gitdir = '.git', r = path.join(base, `r${made++}`)) => {
+    if (!fs.existsSync(r)) repoAt(r);
+    fs.mkdirSync(path.join(r, gitdir, 'objects', 'info'), { recursive: true });
+    fs.writeFileSync(path.join(r, gitdir, 'objects', 'info', 'alternates'), lines.map(l => l + '\n').join(''));
+    return r;
+  };
+  // Counted: the listings of the stores under `alts` (a folder `lfs` and
+  // what is in it), by path.
+  const listed = (fn) => {
+    const readdir = fs.readdirSync;
+    const n = { why: '', all: 0, by: new Map() };
+    fs.readdirSync = (p, ...rest) => {
+      const s = String(p);
+      if (s.startsWith(alts) && s.split(path.sep).includes('lfs')) { n.all++; n.by.set(s, (n.by.get(s) || 0) + 1); }
+      return readdir(p, ...rest);
+    };
+    try { n.why = fn(); } finally { fs.readdirSync = readdir; }
+    return n;
+  };
+  const line = (...parts) => path.join(alts, ...parts);
+  // One store, next to 20 alternates: listed once (it was twice for each line).
+  const one = line('one', 'lfs');
+  fs.mkdirSync(path.join(one, 'objects', 'ab'), { recursive: true });
+  for (const n of [1, 20]) {
+    const got = listed(() => farGitConfig(repoWith(Array.from({ length: n }, (_, i) => line('one', `o${i}`)))));
+    assert.strictEqual(got.why, '');
+    assert.strictEqual(got.by.get(one), 1, `${n} alternates next to one store`);
+    assert.strictEqual(got.all, 3, `${n} alternates next to one store: the store, objects and ab`);
+  }
+  // 64 different stores are walked, a 65th keeps git out.
+  for (let i = 0; i < 65; i++) fs.mkdirSync(line(`s${i}`, 'lfs'), { recursive: true });
+  const many = n => Array.from({ length: n }, (_, i) => line(`s${i}`, 'objects'));
+  const all64 = listed(() => farGitConfig(repoWith(many(64))));
+  assert.deepStrictEqual([all64.why, all64.all], ['', 64], '64 stores next to alternates');
+  const all65 = listed(() => farGitConfig(repoWith(many(65))));
+  assert.deepStrictEqual([all65.why, all65.all], ['many-config-paths', 64], '65 stores next to alternates');
+  // Alternates with no store next to them don't count toward the 64, and the
+  // count is one check's.
+  assert.strictEqual(farGitConfig(repoWith([...many(64), ...Array.from({ length: 100 }, (_, i) => line(`none${i}`, 'objects'))])), '');
+  assert.strictEqual(farGitConfig(repoWith(many(1))), '', 'the limit on stores is one check\'s');
+  // A linked worktree: the stores next to its own alternates and the main
+  // repo's count together (33 and 32 are 65).
+  // The worktrees are made first: git complains of each missing alternate.
+  const wt = repoWith([]);
+  for (const w of ['wt-a', 'wt-b']) execFileSync('git', ['worktree', 'add', '-q', path.join(base, w), '-b', w], { cwd: wt });
+  repoWith(many(33), '.git', wt);
+  for (const [w, n, want] of [['wt-a', 64, ''], ['wt-b', 65, 'many-config-paths']]) {
+    repoWith(many(n).slice(33), path.join('.git', 'worktrees', w), wt);
+    assert.strictEqual(farGitConfig(path.join(base, w)), want, `33 and ${n - 33} stores from a linked worktree`);
+  }
+  // No further store once those before it held 20,000 entries between them.
+  for (const [name, n] of [['b1', 10050], ['b2', 9999]]) {
+    fs.mkdirSync(line(name, 'lfs'), { recursive: true });
+    for (let i = 0; i < n; i++) fs.writeFileSync(line(name, 'lfs', `f${i}`), '');
+  }
+  const three = ['b1', 'b2', 's0'].map(n => line(n, 'objects'));
+  assert.deepStrictEqual((({ why, all }) => [why, all])(listed(() => farGitConfig(repoWith(three)))), ['', 3], 'stores of 10,000 and 9,999 entries, then a third');
+  fs.writeFileSync(line('b2', 'lfs', 'one-more'), '');
+  assert.deepStrictEqual((({ why, all }) => [why, all])(listed(() => farGitConfig(repoWith(three)))), ['many-config-paths', 2], 'stores of 20,000 entries, then a third');
+  assert.strictEqual(farGitConfig(repoWith(three.slice(1))), '', 'the count of entries is one check\'s');
+  // Two names that JavaScript lower-cases alike ('k' and the Kelvin sign) are
+  // two stores: both are listed (on macOS, one folder under two path texts).
+  const kk = ['k', String.fromCharCode(0x212A)];
+  for (const n of kk) fs.mkdirSync(line(n, 'lfs'), { recursive: true });
+  assert.strictEqual(listed(() => farGitConfig(repoWith(kk.map(n => line(n, 'objects'))))).all, 2, 'k and the Kelvin sign');
+  // A store is known by where its path leads, not by how a line spells it:
+  // through a link to its folder it is the same store. (A junction on
+  // Windows, which needs no right; a symlink elsewhere.)
+  fs.symlinkSync(line('one'), line('j'), 'junction');
+  const viaLink = listed(() => farGitConfig(repoWith([line('one', 'o0'), line('j', 'o0')])));
+  assert.deepStrictEqual([viaLink.why, viaLink.by.get(one)], ['', 1], 'a store reached through a link too');
+  // A line's other store is still looked at after one already seen: `jalt`
+  // leads to b0/o, so git-lfs may use h/lfs (seen with the line before) or
+  // b0/lfs, which holds folders deeper than the check walks.
+  fs.mkdirSync(line('h', 'lfs'), { recursive: true });
+  fs.mkdirSync(line('b0', 'o'), { recursive: true });
+  fs.mkdirSync(path.join(line('b0', 'lfs'), ...Array(70).fill('d')), { recursive: true });
+  fs.symlinkSync(line('b0', 'o'), line('h', 'jalt'), 'junction');
+  assert.strictEqual(farGitConfig(repoWith([line('h', 'q'), line('h', 'jalt')])), 'deep-gitdir', 'the store beside where a linked line leads, after a seen one');
+  // The same where the first place has no store at all (no n/lfs).
+  fs.mkdirSync(line('n'), { recursive: true });
+  fs.symlinkSync(line('b0', 'o'), line('n', 'jalt'), 'junction');
+  assert.strictEqual(farGitConfig(repoWith([line('n', 'jalt')])), 'deep-gitdir', 'the store beside where a linked line leads, after a missing one');
+  if (NO_LINKS) return;
+  // A store after a clean one, and after a repeat of it, is still walked.
+  fs.symlinkSync('//evil.invalid/share/x', line('s1', 'lfs', 'objects'));
+  assert.strictEqual(farGitConfig(repoWith([line('s0', 'objects'), line('s0', 'objects2'), line('s1', 'objects')])), 'linked-gitdir', 'a linked store after a clean one');
+});
+
 test('git pointers: a linked config is followed and checked where it leads', { skip: NO_LINKS }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far3-');
@@ -1825,7 +1920,7 @@ test('git status: submodule folders are checked first, untracked repos are not l
   assert.ok(!(f.status || []).some(l => /x\//.test(l)), 'untracked folders are not listed');
 });
 
-test('git status: a tracked name that ends in a dot or a space keeps status unread on Windows (RS-A-dottracked)', () => {
+test('git status: a tracked name that ends in a dot or a space, or a path with a backslash or a drive letter, keeps status unread on Windows (RS-A-dottracked)', () => {
   const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = realTemp('jbmem-dott-');
   let k = 0;

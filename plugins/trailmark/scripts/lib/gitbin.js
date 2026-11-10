@@ -668,7 +668,14 @@ function altEntries(text) {
 }
 // The alternates of one objects folder and theirs, as deep as git goes (git
 // 2.43 reads the sixth one's too).
-function farAlternates(objects, depth, seen, tops = []) {
+// stores: the LFS stores next to first-level alternates, kept while one repo
+// is checked (farGit makes the set; the lfs.storage ones are kept for one
+// config's values, see STORES) and under the same two limits:
+// each is walked once however many lines lead to it (20 lines next to one
+// store of 10,100 folders were 40 walks, 410,000 listings), and past 64
+// folders, or once those before held 20,000 entries, git is kept out
+// (RS-A-altstores).
+function farAlternates(objects, depth, seen, tops = [], stores = { seen: new Set(), dirs: 0, entries: 0 }) {
   if (depth > 6) return '';
   const real = localPath(objects);
   if (!real) return 'network-config';
@@ -697,9 +704,15 @@ function farAlternates(objects, depth, seen, tops = []) {
       for (const c of sib) {
         const r = localPath(c);
         if (!r) return 'network-config';
+        // By the exact text, as for lfs.storage (see farPathValue).
+        if (stores.seen.has(r)) continue;
+        stores.seen.add(r);
         let isDir = false;
         try { isDir = fs.lstatSync(r).isDirectory(); } catch { isDir = false; }
-        if (isDir) { const linked = linkedEntries(r, { lfsStore: true }); if (linked) return linked; }
+        if (!isDir) continue;
+        if (++stores.dirs > MAX_LFS_STORES || stores.entries >= MAX_STORE_ENTRIES) return 'many-config-paths';
+        const linked = linkedEntries(r, { lfsStore: true, tally: stores });
+        if (linked) return linked;
       }
     }
     const why = farAlternates(rawJoin(real, line), depth + 1, seen);
@@ -1082,10 +1095,11 @@ function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
     return '';
   });
   if (valueWhy) return valueWhy;
+  const altStores = { seen: new Set(), dirs: 0, entries: 0 };
   for (const d of dirs) {
     // git-lfs takes a relative alternates line from where it runs: the
     // worktree, a core.worktree included.
-    const why = farAlternates(path.join(d, 'objects'), 0, new Set(), bases.filter(Boolean));
+    const why = farAlternates(path.join(d, 'objects'), 0, new Set(), bases.filter(Boolean), altStores);
     if (why) return why;
   }
   return '';
