@@ -4081,6 +4081,55 @@ test('git pointers: two names JavaScript lower-cases alike are two names, and a 
     assert.strictEqual(farLfsEntries([[k, 'k.']], top), WIN ? 'odd-config-path' : '', `${k} = k.`);
   }
   assert.strictEqual(farLfsEntries([['Alias.adddir', 'add .'], ['PRETTY.logfile', '%h %s.']], top), '', 'the section in upper case');
+  // A folder is seen only for the rules it was walked by (RS-A-seencontext).
+  // Where part of it is passed over (a gitdir's objects, a store on its own
+  // budget, a submodule's gitdir), a link that leads to it from a place
+  // walked in full has it walked again. (A link made as a junction is a
+  // plain symlink off Windows.)
+  const tied = [];
+  const tie = (target, at) => busyRetry(() => fs.symlinkSync(target, at, 'junction'), { onRetry: m => tied.push(m) });
+  const loopIn = (d) => { fs.mkdirSync(d, { recursive: true }); tie(path.join(d, 'loop'), path.join(d, 'loop')); };
+  const inGit = (r, ...parts) => path.join(r, '.git', ...parts);
+  // A gitdir's objects/ab is passed over; the same folder under refs is not.
+  const viaRefs = repo('ctx-refs');
+  loopIn(inGit(viaRefs, 'objects', 'ab'));
+  tie(inGit(viaRefs, 'objects'), inGit(viaRefs, 'refs', 'x'));
+  assert.strictEqual(farGitConfig(viaRefs), 'linked-gitdir', `refs/x leads to the gitdir's objects ${tied.join()}`);
+  const asObj = repo('ctx-objects');
+  loopIn(inGit(asObj, 'refs', 'x', 'ab'));
+  fs.rmSync(inGit(asObj, 'objects'), { recursive: true });
+  tie(inGit(asObj, 'refs', 'x'), inGit(asObj, 'objects'));
+  assert.strictEqual(farGitConfig(asObj), 'linked-gitdir', `objects leads to refs/x ${tied.join()}`);
+  // One folder outside, big/g: a gitdir whose annex holds more files than a
+  // store's budget and then a link that is refused. As a store, as a
+  // submodule's gitdir and under modules it is let through; from refs it
+  // is walked in full.
+  const big = path.join(base, 'ctx-big');
+  const bigG = path.join(big, 'g');
+  gitdirAt(bigG, '');
+  fs.mkdirSync(path.join(bigG, 'annex'));
+  for (let i = 0; i <= 10000; i++) fs.writeFileSync(path.join(bigG, 'annex', 'f' + String(i).padStart(5, '0')), '');
+  tie(path.join(bigG, 'annex', 'zz'), path.join(bigG, 'annex', 'zz'));
+  for (const [name, lax, target] of [['store', ['annex', '0'], path.join(bigG, 'annex')], ['top', ['modules', 'x'], bigG], ['mod', ['modules', 'x'], big]]) {
+    const r = repo('ctx-' + name);
+    fs.mkdirSync(inGit(r, lax[0]), { recursive: true });
+    tie(target, inGit(r, ...lax));
+    tie(target, inGit(r, 'refs', 'y'));
+    assert.strictEqual(farGitConfig(r), 'linked-gitdir', `${lax.join('/')} and refs/y lead to one folder ${tied.join()}`);
+  }
+  // The search for submodule gitdirs: a gitdir's objects folder has its
+  // two-hex folders passed over; the same folder as modules/b is walked.
+  const modA = repo('ctx-modules');
+  gitdirAt(inGit(modA, 'modules', 'a'), '');
+  gitdirAt(inGit(modA, 'modules', 'a', 'objects', 'ab'), BAD);
+  tie(inGit(modA, 'modules', 'a', 'objects'), inGit(modA, 'modules', 'b'));
+  assert.strictEqual(farModules(modA), 'network-config', `modules/b leads to a gitdir's objects ${tied.join()}`);
+  const modN = repo('ctx-modules-n');
+  gitdirAt(inGit(modN, 'modules', 'n'), BAD);
+  fs.mkdirSync(inGit(modN, 'modules', 'm', 'refs'), { recursive: true });
+  fs.writeFileSync(inGit(modN, 'modules', 'm', 'HEAD'), 'ref: refs/heads/main\n');
+  tie(inGit(modN, 'modules', 'n'), inGit(modN, 'modules', 'm', 'objects'));
+  assert.strictEqual(farModules(modN), 'network-config', `a gitdir's objects leads to another gitdir ${tied.join()}`);
   // One folder that many links name in many cases is walked once: as many
   // listings as when every link names it as the disk does. (Windows: a
   // junction keeps its target as written, and the folder opens in any case.)
@@ -4089,13 +4138,15 @@ test('git pointers: two names JavaScript lower-cases alike are two names, and a 
     const notes = [];
     const link = (target, at) => busyRetry(() => fs.symlinkSync(target, at, 'junction'), { onRetry: m => notes.push(m) });
     // a/a/a under .git/<where>, each `a` with 20 links to it beside it.
-    const chain = (name, where, vary) => {
+    const chain = (name, where, vary, count = 20) => {
       const r = repo(name);
       let d = path.join(r, '.git', where);
       for (let level = 0; level < 3; level++) {
         const a = path.join(d, 'a');
         fs.mkdirSync(a, { recursive: true });
-        for (let i = 1; i <= 20; i++) link(vary === false ? a : cased(a, i + level * 20) + vary, path.join(d, 'j' + i));
+        // Named to come before `a` in a listing: the folder is then first
+        // walked where a link led, and the names below it must still match.
+        for (let i = 1; i <= count; i++) link(vary === false ? a : cased(a, i + level * 20) + vary, path.join(d, '0j' + i));
         d = a;
       }
       return r;
@@ -4137,6 +4188,44 @@ test('git pointers: two names JavaScript lower-cases alike are two names, and a 
       assert.strictEqual(same[0], '');
       assert.deepStrictEqual(lists(() => farModules(make(tag + '-stream', '::$INDEX_ALLOCATION'))), same, `${what}, by its stream name ${notes.join()}`);
     }
+    // A drive made with subst, or a mapped one: the system names a folder
+    // there under another root than the path that led to it. Stood in for by
+    // giving every such name the root Q:, which is not there. The walk must
+    // go on at the path that led there, and still know the folder by the
+    // system's name for it.
+    const otherRoot = (fn) => {
+      const native = fs.realpathSync.native;
+      fs.realpathSync.native = (...a) => 'Q:' + String(native(...a)).slice(2);
+      try { return fn(); } finally { fs.realpathSync.native = native; }
+    };
+    const far = repo('root-far');
+    loopIn(path.join(base, 'root-far-ext', 'in'));
+    link(path.join(base, 'root-far-ext'), inGit(far, 'refs', 'y'));
+    assert.strictEqual(otherRoot(() => farGitConfig(far)), 'linked-gitdir', `a link to a folder the system names under another root ${notes.join()}`);
+    // (There a folder is walked once as found and once where a link led, so
+    // the count is not the plain one. What holds: 20 links to a folder cost
+    // no more listings than 1.)
+    for (const [where, fn] of [['modules', farModules], ['refs', farGitConfig]]) {
+      const one = otherRoot(() => lists(() => fn(chain(where + '-root-1', where, '::$INDEX_ALLOCATION', 1))));
+      assert.strictEqual(one[0], '');
+      assert.deepStrictEqual(otherRoot(() => lists(() => fn(chain(where + '-root-20', where, '::$INDEX_ALLOCATION')))), one, `.git/${where}: links by a stream name, under another root ${notes.join()}`);
+    }
+    for (const [what, make] of [['links in a gitdir\'s objects', inObjects], ['one folder as 20 gitdirs\' objects', asObjects]]) {
+      const tag = make === inObjects ? 'ino-root' : 'aso-root';
+      const same = otherRoot(() => lists(() => farModules(make(tag + '-same', false))));
+      assert.deepStrictEqual(otherRoot(() => lists(() => farModules(make(tag + '-stream', '::$INDEX_ALLOCATION')))), same, `${what}, by its stream name, under another root ${notes.join()}`);
+    }
+    // The same two shapes with the link's target written by its stream
+    // name, which the plain text of the path doesn't match.
+    const sRefs = repo('ctx-refs-stream');
+    loopIn(inGit(sRefs, 'objects', 'ab'));
+    link(inGit(sRefs, 'objects') + '::$INDEX_ALLOCATION', inGit(sRefs, 'refs', 'x'));
+    assert.strictEqual(farGitConfig(sRefs), 'linked-gitdir', `refs/x leads to objects by its stream name ${notes.join()}`);
+    const sMod = repo('ctx-modules-stream');
+    gitdirAt(inGit(sMod, 'modules', 'a'), '');
+    gitdirAt(inGit(sMod, 'modules', 'a', 'objects', 'ab'), BAD);
+    link(inGit(sMod, 'modules', 'a', 'objects') + '::$INDEX_ALLOCATION', inGit(sMod, 'modules', 'b'));
+    assert.strictEqual(farModules(sMod), 'network-config', `modules/b leads to a gitdir's objects by its stream name ${notes.join()}`);
     // Words keep the rule on a link's target: an alias through a link to k.
     const dotLink = conf('dotlink', '[alias]\n\txdir = lnk/x\n');
     link(path.join(top, 'k.'), path.join(dotLink, 'lnk'));

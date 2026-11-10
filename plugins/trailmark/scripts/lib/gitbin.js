@@ -266,13 +266,14 @@ const WORDS_KEY = /^(?:alias|pretty)\./i;
 // name after it (a::$INDEX_ALLOCATION opens a). `key` is the one text the
 // walks' sets of what was seen tell the folder by, and two folders never get
 // the same one (RS-A-foldkeys). `at` is where the walk goes on: that text
-// where it differs from real in letter case only, so that the names found
-// below it match the ones found without a link; else real, since a drive
-// made with subst or a mapped one must keep its own spelling.
+// too, so that the names found below it match the ones found without a
+// link, unless it starts at another root than real does: a drive made with
+// subst, a mapped one or a volume named by its id must keep its own spelling.
 function onDisk(real) {
   let c;
   try { c = fs.realpathSync.native(real); } catch { return { key: real, at: real }; }
-  return { key: c, at: c.toLowerCase() === real.toLowerCase() ? c : real };
+  const sameRoot = path.parse(c).root.toLowerCase() === path.parse(real).root.toLowerCase();
+  return { key: c, at: sameRoot ? c : real };
 }
 const UNSAFE = Symbol('unsafe');
 // The longest path any system opens is 32,767 characters (Windows; Linux
@@ -823,18 +824,34 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false, tally = 
       const leftover = !lfsStore && !objectsRoot && !own && /^modules\/.+\/objects$/.test(below);
       if ((own || leftover) && /^[0-9a-f]{2}$/i.test(x.name) && !(leftover && (headAt(sub) || !onlyFiles(sub)))) continue;
       if (depth >= MAX_GITDIR_DEPTH) return 'deep-gitdir';
-      // By its exact text (see farConfig's seenKey): two folders never share
-      // a key. A folder a link led to has the disk's own name for it (onDisk).
-      if (seen.has(key)) continue;
-      seen.add(key);
-      // A folder under this gitdir's modules/ with a HEAD (a file or a link,
-      // as git accepts either) is a submodule's gitdir: the top below it.
       const childRel = rel ? rel + '/' + x.name : x.name;
       const childBelow = below ? below + '/' + x.name : x.name;
+      // A folder under this gitdir's modules/ with a HEAD (a file or a link,
+      // as git accepts either) is a submodule's gitdir: the top below it.
       let childTop = top;
       if (!objectsRoot && !lfsStore && /^modules\/./.test(childBelow)) {
         if (headAt(sub)) childTop = childRel;
       }
+      // What was walked is remembered by its exact text (see farConfig's
+      // seenKey), or by the disk's own name for a folder a link led to
+      // (onDisk): two folders never share a key.
+      // A folder is walked by the rules of the place it is found in, so it
+      // is remembered together with that place's kind: seen as a gitdir's
+      // objects/ (two-hex folders passed over) says nothing about the same
+      // folder where a link leads to it from refs/, which is walked in full
+      // (RS-A-seencontext). Each kind's walk depends on the folder alone,
+      // and the kind of a folder in it on that folder's name and HEAD:
+      // l  under an LFS or annex budget (let through when it runs out)
+      // t  a submodule's gitdir (its lfs/ and annex/ on budgets of their own)
+      // o  a gitdir's objects/ (two-hex folders passed over)
+      // m  modules/ and what is under it (a folder with a HEAD there is a t;
+      //    a leftover's two-hex folders are passed over only when they hold
+      //    plain files alone, which hides nothing)
+      // p  everything else: walked in full
+      const kind = budget.lfs ? 'l' : objectsRoot ? 'p' : childTop === childRel ? 't'
+        : childBelow === 'objects' ? 'o' : /^modules(?:\/|$)/.test(childBelow) ? 'm' : 'p';
+      if (seen.has(kind + key)) continue;
+      seen.add(kind + key);
       const why = walk(sub, childRel, depth + 1, budget, childTop);
       if (why) return why;
     }
@@ -1160,9 +1177,12 @@ function moduleGitdirs(root) {
     if (out.length >= MAX_MODULE_GITDIRS) { why = 'many-submodules'; return; }
     if (depth > MAX_GITDIR_DEPTH) { why = 'deep-gitdir'; return; }
     // By its exact text (see farConfig's seenKey), or the disk's own name
-    // for a folder a link led to.
-    if (seen.has(key)) return;
-    seen.add(key);
+    // for a folder a link led to. 'w': walked as a folder here. A folder
+    // listed as a gitdir's objects ('o', its two-hex folders passed over)
+    // is walked again when a link leads to it as a plain folder
+    // (RS-A-seencontext).
+    if (seen.has('w' + key)) return;
+    seen.add('w' + key);
     let list;
     try { list = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { why = unlisted(d, e); return; }
     // A folder with a HEAD (a file or a link, as git accepts either) is a
@@ -1178,7 +1198,7 @@ function moduleGitdirs(root) {
       const f = follow(d, x);
       if (!f) return;
       if (f.dir && isGitdir && x.name === 'objects') {
-        if (!seen.has(f.key)) { seen.add(f.key); objectsIn(f.p, depth + 1); }
+        if (!seen.has('o' + f.key)) { seen.add('o' + f.key); objectsIn(f.p, depth + 1); }
       } else if (f.dir) walk(f.p, depth + 1, f.key);
       if (why) return;
     }

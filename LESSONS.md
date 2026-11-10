@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: A better key widened an older gap
+
+- What went wrong: round 2 gave a folder a link led to the system's own path as its key, so the walks knew it under any spelling. A folder walked where part of it is passed over (a gitdir's `objects`) was then taken as seen where it is walked in full (`refs/x`, a junction to `objects` by its stream name). f97553a and edd988d refused that input; 734f14f answered `''`. Round 3 found it. With a plain target the gap was there on f97553a too, and I had deferred it one round earlier as older behavior.
+- Why: I asked what the key stands for and not what "seen" is taken to mean where the set is read. The set was shared by places that walk by different rules, and only the keys' mismatches had kept them apart. I also deferred a gap in the very set I was changing.
+- Rule going forward: before a set's key gets better at matching, list every place the set is read and what "seen" lets that place skip. If two places skip different things, they don't share entries. An older gap in code the change touches is fixed with the change or shown not to widen, not deferred on its age.
+- Status: open
+
 ## 2026-11-10: A fix covered the reviewer's example, not its class
 
 - What went wrong: round 1 showed one folder walked once for each letter case a junction named it in. My fix respelled a target only when it differed in case. Round 2 added `::$INDEX_ALLOCATION` to the targets and had the 605 listings back (7.6 s); a short name does the same. One more batch and round.
