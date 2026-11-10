@@ -118,7 +118,9 @@ test('session start: warns of an old cached copy without naming its folder, in t
   assert.ok(listed.includes(old), listed);
   // Gone: no warning.
   fs.rmSync(old, { recursive: true, force: true });
-  const clean = JSON.parse(jbm(s, ['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB })).stdout);
+  // Through startInTime like the first: a check that ran out of time here
+  // warns that it stopped early, which the last line would take for a copy.
+  const clean = JSON.parse(startInTime(s, SB).stdout);
   assert.doesNotMatch(clean.hookSpecificOutput.additionalContext, /on disk, in Claude Code's plugin cache/);
   assert.doesNotMatch(clean.systemMessage || '', /other trailmark cop/);
 });
