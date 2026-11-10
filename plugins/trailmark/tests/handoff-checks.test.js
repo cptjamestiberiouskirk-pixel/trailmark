@@ -753,13 +753,20 @@ test('git pointers: many path values are checked once each, and too many are ref
   // submodules (git writes submodule.<name>.gitdir with
   // init.defaultSubmodulePathConfig), with another setting beside them, and
   // with long names.
-  const [whyReal, nReal] = walked(() => farGitConfig(repoWith('subs', subs(2000, 'm') + '[core]\n\thooksPath = hooks\n')));
+  const lstatReal = fs.lstatSync;
+  let looksReal = 0;
+  fs.lstatSync = (...a) => { looksReal++; return lstatReal(...a); };
+  let whyReal, nReal;
+  try { [whyReal, nReal] = walked(() => farGitConfig(repoWith('subs', subs(2000, 'm') + '[core]\n\thooksPath = hooks\n'))); } finally { fs.lstatSync = lstatReal; }
   assert.strictEqual(whyReal, '');
+  // Whether a folder to try from exists is asked once, not for each value
+  // (26 looks at the disk here, 4,026 without).
+  assert.ok(looksReal < 1000, `2,000 submodules: ${looksReal} looks at the disk`);
   // Each value is tried once from each folder, not once for each way of
   // writing the folder or the try (on Windows the walk itself calls
-  // path.resolve, so more walks show here: 10 calls a value, 13 or 14
+  // path.resolve, so more walks show here: 8 calls a value, 10 or more
   // without).
-  assert.ok(nReal < 2001 * 12, `2,000 submodules: ${nReal} calls of path.resolve`);
+  assert.ok(nReal < 2001 * 9, `2,000 submodules: ${nReal} calls of path.resolve`);
   assert.strictEqual(farGitConfig(repoWith('names', subs(2000, 'm'.repeat(130)))), '');
   assert.strictEqual(farGitConfig(repoWith('one-tree', subs(2000, 'm') + '[core]\n\tworktree = ..\n')), '');
   // The same value again and again is one value, under any key: accepted,
@@ -786,9 +793,9 @@ test('git pointers: many path values are checked once each, and too many are ref
     assert.strictEqual(why, 'many-config-paths', name);
     assert.ok(n < nReal * most, `${name}: ${n} calls of path.resolve, 2,000 submodules: ${nReal}`);
   }
-  // A walk through folders that exist costs by its depth: 2,400 values
+  // A walk through folders that exist costs by its depth: 4,500 values
   // tried from a worktree 60 folders down.
-  const deep = repoWith('deep', '[core]\n\tworktree = ../' + 'd/'.repeat(59) + 'd\n[x]\n' + lines(2400, i => `file = f${i}`));
+  const deep = repoWith('deep', '[core]\n\tworktree = ../' + 'd/'.repeat(59) + 'd\n[x]\n' + lines(4500, i => `file = f${i}`));
   fs.mkdirSync(path.join(deep, ...Array(60).fill('d')), { recursive: true });
   assert.strictEqual(farGitConfig(deep), 'many-config-paths', 'a deep worktree');
   // 16 different core.worktree values, and 17.
@@ -811,9 +818,21 @@ test('git pointers: many path values are checked once each, and too many are ref
   assert.strictEqual(farLfsEntries(Array.from({ length: 2000 }, (_, i) => ['lfs.x.file', `a${i}`]), top), '');
   const [lfsMany, lfsManyN] = walked(() => farLfsEntries(Array.from({ length: 100000 }, (_, i) => ['lfs.x.file', `a${i}`]), top));
   assert.strictEqual(lfsMany, 'many-config-paths');
-  assert.ok(lfsManyN < nReal * 5, `.lfsconfig, 100,000 values: ${lfsManyN} calls of path.resolve, 2,000 submodules: ${nReal}`);
+  // (5 times 2,000 submodules' calls on Linux, 2.5 times on Windows; 12
+  // times and more with no limit.)
+  assert.ok(lfsManyN < nReal * 8, `.lfsconfig, 100,000 values: ${lfsManyN} calls of path.resolve, 2,000 submodules: ${nReal}`);
   assert.strictEqual(localPath(base), base);
   assert.strictEqual(farLfsEntries([['x.file', 'a'], ['y.file', '~nobody-here/x']], top), 'odd-config-path');
+  // A folder is looked at once while .lfsconfig's values are checked: 300
+  // values 30 folders down took 9,000 looks at the disk and more.
+  fs.mkdirSync(path.join(top, ...Array(30).fill('e')), { recursive: true });
+  const lstat = fs.lstatSync;
+  let looks = 0;
+  fs.lstatSync = (...a) => { looks++; return lstat(...a); };
+  let lfsDeep;
+  try { lfsDeep = farLfsEntries(Array.from({ length: 300 }, (_, i) => ['lfs.x.file', 'e/'.repeat(30) + `f${i}`]), top); } finally { fs.lstatSync = lstat; }
+  assert.strictEqual(lfsDeep, '');
+  assert.ok(looks < 1000, `.lfsconfig, 300 values 30 folders down: ${looks} looks at the disk`);
   if (NO_LINKS) return;
   const EVIL = '//evil.invalid/share/x';
   // lfs.storage is walked as a folder even when the same text was already

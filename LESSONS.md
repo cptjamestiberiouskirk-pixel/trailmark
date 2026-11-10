@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: A work count weighed text and not disk lookups
+
+- What went wrong: the first work limit of RS-A-manyvalues (b665d71) counted mostly the length of each value's text. Round 3 showed both errors of that: 2,000 submodule gitdirs in a repo at a path of 160 characters were refused (a long repo path made every walk count more, though it adds little time), and 5,000 `.lfsconfig` values 50 existing folders down were accepted in 4.8 s (each look at the disk counted almost nothing, and `.lfsconfig` had no lookup cache).
+- Why: the weights were chosen from the code's shape and checked against total time on a few inputs, not measured one cost at a time. The honest input was sized at one repo path only.
+- Rule going forward: before setting the weights of a counted limit, measure units per second on the cheapest and the dearest kind of step (text only, parts, disk lookups that miss the cache) with an unlimited copy, and set the weights so the two rates are within a small factor. Size the honest inputs at the longest path and depth a real repo can have, and state the margin.
+- Status: open
+
+## 2026-11-10: A promoted playbook step was skipped (pair script with `\n`)
+
+- What went wrong: a third pair script for test text with `\n` in it failed with "occurs 0 times", after the rule against it was already step 4 of PLAYBOOK's wording checklist.
+- Why: the lessons check was run for the step "change a test", and the edit's tool was chosen after it, out of habit.
+- Rule going forward: none new. The step stands; the lessons check names the tool for an edit before the edit is written.
+- Status: open (seen after promotion)
+
 ## 2026-11-09: Limits on three counts missed their product
 
 - What went wrong: RS-A-manyvalues was first bounded by how many path values there are, then also by their length together and by the number of worktrees. A review after each showed an accepted input that still took minutes (4 worktrees of 16,000 characters with 2,000 short values: 110 s), and the limits refused real repos on the way (2,000 submodules and one more setting).

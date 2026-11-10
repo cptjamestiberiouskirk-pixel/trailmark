@@ -216,6 +216,7 @@ function lstatPart(p) {
   if (!LSTAT_SEEN) return fs.lstatSync(p);
   let r = LSTAT_SEEN.get(p);
   if (r === undefined) {
+    WALK_LEFT -= DISK_COST;
     try { r = fs.lstatSync(p); } catch (e) { r = e instanceof Error ? e : new Error('lstat'); }
     if (LSTAT_SEEN.size >= MAX_LSTAT_SEEN) LSTAT_SEEN.clear();
     LSTAT_SEEN.set(p, r);
@@ -276,7 +277,14 @@ function exactPointer(t) {
 }
 // How much more localPath may walk while a config's path values are checked
 // (limitedWalk); no limit otherwise. Below 0, nothing more is walked.
+// One walk counts WALK_COST and its text's length, each part of it 2 and an
+// eighth of the path up to it, and each look at the disk that isn't already
+// known DISK_COST. As measured on Windows, one counted is about a quarter of
+// a microsecond: a look at the disk takes about 60 microseconds, a part that
+// is known about 4.
 let WALK_LEFT = Infinity;
+const WALK_COST = 64;
+const DISK_COST = 256;
 function localPath(p) {
   if (String(p).length > MAX_PATH_TEXT) return null;
   // A NUL ends the path for git but makes Node throw, and U+FFFD stands for
@@ -291,11 +299,9 @@ function localPath(p) {
     const parts = cur.slice(root.length).split(WIN ? /[\\/]+/ : /\/+/).filter(x => x && x !== '.');
     let at = root;
     let relinked = false;
-    // The cost of one walk as measured: a fixed part, the text's length
-    // (it is split and joined), and for each part the path up to it.
-    if ((WALK_LEFT -= 256 + 2 * cur.length) < 0) return null;
+    if ((WALK_LEFT -= WALK_COST + cur.length) < 0) return null;
     for (let i = 0; i < parts.length; i++) {
-      if ((WALK_LEFT -= 1 + (at.length >> 3)) < 0) return null;
+      if ((WALK_LEFT -= 2 + (at.length >> 3)) < 0) return null;
       // '..' after a link goes up from where the link led, as the kernel does.
       if (parts[i] === '..') { at = path.dirname(at); continue; }
       const next = path.join(at, parts[i]);
@@ -400,10 +406,16 @@ function ownTilde(p) {
 // A base folder, links followed, that isn't there. False for anything else,
 // a base that leads to a share included: that one is refused where it is
 // read.
+// Asked once for each folder while one config's values are checked
+// (BASE_MISSING, set by limitedWalk): every value asks about the same few.
+let BASE_MISSING = null;
 function missingBase(b) {
+  if (BASE_MISSING && BASE_MISSING.has(b)) return BASE_MISSING.get(b);
   const r = localPath(b);
-  if (!r) return false;
-  try { fs.lstatSync(r); return false; } catch (e) { return !!e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'); }
+  let gone = false;
+  if (r) { try { fs.lstatSync(r); } catch (e) { gone = !!e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'); } }
+  if (BASE_MISSING) BASE_MISSING.set(b, gone);
+  return gone;
 }
 function farPathValue(value, bases, key = '') {
   const v = exactPointer(value);
@@ -448,22 +460,28 @@ function farPathValue(value, bases, key = '') {
 // values: 110 s). The count of values says little about that, and a real
 // repo can have thousands (git can record submodule.<name>.gitdir for each
 // submodule), so the limit is on the work: what localPath counts for each
-// walk while the values are checked. 2,000 submodule gitdirs count 3 million
-// (0.6 s here), and 5.6 million in a repo eight folders further down. Past
-// the limit, git is kept out (RS-A-manyvalues).
+// walk while the values are checked (see WALK_LEFT). 2,000 submodule gitdirs
+// count half a million, and 2.8 million when they are there on disk, the
+// repo's path is 160 characters long and the session is three folders down
+// in it. The slowest inputs found reach the limit in about 2 s on Windows.
+// Past it, git is kept out (RS-A-manyvalues).
 const MAX_PATH_WORK = 8 * 1024 * 1024;
 // core.worktree values add up to four folders each, and every value's tries
 // are built from all of them before one is walked.
 const MAX_WORKTREE_VALUES = 16;
 // fn (the check of one config's path values) with that limit on localPath:
 // its answer, or many-config-paths when the limit ran out on the way.
+// What the disk showed is kept while it runs, also where the caller keeps
+// none (.lfsconfig), so a folder is looked at once.
 function limitedWalk(fn) {
-  const prev = WALK_LEFT;
+  const prev = [WALK_LEFT, LSTAT_SEEN, BASE_MISSING];
   WALK_LEFT = MAX_PATH_WORK;
+  if (!LSTAT_SEEN) LSTAT_SEEN = new Map();
+  BASE_MISSING = new Map();
   try {
     const why = fn();
     return WALK_LEFT < 0 ? 'many-config-paths' : why;
-  } finally { WALK_LEFT = prev; }
+  } finally { [WALK_LEFT, LSTAT_SEEN, BASE_MISSING] = prev; }
 }
 // The settings to check, each different value once (a core.worktree once for
 // each folder its file is in, since it is taken from there; lfs.storage apart
