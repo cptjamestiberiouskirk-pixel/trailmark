@@ -21,6 +21,20 @@ Format:
 - Rule going forward: before setting the weights of a counted limit, measure units per second on the cheapest and the dearest kind of step (text only, parts, disk lookups that miss the cache) with an unlimited copy, and set the weights so the two rates are within a small factor. Size the honest inputs at the longest path and depth a real repo can have, and state the margin.
 - Status: open
 
+## 2026-11-10: The time was in a call nobody profiled (`os.userInfo` per value)
+
+- What went wrong: four batches of RS-A-manyvalues bounded the walking of path values, and each "slowest input" was timed end to end. Most of that time (5.4 s of 6.6 s for 40,000 values) was `os.userInfo`, called once for every value outside the walk. It was found by chance, from a probe written for a CI failure.
+- Why: the cost was assumed to be where the code looked expensive (disk lookups, long texts), and total time agreed well enough. No profile was taken before the limit was designed.
+- Rule going forward: before bounding slow code, profile the slow input (`node --cpu-prof`, top functions by self time) and account for most of the time by name. After the fix, profile the slowest accepted input again: what is left must be what the limit counts.
+- Status: open
+
+## 2026-11-10: A test bound moved with the temp folder's length
+
+- What went wrong: 0bbd0f9 failed CI on the three Ubuntu jobs. A bound of "5 times the baseline's calls" on a refused case held on Windows, macOS and WSL and failed on the runner (5.5 times), one push after the same kind of bound was widened for `.lfsconfig` and this one was left.
+- Why: the number of values walked before the work limit depends on the repo path's length, and the temp folder is part of that path. The first failure was fixed where it showed, without asking what made the number move.
+- Rule going forward: when a counted bound fails or is close on one system, find what the count depends on, vary that across its range (shortest and longest temp path, both systems), and check every assertion of that kind in the test, not the one that failed. Catch a mutation by an answer that flips with a wide margin, not by a ratio near its bound.
+- Status: open
+
 ## 2026-11-10: A promoted playbook step was skipped (pair script with `\n`)
 
 - What went wrong: a third pair script for test text with `\n` in it failed with "occurs 0 times", after the rule against it was already step 4 of PLAYBOOK's wording checklist.

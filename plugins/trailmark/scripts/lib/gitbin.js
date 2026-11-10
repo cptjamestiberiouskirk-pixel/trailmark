@@ -279,9 +279,8 @@ function exactPointer(t) {
 // (limitedWalk); no limit otherwise. Below 0, nothing more is walked.
 // One walk counts WALK_COST and its text's length, each part of it 2 and an
 // eighth of the path up to it, and each look at the disk that isn't already
-// known DISK_COST. As measured on Windows, one counted is about a quarter of
-// a microsecond: a look at the disk takes about 60 microseconds, a part that
-// is known about 4.
+// known DISK_COST: a look at the disk takes many times what a part that is
+// known does.
 let WALK_LEFT = Infinity;
 const WALK_COST = 64;
 const DISK_COST = 256;
@@ -397,11 +396,16 @@ const PATH_KEY = /(?:file|path|dir|storage|template|worktree)$/i;
 // folder git might take it from (the worktree, the gitdir, the session's
 // folder). '' when every reading of it is local, else the reason.
 // ~<you>/... is your own home folder: the length of that prefix, or 0.
+// The system is asked for your name once, and only for a value of that form:
+// os.userInfo takes over 0.1 ms on Windows, and asking for each of 40,000
+// values took 5 seconds that the work limit doesn't count.
+let OWN_NAME;
 function ownTilde(p) {
-  let me = '';
-  try { me = os.userInfo().username; } catch { return 0; }
   const m = /^~([^\\/]+)[\\/]/.exec(p);
-  return m && me && (WIN ? m[1].toLowerCase() === me.toLowerCase() : m[1] === me) ? m[0].length : 0;
+  if (!m) return 0;
+  if (OWN_NAME === undefined) { try { OWN_NAME = os.userInfo().username || ''; } catch { OWN_NAME = ''; } }
+  const me = OWN_NAME;
+  return me && (WIN ? m[1].toLowerCase() === me.toLowerCase() : m[1] === me) ? m[0].length : 0;
 }
 // A base folder, links followed, that isn't there. False for anything else,
 // a base that leads to a share included: that one is refused where it is
@@ -463,7 +467,8 @@ function farPathValue(value, bases, key = '') {
 // walk while the values are checked (see WALK_LEFT). 2,000 submodule gitdirs
 // count half a million, and 2.8 million when they are there on disk, the
 // repo's path is 160 characters long and the session is three folders down
-// in it. The slowest inputs found reach the limit in about 2 s on Windows.
+// in it. The slowest inputs found reach the limit in about 1 s (Windows and
+// Linux).
 // Past it, git is kept out (RS-A-manyvalues).
 const MAX_PATH_WORK = 8 * 1024 * 1024;
 // core.worktree values add up to four folders each, and every value's tries

@@ -785,7 +785,10 @@ test('git pointers: many path values are checked once each, and too many are ref
   // 10 times what 2,000 values do, the third 100 times).
   const longTree = i => 'a/'.repeat(8000) + `w${i}`;
   for (const [name, text, most] of [
-    ['values', '[x]\n' + lines(20000, i => `file = a${i}`), 5],
+    // (How many values are walked before the limit depends on how long the
+    // repo's own path is: 3.9 to 5.7 times here, for a temp folder of 140
+    // to 14 characters.)
+    ['values', '[x]\n' + lines(20000, i => `file = a${i}`), 8],
     ['long-trees', '[core]\n' + lines(4, i => `worktree = ${longTree(i)}`) + '[x]\n' + lines(1996, i => `file = f${i}`), 5],
     ['long-values', '[core]\n' + lines(8, i => `worktree = w${i}`) + '[x]\n' + lines(192, i => `file = ${'a/'.repeat(15850)}f${i}`), 5],
   ]) {
@@ -833,6 +836,18 @@ test('git pointers: many path values are checked once each, and too many are ref
   try { lfsDeep = farLfsEntries(Array.from({ length: 300 }, (_, i) => ['lfs.x.file', 'e/'.repeat(30) + `f${i}`]), top); } finally { fs.lstatSync = lstat; }
   assert.strictEqual(lfsDeep, '');
   assert.ok(looks < 1000, `.lfsconfig, 300 values 30 folders down: ${looks} looks at the disk`);
+  // The system isn't asked for the user's name for each value: not at all
+  // for values without ~, and once at most for ~name/ values (40,000 calls
+  // took 5 seconds on Windows, outside the limit's count).
+  const userInfo = os.userInfo;
+  let asked = 0;
+  os.userInfo = (...a) => { asked++; return userInfo(...a); };
+  try {
+    assert.strictEqual(farGitConfig(repoWith('plain', '[x]\n' + lines(3000, i => `file = q/a${i}`))), '');
+    assert.strictEqual(asked, 0, `values without ~: the user's name was asked for ${asked} times`);
+    farGitConfig(repoWith('tilde', '[x]\n' + lines(3000, i => `file = ~${userInfo().username}/a${i}`)));
+    assert.ok(asked <= 1, `3,000 ~name/ values: the user's name was asked for ${asked} times`);
+  } finally { os.userInfo = userInfo; }
   if (NO_LINKS) return;
   const EVIL = '//evil.invalid/share/x';
   // lfs.storage is walked as a folder even when the same text was already
