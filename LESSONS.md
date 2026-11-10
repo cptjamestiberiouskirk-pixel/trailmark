@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: A refusal by a key's last letters hit values that are not paths
+
+- What went wrong: RS-A-trailingdot refused any value with a name ending in a dot under a key that ends like a path setting. `[alias] adddir = add .` and `newworktree = worktree add ../wt` then kept git out. Review round 1 found it; one more batch and round.
+- Why: I wrote "INFERRED never in a real repo" from what folder names Windows can make, and never listed what else sits under keys matched by their last letters. The 2026-11-09 lesson on a count limit said to list what real tools write; I read it as about limits only.
+- Rule going forward: a new refusal gets the same list as a new limit: what real tools and users write in the matched class, sections with user-named keys first, run through the rule before the first review. PLAYBOOK "Writing code and docs" step 8.
+- Status: promoted to PLAYBOOK
+
+## 2026-11-10: The exact key made one folder many
+
+- What went wrong: RS-A-foldkeys replaced lower-cased keys with the exact text. A junction keeps its target in the case its maker wrote, so 240 junctions to one folder were 240 keys: 605 listings and 4.8 s where the old code made 5. Review round 1 found it.
+- Why: I fixed the direction the earlier lesson named (two things, one key) and tested only that. I wrote "walked again, within the limits" without timing what the limits let through.
+- Rule going forward: a key for "already checked" is tested both ways: two things under one key, and one thing under many keys, with links making the many. The key is the name the system gives (here the path as the disk spells it). PLAYBOOK "Writing code and docs" step 9.
+- Status: promoted to PLAYBOOK
+
 ## 2026-11-10: Test code appended through a heredoc lost a backslash
 
 - What went wrong: the RS-A-foldkeys test was appended to the test file with an inline `cat >> file <<'EOF'`. The Bash tool collapsed `'k.\\a'` to `'k.\a'`, which JavaScript reads as `k.a`, and the new test failed on a value that is rightly accepted. One run lost.
@@ -33,7 +47,7 @@ Format:
 - What went wrong: RS-A-storagewalk's set of walked `lfs.storage` folders was keyed by `real.toLowerCase()` on Windows, copied from the sets around it. `k` and the Kelvin sign (U+212A) lower-case alike in JavaScript and are two folders on NTFS and ReFS, so a clean `k` named first left the second folder unwalked: refused before, accepted after (3dbc23c). Round 1 found it. The same key in `linkedEntries` is older and deferred (RS-A-foldkeys).
 - Why: the key had lived for one value, where two folders could not meet in it. Making it live for a whole check changed what a collision costs, and I tested that a folder in two cases is walked once, the opposite of the risk.
 - Rule going forward: a key that decides "already checked" is never coarser than what it stands for. Use the exact text, or an identity the system gives, and let the cost limits take the repeats. When a set starts to live longer, ask what two different things could share a key in it.
-- Status: open
+- Status: promoted to PLAYBOOK
 
 ## 2026-11-10: A limit on a count of folders passed its probe and let 45 seconds through
 
@@ -89,7 +103,7 @@ Format:
 - What went wrong: the first limit for RS-A-manyvalues was 200 different path values, chosen from "a real config has a handful". The review found that git 2.56 can write `submodule.<name>.gitdir` for every submodule, a key the check's pattern matches, so a repo with 201 submodules was refused where it had been accepted.
 - Why: the limit came from how long the check takes, with no look at which keys match the pattern in a real repo. The record even said "a real config has a handful" with no label and no check behind it.
 - Rule going forward: before a new limit refuses anything, list what real tools write that counts toward it (for a key pattern: search git's own config names for matches) and size the limit from the largest real case, with an existing limit for the same thing where there is one. A sentence like "a real repo has few" gets a label and a check like any other claim.
-- Status: open
+- Status: promoted to PLAYBOOK
 
 ## 2026-11-09: Two mutations passed because the test's link cases were skipped here
 

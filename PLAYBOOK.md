@@ -58,6 +58,8 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 5. Before handing over a script or file, read it for destructive or malicious operations, and say what you found.
 6. After fixing a pattern, search the whole repo for that pattern before the first review.
 7. A condition that skips a block, or code moved out of one: list each thing the block does in each case and ask whether the condition is about that thing. A value read before a lock can be older than the state under it: try the other order.
+8. A new limit or refusal on a class matched by a pattern (a key's last letters, a name's shape): before it is written, list what real tools and users write in that class, starting with the sections where the user picks the key's name (`alias`, `pretty`), and run those values through it.
+9. A key that decides "already checked" stands for exactly one thing. Test both ways it can be wrong: two things under one key (one goes unchecked), and one thing under many keys (it is checked once for each, and links can make thousands).
 
 ## Testing
 

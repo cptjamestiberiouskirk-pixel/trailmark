@@ -4046,7 +4046,7 @@ test('git pointers: two names JavaScript lower-cases alike are two names, and a 
   }
   // A backslash separates names on Windows only.
   if (WIN) assert.strictEqual(farLfsEntries([['lfs.storage', 'k.\\a']], top), 'odd-config-path', 'k. before a backslash');
-  for (const v of ['k', '.', '..', './k', '../k', 'k/.', 'k/..', '.k', 'k.d', 'k.d/a b', 'k/', '.../k'.slice(1)]) {
+  for (const v of ['k', '.', '..', './k', '../k', 'k/.', 'k/..', '.k', 'k.d', 'k.d/a b', 'k/']) {
     assert.strictEqual(farLfsEntries([['lfs.storage', v]], top), '', `lfs.storage = ${JSON.stringify(v)}`);
   }
   // An include and a session folder written that way, and a nested repo's.
@@ -4063,4 +4063,67 @@ test('git pointers: two names JavaScript lower-cases alike are two names, and a 
   fs.writeFileSync(path.join(incDot, '.git', 'i.cfg'), BAD);
   fs.appendFileSync(path.join(incDot, '.git', 'config'), '[include]\n\tpath = i.cfg.\n');
   assert.strictEqual(farGitConfig(incDot), WIN ? 'odd-config-path' : '', 'an include with a dot at its end');
+  // An alias or a log format is words, not a path, though its name may end
+  // like a path setting's: a word with a dot at its end is no reason there.
+  const conf = (name, text) => { const r = repo(name); fs.appendFileSync(path.join(r, '.git', 'config'), text); return r; };
+  const words = ['[alias]\n\tadddir = add .', '[alias]\n\tlsdir = !ls -la ./src', '[alias]\n\tnewworktree = worktree add ../wt', '[pretty]\n\tlogfile = %h %s.'];
+  words.forEach((w, i) => assert.strictEqual(farGitConfig(conf('words' + i, w + '\n')), '', w));
+  // The rest is checked as it was: a link on the way that leads nowhere
+  // safe, and a value taken from the drive's root on Windows.
+  const loopy = conf('loopy', '[alias]\n\txdir = loop/x.\n');
+  fs.symlinkSync(path.join(loopy, 'loop'), path.join(loopy, 'loop'), 'junction');
+  assert.strictEqual(farGitConfig(loopy), 'network-config', 'an alias through a link that loops');
+  assert.strictEqual(farGitConfig(conf('rooted', '[alias]\n\txdir = /x\n')), WIN ? 'odd-config-path' : '', 'an alias from the drive\'s root');
+  // The same text as a path setting is still refused, named after the alias.
+  assert.strictEqual(farGitConfig(conf('both', '[alias]\n\tadddir = k.\n[core]\n\tattributesFile = k.\n')), WIN ? 'odd-config-path' : '', 'a path setting with an alias\'s text');
+  // One folder that many links name in many cases is walked once: as many
+  // listings as when every link names it as the disk does. (Windows: a
+  // junction keeps its target as written, and the folder opens in any case.)
+  if (WIN) {
+    const cased = (p, i) => { let n = 0; return p.replace(/[a-z]/gi, c => ((i >> (n++ % 12)) & 1 ? c.toUpperCase() : c.toLowerCase())); };
+    const notes = [];
+    const link = (target, at) => busyRetry(() => fs.symlinkSync(target, at, 'junction'), { onRetry: m => notes.push(m) });
+    // a/a/a under .git/<where>, each `a` with 20 links to it beside it.
+    const chain = (name, where, vary) => {
+      const r = repo(name);
+      let d = path.join(r, '.git', where);
+      for (let level = 0; level < 3; level++) {
+        const a = path.join(d, 'a');
+        fs.mkdirSync(a, { recursive: true });
+        for (let i = 1; i <= 20; i++) link(vary ? cased(a, i + level * 20) : a, path.join(d, 'j' + i));
+        d = a;
+      }
+      return r;
+    };
+    for (const [where, fn] of [['modules', farModules], ['refs', farGitConfig]]) {
+      const [same, vary] = [lists(() => fn(chain(where + '-same', where, false))), lists(() => fn(chain(where + '-vary', where, true)))];
+      assert.deepStrictEqual(vary, same, `.git/${where}: links to one folder in 60 cases ${notes.join()}`);
+      assert.strictEqual(same[0], '');
+    }
+    // Two folders that links lead to stay two: k and <Kelvin sign> outside
+    // the gitdir, the second holding what is refused.
+    const twoLinks = (name, where, fill) => {
+      const ext = path.join(base, name + '-ext');
+      fs.mkdirSync(path.join(ext, 'k'), { recursive: true });
+      fill(path.join(ext, K));
+      const r = repo(name);
+      fs.mkdirSync(path.join(r, '.git', where), { recursive: true });
+      link(path.join(ext, 'k'), path.join(r, '.git', where, 'j1'));
+      link(path.join(ext, K), path.join(r, '.git', where, 'j2'));
+      return r;
+    };
+    assert.strictEqual(farModules(twoLinks('ext-modules', 'modules', d => gitdirAt(d, BAD))), 'network-config', `a link to a gitdir named like a folder another link led to ${notes.join()}`);
+    const looping = (d) => { fs.mkdirSync(d); link(path.join(d, 'loop'), path.join(d, 'loop')); };
+    assert.strictEqual(farGitConfig(twoLinks('ext-refs', 'refs', looping)), 'linked-gitdir', `a link to a folder named like one another link led to ${notes.join()}`);
+    // The session's folder as a link whose target is written in another case:
+    // the folders above it are looked at once.
+    const above = (name, vary) => {
+      const r = repo(name);
+      for (let i = 0; i < 20; i++) fs.mkdirSync(path.join(r, '.git', 'refs', 'heads', 'b' + i), { recursive: true });
+      fs.mkdirSync(path.join(r, 'sub'));
+      link(vary ? cased(path.join(r, 'sub'), 0xfff) : path.join(r, 'sub'), path.join(r, 'link'));
+      return path.join(r, 'link');
+    };
+    assert.deepStrictEqual(lists(() => farGitConfig(above('above-vary', true))), lists(() => farGitConfig(above('above-same', false))), `a session folder through a link in another case ${notes.join()}`);
+  }
 });

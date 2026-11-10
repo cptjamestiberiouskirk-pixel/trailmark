@@ -236,8 +236,14 @@ function netText(s) {
 // A pointer git and this check may resolve differently on Windows.
 function oddRelative(t) {
   if (!WIN) return false;
+  return driveRelative(t) || dotEnd(String(t).replace(/"/g, '').trim());
+}
+// C:name (from that drive's current folder) and \name (from the current
+// drive's root), on Windows.
+function driveRelative(t) {
+  if (!WIN) return false;
   const v = String(t).replace(/"/g, '').trim();
-  return /^[A-Za-z]:(?![\\/])/.test(v) || /^[\\/](?![\\/])/.test(v) || dotEnd(v);
+  return /^[A-Za-z]:(?![\\/])/.test(v) || /^[\\/](?![\\/])/.test(v);
 }
 // A path with a name that ends in a dot or a space ('.' and '..' apart), on
 // Windows: Windows programs drop those from a name's end (git run in `k.`
@@ -247,6 +253,23 @@ function oddRelative(t) {
 // (RS-A-trailingdot).
 function dotEnd(p) {
   return WIN && /[. ](?:[\\/]|$)/.test(String(p)) && String(p).split(/[\\/]+/).some(x => x !== '.' && x !== '..' && /[. ]$/.test(x));
+}
+// Sections where the user picks the key's name and the value is words, never
+// a file git opens: an alias's command line and a log format. A key such as
+// alias.adddir ends like a path setting, and `add .`, `!ls -la ./src` and
+// `worktree add ../wt` have a word that ends in a dot. Their values are
+// checked as before RS-A-trailingdot, without the rule on such names.
+const WORDS_KEY = /^(?:alias|pretty)\./i;
+// real (a path localPath gave) with its names as the disk has them, where
+// that differs in letter case only. A link's target is kept in the case its
+// maker wrote, so one folder comes back under many texts; this is the one
+// text the walks' sets of what was seen can tell it by, and two folders never
+// get the same one (RS-A-foldkeys). Any other difference (a drive made with
+// subst, a mapped drive, a short name) keeps the path as it was found.
+function onDisk(real) {
+  let c;
+  try { c = fs.realpathSync.native(real); } catch { return real; }
+  return c !== real && c.toLowerCase() === real.toLowerCase() ? c : real;
 }
 const UNSAFE = Symbol('unsafe');
 // The longest path any system opens is 32,767 characters (Windows; Linux
@@ -296,12 +319,14 @@ const DISK_COST = 256;
 // Joining a value to one folder it is tried from (farPathValue), with a
 // quarter of the value's length.
 const TRY_COST = 16;
-function localPath(p) {
+// words: p was built from a value that is words (WORDS_KEY), so a name that
+// ends in a dot is let through; a link's target on the way is still refused.
+function localPath(p, words = false) {
   if (String(p).length > MAX_PATH_TEXT) return null;
   // A NUL ends the path for git but makes Node throw, and U+FFFD stands for
   // bytes that aren't valid UTF-8 (see exactPointer): never taken as local.
   if (/[\0\uFFFD]/.test(String(p))) return null;
-  if (dotEnd(p)) return null;
+  if (!words && dotEnd(p)) return null;
   let cur = WIN ? path.resolve(String(p)) : String(p);
   if (!WIN && !cur.startsWith('/') && !NET_START.test(cur)) cur = rawJoin(process.cwd(), cur);
   if (blocked(cur)) return null;
@@ -440,7 +465,8 @@ function farPathValue(value, bases, key = '') {
   if (!v) return '';
   // The null device, a common way to switch a file setting off.
   if (/^(?:\/dev\/null|nul)$/i.test(v)) return '';
-  if (oddRelative(v)) return 'odd-config-path';
+  const words = WORDS_KEY.test(key);
+  if (words ? driveRelative(v) : oddRelative(v)) return 'odd-config-path';
   let p = v;
   if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) p = path.join(os.homedir(), p.slice(2));
   else if (ownTilde(p)) p = path.join(os.homedir(), p.slice(ownTilde(p)));
@@ -461,7 +487,7 @@ function farPathValue(value, bases, key = '') {
   for (const t of new Set(tries)) {
     // Too long once joined to its base: no path, and no share either.
     if (t.length > MAX_PATH_TEXT) return 'odd-config-path';
-    const real = localPath(t);
+    const real = localPath(t, words);
     if (!real) return 'network-config';
     // git-lfs keeps objects and temp files in lfs.storage: walked like a gitdir.
     if (/^lfs\.storage$/i.test(key)) {
@@ -531,12 +557,14 @@ function limitedWalk(fn) {
 }
 // The settings to check, each different value once (a core.worktree once for
 // each folder its file is in, since it is taken from there; lfs.storage apart
-// from other settings, since its folder is walked).
+// from other settings, since its folder is walked, and so are the values that
+// are words, since they are checked by another rule: `add .` as an alias must
+// not stand in for the same text as core.attributesFile).
 function distinctPaths(pending) {
   const seen = new Set();
   const out = [];
   for (const e of pending) {
-    const kind = /^core\.worktree$/i.test(e.key) ? `w${path.dirname(e.file)}` : /^lfs\.storage$/i.test(e.key) ? 'l' : 'p';
+    const kind = /^core\.worktree$/i.test(e.key) ? `w${path.dirname(e.file)}` : /^lfs\.storage$/i.test(e.key) ? 'l' : WORDS_KEY.test(e.key) ? 'a' : 'p';
     const k = `${kind}\0${e.value}`;
     if (seen.has(k)) continue;
     seen.add(k);
@@ -764,7 +792,10 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false, tally = 
         const real = localPath(sub);
         if (!real) return 'linked-gitdir';
         try { isDir = fs.statSync(real).isDirectory(); } catch { isDir = false; }
-        sub = real;
+        // Spelled as the disk has it, so `seen` below knows a folder that
+        // many links name in many cases (240 such links: 605 listings and
+        // 4.8 s where 5 listings do).
+        sub = isDir ? onDisk(real) : real;
       }
       if (!isDir) continue;
       // Loose-object folders of git's own object stores only (objects/ and a
@@ -788,7 +819,7 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false, tally = 
       if ((own || leftover) && /^[0-9a-f]{2}$/i.test(x.name) && !(leftover && (headAt(sub) || !onlyFiles(sub)))) continue;
       if (depth >= MAX_GITDIR_DEPTH) return 'deep-gitdir';
       // By its exact text (see farConfig's seenKey): two folders never share
-      // a key, and one reached in another case is walked again, on the budget.
+      // a key. A link's target was respelled as the disk has it (onDisk).
       if (seen.has(sub)) continue;
       seen.add(sub);
       // A folder under this gitdir's modules/ with a HEAD (a file or a link,
@@ -1096,7 +1127,8 @@ function moduleGitdirs(root) {
     if (!real) { why = 'linked-gitdir'; return null; }
     let dir;
     try { dir = fs.statSync(real).isDirectory(); } catch { dir = false; }
-    return { p: real, dir };
+    // Spelled as the disk has it, for `seen` (see linkedEntries).
+    return { p: dir ? onDisk(real) : real, dir };
   };
   // A gitdir's objects/: a submodule named vendor/objects/x keeps its gitdir
   // there when vendor is one. git 2.56 won't make one by that name, and
@@ -1183,8 +1215,11 @@ function farGitConfigIn(cwd) {
   // The folders above both the path as given and its real path: git may
   // search either (on Windows it may keep the path as given).
   // folder -> true where git would stop (a repo it accepts), false otherwise.
+  // Where a link led, the real path is spelled as the disk has it (onDisk):
+  // a link's target written in another case would have every folder above
+  // it looked at twice.
   const seenDirs = new Map();
-  for (const start of why ? [] : [real, key]) {
+  for (const start of why ? [] : [real === key ? real : onDisk(real), key]) {
     let d = start;
     for (let i = 0; !why; i++) {
       if (i > 512) { why = 'deep-folder'; break; }
