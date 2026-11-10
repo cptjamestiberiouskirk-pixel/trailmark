@@ -274,6 +274,9 @@ function exactPointer(t) {
   const v = String(t).replace(/(?<![\r\n])[\r\n]+$/, '');
   return /^\s|\s$|[\r\n\0\uFFFD]/.test(v) ? null : v;
 }
+// How much more localPath may walk while a config's path values are checked
+// (limitedWalk); no limit otherwise. Below 0, nothing more is walked.
+let WALK_LEFT = Infinity;
 function localPath(p) {
   if (String(p).length > MAX_PATH_TEXT) return null;
   // A NUL ends the path for git but makes Node throw, and U+FFFD stands for
@@ -288,7 +291,11 @@ function localPath(p) {
     const parts = cur.slice(root.length).split(WIN ? /[\\/]+/ : /\/+/).filter(x => x && x !== '.');
     let at = root;
     let relinked = false;
+    // The cost of one walk as measured: a fixed part, the text's length
+    // (it is split and joined), and for each part the path up to it.
+    if ((WALK_LEFT -= 256 + 2 * cur.length) < 0) return null;
     for (let i = 0; i < parts.length; i++) {
+      if ((WALK_LEFT -= 1 + (at.length >> 3)) < 0) return null;
       // '..' after a link goes up from where the link led, as the kernel does.
       if (parts[i] === '..') { at = path.dirname(at); continue; }
       const next = path.join(at, parts[i]);
@@ -417,7 +424,8 @@ function farPathValue(value, bases, key = '') {
   // that isn't there.
   const tries = path.isAbsolute(p) ? [p, path.resolve(p)] : bases.filter(Boolean).flatMap(b => (missingBase(b) ? [path.resolve(b, p)] : [rawJoin(b, p), path.resolve(b, p)]));
   const walked = new Set();
-  for (const t of tries) {
+  // Each different text once: the two readings are often the same text.
+  for (const t of new Set(tries)) {
     // Too long once joined to its base: no path, and no share either.
     if (t.length > MAX_PATH_TEXT) return 'odd-config-path';
     const real = localPath(t);
@@ -432,38 +440,42 @@ function farPathValue(value, bases, key = '') {
   }
   return '';
 }
-// How many different path values one check walks. A config file can hold
-// tens of thousands of short ones, at a fraction of a millisecond each
-// (20,000 lines of `file = a`: 4 s), and every core.worktree value adds
-// folders that each of the others is then tried from (1,000 lines of
-// `worktree = w`: 80 s). A real config has a handful, or one for each
-// submodule where git records submodule.<name>.gitdir, so the limit is the
-// one on submodule gitdirs (MAX_MODULE_GITDIRS). The values' length together
-// has a limit too: 192 values of 31,700 characters took 31 s
-// (RS-A-manyvalues).
-const MAX_PATH_VALUES = 2000;
-const MAX_WORKTREE_VALUES = 4;
-const MAX_PATH_VALUE_TEXT = 256 * 1024;
+// How much walking the path values of one repo's config may cost. A config
+// file can hold tens of thousands of them (20,000 lines of `file = a`: 4 s),
+// every core.worktree value adds folders that each of the others is then
+// tried from (1,000 lines of `worktree = w`: 80 s), and a long or deep
+// worktree makes every try long (4 worktrees of 16,000 characters with 2,000
+// values: 110 s). The count of values says little about that, and a real
+// repo can have thousands (git can record submodule.<name>.gitdir for each
+// submodule), so the limit is on the work: what localPath counts for each
+// walk while the values are checked. 2,000 submodule gitdirs count 3 million
+// (0.6 s here), and 5.6 million in a repo eight folders further down. Past
+// the limit, git is kept out (RS-A-manyvalues).
+const MAX_PATH_WORK = 8 * 1024 * 1024;
+// core.worktree values add up to four folders each, and every value's tries
+// are built from all of them before one is walked.
+const MAX_WORKTREE_VALUES = 16;
+// fn (the check of one config's path values) with that limit on localPath:
+// its answer, or many-config-paths when the limit ran out on the way.
+function limitedWalk(fn) {
+  const prev = WALK_LEFT;
+  WALK_LEFT = MAX_PATH_WORK;
+  try {
+    const why = fn();
+    return WALK_LEFT < 0 ? 'many-config-paths' : why;
+  } finally { WALK_LEFT = prev; }
+}
 // The settings to check, each different value once (a core.worktree once for
 // each folder its file is in, since it is taken from there; lfs.storage apart
-// from other settings, since its folder is walked); null when there are more
-// than the limits above.
+// from other settings, since its folder is walked).
 function distinctPaths(pending) {
   const seen = new Set();
   const out = [];
-  let trees = 0;
-  let text = 0;
   for (const e of pending) {
-    const tree = /^core\.worktree$/i.test(e.key);
-    const kind = tree ? `w${path.dirname(e.file)}` : /^lfs\.storage$/i.test(e.key) ? 'l' : 'p';
+    const kind = /^core\.worktree$/i.test(e.key) ? `w${path.dirname(e.file)}` : /^lfs\.storage$/i.test(e.key) ? 'l' : 'p';
     const k = `${kind}\0${e.value}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    if (out.length >= MAX_PATH_VALUES || (tree && ++trees > MAX_WORKTREE_VALUES)) return null;
-    // A value over MAX_PATH_TEXT is refused for itself (odd-config-path),
-    // before anything is done with it, so it isn't counted here.
-    const len = String(e.value).length;
-    if (len <= MAX_PATH_TEXT && (text += len) > MAX_PATH_VALUE_TEXT) return null;
     out.push(e);
   }
   return out;
@@ -921,22 +933,30 @@ function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
   // runs; it becomes one more folder relative values are taken from.
   const bases = cst.bases.slice();
   const pending = distinctPaths(cst.pending);
-  if (!pending) return 'many-config-paths';
-  for (const e of pending) {
-    if (!/^core\.worktree$/i.test(e.key)) continue;
-    const v = exactPointer(e.value);
-    if (v === null || !v) continue;
-    for (const w of path.isAbsolute(v) ? [v] : [rawJoin(gitdir, v), rawJoin(path.dirname(e.file), v)]) {
-      if (w.length > MAX_PATH_TEXT) return 'odd-config-path';
-      const real = localPath(w);
-      if (!real) return 'network-config';
-      bases.push(real, path.resolve(w));
+  const valueWhy = limitedWalk(() => {
+    let trees = 0;
+    for (const e of pending) {
+      if (!/^core\.worktree$/i.test(e.key)) continue;
+      const v = exactPointer(e.value);
+      if (v === null || !v) continue;
+      if (++trees > MAX_WORKTREE_VALUES) return 'many-config-paths';
+      for (const w of path.isAbsolute(v) ? [v] : [rawJoin(gitdir, v), rawJoin(path.dirname(e.file), v)]) {
+        if (w.length > MAX_PATH_TEXT) return 'odd-config-path';
+        const real = localPath(w);
+        if (!real) return 'network-config';
+        bases.push(real, path.resolve(w));
+      }
     }
-  }
-  for (const e of pending) {
-    const why = farPathValue(e.value, bases, e.key);
-    if (why) return why;
-  }
+    // Each folder once: the session's folder is often the worktree, and a
+    // core.worktree is often the same text as its real path.
+    const from = [...new Set(bases)];
+    for (const e of pending) {
+      const why = farPathValue(e.value, from, e.key);
+      if (why) return why;
+    }
+    return '';
+  });
+  if (valueWhy) return valueWhy;
   for (const d of dirs) {
     // git-lfs takes a relative alternates line from where it runs: the
     // worktree, a core.worktree included.
@@ -1196,13 +1216,13 @@ function farLfsEntries(entries, top) {
     if (PATH_KEY.test(key)) named.push({ key, value, file: '' });
   }
   // Walked once the whole file is read, each different value once.
-  const pending = distinctPaths(named);
-  if (!pending) return 'many-config-paths';
-  for (const e of pending) {
-    const why = farPathValue(e.value, [top], e.key);
-    if (why) return why;
-  }
-  return '';
+  return limitedWalk(() => {
+    for (const e of distinctPaths(named)) {
+      const why = farPathValue(e.value, [top], e.key);
+      if (why) return why;
+    }
+    return '';
+  });
 }
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).

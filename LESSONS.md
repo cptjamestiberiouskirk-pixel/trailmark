@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: Limits on three counts missed their product
+
+- What went wrong: RS-A-manyvalues was first bounded by how many path values there are, then also by their length together and by the number of worktrees. A review after each showed an accepted input that still took minutes (4 worktrees of 16,000 characters with 2,000 short values: 110 s), and the limits refused real repos on the way (2,000 submodules and one more setting).
+- Why: the cost of one value depends on the folders it is tried from, which come from other values. Each count was bounded alone, and the "slowest accepted input" was measured only on the shapes already thought of.
+- Rule going forward: when the cost is a product of several inputs, bound the work itself (count it where it is done), not each input. Before calling a limit done, write the cost as a formula from the code and try the corner where every factor is at its limit at once.
+- Status: open
+
 ## 2026-11-09: A count limit was set without listing what real tools write
 
 - What went wrong: the first limit for RS-A-manyvalues was 200 different path values, chosen from "a real config has a handful". The review found that git 2.56 can write `submodule.<name>.gitdir` for every submodule, a key the check's pattern matches, so a repo with 201 submodules was refused where it had been accepted.
@@ -46,7 +53,7 @@ Format:
 - What went wrong: a script of old/new pairs for `gitbin.js` stopped with "occurs 0 times": the old text held a regex with backslashes, written inside a template literal inside a heredoc. Nothing was written, since it checks before it writes.
 - Why: three layers of escaping (the shell, the template literal, the regex) and no look at what text the script would search for.
 - Rule going forward: for an edit whose old text holds backslashes, use the Edit tool on one copy and copy the file to the other, or anchor the pair on a nearby line without backslashes.
-- Status: open
+- Status: promoted to PLAYBOOK (seen again the same day: a pair script for test code with `\n` in it stopped the same way)
 ## 2026-11-09: A review's commit was copied from another reviewer's
 
 - What went wrong: the release-state note for PR 33 said Copilot reviewed b37f215. GitHub records its review on e466077. Copilot found it on PR 34.
