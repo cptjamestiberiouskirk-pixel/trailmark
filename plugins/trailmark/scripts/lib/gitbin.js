@@ -455,9 +455,11 @@ function farPathValue(value, bases, key = '') {
     if (!real) return 'network-config';
     // git-lfs keeps objects and temp files in lfs.storage: walked like a gitdir.
     if (/^lfs\.storage$/i.test(key)) {
-      const k = WIN ? real.toLowerCase() : real;
-      if (stores.seen.has(k)) continue;
-      stores.seen.add(k);
+      // By its exact text: lower-cased, 'k' and the Kelvin sign (U+212A)
+      // are one key but two folders on Windows, and the second went unwalked.
+      // A folder written in another case is walked again, within the limits.
+      if (stores.seen.has(real)) continue;
+      stores.seen.add(real);
       let isDir = false;
       try { isDir = fs.statSync(real).isDirectory(); } catch { isDir = false; }
       if (!isDir) continue;
@@ -470,13 +472,14 @@ function farPathValue(value, bases, key = '') {
 }
 // The folders lfs.storage values led to while one config's values are checked
 // (set by limitedWalk), by the path localPath found: a folder is looked at and
-// walked once however many values spell it (200 spellings of a folder with
+// walked once however many values lead to that path (200 spellings of a folder with
 // 10,100 entries were 200 walks, 2.7 s). The work limit doesn't count a
 // store's walk, so the stores have limits of their own: 64 different folders,
 // and no further one once those before it held 20,000 entries between them
 // (each is walked up to LFS_BUDGET, so just under 30,000 at most; three
-// stores where every entry is a folder, as under objects/ab/cd, took 2.4 s
-// on Windows and 0.25 s on Linux, and 64 took 45 s on Windows).
+// stores where every entry is a folder, as under objects/ab/cd, or holding
+// links, took up to 2.5 s on Windows and 0.9 s on Linux, and 64 took 45 s on
+// Windows).
 // git-lfs uses one value, tried from a few folders. Past either, git is kept
 // out like past the work limit (RS-A-storagewalk).
 let STORES = null;
