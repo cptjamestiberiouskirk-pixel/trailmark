@@ -284,7 +284,9 @@ function sameReal(a, b) {
   try { return samePath(fs.realpathSync.native(a), fs.realpathSync.native(b)); } catch { return false; }
 }
 function samePath(a, b) {
-  const n = p => { let r = path.resolve(p).replace(/[\\/]+$/, ''); if (WIN) r = r.replace(/\//g, '\\').toLowerCase(); return r; };
+  // The look-behind keeps the trim linear: off Windows a backslash is part of
+  // a name, so a path can keep a run of them that isn't at its end.
+  const n = p => { let r = path.resolve(p).replace(/(?<![\\/])[\\/]+$/, ''); if (WIN) r = r.replace(/\//g, '\\').toLowerCase(); return r; };
   return n(a) === n(b);
 }
 

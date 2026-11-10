@@ -14,6 +14,25 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: A line no test needed was removed, and it was holding time
+
+- What went wrong: a mutation run showed that the length limit in `exactPointer` could go without any test failing, so it was removed as redundant. The next review found an input that then took 6 s here and 42 s on Linux: the line had kept megabytes of text away from `path.resolve`.
+- Why: every test looked at the answer, and the answer was the same with and without the line. What the line saved was time, which no test measured.
+- Rule going forward: a line that no test needs gets a look at what else it does (time, memory, what is handed to the next function) before it is removed, and if it stays it gets an assertion of its own. For time, count the work (calls, sizes) where that is possible, not seconds.
+- Status: open
+## 2026-11-09: A test's expected count was worked out by hand and was one off
+
+- What went wrong: the RS-F-codexwalk test expected the search to look in 45 folders. It looks in 44, so the "one fewer" case passed where it should have been cut short, and the test failed with the fix in place.
+- Why: the count was added up from the folder layout, and the folder that holds the old copy was counted although the search never walks into a marketplace's `jb-memory-codex` folder.
+- Rule going forward: take a boundary number in a test from a run of the code (a counter, or the two sides of the boundary tried), not from adding it up, and say in the test's comment what is counted.
+- Status: open
+
+## 2026-11-09: An edit script's old text didn't match because of its own escapes
+
+- What went wrong: a script of old/new pairs for `gitbin.js` stopped with "occurs 0 times": the old text held a regex with backslashes, written inside a template literal inside a heredoc. Nothing was written, since it checks before it writes.
+- Why: three layers of escaping (the shell, the template literal, the regex) and no look at what text the script would search for.
+- Rule going forward: for an edit whose old text holds backslashes, use the Edit tool on one copy and copy the file to the other, or anchor the pair on a nearby line without backslashes.
+- Status: open
 ## 2026-11-09: A review's commit was copied from another reviewer's
 
 - What went wrong: the release-state note for PR 33 said Copilot reviewed b37f215. GitHub records its review on e466077. Copilot found it on PR 34.
@@ -96,7 +115,7 @@ Format:
 - What went wrong: a `cd` inside a Bash call changed the working directory of the calls after it.
 - Why: the main session's shell keeps a `cd` that succeeds inside the working directories.
 - Rule going forward: use absolute paths or `git -C`.
-- Status: open
+- Status: promoted to PLAYBOOK (seen again 2026-11-09: a `cd` into `scripts/` moved the next call)
 
 ## 2026-11-09: A wider guard switched off an unrelated reset inside it
 

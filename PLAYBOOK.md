@@ -23,6 +23,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 - Windows, Git Bash: the Bash tool collapses `\\` in an inline command. Write the script to a file and run that.
 - Python writes cp1252 into a pipe: set `PYTHONIOENCODING=utf-8`.
 - MSYS splits `PATH` at `:`, so a `C:/...` entry breaks: put `cygpath -u` paths in `PATH`. It also rewrites path arguments to Windows programs: call `wsl.exe` with `MSYS_NO_PATHCONV=1`. WSL's git can't read a worktree's Windows `gitdir`: clone for WSL from the main repository's `.git`.
+- A `cd` in one Bash call moves the calls after it: use absolute paths or `git -C`, and `cd` only to the worktree's root.
 - An inline command's text shows in the process list, so `ps | grep` probes match themselves: write probes to script files.
 - Windows gives back a killed process's file handles a moment after it exits: cleanup after a stop retries for a few seconds.
 - PowerShell means `pwsh` (7), never `powershell.exe` (5.1), `gsudo` runs and `-File` scripts included.
