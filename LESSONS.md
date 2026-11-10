@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: An edit script went through a heredoc again
+- What went wrong: a script of old/new pairs for the RS-A-altstores test was written with a heredoc. One old text held `\'`, the heredoc lost the backslash, and the script stopped with "not once" before writing anything. Redone with the Write tool.
+- Why: the rule is in PLAYBOOK ("Writing code and docs", step 4) and was promoted twice. The script looked like plain wording, and the one escaped quote in it went unnoticed.
+- Rule going forward: no new rule. Every script goes through the Write tool, whether or not a backslash is expected in it: checking for one is the step that fails.
+- Status: open
+
 ## 2026-11-10: Section references by place went stale with each new section
 
 - What went wrong: `dev/release-state.md` pointed at its sections as "top section" and "second section". A new section goes in at the top for each item, so every such reference moved. The docs reviewer of PR #40 found fourteen wrong ones, three of them wrong since earlier PRs; reviews of PRs #38 and #39 had found the same kind.
