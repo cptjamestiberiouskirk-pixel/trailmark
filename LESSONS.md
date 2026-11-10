@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: A limit on a count of folders passed its probe and let 45 seconds through
+
+- What went wrong: the first fix of RS-A-storagewalk limited `lfs.storage` to 64 different folders. The probe used folders of files (64 of 12,000 files each: 1.3 s). Laid out as git-lfs does it, folders within folders, one store's 10,000 looked-at entries take 0.65 s on Windows, and 64 were accepted in 45 s. Found before the commit, by timing the dearest layout on purpose.
+- Why: an "entry" of the store budget is a name in a listing when it is a file and a listing of its own when it is a folder, about 30 times dearer. The cap was sized on the cheap kind.
+- Rule going forward: a limit on a count is sized on the dearest thing one counted item can be, timed at the cap, before it is written down. This is the 2026-11-10 "work count" lesson a second time, so it is a PLAYBOOK step now.
+- Status: promoted to PLAYBOOK
+
 ## 2026-11-10: A work count weighed text and not disk lookups
 
 - What went wrong: the first work limit of RS-A-manyvalues (b665d71) counted mostly the length of each value's text. Round 3 showed both errors of that: 2,000 submodule gitdirs in a repo at a path of 160 characters were refused (a long repo path made every walk count more, though it adds little time), and 5,000 `.lfsconfig` values 50 existing folders down were accepted in 4.8 s (each look at the disk counted almost nothing, and `.lfsconfig` had no lookup cache).
