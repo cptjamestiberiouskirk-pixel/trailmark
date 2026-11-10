@@ -1825,6 +1825,40 @@ test('git status: submodule folders are checked first, untracked repos are not l
   assert.ok(!(f.status || []).some(l => /x\//.test(l)), 'untracked folders are not listed');
 });
 
+test('git status: a tracked name that ends in a dot or a space keeps status unread on Windows (RS-A-dottracked)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-dott-');
+  let k = 0;
+  // A repo whose index holds `tracked`. Windows git won't add such a name
+  // itself unless core.protectNTFS is off; an index made elsewhere holds it.
+  const withName = (tracked) => {
+    const r = path.join(base, 'r' + (++k)); repoAt(r);
+    fs.writeFileSync(path.join(r, 'seed.txt'), 'a\n');
+    const blob = execFileSync('git', ['hash-object', '-w', 'seed.txt'], { cwd: r, encoding: 'utf8' }).trim();
+    execFileSync('git', ['-c', 'core.protectNTFS=false', 'update-index', '--add', '--cacheinfo', `100644,${blob},${tracked}`], { cwd: r });
+    return r;
+  };
+  const skipped = (r) => gitFacts(r, ['status']).statusSkipped;
+  const evil = (dir) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, '.git'), 'gitdir: //evil.invalid/share/evil\n'); };
+  // The control: a tracked file `s` that is a folder with a pointer to a
+  // share is refused on every system.
+  const c = withName('s'); evil(path.join(c, 's'));
+  assert.strictEqual(skipped(c), 'submodule-pointer', 'the control');
+  // The same folder under a tracked name Windows opens it by.
+  for (const tracked of ['s.', 's ', 's..', 's. .']) {
+    const r = withName(tracked); evil(path.join(r, 's'));
+    assert.strictEqual(skipped(r), WIN ? 'odd-path' : undefined, `tracked "${tracked}", a folder s on disk`);
+  }
+  // A folder on the way to a tracked file, at any depth, whatever is on disk.
+  for (const tracked of ['d./f', 'd /f', 'x/d./f', 'x/y. /z/f', 'x/f.']) {
+    assert.strictEqual(skipped(withName(tracked)), WIN ? 'odd-path' : undefined, `tracked "${tracked}"`);
+  }
+  // Names with a dot or a space elsewhere are as before.
+  for (const tracked of ['.d/f', 'v1.2/f.txt', 'a b/c d', '.x', ' y', 'x/.h.h/f']) {
+    assert.strictEqual(skipped(withName(tracked)), undefined, `tracked "${tracked}"`);
+  }
+});
+
 test('links: the launcher and hooks never read through a link in the memory folder', { skip: NO_LINKS }, () => {
   const s = sandbox();
   s.write('# H\n- real state\n');

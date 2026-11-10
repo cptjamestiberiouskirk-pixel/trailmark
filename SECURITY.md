@@ -109,7 +109,7 @@ How the check reads the repo:
 - A gitdir with folders nested more than 64 deep keeps git out.
 - A folder named in a command (`cd vend && git commit`) is checked for links to a share before anything looks into it.
 
-Before the PreCompact hook's `git status`, the same checks run on each submodule's `.git` and on each submodule gitdir in `.git/modules`, since git may open one by its `.gitmodules` name. A tracked file that has become a folder with a `.git` is checked as well; it is looked up only once every folder on its way was checked for links. With submodules, `.gitmodules` may not be a link.
+Before the PreCompact hook's `git status`, the same checks run on each submodule's `.git` and on each submodule gitdir in `.git/modules`, since git may open one by its `.gitmodules` name. A tracked file that has become a folder with a `.git` is checked as well; it is looked up only once every folder on its way was checked for links. On Windows a tracked name that ends in a dot or a space (`d./f`) keeps status from being read (`odd-path`): git there opens `d`, and the check would look for `d.` and find nothing. With submodules, `.gitmodules` may not be a link.
 
 Untracked files aren't listed in the snapshot, since git would look inside untracked folders that are repos of their own.
 

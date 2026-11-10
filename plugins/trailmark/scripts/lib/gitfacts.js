@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { oneLine, displayPath, inside } = require('./store');
-const { farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
+const { farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
 // and Linux caps a variable at 128 KiB (the comment on PAYLOAD_MAX in
@@ -143,6 +143,11 @@ function farWorktree(r, cwd) {
     const rel = e.slice(e.indexOf('\t') + 1);
     if (!rel || e.indexOf('\t') < 0) continue;
     if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes('..')) return 'odd-path';
+    // On Windows git opens `d/f` for a tracked `d./f` or `d /f`, and with
+    // core.fscache off (a repo can set it) `u` for a tracked `u.`, while the
+    // lookups below would name `d.` and `u.` and find nothing. What git opens
+    // there would go unchecked, so status isn't read (RS-A-dottracked).
+    if (dotEnd(rel)) return 'odd-path';
     // Every folder on the way to the file. Past MAX_TREE_FOLDERS the rest
     // can't be looked at, and git status would go through them, so the file
     // list isn't read (the rest of the snapshot still is).

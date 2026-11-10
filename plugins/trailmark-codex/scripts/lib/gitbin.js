@@ -1365,4 +1365,4 @@ function farLfsEntries(entries, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };
+module.exports = { farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };
