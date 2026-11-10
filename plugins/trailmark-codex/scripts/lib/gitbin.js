@@ -436,16 +436,23 @@ function farPathValue(value, bases, key = '') {
 // tens of thousands of short ones, at a fraction of a millisecond each
 // (20,000 lines of `file = a`: 4 s), and every core.worktree value adds
 // folders that each of the others is then tried from (1,000 lines of
-// `worktree = w`: 80 s). A real config has a handful (RS-A-manyvalues).
-const MAX_PATH_VALUES = 200;
-const MAX_WORKTREE_VALUES = 8;
+// `worktree = w`: 80 s). A real config has a handful, or one for each
+// submodule where git records submodule.<name>.gitdir, so the limit is the
+// one on submodule gitdirs (MAX_MODULE_GITDIRS). The values' length together
+// has a limit too: 192 values of 31,700 characters took 31 s
+// (RS-A-manyvalues).
+const MAX_PATH_VALUES = 2000;
+const MAX_WORKTREE_VALUES = 4;
+const MAX_PATH_VALUE_TEXT = 256 * 1024;
 // The settings to check, each different value once (a core.worktree once for
-// each folder its file is in, since it is taken from there); null when there
-// are more than the limits above.
+// each folder its file is in, since it is taken from there; lfs.storage apart
+// from other settings, since its folder is walked); null when there are more
+// than the limits above.
 function distinctPaths(pending) {
   const seen = new Set();
   const out = [];
   let trees = 0;
+  let text = 0;
   for (const e of pending) {
     const tree = /^core\.worktree$/i.test(e.key);
     const kind = tree ? `w${path.dirname(e.file)}` : /^lfs\.storage$/i.test(e.key) ? 'l' : 'p';
@@ -453,6 +460,10 @@ function distinctPaths(pending) {
     if (seen.has(k)) continue;
     seen.add(k);
     if (out.length >= MAX_PATH_VALUES || (tree && ++trees > MAX_WORKTREE_VALUES)) return null;
+    // A value over MAX_PATH_TEXT is refused for itself (odd-config-path),
+    // before anything is done with it, so it isn't counted here.
+    const len = String(e.value).length;
+    if (len <= MAX_PATH_TEXT && (text += len) > MAX_PATH_VALUE_TEXT) return null;
     out.push(e);
   }
   return out;

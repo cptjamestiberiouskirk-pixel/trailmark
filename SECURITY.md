@@ -89,6 +89,7 @@ How the check reads the repo:
 - Pointer text is taken exactly as git takes it, spaces included. A pointer that starts or ends with whitespace is refused.
 - Config files with quotes, backslashes, includes or anything outside printable ASCII are parsed by git itself (`git config --file`, includes off, run from the plugin's own folder), so quoting, comments and subsections are read as git reads them. A plain one with none of those is read directly.
 - Includes are followed ten deep, as git does, relative to the including file's path as git built it. At most 50 files are read. Past either limit, git is kept out.
+- Each different file or folder a setting names is checked once. More than 2,000 of them, more than 256 KB of them in all, or more than 4 different `core.worktree` values, keep git out (`many-config-paths`): checking tens of thousands would hold a hook up. 2,000 is also the limit on submodule gitdirs, since git can record one such setting for each submodule. The same goes for `.lfsconfig`.
 - A value starting with `%(prefix)` is refused, since git hands the absolute path after it on unchanged.
 - Alternates are followed six deep, as git 2.43 reads them. Each alternate's own folders are walked for links like the `.git`'s.
 - A gitdir folder or link name that isn't valid UTF-8 keeps git out (`odd-path`): git opens the raw bytes, which Node can't name. A plain file with such a name (a branch or its reflog) is passed over, since the check never follows a file. So does such a byte in a pointer, a link's target or an alternates line.

@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: A count limit was set without listing what real tools write
+
+- What went wrong: the first limit for RS-A-manyvalues was 200 different path values, chosen from "a real config has a handful". The review found that git 2.56 can write `submodule.<name>.gitdir` for every submodule, a key the check's pattern matches, so a repo with 201 submodules was refused where it had been accepted.
+- Why: the limit came from how long the check takes, with no look at which keys match the pattern in a real repo. The record even said "a real config has a handful" with no label and no check behind it.
+- Rule going forward: before a new limit refuses anything, list what real tools write that counts toward it (for a key pattern: search git's own config names for matches) and size the limit from the largest real case, with an existing limit for the same thing where there is one. A sentence like "a real repo has few" gets a label and a check like any other claim.
+- Status: open
+
 ## 2026-11-09: Two mutations passed because the test's link cases were skipped here
 
 - What went wrong: in the mutation run for RS-A-manyvalues, two of ten changes to the fix left the test passing. The assertions that cover them make symlinks, and the test returns before them on a Windows machine that can't.

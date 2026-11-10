@@ -748,15 +748,15 @@ test('git pointers: many path values are checked once each, and too many are ref
     path.resolve = (...a) => { n++; return resolve(...a); };
     try { return [fn(), n]; } finally { path.resolve = resolve; }
   };
-  // 200 different values are walked, 201 are not.
-  const [why200, n200] = walked(() => farGitConfig(repoWith('v200', '[x]\n' + lines(200, i => `file = a${i}`))));
-  const [why201, n201] = walked(() => farGitConfig(repoWith('v201', '[x]\n' + lines(201, i => `file = a${i}`))));
+  // 2,000 different values are walked, 2,001 are not.
+  const [why200, n200] = walked(() => farGitConfig(repoWith('v2000', '[x]\n' + lines(2000, i => `file = a${i}`))));
+  const [why201, n201] = walked(() => farGitConfig(repoWith('v2001', '[x]\n' + lines(2001, i => `file = a${i}`))));
   assert.strictEqual(why200, '');
   assert.strictEqual(why201, 'many-config-paths');
   // Refused before the walk, not after it.
-  assert.ok(n201 < n200 / 2, `201 values: ${n201} calls of path.resolve, 200 values: ${n200}`);
+  assert.ok(n201 < n200 / 2, `2,001 values: ${n201} calls of path.resolve, 2,000 values: ${n200}`);
   // The same value again and again is one value, under any key: accepted,
-  // and walked once (far less work than 200 values are).
+  // and walked once (far less work than 2,000 values are).
   for (const [name, text] of [
     ['same', '[x]\n' + lines(20000, () => 'file = a')],
     ['keys', '[x]\n' + lines(20000, i => `k${i}file = a`)],
@@ -764,20 +764,31 @@ test('git pointers: many path values are checked once each, and too many are ref
   ]) {
     const [why, n] = walked(() => farGitConfig(repoWith(name, text)));
     assert.strictEqual(why, '', name);
-    assert.ok(n < n200 / 2, `${name}: ${n} calls of path.resolve, 200 values: ${n200}`);
+    assert.ok(n < n200 / 2, `${name}: ${n} calls of path.resolve, 2,000 values: ${n200}`);
   }
-  assert.strictEqual(farGitConfig(repoWith('w8', '[core]\n' + lines(8, i => `worktree = w${i}`))), '');
-  assert.strictEqual(farGitConfig(repoWith('w9', '[core]\n' + lines(9, i => `worktree = w${i}`))), 'many-config-paths');
-  // A refused value is still refused when it comes after the same text under
-  // a key of another kind, and past many repeats.
+  // 4 different core.worktree values, and 5.
+  assert.strictEqual(farGitConfig(repoWith('w4', '[core]\n' + lines(4, i => `worktree = w${i}`))), '');
+  assert.strictEqual(farGitConfig(repoWith('w5', '[core]\n' + lines(5, i => `worktree = w${i}`))), 'many-config-paths');
+  // One value for each submodule, as git writes them with
+  // init.defaultSubmodulePathConfig: 300 submodules are a real repo's.
+  assert.strictEqual(farGitConfig(repoWith('subs', Array.from({ length: 300 }, (_, i) => `[submodule "s${i}"]\n\tgitdir = .git/modules/s${i}\n`).join(''))), '');
+  // The values' length together: 256 KB at most. 8 values of 29,951
+  // characters (parts of 200 letters, which every system takes) are under
+  // it, 9 are over.
+  const long = i => ('a'.repeat(200) + '/').repeat(149) + i;
+  assert.strictEqual(farGitConfig(repoWith('t8', '[x]\n' + lines(8, i => `file = ${long(i)}`))), '');
+  assert.strictEqual(farGitConfig(repoWith('t9', '[x]\n' + lines(9, i => `file = ${long(i)}`))), 'many-config-paths');
+  // One value longer than any path keeps its own reason.
+  assert.strictEqual(farGitConfig(repoWith('t1', `[x]\n\tfile = ${'a'.repeat(300000)}\n`)), 'odd-config-path');
+  // A refused value is still refused past many repeats of another.
   assert.strictEqual(farGitConfig(repoWith('late', '[x]\n' + lines(5000, () => 'file = a') + '\tfile = ~nobody-here/x\n')), 'odd-config-path');
   // .lfsconfig's settings go the same way.
   const top = path.join(base, 'same');
   const [lfsWhy, lfsN] = walked(() => farLfsEntries(Array.from({ length: 20000 }, () => ['lfs.x.file', 'a']), top));
   assert.strictEqual(lfsWhy, '');
   assert.ok(lfsN < 100, `.lfsconfig, one value 20,000 times: ${lfsN} calls of path.resolve`);
-  assert.strictEqual(farLfsEntries(Array.from({ length: 200 }, (_, i) => ['lfs.x.file', `a${i}`]), top), '');
-  assert.strictEqual(farLfsEntries(Array.from({ length: 201 }, (_, i) => ['lfs.x.file', `a${i}`]), top), 'many-config-paths');
+  assert.strictEqual(farLfsEntries(Array.from({ length: 2000 }, (_, i) => ['lfs.x.file', `a${i}`]), top), '');
+  assert.strictEqual(farLfsEntries(Array.from({ length: 2001 }, (_, i) => ['lfs.x.file', `a${i}`]), top), 'many-config-paths');
   assert.strictEqual(farLfsEntries([['x.file', 'a'], ['y.file', '~nobody-here/x']], top), 'odd-config-path');
   if (NO_LINKS) return;
   const EVIL = '//evil.invalid/share/x';

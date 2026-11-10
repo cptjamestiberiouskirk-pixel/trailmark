@@ -523,7 +523,7 @@ Before git runs in a repo, Trailmark checks that nothing in the repo's `.git` se
 | `unreadable-config` | A config or pointer file isn't a plain small file (for example a link, a folder, a FIFO, a config file over 8 MB, an `alternates` file over 64 KB, or a pointer file over 4 KB) |
 | `deep-config` | Includes go more than ten deep |
 | `many-config-files` | Includes reach more than 50 files |
-| `many-config-paths` | The config files (or `.lfsconfig`) name more than 200 different files or folders, or set `core.worktree` to more than 8 different values. The same value repeated counts once |
+| `many-config-paths` | The config files (or `.lfsconfig`) name more than 2,000 different files or folders, or more than 256 KB of them in all, or set `core.worktree` to more than 4 different values. A value repeated under the same kind of setting counts once |
 | `network-folder` | The folder itself is on a network path other than the session's own share |
 | `inside-gitdir` | The session works inside a `.git` |
 | `deep-folder` | There are more than 512 folders above it |
@@ -540,7 +540,7 @@ Before a compaction, the snapshot runs `git status` to list changed files. When 
 | `many-submodules` | More than 2,000 submodules, or more than 2,000 submodule gitdirs in `.git/modules` |
 | `outside-worktree` | The repo's `core.worktree` names a folder that isn't the session's folder or above it |
 | `lfs-config` | Git LFS runs as a filter and the repo's `.lfsconfig` (the worktree's, else the index's or HEAD's) is a link or includes another file |
-| `network-config`, `odd-config-path` | A value in the repo's `.lfsconfig` leads to a network path, or could be read differently by git-lfs and the check (see the table above) |
+| `network-config`, `odd-config-path`, `many-config-paths` | A value in the repo's `.lfsconfig` leads to a network path, or could be read differently by git-lfs and the check, or the file names more than 2,000 different files or folders (see the table above) |
 | `lfs-extension` | Git LFS runs and the repo's own config names an LFS extension program |
 | `odd-path` | A tracked path is absolute, holds `..`, or isn't valid UTF-8, or a folder name among the tracked files' folders isn't |
 | `many-folders` | The tracked files are in more than 20,000 folders, too many to check for links before `git status` |
