@@ -861,8 +861,68 @@ test('git pointers: many path values are checked once each, and too many are ref
     farGitConfig(repoWith('tilde', '[x]\n' + lines(3000, i => `file = ~${userInfo().username}/a${i}`)));
     assert.ok(asked <= 1, `3,000 ~name/ values: the user's name was asked for ${asked} times`);
   } finally { os.userInfo = userInfo; }
+  // An lfs.storage folder is looked at and listed once however many values
+  // spell it (RS-A-storagewalk): 200 spellings of one folder were 200
+  // listings. Counted: the calls of fs.statSync and fs.readdirSync.
+  const disk = (fn) => {
+    const [stat, readdir] = [fs.statSync, fs.readdirSync];
+    const n = { stat: 0, list: 0 };
+    fs.statSync = (...a) => { n.stat++; return stat(...a); };
+    fs.readdirSync = (...a) => { n.list++; return readdir(...a); };
+    try { n.why = fn(); } finally { fs.statSync = stat; fs.readdirSync = readdir; }
+    return n;
+  };
+  const storage = (n, f) => Array.from({ length: n }, (_, i) => ['lfs.storage', f(i)]);
+  const stores = path.join(base, 'stores');
+  for (let i = 0; i < 65; i++) fs.mkdirSync(path.join(stores, `s${i}`), { recursive: true });
+  fs.writeFileSync(path.join(stores, 'afile'), '');
+  const one = disk(() => farLfsEntries(storage(200, i => './'.repeat(i) + 's0'), stores));
+  assert.deepStrictEqual(one, { stat: 1, list: 1, why: '' }, '200 spellings of one lfs.storage folder');
+  // Two folders whose names JavaScript lower-cases alike ('k' and the Kelvin
+  // sign) are two folders on Windows and Linux: both are listed. macOS
+  // folds the two names into one folder, which is then listed for each of
+  // the two path texts: two listings on every system.
+  for (const n of ['k', 'K']) fs.mkdirSync(path.join(stores, n), { recursive: true });
+  if (process.platform !== 'darwin') assert.strictEqual(fs.readdirSync(stores).filter(n => n === 'k' || n === 'K').length, 2, 'k and the Kelvin sign are two folders here');
+  assert.strictEqual(disk(() => farLfsEntries([['lfs.storage', 'k'], ['lfs.storage', 'K']], stores)).list, 2, 'k and the Kelvin sign');
+  // A value that names a file is looked at once too.
+  const aFile = disk(() => farLfsEntries(storage(200, i => './'.repeat(i) + 'afile'), stores));
+  assert.deepStrictEqual(aFile, { stat: 1, list: 0, why: '' }, '200 spellings of a file as lfs.storage');
+  // The same from .git/config: 200 spellings cost the disk calls of one.
+  const cfg = n => '[lfs]\n' + lines(n, i => `storage = ${'./'.repeat(i)}store`);
+  const [st1, st200] = [repoWith('st1', cfg(1)), repoWith('st200', cfg(200))];
+  for (const r of [st1, st200]) fs.mkdirSync(path.join(r, 'store'));
+  const [d1, d200] = [disk(() => farGitConfig(st1)), disk(() => farGitConfig(st200))];
+  assert.deepStrictEqual(d200, d1, 'lfs.storage in .git/config: 200 spellings against one');
+  assert.strictEqual(d1.why, '');
+  // What a check learned about a store ends with it: the next one lists it.
+  assert.strictEqual(disk(() => farLfsEntries(storage(1, () => 's0'), stores)).list, 1, 'a store is listed again by the next check');
+  // 64 different folders are walked, a 65th keeps git out.
+  assert.deepStrictEqual(disk(() => farLfsEntries(storage(64, i => `s${i}`), stores)), { stat: 64, list: 64, why: '' });
+  const many = disk(() => farLfsEntries(storage(65, i => `s${i}`), stores));
+  assert.strictEqual(many.why, 'many-config-paths', '65 different lfs.storage folders');
+  assert.strictEqual(many.list, 64);
+  // Values that name no folder don't count toward the 64.
+  assert.strictEqual(farLfsEntries([...storage(64, i => `s${i}`), ...storage(100, i => `none${i}`), ['lfs.storage', 'afile']], stores), '');
+  assert.strictEqual(farLfsEntries(storage(1, () => 's0'), stores), '', 'the limit on stores is one check\'s');
+  // No further store once those before it held 20,000 entries between them.
+  // A store counts for what is looked at in it, 10,000 at most.
+  for (const [name, n] of [['b1', 10050], ['b2', 9999]]) {
+    fs.mkdirSync(path.join(stores, name));
+    for (let i = 0; i < n; i++) fs.writeFileSync(path.join(stores, name, `f${i}`), '');
+  }
+  const three = [['lfs.storage', 'b1'], ['lfs.storage', 'b2'], ['lfs.storage', 's0']];
+  assert.deepStrictEqual(disk(() => farLfsEntries(three, stores)), { stat: 3, list: 3, why: '' }, 'stores of 10,000 and 9,999 entries, then a third');
+  fs.writeFileSync(path.join(stores, 'b2', 'one-more'), '');
+  assert.deepStrictEqual(disk(() => farLfsEntries(three, stores)), { stat: 3, list: 2, why: 'many-config-paths' }, 'stores of 20,000 entries, then a third');
+  assert.strictEqual(farLfsEntries(three.slice(0, 2), stores), '', 'two stores of 10,000 entries');
+  assert.strictEqual(farLfsEntries(three.slice(1), stores), '', 'the count of entries is one check\'s');
   if (NO_LINKS) return;
   const EVIL = '//evil.invalid/share/x';
+  // A store after a clean one is still walked, and so is a second spelling's
+  // folder when it is another folder.
+  fs.symlinkSync(EVIL, path.join(stores, 's1', 'objects'));
+  assert.strictEqual(farLfsEntries([['lfs.storage', 's0'], ['lfs.storage', './s0'], ['lfs.storage', './s1']], stores), 'linked-gitdir', 'a linked store after a clean one');
   // lfs.storage is walked as a folder even when the same text was already
   // seen as a plain file setting.
   const st = repoWith('store', '[x]\n\tdir = store\n[lfs]\n\tstorage = store\n');

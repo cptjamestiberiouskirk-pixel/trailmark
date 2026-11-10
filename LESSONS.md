@@ -14,6 +14,27 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: A test's macOS branch expected what the file system did, not what the code does
+
+- What went wrong: the `k` and Kelvin sign assertion (585e5ef) expected as many listings as folders the file system made. macOS made one folder, and the code, keyed by exact path text, listed it twice: `2 !== 1` in the three macOS jobs. The product was right and the test's guard was wrong.
+- Why: this machine runs Windows only, and I reasoned about what macOS's file system does to the names without then asking what the code under test does with two texts for one folder. PLAYBOOK "Writing code and docs" step 3 covers error codes on the other systems, not name folding.
+- Rule going forward: for a test branch that only another system runs, write down that system's input as the code sees it (here: two path texts, one folder) and derive the expected value from the code, not from the file system's view.
+- Status: open
+
+## 2026-11-10: A set of seen folders was keyed coarser than the file system
+
+- What went wrong: RS-A-storagewalk's set of walked `lfs.storage` folders was keyed by `real.toLowerCase()` on Windows, copied from the sets around it. `k` and the Kelvin sign (U+212A) lower-case alike in JavaScript and are two folders on NTFS and ReFS, so a clean `k` named first left the second folder unwalked: refused before, accepted after (3dbc23c). Round 1 found it. The same key in `linkedEntries` is older and deferred (RS-A-foldkeys).
+- Why: the key had lived for one value, where two folders could not meet in it. Making it live for a whole check changed what a collision costs, and I tested that a folder in two cases is walked once, the opposite of the risk.
+- Rule going forward: a key that decides "already checked" is never coarser than what it stands for. Use the exact text, or an identity the system gives, and let the cost limits take the repeats. When a set starts to live longer, ask what two different things could share a key in it.
+- Status: open
+
+## 2026-11-10: A limit on a count of folders passed its probe and let 45 seconds through
+
+- What went wrong: the first fix of RS-A-storagewalk limited `lfs.storage` to 64 different folders. The probe used folders of files (64 of 12,000 files each: 1.3 s). Laid out as git-lfs does it, folders within folders, one store's 10,000 looked-at entries take 0.65 s on Windows, and 64 were accepted in 45 s. Found before the commit, by timing the dearest layout on purpose.
+- Why: an "entry" of the store budget is a name in a listing when it is a file and a listing of its own when it is a folder, about 30 times dearer. The cap was sized on the cheap kind.
+- Rule going forward: a limit on a count is sized on the dearest thing one counted item can be, timed at the cap, before it is written down. This is the 2026-11-10 lesson "A work count weighed text and not disk lookups" a second time, so it is a PLAYBOOK step now.
+- Status: promoted to PLAYBOOK
+
 ## 2026-11-10: A work count weighed text and not disk lookups
 
 - What went wrong: the first work limit of RS-A-manyvalues (b665d71) counted mostly the length of each value's text. Round 3 showed both errors of that: 2,000 submodule gitdirs in a repo at a path of 160 characters were refused (a long repo path made every walk count more, though it adds little time), and 5,000 `.lfsconfig` values 50 existing folders down were accepted in 4.8 s (each look at the disk counted almost nothing, and `.lfsconfig` had no lookup cache).

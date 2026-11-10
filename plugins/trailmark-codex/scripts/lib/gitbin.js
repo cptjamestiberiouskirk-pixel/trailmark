@@ -446,7 +446,7 @@ function farPathValue(value, bases, key = '') {
   // to the root (one cheap walk each) took 2.4 s uncounted.
   if ((WALK_LEFT -= (path.isAbsolute(p) ? 1 : bases.length) * (TRY_COST + (p.length >> 2))) < 0) return 'network-config';
   const tries = path.isAbsolute(p) ? [p, path.resolve(p)] : bases.filter(Boolean).flatMap(b => (missingBase(b) ? [path.resolve(b, p)] : [rawJoin(b, p), path.resolve(b, p)]));
-  const walked = new Set();
+  const stores = STORES || { seen: new Set(), dirs: 0, entries: 0 };
   // Each different text once: the two readings are often the same text.
   for (const t of new Set(tries)) {
     // Too long once joined to its base: no path, and no share either.
@@ -455,14 +455,36 @@ function farPathValue(value, bases, key = '') {
     if (!real) return 'network-config';
     // git-lfs keeps objects and temp files in lfs.storage: walked like a gitdir.
     if (/^lfs\.storage$/i.test(key)) {
+      // By its exact text: lower-cased, 'k' and the Kelvin sign (U+212A)
+      // are one key but two folders on Windows, and the second went unwalked.
+      // A folder written in another case is walked again, within the limits.
+      if (stores.seen.has(real)) continue;
+      stores.seen.add(real);
       let isDir = false;
       try { isDir = fs.statSync(real).isDirectory(); } catch { isDir = false; }
-      const k = WIN ? real.toLowerCase() : real;
-      if (isDir && !walked.has(k)) { walked.add(k); const why = linkedEntries(real, { lfsStore: true }); if (why) return why; }
+      if (!isDir) continue;
+      if (++stores.dirs > MAX_LFS_STORES || stores.entries >= MAX_STORE_ENTRIES) { WALK_LEFT = -1; return 'network-config'; }
+      const why = linkedEntries(real, { lfsStore: true, tally: stores });
+      if (why) return why;
     }
   }
   return '';
 }
+// The folders lfs.storage values led to while one config's values are checked
+// (set by limitedWalk), by the path localPath found: a folder is looked at and
+// walked once however many values lead to that path (200 spellings of a folder with
+// 10,100 entries were 200 walks, 2.7 s). The work limit doesn't count a
+// store's walk, so the stores have limits of their own: 64 different folders,
+// and no further one once those before it held 20,000 entries between them
+// (each is walked up to LFS_BUDGET, so just under 30,000 at most; three
+// stores where every entry is a folder, as under objects/ab/cd, or holding
+// links, took up to 2.5 s on Windows and 0.9 s on Linux, and 64 took 45 s on
+// Windows).
+// git-lfs uses one value, tried from a few folders. Past either, git is kept
+// out like past the work limit (RS-A-storagewalk).
+let STORES = null;
+const MAX_LFS_STORES = 64;
+const MAX_STORE_ENTRIES = 20000;
 // How much walking the path values of one repo's config may cost. A config
 // file can hold tens of thousands of them (20,000 lines of `file = a`: 4 s),
 // every core.worktree value adds folders that each of the others is then
@@ -487,14 +509,15 @@ const MAX_WORKTREE_VALUES = 16;
 // What the disk showed is kept while it runs, also where the caller keeps
 // none (.lfsconfig), so a folder is looked at once.
 function limitedWalk(fn) {
-  const prev = [WALK_LEFT, LSTAT_SEEN, BASE_MISSING];
+  const prev = [WALK_LEFT, LSTAT_SEEN, BASE_MISSING, STORES];
   WALK_LEFT = MAX_PATH_WORK;
   if (!LSTAT_SEEN) LSTAT_SEEN = new Map();
   BASE_MISSING = new Map();
+  STORES = { seen: new Set(), dirs: 0, entries: 0 };
   try {
     const why = fn();
     return WALK_LEFT < 0 ? 'many-config-paths' : why;
-  } finally { [WALK_LEFT, LSTAT_SEEN, BASE_MISSING] = prev; }
+  } finally { [WALK_LEFT, LSTAT_SEEN, BASE_MISSING, STORES] = prev; }
 }
 // The settings to check, each different value once (a core.worktree once for
 // each folder its file is in, since it is taken from there; lfs.storage apart
@@ -688,7 +711,8 @@ function unlisted(d, e) {
   if (code !== 'ENOENT' && code !== 'ENOTDIR') return '';
   try { return fs.lstatSync(d).isDirectory() ? 'odd-path' : ''; } catch { return ''; }
 }
-function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
+// tally: its `entries` grows by the entries looked at (an lfs.storage walk).
+function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false, tally = null } = {}) {
   // JBMEM_TEST_GITDIR_BUDGET can only lower it (the tests use 20,000).
   const low = Number(process.env.JBMEM_TEST_GITDIR_BUDGET);
   const main = { n: lfsStore ? LFS_BUDGET : (low > 0 && low < GITDIR_BUDGET ? low : GITDIR_BUDGET), lfs: lfsStore };
@@ -765,7 +789,9 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false } = {}) {
     }
     return '';
   };
+  const first = main.n;
   const why = walk(gitdir, '', 0, main);
+  if (tally) tally.entries += first - Math.max(main.n, 0);
   if (why || !lfsLater) return why;
   // The lfs/ folder (a link to a share there is refused like any other).
   let sub = path.join(gitdir, 'lfs');

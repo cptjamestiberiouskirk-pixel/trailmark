@@ -71,6 +71,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 8. Read why each new test fails on the old code: a failure for another reason proves nothing. Remove each part of a fix alone and check that a test fails. An assertion that something didn't happen gets its own forced fault.
 9. A search that finds nothing proves nothing until the input is shown to exist and the search to work (a download that failed, a grep that errored).
 10. A validator's negative cases include inputs one small edit away from valid, what happens to the data after a line it doesn't recognize, and state left open when the input ends.
+11. A limit on a count or on counted work: before it is written down, time the dearest thing one counted item can be (a folder to list, not a file's name; a disk lookup, not text) at the limit itself, on Windows and Linux.
 
 ## Committing
 
