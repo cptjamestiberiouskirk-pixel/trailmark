@@ -1857,6 +1857,52 @@ test('git status: a tracked name that ends in a dot or a space keeps status unre
   for (const tracked of ['.d/f', 'v1.2/f.txt', 'a b/c d', '.x', ' y', 'x/.h.h/f']) {
     assert.strictEqual(skipped(withName(tracked)), undefined, `tracked "${tracked}"`);
   }
+  // Names Windows git won't add itself even with core.protectNTFS off: the
+  // index is written as a file (version 2), the way a repo made elsewhere
+  // brings one. Each entry is [mode, name], all with one blob.
+  const u32 = (v) => { const b = Buffer.alloc(4); b.writeUInt32BE(v); return b; };
+  const withIndex = (entries) => {
+    const r = path.join(base, 'r' + (++k)); repoAt(r);
+    fs.writeFileSync(path.join(r, 'seed.txt'), 'a\n');
+    const blob = execFileSync('git', ['hash-object', '-w', 'seed.txt'], { cwd: r, encoding: 'utf8' }).trim();
+    const sorted = entries.map(e => (Array.isArray(e) ? e : [0o100644, e])).sort((a, b) => Buffer.compare(Buffer.from(a[1]), Buffer.from(b[1])));
+    const parts = [Buffer.from('DIRC'), u32(2), u32(sorted.length)];
+    for (const [mode, name] of sorted) {
+      const n = Buffer.from(name);
+      const head = Buffer.alloc(62);
+      head.writeUInt32BE(mode, 24);
+      Buffer.from(blob, 'hex').copy(head, 40);
+      head.writeUInt16BE(n.length, 60);
+      parts.push(head, n, Buffer.alloc(8 - ((62 + n.length) % 8)));
+    }
+    const body = Buffer.concat(parts);
+    fs.writeFileSync(path.join(r, '.git', 'index'), Buffer.concat([body, require('crypto').createHash('sha1').update(body).digest()]));
+    return r;
+  };
+  // The written index is one git reads: the control is refused as before.
+  const ci = withIndex(['s', 'a', 'b', 'c']); evil(path.join(ci, 's'));
+  assert.strictEqual(skipped(ci), 'submodule-pointer', 'the control, from a written index');
+  assert.strictEqual(skipped(withIndex(['a', 'x/y.txt'])), undefined, 'a plain written index');
+  // A backslash: Windows git takes it as a separator. With four names in the
+  // folder the check listed it, and `d\s` named no folder in the listing.
+  const bs = withIndex(['d\\s', 'a', 'b', 'c']); evil(path.join(bs, 'd', 's'));
+  assert.strictEqual(skipped(bs), WIN ? 'odd-path' : undefined, 'tracked d\\s among four names, a folder d/s on disk');
+  for (const tracked of ['d\\f', 'x/d\\f', 'x\\d/f', 'd.\\f', '\\f']) {
+    assert.strictEqual(skipped(withIndex([tracked])), WIN ? 'odd-path' : undefined, `tracked "${tracked}"`);
+  }
+  // A drive letter at the start names a place of its own there.
+  for (const tracked of ['C:d/f', 'z:f', base.slice(0, 2) + 's']) {
+    if (!/^[A-Za-z]:/.test(tracked)) continue;
+    assert.strictEqual(skipped(withIndex([tracked])), WIN ? 'odd-path' : undefined, `tracked "${tracked}"`);
+  }
+  // A colon anywhere else is no drive letter: not this rule's business.
+  for (const tracked of ['ab:c', 'x/C:f', '1:f']) {
+    assert.notStrictEqual(skipped(withIndex([tracked])), 'odd-path', `tracked "${tracked}"`);
+  }
+  // A gitlink is under the same rules.
+  for (const tracked of ['m.', 'd\\m', 'C:m']) {
+    assert.strictEqual(skipped(withIndex([[0o160000, tracked]])), WIN ? 'odd-path' : undefined, `gitlink "${tracked}"`);
+  }
 });
 
 test('links: the launcher and hooks never read through a link in the memory folder', { skip: NO_LINKS }, () => {

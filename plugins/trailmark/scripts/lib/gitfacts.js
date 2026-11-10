@@ -125,6 +125,7 @@ const MAX_SUBMODULES = 2000;
 const MAX_TREE_FOLDERS = 20000;
 // Windows and macOS find a file whatever the case of its name.
 const CASELESS = process.platform === 'win32' || process.platform === 'darwin';
+const WIN = process.platform === 'win32';
 function farWorktree(r, cwd) {
   const top = topLevel(r, cwd);
   if (!top.ok) return top.why === 'timeout' ? 'git-timeout' : 'git-error';
@@ -147,7 +148,11 @@ function farWorktree(r, cwd) {
     // core.fscache off (a repo can set it) `u` for a tracked `u.`, while the
     // lookups below would name `d.` and `u.` and find nothing. What git opens
     // there would go unchecked, so status isn't read (RS-A-dottracked).
-    if (dotEnd(rel)) return 'odd-path';
+    // The same goes there for a backslash, which git takes as one more
+    // separator while the folders below are split on `/` alone (a tracked
+    // `d\f` is read through a link `d` that is never looked at), and for a
+    // drive letter at the start (`C:d/f`), which names a place of its own.
+    if (dotEnd(rel) || (WIN && (rel.includes('\\') || /^[A-Za-z]:/.test(rel)))) return 'odd-path';
     // Every folder on the way to the file. Past MAX_TREE_FOLDERS the rest
     // can't be looked at, and git status would go through them, so the file
     // list isn't read (the rest of the snapshot still is).
