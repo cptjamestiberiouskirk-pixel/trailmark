@@ -21,6 +21,13 @@ Format:
 - Rule going forward: before setting the weights of a counted limit, measure units per second on the cheapest and the dearest kind of step (text only, parts, disk lookups that miss the cache) with an unlimited copy, and set the weights so the two rates are within a small factor. Size the honest inputs at the longest path and depth a real repo can have, and state the margin.
 - Status: open
 
+## 2026-11-10: "The slowest found" was written before anyone searched
+
+- What went wrong: SECURITY.md, a code comment and the PR text gave one number for the slowest input (2.1 s, then 0.8 s, then 1.1 s) and one for the largest real repo (36% of the limit). Rounds 3, 4 and 5 each found a slower or larger one (1.5 s; 77%).
+- Why: the numbers came from the probes written for the last fix, which hold the shapes already thought of, and were stated as a point.
+- Rule going forward: a shipped text gives a limit's cost as a range with room ("1 to 2 seconds"), and only after a reviewer was asked to beat it. The exact numbers and who measured them go in `dev/release-state.md`.
+- Status: open
+
 ## 2026-11-10: The time was in a call nobody profiled (`os.userInfo` per value)
 
 - What went wrong: four batches of RS-A-manyvalues bounded the walking of path values, and each "slowest input" was timed end to end. Most of that time (5.4 s of 6.6 s for 40,000 values) was `os.userInfo`, called once for every value outside the walk. It was found by chance, from a probe written for a CI failure.

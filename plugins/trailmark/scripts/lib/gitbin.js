@@ -474,8 +474,9 @@ function farPathValue(value, bases, key = '') {
 // walk while the values are checked (see WALK_LEFT). 2,000 submodule gitdirs
 // count 1 million, and 3 million when they are there on disk, the
 // repo's path is 160 characters long and the session is three folders down
-// in it. The slowest inputs found reach the limit in about 1 s (Windows and
-// Linux).
+// in it (6 million was the most found for 2,000, with long names, a
+// core.worktree and a session eight folders down). The slowest inputs found
+// reach the limit in 1 to 2 s (Windows and Linux).
 // Past it, git is kept out (RS-A-manyvalues).
 const MAX_PATH_WORK = 8 * 1024 * 1024;
 // core.worktree values add up to four folders each, and every value's tries
