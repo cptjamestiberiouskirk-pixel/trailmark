@@ -14,6 +14,62 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: A work count weighed text and not disk lookups
+
+- What went wrong: the first work limit of RS-A-manyvalues (b665d71) counted mostly the length of each value's text. Round 3 showed both errors of that: 2,000 submodule gitdirs in a repo at a path of 160 characters were refused (a long repo path made every walk count more, though it adds little time), and 5,000 `.lfsconfig` values 50 existing folders down were accepted in 4.8 s (each look at the disk counted almost nothing, and `.lfsconfig` had no lookup cache).
+- Why: the weights were chosen from the code's shape and checked against total time on a few inputs, not measured one cost at a time. The honest input was sized at one repo path only.
+- Rule going forward: before setting the weights of a counted limit, measure units per second on the cheapest and the dearest kind of step (text only, parts, disk lookups that miss the cache) with an unlimited copy, and set the weights so the two rates are within a small factor. Size the honest inputs at the longest path and depth a real repo can have, and state the margin.
+- Status: open
+
+## 2026-11-10: "The slowest found" was written before anyone searched
+
+- What went wrong: SECURITY.md, a code comment and the PR text gave one number for the slowest input (2.1 s, then 0.8 s, then 1.1 s) and one for the largest real repo (36% of the limit). Rounds 3, 4 and 5 each found a slower or larger one (1.5 s; 77%).
+- Why: the numbers came from the probes written for the last fix, which hold the shapes already thought of, and were stated as a point.
+- Rule going forward: a shipped text gives a limit's cost as a range with room ("1 to 2 seconds"), and only after a reviewer was asked to beat it. The exact numbers and who measured them go in `dev/release-state.md`.
+- Status: open
+
+## 2026-11-10: The time was in a call nobody profiled (`os.userInfo` per value)
+
+- What went wrong: four batches of RS-A-manyvalues bounded the walking of path values, and each "slowest input" was timed end to end. Most of that time (5.4 s of 6.6 s for 40,000 values) was `os.userInfo`, called once for every value outside the walk. It was found by chance, from a probe written for a CI failure.
+- Why: the cost was assumed to be where the code looked expensive (disk lookups, long texts), and total time agreed well enough. No profile was taken before the limit was designed.
+- Rule going forward: before bounding slow code, profile the slow input (`node --cpu-prof`, top functions by self time) and account for most of the time by name. After the fix, profile the slowest accepted input again: what is left must be what the limit counts.
+- Status: open
+
+## 2026-11-10: A test bound moved with the temp folder's length
+
+- What went wrong: 0bbd0f9 failed CI on the three Ubuntu jobs. A bound of "5 times the baseline's calls" on a refused case held on Windows, macOS and WSL and failed on the runner (5.5 times), one push after the same kind of bound was widened for `.lfsconfig` and this one was left.
+- Why: the number of values walked before the work limit depends on the repo path's length, and the temp folder is part of that path. The first failure was fixed where it showed, without asking what made the number move.
+- Rule going forward: when a counted bound fails or is close on one system, find what the count depends on, vary that across its range (shortest and longest temp path, both systems), and check every assertion of that kind in the test, not the one that failed. Catch a mutation by an answer that flips with a wide margin, not by a ratio near its bound.
+- Status: open
+
+## 2026-11-10: A promoted playbook step was skipped (pair script with `\n`)
+
+- What went wrong: a third pair script for test text with `\n` in it failed with "occurs 0 times", after the rule against it was already step 4 of PLAYBOOK's wording checklist.
+- Why: the lessons check was run for the step "change a test", and the edit's tool was chosen after it, out of habit.
+- Rule going forward: none new. The step stands; the lessons check names the tool for an edit before the edit is written.
+- Status: open (seen after promotion)
+
+## 2026-11-09: Limits on three counts missed their product
+
+- What went wrong: RS-A-manyvalues was first bounded by how many path values there are, then also by their length together and by the number of worktrees. A review after each showed an accepted input that still took minutes (4 worktrees of 16,000 characters with 2,000 short values: 110 s), and the limits refused real repos on the way (2,000 submodules and one more setting).
+- Why: the cost of one value depends on the folders it is tried from, which come from other values. Each count was bounded alone, and the "slowest accepted input" was measured only on the shapes already thought of.
+- Rule going forward: when the cost is a product of several inputs, bound the work itself (count it where it is done), not each input. Before calling a limit done, write the cost as a formula from the code and try the corner where every factor is at its limit at once.
+- Status: open
+
+## 2026-11-09: A count limit was set without listing what real tools write
+
+- What went wrong: the first limit for RS-A-manyvalues was 200 different path values, chosen from "a real config has a handful". The review found that git 2.56 can write `submodule.<name>.gitdir` for every submodule, a key the check's pattern matches, so a repo with 201 submodules was refused where it had been accepted.
+- Why: the limit came from how long the check takes, with no look at which keys match the pattern in a real repo. The record even said "a real config has a handful" with no label and no check behind it.
+- Rule going forward: before a new limit refuses anything, list what real tools write that counts toward it (for a key pattern: search git's own config names for matches) and size the limit from the largest real case, with an existing limit for the same thing where there is one. A sentence like "a real repo has few" gets a label and a check like any other claim.
+- Status: open
+
+## 2026-11-09: Two mutations passed because the test's link cases were skipped here
+
+- What went wrong: in the mutation run for RS-A-manyvalues, two of ten changes to the fix left the test passing. The assertions that cover them make symlinks, and the test returns before them on a Windows machine that can't.
+- Why: the run was read as "the test passes" without asking which part of the test ran. The first run of the test also hid a mistake in that part (a name that wasn't defined), for the same reason.
+- Rule going forward: when a test or a part of one is skipped on this machine, run it where it isn't (WSL for links) before its result or its mutations count, and say in the record which system each result came from.
+- Status: open
+
 ## 2026-11-09: A line no test needed was removed, and it was holding time
 
 - What went wrong: a mutation run showed that the length limit in `exactPointer` could go without any test failing, so it was removed as redundant. The next review found an input that then took 6 s here and 42 s on Linux: the line had kept megabytes of text away from `path.resolve`.
@@ -32,7 +88,7 @@ Format:
 - What went wrong: a script of old/new pairs for `gitbin.js` stopped with "occurs 0 times": the old text held a regex with backslashes, written inside a template literal inside a heredoc. Nothing was written, since it checks before it writes.
 - Why: three layers of escaping (the shell, the template literal, the regex) and no look at what text the script would search for.
 - Rule going forward: for an edit whose old text holds backslashes, use the Edit tool on one copy and copy the file to the other, or anchor the pair on a nearby line without backslashes.
-- Status: open
+- Status: promoted to PLAYBOOK (seen again the same day: a pair script for test code with `\n` in it stopped the same way)
 ## 2026-11-09: A review's commit was copied from another reviewer's
 
 - What went wrong: the release-state note for PR 33 said Copilot reviewed b37f215. GitHub records its review on e466077. Copilot found it on PR 34.

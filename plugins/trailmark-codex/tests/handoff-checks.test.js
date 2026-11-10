@@ -729,6 +729,155 @@ test('git pointers: a config path value longer than any path is refused without 
   assert.strictEqual(gf.sameFolder(base + (path.sep + 'x').repeat(300000), base), false);
 });
 
+/// RS-A-manyvalues: 20,000 short path values took seconds, 1,000 lines of
+// `worktree = w` over a minute (each adds folders the others are tried
+// from), and long worktrees with 2,000 values two minutes.
+test('git pointers: many path values are checked once each, and too many are refused (next version)', () => {
+  const { farGitConfig, farLfsEntries, localPath } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far-many-');
+  const repoWith = (name, text) => {
+    const r = path.join(base, name); repoAt(r);
+    fs.appendFileSync(path.join(r, '.git', 'config'), text);
+    return r;
+  };
+  const lines = (n, f) => Array.from({ length: n }, (_, i) => `\t${f(i)}\n`).join('');
+  const subs = (n, name) => Array.from({ length: n }, (_, i) => `[submodule "s${i}"]\n\tgitdir = .git/modules/${name}${i}\n`).join('');
+  // Counted, not timed: the calls of path.resolve while one check runs.
+  const resolve = path.resolve;
+  const walked = (fn) => {
+    let n = 0;
+    path.resolve = (...a) => { n++; return resolve(...a); };
+    try { return [fn(), n]; } finally { path.resolve = resolve; }
+  };
+  // What a real repo can hold stays accepted: a value for each of 2,000
+  // submodules (git writes submodule.<name>.gitdir with
+  // init.defaultSubmodulePathConfig), with another setting beside them, and
+  // with long names.
+  const lstatReal = fs.lstatSync;
+  let looksReal = 0;
+  fs.lstatSync = (...a) => { looksReal++; return lstatReal(...a); };
+  let whyReal, nReal;
+  try { [whyReal, nReal] = walked(() => farGitConfig(repoWith('subs', subs(2000, 'm') + '[core]\n\thooksPath = hooks\n'))); } finally { fs.lstatSync = lstatReal; }
+  assert.strictEqual(whyReal, '');
+  // Whether a folder to try from exists is asked once, not for each value
+  // (26 looks at the disk here, 4,026 without).
+  assert.ok(looksReal < 1000, `2,000 submodules: ${looksReal} looks at the disk`);
+  // Each value is tried once from each folder, not once for each way of
+  // writing the folder or the try (on Windows the walk itself calls
+  // path.resolve, so more walks show here: 8 calls a value, 10 or more
+  // without).
+  assert.ok(nReal < 2001 * 9, `2,000 submodules: ${nReal} calls of path.resolve`);
+  assert.strictEqual(farGitConfig(repoWith('names', subs(2000, 'm'.repeat(130)))), '');
+  assert.strictEqual(farGitConfig(repoWith('one-tree', subs(2000, 'm') + '[core]\n\tworktree = ..\n')), '');
+  // The same value again and again is one value, under any key: accepted,
+  // and walked once (far less work than 2,000 values are).
+  for (const [name, text] of [
+    ['same', '[x]\n' + lines(20000, () => 'file = a')],
+    ['keys', '[x]\n' + lines(20000, i => `k${i}file = a`)],
+    ['trees', '[core]\n' + lines(1000, () => 'worktree = w')],
+  ]) {
+    const [why, n] = walked(() => farGitConfig(repoWith(name, text)));
+    assert.strictEqual(why, '', name);
+    assert.ok(n < nReal / 2, `${name}: ${n} calls of path.resolve, 2,000 submodules: ${nReal}`);
+  }
+  // More work than any real repo's is refused, and the walk stops there:
+  // far fewer calls than walking it all would take (the first two would take
+  // 10 times what 2,000 values do, the third 100 times).
+  const longTree = i => 'a/'.repeat(8000) + `w${i}`;
+  for (const [name, text, most] of [
+    // (How many values are walked before the limit depends on how long the
+    // repo's own path is: 3.9 to 5.7 times here, for a temp folder of 140
+    // to 14 characters.)
+    ['values', '[x]\n' + lines(20000, i => `file = a${i}`), 8],
+    ['long-trees', '[core]\n' + lines(4, i => `worktree = ${longTree(i)}`) + '[x]\n' + lines(1996, i => `file = f${i}`), 5],
+    ['long-values', '[core]\n' + lines(8, i => `worktree = w${i}`) + '[x]\n' + lines(192, i => `file = ${'a/'.repeat(15850)}f${i}`), 5],
+  ]) {
+    const [why, n] = walked(() => farGitConfig(repoWith(name, text)));
+    assert.strictEqual(why, 'many-config-paths', name);
+    assert.ok(n < nReal * most, `${name}: ${n} calls of path.resolve, 2,000 submodules: ${nReal}`);
+  }
+  // A walk through folders that exist costs by its depth: 4,500 values
+  // tried from a worktree 60 folders down.
+  const deep = repoWith('deep', '[core]\n\tworktree = ../' + 'd/'.repeat(59) + 'd\n[x]\n' + lines(4500, i => `file = f${i}`));
+  fs.mkdirSync(path.join(deep, ...Array(60).fill('d')), { recursive: true });
+  assert.strictEqual(farGitConfig(deep), 'many-config-paths', 'a deep worktree');
+  // 16 different core.worktree values, and 17.
+  assert.strictEqual(farGitConfig(repoWith('w16', '[core]\n' + lines(16, i => `worktree = w${i}`))), '');
+  const [why17, n17] = walked(() => farGitConfig(repoWith('w17', '[core]\n' + lines(17, i => `worktree = w${i}`) + '[x]\n' + lines(2000, i => `file = f${i}`))));
+  assert.strictEqual(why17, 'many-config-paths');
+  assert.ok(n17 < nReal / 2, `17 worktrees: ${n17} calls of path.resolve, 2,000 submodules: ${nReal}`);
+  // The limit is one check's: the walk works as before once it has answered.
+  assert.strictEqual(localPath(base), base);
+  assert.strictEqual(farGitConfig(repoWith('after', '[x]\n\tfile = a\n')), '');
+  // One value longer than any path keeps its own reason.
+  assert.strictEqual(farGitConfig(repoWith('t1', `[x]\n\tfile = ${'a'.repeat(300000)}\n`)), 'odd-config-path');
+  // A refused value is still refused past many repeats of another.
+  assert.strictEqual(farGitConfig(repoWith('late', '[x]\n' + lines(5000, () => 'file = a') + '\tfile = ~nobody-here/x\n')), 'odd-config-path');
+  // .lfsconfig's settings go the same way.
+  const top = path.join(base, 'same');
+  const [lfsWhy, lfsN] = walked(() => farLfsEntries(Array.from({ length: 20000 }, () => ['lfs.x.file', 'a']), top));
+  assert.strictEqual(lfsWhy, '');
+  assert.ok(lfsN < 100, `.lfsconfig, one value 20,000 times: ${lfsN} calls of path.resolve`);
+  assert.strictEqual(farLfsEntries(Array.from({ length: 2000 }, (_, i) => ['lfs.x.file', `a${i}`]), top), '');
+  const [lfsMany, lfsManyN] = walked(() => farLfsEntries(Array.from({ length: 100000 }, (_, i) => ['lfs.x.file', `a${i}`]), top));
+  assert.strictEqual(lfsMany, 'many-config-paths');
+  // (5 times 2,000 submodules' calls on Linux, 2.5 times on Windows; 12
+  // times and more with no limit.)
+  assert.ok(lfsManyN < nReal * 8, `.lfsconfig, 100,000 values: ${lfsManyN} calls of path.resolve, 2,000 submodules: ${nReal}`);
+  assert.strictEqual(localPath(base), base);
+  assert.strictEqual(farLfsEntries([['x.file', 'a'], ['y.file', '~nobody-here/x']], top), 'odd-config-path');
+  // A folder is looked at once while .lfsconfig's values are checked: 300
+  // values 30 folders down took 9,000 looks at the disk and more.
+  fs.mkdirSync(path.join(top, ...Array(30).fill('e')), { recursive: true });
+  const lstat = fs.lstatSync;
+  let looks = 0;
+  fs.lstatSync = (...a) => { looks++; return lstat(...a); };
+  let lfsDeep;
+  try { lfsDeep = farLfsEntries(Array.from({ length: 300 }, (_, i) => ['lfs.x.file', 'e/'.repeat(30) + `f${i}`]), top); } finally { fs.lstatSync = lstat; }
+  assert.strictEqual(lfsDeep, '');
+  assert.ok(looks < 1000, `.lfsconfig, 300 values 30 folders down: ${looks} looks at the disk`);
+  // What that check learned about the disk ends with it: the same folders
+  // are looked at again afterwards.
+  looks = 0;
+  fs.lstatSync = (...a) => { looks++; return lstat(...a); };
+  try { localPath(path.join(top, ...Array(30).fill('e'))); } finally { fs.lstatSync = lstat; }
+  assert.ok(looks > 0, 'the lookup cache of a .lfsconfig check is dropped after it');
+  // Joining a value to each folder it is tried from is counted too: 20,000
+  // values that climb to the root are one cheap walk each, and with 16
+  // worktrees (set in an included file) each is joined to 34 folders.
+  const climb = i => Array.from({ length: 17 }, (_, b) => ((i >> b) & 1 ? './../' : '../')).join('');
+  const up = repoWith('climb', '[include]\n\tpath = inc.cfg\n[x]\n' + lines(20000, i => `file = ${climb(i)}`));
+  fs.writeFileSync(path.join(up, '.git', 'inc.cfg'), '[core]\n' + lines(16, i => `worktree = w${i}`));
+  assert.strictEqual(farGitConfig(up), 'many-config-paths', 'values that climb, tried from 16 worktrees');
+  // The system isn't asked for the user's name for each value: not at all
+  // for values without ~, and once at most for ~name/ values (40,000 calls
+  // took 5 seconds on Windows, outside the limit's count).
+  const userInfo = os.userInfo;
+  let asked = 0;
+  os.userInfo = (...a) => { asked++; return userInfo(...a); };
+  try {
+    assert.strictEqual(farGitConfig(repoWith('plain', '[x]\n' + lines(3000, i => `file = q/a${i}`))), '');
+    assert.strictEqual(asked, 0, `values without ~: the user's name was asked for ${asked} times`);
+    farGitConfig(repoWith('tilde', '[x]\n' + lines(3000, i => `file = ~${userInfo().username}/a${i}`)));
+    assert.ok(asked <= 1, `3,000 ~name/ values: the user's name was asked for ${asked} times`);
+  } finally { os.userInfo = userInfo; }
+  if (NO_LINKS) return;
+  const EVIL = '//evil.invalid/share/x';
+  // lfs.storage is walked as a folder even when the same text was already
+  // seen as a plain file setting.
+  const st = repoWith('store', '[x]\n\tdir = store\n[lfs]\n\tstorage = store\n');
+  fs.mkdirSync(path.join(st, 'store'));
+  fs.symlinkSync(EVIL, path.join(st, 'store', 'objects'));
+  assert.strictEqual(farGitConfig(st), 'linked-gitdir', 'lfs.storage after the same value');
+  // The same core.worktree text in two config files in different folders is
+  // two folders: a value is then taken from each.
+  const two = repoWith('two', '[core]\n\tworktree = w\n[include]\n\tpath = ../inc/c.cfg\n[x]\n\tfile = lnk\n');
+  fs.mkdirSync(path.join(two, 'inc', 'w'), { recursive: true });
+  fs.writeFileSync(path.join(two, 'inc', 'c.cfg'), '[core]\n\tworktree = w\n');
+  fs.symlinkSync(EVIL, path.join(two, 'inc', 'w', 'lnk'));
+  assert.strictEqual(farGitConfig(two), 'network-config', 'core.worktree from an included file');
+});
+
 test('git pointers: a linked config is followed and checked where it leads', { skip: NO_LINKS }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far3-');
