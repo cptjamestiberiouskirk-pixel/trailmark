@@ -523,6 +523,7 @@ Before git runs in a repo, Trailmark checks that nothing in the repo's `.git` se
 | `unreadable-config` | A config or pointer file isn't a plain small file (for example a link, a folder, a FIFO, a config file over 8 MB, an `alternates` file over 64 KB, or a pointer file over 4 KB) |
 | `deep-config` | Includes go more than ten deep |
 | `many-config-files` | Includes reach more than 50 files |
+| `many-config-paths` | The config files (or `.lfsconfig`) name more than 200 different files or folders, or set `core.worktree` to more than 8 different values. The same value repeated counts once |
 | `network-folder` | The folder itself is on a network path other than the session's own share |
 | `inside-gitdir` | The session works inside a `.git` |
 | `deep-folder` | There are more than 512 folders above it |

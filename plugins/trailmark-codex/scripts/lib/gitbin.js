@@ -432,6 +432,31 @@ function farPathValue(value, bases, key = '') {
   }
   return '';
 }
+// How many different path values one check walks. A config file can hold
+// tens of thousands of short ones, at a fraction of a millisecond each
+// (20,000 lines of `file = a`: 4 s), and every core.worktree value adds
+// folders that each of the others is then tried from (1,000 lines of
+// `worktree = w`: 80 s). A real config has a handful (RS-A-manyvalues).
+const MAX_PATH_VALUES = 200;
+const MAX_WORKTREE_VALUES = 8;
+// The settings to check, each different value once (a core.worktree once for
+// each folder its file is in, since it is taken from there); null when there
+// are more than the limits above.
+function distinctPaths(pending) {
+  const seen = new Set();
+  const out = [];
+  let trees = 0;
+  for (const e of pending) {
+    const tree = /^core\.worktree$/i.test(e.key);
+    const kind = tree ? `w${path.dirname(e.file)}` : /^lfs\.storage$/i.test(e.key) ? 'l' : 'p';
+    const k = `${kind}\0${e.value}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    if (out.length >= MAX_PATH_VALUES || (tree && ++trees > MAX_WORKTREE_VALUES)) return null;
+    out.push(e);
+  }
+  return out;
+}
 const MAX_INCLUDE_DEPTH = 10;
 const MAX_CONFIG_FILES = 50;
 // st: { seen, files } shared by one whole check.
@@ -884,7 +909,9 @@ function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
   // core.worktree (relative to the gitdir whose config set it) is where git
   // runs; it becomes one more folder relative values are taken from.
   const bases = cst.bases.slice();
-  for (const e of cst.pending) {
+  const pending = distinctPaths(cst.pending);
+  if (!pending) return 'many-config-paths';
+  for (const e of pending) {
     if (!/^core\.worktree$/i.test(e.key)) continue;
     const v = exactPointer(e.value);
     if (v === null || !v) continue;
@@ -895,7 +922,7 @@ function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
       bases.push(real, path.resolve(w));
     }
   }
-  for (const e of cst.pending) {
+  for (const e of pending) {
     const why = farPathValue(e.value, bases, e.key);
     if (why) return why;
   }
@@ -1150,11 +1177,19 @@ function farLfsFile(file, top) {
 // The same rules for .lfsconfig's settings however they were read (from the
 // worktree file, or from the index's or HEAD's copy with git config --blob).
 function farLfsEntries(entries, top) {
+  const named = [];
   for (const [key, value] of entries) {
     if (/^include\.|^includeif\./i.test(key)) return 'lfs-config';
     if (REMOTE_ADDRESS.test(key)) continue;
     if (netText(value)) return 'network-config';
-    if (PATH_KEY.test(key)) { const why = farPathValue(value, [top], key); if (why) return why; }
+    if (PATH_KEY.test(key)) named.push({ key, value, file: '' });
+  }
+  // Walked once the whole file is read, each different value once.
+  const pending = distinctPaths(named);
+  if (!pending) return 'many-config-paths';
+  for (const e of pending) {
+    const why = farPathValue(e.value, [top], e.key);
+    if (why) return why;
   }
   return '';
 }

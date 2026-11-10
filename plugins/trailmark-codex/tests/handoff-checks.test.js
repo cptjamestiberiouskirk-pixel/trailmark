@@ -729,6 +729,73 @@ test('git pointers: a config path value longer than any path is refused without 
   assert.strictEqual(gf.sameFolder(base + (path.sep + 'x').repeat(300000), base), false);
 });
 
+// RS-A-manyvalues: 20,000 short path values took seconds, and 1,000 lines of
+// `worktree = w` took over a minute (each adds folders the others are tried
+// from).
+test('git pointers: many path values are checked once each, and too many are refused (next version)', () => {
+  const { farGitConfig, farLfsEntries } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far-many-');
+  const repoWith = (name, text) => {
+    const r = path.join(base, name); repoAt(r);
+    fs.appendFileSync(path.join(r, '.git', 'config'), text);
+    return r;
+  };
+  const lines = (n, f) => Array.from({ length: n }, (_, i) => `\t${f(i)}\n`).join('');
+  // Counted, not timed: the calls of path.resolve while one check runs.
+  const resolve = path.resolve;
+  const walked = (fn) => {
+    let n = 0;
+    path.resolve = (...a) => { n++; return resolve(...a); };
+    try { return [fn(), n]; } finally { path.resolve = resolve; }
+  };
+  // 200 different values are walked, 201 are not.
+  const [why200, n200] = walked(() => farGitConfig(repoWith('v200', '[x]\n' + lines(200, i => `file = a${i}`))));
+  const [why201, n201] = walked(() => farGitConfig(repoWith('v201', '[x]\n' + lines(201, i => `file = a${i}`))));
+  assert.strictEqual(why200, '');
+  assert.strictEqual(why201, 'many-config-paths');
+  // Refused before the walk, not after it.
+  assert.ok(n201 < n200 / 2, `201 values: ${n201} calls of path.resolve, 200 values: ${n200}`);
+  // The same value again and again is one value, under any key: accepted,
+  // and walked once (far less work than 200 values are).
+  for (const [name, text] of [
+    ['same', '[x]\n' + lines(20000, () => 'file = a')],
+    ['keys', '[x]\n' + lines(20000, i => `k${i}file = a`)],
+    ['trees', '[core]\n' + lines(1000, () => 'worktree = w')],
+  ]) {
+    const [why, n] = walked(() => farGitConfig(repoWith(name, text)));
+    assert.strictEqual(why, '', name);
+    assert.ok(n < n200 / 2, `${name}: ${n} calls of path.resolve, 200 values: ${n200}`);
+  }
+  assert.strictEqual(farGitConfig(repoWith('w8', '[core]\n' + lines(8, i => `worktree = w${i}`))), '');
+  assert.strictEqual(farGitConfig(repoWith('w9', '[core]\n' + lines(9, i => `worktree = w${i}`))), 'many-config-paths');
+  // A refused value is still refused when it comes after the same text under
+  // a key of another kind, and past many repeats.
+  assert.strictEqual(farGitConfig(repoWith('late', '[x]\n' + lines(5000, () => 'file = a') + '\tfile = ~nobody-here/x\n')), 'odd-config-path');
+  // .lfsconfig's settings go the same way.
+  const top = path.join(base, 'same');
+  const [lfsWhy, lfsN] = walked(() => farLfsEntries(Array.from({ length: 20000 }, () => ['lfs.x.file', 'a']), top));
+  assert.strictEqual(lfsWhy, '');
+  assert.ok(lfsN < 100, `.lfsconfig, one value 20,000 times: ${lfsN} calls of path.resolve`);
+  assert.strictEqual(farLfsEntries(Array.from({ length: 200 }, (_, i) => ['lfs.x.file', `a${i}`]), top), '');
+  assert.strictEqual(farLfsEntries(Array.from({ length: 201 }, (_, i) => ['lfs.x.file', `a${i}`]), top), 'many-config-paths');
+  assert.strictEqual(farLfsEntries([['x.file', 'a'], ['y.file', '~nobody-here/x']], top), 'odd-config-path');
+  if (NO_LINKS) return;
+  const EVIL = '//evil.invalid/share/x';
+  // lfs.storage is walked as a folder even when the same text was already
+  // seen as a plain file setting.
+  const st = repoWith('store', '[x]\n\tdir = store\n[lfs]\n\tstorage = store\n');
+  fs.mkdirSync(path.join(st, 'store'));
+  fs.symlinkSync(EVIL, path.join(st, 'store', 'objects'));
+  assert.strictEqual(farGitConfig(st), 'linked-gitdir', 'lfs.storage after the same value');
+  // The same core.worktree text in two config files in different folders is
+  // two folders: a value is then taken from each.
+  const two = repoWith('two', '[core]\n\tworktree = w\n[include]\n\tpath = ../inc/c.cfg\n[x]\n\tfile = lnk\n');
+  fs.mkdirSync(path.join(two, 'inc', 'w'), { recursive: true });
+  fs.writeFileSync(path.join(two, 'inc', 'c.cfg'), '[core]\n\tworktree = w\n');
+  fs.symlinkSync(EVIL, path.join(two, 'inc', 'w', 'lnk'));
+  assert.strictEqual(farGitConfig(two), 'network-config', 'core.worktree from an included file');
+});
+
 test('git pointers: a linked config is followed and checked where it leads', { skip: NO_LINKS }, () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far3-');

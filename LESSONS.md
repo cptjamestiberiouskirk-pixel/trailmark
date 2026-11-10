@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-09: Two mutations passed because the test's link cases were skipped here
+
+- What went wrong: in the mutation run for RS-A-manyvalues, two of ten changes to the fix left the test passing. The assertions that cover them make symlinks, and the test returns before them on a Windows machine that can't.
+- Why: the run was read as "the test passes" without asking which part of the test ran. The first run of the test also hid a mistake in that part (a name that wasn't defined), for the same reason.
+- Rule going forward: when a test or a part of one is skipped on this machine, run it where it isn't (WSL for links) before its result or its mutations count, and say in the record which system each result came from.
+- Status: open
+
 ## 2026-11-09: A line no test needed was removed, and it was holding time
 
 - What went wrong: a mutation run showed that the length limit in `exactPointer` could go without any test failing, so it was removed as redundant. The next review found an input that then took 6 s here and 42 s on Linux: the line had kept megabytes of text away from `path.resolve`.
