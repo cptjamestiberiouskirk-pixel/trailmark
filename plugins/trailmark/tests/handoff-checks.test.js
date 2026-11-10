@@ -1004,6 +1004,25 @@ test('git pointers: an LFS store next to an alternate is walked once, and too ma
   fs.writeFileSync(line('b2', 'lfs', 'one-more'), '');
   assert.deepStrictEqual((({ why, all }) => [why, all])(listed(() => farGitConfig(repoWith(three)))), ['many-config-paths', 2], 'stores of 20,000 entries, then a third');
   assert.strictEqual(farGitConfig(repoWith(three.slice(1))), '', 'the count of entries is one check\'s');
+  // Two names that JavaScript lower-cases alike ('k' and the Kelvin sign) are
+  // two stores: both are listed (on macOS, one folder under two path texts).
+  const kk = ['k', String.fromCharCode(0x212A)];
+  for (const n of kk) fs.mkdirSync(line(n, 'lfs'), { recursive: true });
+  assert.strictEqual(listed(() => farGitConfig(repoWith(kk.map(n => line(n, 'objects'))))).all, 2, 'k and the Kelvin sign');
+  // A store is known by where its path leads, not by how a line spells it:
+  // through a link to its folder it is the same store. (A junction on
+  // Windows, which needs no right; a symlink elsewhere.)
+  fs.symlinkSync(line('one'), line('j'), 'junction');
+  const viaLink = listed(() => farGitConfig(repoWith([line('one', 'o0'), line('j', 'o0')])));
+  assert.deepStrictEqual([viaLink.why, viaLink.by.get(one)], ['', 1], 'a store reached through a link too');
+  // A line's other store is still looked at after one already seen: `jalt`
+  // leads to b0/o, so git-lfs may use h/lfs (seen with the line before) or
+  // b0/lfs, which holds folders deeper than the check walks.
+  fs.mkdirSync(line('h', 'lfs'), { recursive: true });
+  fs.mkdirSync(line('b0', 'o'), { recursive: true });
+  fs.mkdirSync(path.join(line('b0', 'lfs'), ...Array(70).fill('d')), { recursive: true });
+  fs.symlinkSync(line('b0', 'o'), line('h', 'jalt'), 'junction');
+  assert.strictEqual(farGitConfig(repoWith([line('h', 'q'), line('h', 'jalt')])), 'deep-gitdir', 'the store beside where a linked line leads, after a seen one');
   if (NO_LINKS) return;
   // A store after a clean one, and after a repeat of it, is still walked.
   fs.symlinkSync('//evil.invalid/share/x', line('s1', 'lfs', 'objects'));

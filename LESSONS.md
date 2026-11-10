@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: A search that wanted text before each match missed the ones at a line's start
+- What went wrong: I wrote in `dev/release-state.md` that no reference to another section by its place was left, and twenty were (Sonnet, PR #41 round 1; each seen here). My search asked for 60 characters before each match, to show context, and the twenty sat within 60 characters of a line's start.
+- Why: the pattern that printed context also decided what counted as a match. I took an empty-looking result as "none left" and wrote the claim from it.
+- Rule going forward: a search behind a "none left" claim matches the bare text, with context as optional (`.{0,60}`) or left to the tool's own context option. A claim that nothing remains names the search it rests on.
+- Status: open
+
 ## 2026-11-10: An edit script went through a heredoc again
 - What went wrong: a script of old/new pairs for the RS-A-altstores test was written with a heredoc. One old text held `\'`, the heredoc lost the backslash, and the script stopped with "not once" before writing anything. Redone with the Write tool.
 - Why: the rule is in PLAYBOOK ("Writing code and docs", step 4) and was promoted twice. The script looked like plain wording, and the one escaped quote in it went unnoticed.

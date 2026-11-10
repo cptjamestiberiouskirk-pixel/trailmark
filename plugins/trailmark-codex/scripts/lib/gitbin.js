@@ -668,8 +668,9 @@ function altEntries(text) {
 }
 // The alternates of one objects folder and theirs, as deep as git goes (git
 // 2.43 reads the sixth one's too).
-// stores: the LFS stores next to first-level alternates, kept for one whole
-// check like the lfs.storage ones (see STORES) and under the same two limits:
+// stores: the LFS stores next to first-level alternates, kept while one repo
+// is checked (farGit makes the set; the lfs.storage ones are kept for one
+// config's values, see STORES) and under the same two limits:
 // each is walked once however many lines lead to it (20 lines next to one
 // store of 10,100 folders were 40 walks, 410,000 listings), and past 64
 // folders, or once those before held 20,000 entries, git is kept out
