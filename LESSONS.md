@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: Section references by place went stale with each new section
+
+- What went wrong: `dev/release-state.md` pointed at its sections as "top section" and "second section". A new section goes in at the top for each item, so every such reference moved. The docs reviewer of PR #40 found fourteen wrong ones, three of them wrong since earlier PRs; reviews of PRs #38 and #39 had found the same kind.
+- Why: I fixed the references a review named each time and kept the way of pointing that makes them.
+- Rule going forward: a reference to a section names it. The same fault found by a second review is a fault in the method, not in the lines.
+- Status: promoted (PLAYBOOK, Writing code and docs, step 10)
+
+## 2026-11-10: A deferred item's claim about git was half right
+
+- What went wrong: RS-A-dottracked was written down as "git on Windows opens `d` for a tracked `d.`". Probing git itself showed it depends: a folder on the way (`d./f`) is opened under the plain name with every setting tried, a file (`u.`) only with `core.fscache=false`, and a name with a stream's name after it never. I also wrote an edit script through a heredoc again, which collapsed its backslashes; its "occurs once" check stopped it before it wrote.
+- Why: the item's text came from a reviewer's report and had not been run here. The heredoc was habit, against a Windows note in CLAUDE.md.
+- Rule going forward: before designing a fix for a deferred item, run the other program (git here) on the item's shapes, with a control that has a known answer and with the settings a repo can change. The rule then covers what was seen and no more. Scripts with a backslash in them are written with the Write tool, never a heredoc.
+- Status: open
+
 ## 2026-11-10: A better key widened an older gap
 
 - What went wrong: round 2 gave a folder a link led to the system's own path as its key, so the walks knew it under any spelling. A folder walked where part of it is passed over (a gitdir's `objects`) was then taken as seen where it is walked in full (`refs/x`, a junction to `objects` by its stream name). f97553a and edd988d refused that input; 734f14f answered `''`. Round 3 found it. With a plain target the gap was there on f97553a too, and I had deferred it one round earlier as older behavior.

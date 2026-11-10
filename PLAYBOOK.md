@@ -60,6 +60,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 7. A condition that skips a block, or code moved out of one: list each thing the block does in each case and ask whether the condition is about that thing. A value read before a lock can be older than the state under it: try the other order.
 8. A new limit or refusal on a class matched by a pattern (a key's last letters, a name's shape): before it is written, list what real tools and users write in that class, starting with the sections where the user picks the key's name (`alias`, `pretty`), and run those values through it.
 9. A key that decides "already checked" stands for exactly one thing. Test both ways it can be wrong: two things under one key (one goes unchecked), and one thing under many keys (it is checked once for each, and links can make thousands).
+10. In `dev/release-state.md`, point at another section by its name ("section RS-A-foldkeys"), never by its place ("top section", "second section", "above"): each new section moves every place.
 
 ## Testing
 
