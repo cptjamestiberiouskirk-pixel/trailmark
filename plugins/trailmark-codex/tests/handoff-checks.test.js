@@ -836,6 +836,19 @@ test('git pointers: many path values are checked once each, and too many are ref
   try { lfsDeep = farLfsEntries(Array.from({ length: 300 }, (_, i) => ['lfs.x.file', 'e/'.repeat(30) + `f${i}`]), top); } finally { fs.lstatSync = lstat; }
   assert.strictEqual(lfsDeep, '');
   assert.ok(looks < 1000, `.lfsconfig, 300 values 30 folders down: ${looks} looks at the disk`);
+  // What that check learned about the disk ends with it: the same folders
+  // are looked at again afterwards.
+  looks = 0;
+  fs.lstatSync = (...a) => { looks++; return lstat(...a); };
+  try { localPath(path.join(top, ...Array(30).fill('e'))); } finally { fs.lstatSync = lstat; }
+  assert.ok(looks > 0, 'the lookup cache of a .lfsconfig check is dropped after it');
+  // Joining a value to each folder it is tried from is counted too: 20,000
+  // values that climb to the root are one cheap walk each, and with 16
+  // worktrees (set in an included file) each is joined to 34 folders.
+  const climb = i => Array.from({ length: 17 }, (_, b) => ((i >> b) & 1 ? './../' : '../')).join('');
+  const up = repoWith('climb', '[include]\n\tpath = inc.cfg\n[x]\n' + lines(20000, i => `file = ${climb(i)}`));
+  fs.writeFileSync(path.join(up, '.git', 'inc.cfg'), '[core]\n' + lines(16, i => `worktree = w${i}`));
+  assert.strictEqual(farGitConfig(up), 'many-config-paths', 'values that climb, tried from 16 worktrees');
   // The system isn't asked for the user's name for each value: not at all
   // for values without ~, and once at most for ~name/ values (40,000 calls
   // took 5 seconds on Windows, outside the limit's count).

@@ -284,6 +284,9 @@ function exactPointer(t) {
 let WALK_LEFT = Infinity;
 const WALK_COST = 64;
 const DISK_COST = 256;
+// Joining a value to one folder it is tried from (farPathValue), with a
+// quarter of the value's length.
+const TRY_COST = 16;
 function localPath(p) {
   if (String(p).length > MAX_PATH_TEXT) return null;
   // A NUL ends the path for git but makes Node throw, and U+FFFD stands for
@@ -438,6 +441,10 @@ function farPathValue(value, bases, key = '') {
   // since the kernel stops at the missing folder, so only the second is
   // checked. localPath would refuse it, as it refuses any '..' after a part
   // that isn't there.
+  // Building the tries is work too, counted before it is done: with 16
+  // worktrees a value is joined to 34 folders, and 90,000 values that climb
+  // to the root (one cheap walk each) took 2.4 s uncounted.
+  if ((WALK_LEFT -= (path.isAbsolute(p) ? 1 : bases.length) * (TRY_COST + (p.length >> 2))) < 0) return 'network-config';
   const tries = path.isAbsolute(p) ? [p, path.resolve(p)] : bases.filter(Boolean).flatMap(b => (missingBase(b) ? [path.resolve(b, p)] : [rawJoin(b, p), path.resolve(b, p)]));
   const walked = new Set();
   // Each different text once: the two readings are often the same text.
@@ -465,7 +472,7 @@ function farPathValue(value, bases, key = '') {
 // repo can have thousands (git can record submodule.<name>.gitdir for each
 // submodule), so the limit is on the work: what localPath counts for each
 // walk while the values are checked (see WALK_LEFT). 2,000 submodule gitdirs
-// count half a million, and 2.8 million when they are there on disk, the
+// count 1 million, and 3 million when they are there on disk, the
 // repo's path is 160 characters long and the session is three folders down
 // in it. The slowest inputs found reach the limit in about 1 s (Windows and
 // Linux).
