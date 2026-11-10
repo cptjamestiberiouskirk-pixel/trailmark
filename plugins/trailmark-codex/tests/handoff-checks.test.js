@@ -879,12 +879,12 @@ test('git pointers: many path values are checked once each, and too many are ref
   const one = disk(() => farLfsEntries(storage(200, i => './'.repeat(i) + 's0'), stores));
   assert.deepStrictEqual(one, { stat: 1, list: 1, why: '' }, '200 spellings of one lfs.storage folder');
   // Two folders whose names JavaScript lower-cases alike ('k' and the Kelvin
-  // sign) are two folders on Windows and Linux: both are listed. (A file
-  // system that folds the two into one, as macOS's may, has one to list.)
+  // sign) are two folders on Windows and Linux: both are listed. macOS
+  // folds the two names into one folder, which is then listed for each of
+  // the two path texts: two listings on every system.
   for (const n of ['k', 'K']) fs.mkdirSync(path.join(stores, n), { recursive: true });
-  const twoK = fs.readdirSync(stores).filter(n => n === 'k' || n === 'K').length;
-  if (process.platform !== 'darwin') assert.strictEqual(twoK, 2, 'k and the Kelvin sign are two folders here');
-  assert.strictEqual(disk(() => farLfsEntries([['lfs.storage', 'k'], ['lfs.storage', 'K']], stores)).list, twoK, 'k and the Kelvin sign');
+  if (process.platform !== 'darwin') assert.strictEqual(fs.readdirSync(stores).filter(n => n === 'k' || n === 'K').length, 2, 'k and the Kelvin sign are two folders here');
+  assert.strictEqual(disk(() => farLfsEntries([['lfs.storage', 'k'], ['lfs.storage', 'K']], stores)).list, 2, 'k and the Kelvin sign');
   // A value that names a file is looked at once too.
   const aFile = disk(() => farLfsEntries(storage(200, i => './'.repeat(i) + 'afile'), stores));
   assert.deepStrictEqual(aFile, { stat: 1, list: 0, why: '' }, '200 spellings of a file as lfs.storage');

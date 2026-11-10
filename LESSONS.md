@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: A test's macOS branch expected what the file system did, not what the code does
+
+- What went wrong: the `k` and Kelvin sign assertion (585e5ef) expected as many listings as folders the file system made. macOS made one folder, and the code, keyed by exact path text, listed it twice: `2 !== 1` in the three macOS jobs. The product was right and the test's guard was wrong.
+- Why: this machine runs Windows only, and I reasoned about what macOS's file system does to the names without then asking what the code under test does with two texts for one folder. PLAYBOOK "Writing code and docs" step 3 covers error codes on the other systems, not name folding.
+- Rule going forward: for a test branch that only another system runs, write down that system's input as the code sees it (here: two path texts, one folder) and derive the expected value from the code, not from the file system's view.
+- Status: open
+
 ## 2026-11-10: A set of seen folders was keyed coarser than the file system
 
 - What went wrong: RS-A-storagewalk's set of walked `lfs.storage` folders was keyed by `real.toLowerCase()` on Windows, copied from the sets around it. `k` and the Kelvin sign (U+212A) lower-case alike in JavaScript and are two folders on NTFS and ReFS, so a clean `k` named first left the second folder unwalked: refused before, accepted after (3dbc23c). Round 1 found it. The same key in `linkedEntries` is older and deferred (RS-A-foldkeys).
