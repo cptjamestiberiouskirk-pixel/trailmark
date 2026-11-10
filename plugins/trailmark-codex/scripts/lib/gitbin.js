@@ -237,7 +237,16 @@ function netText(s) {
 function oddRelative(t) {
   if (!WIN) return false;
   const v = String(t).replace(/"/g, '').trim();
-  return /^[A-Za-z]:(?![\\/])/.test(v) || /^[\\/](?![\\/])/.test(v);
+  return /^[A-Za-z]:(?![\\/])/.test(v) || /^[\\/](?![\\/])/.test(v) || dotEnd(v);
+}
+// A path with a name that ends in a dot or a space ('.' and '..' apart), on
+// Windows: Windows programs drop those from a name's end (git run in `k.`
+// runs in `k`, and git-lfs given `k.` as lfs.storage writes into `k`), while
+// Node opens the name as written and finds nothing. The check would look at
+// another folder than git opens, so such a path is never taken as local
+// (RS-A-trailingdot).
+function dotEnd(p) {
+  return WIN && /[. ](?:[\\/]|$)/.test(String(p)) && String(p).split(/[\\/]+/).some(x => x !== '.' && x !== '..' && /[. ]$/.test(x));
 }
 const UNSAFE = Symbol('unsafe');
 // The longest path any system opens is 32,767 characters (Windows; Linux
@@ -292,6 +301,7 @@ function localPath(p) {
   // A NUL ends the path for git but makes Node throw, and U+FFFD stands for
   // bytes that aren't valid UTF-8 (see exactPointer): never taken as local.
   if (/[\0\uFFFD]/.test(String(p))) return null;
+  if (dotEnd(p)) return null;
   let cur = WIN ? path.resolve(String(p)) : String(p);
   if (!WIN && !cur.startsWith('/') && !NET_START.test(cur)) cur = rawJoin(process.cwd(), cur);
   if (blocked(cur)) return null;
@@ -548,7 +558,11 @@ function farConfig(file, depth, st) {
   // as text first; elsewhere '..' goes up from where a link led, so the path
   // is kept as written (two spellings that collapse to the same text may be
   // different files).
-  const seenKey = WIN ? path.resolve(file).toLowerCase() : file;
+  // The exact text, not lower case: JavaScript lower-cases more than Windows
+  // folds ('k' and the Kelvin sign, U+212A, are two files there), and a file
+  // taken for one already read would go unread (RS-A-foldkeys). A file named
+  // in another case is read again, within MAX_CONFIG_FILES.
+  const seenKey = WIN ? path.resolve(file) : file;
   if (st.seen.has(seenKey)) return '';
   st.seen.add(seenKey);
   if (++st.files > MAX_CONFIG_FILES) return 'many-config-files';
@@ -773,9 +787,10 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false, tally = 
       const leftover = !lfsStore && !objectsRoot && !own && /^modules\/.+\/objects$/.test(below);
       if ((own || leftover) && /^[0-9a-f]{2}$/i.test(x.name) && !(leftover && (headAt(sub) || !onlyFiles(sub)))) continue;
       if (depth >= MAX_GITDIR_DEPTH) return 'deep-gitdir';
-      const k = WIN ? sub.toLowerCase() : sub;
-      if (seen.has(k)) continue;
-      seen.add(k);
+      // By its exact text (see farConfig's seenKey): two folders never share
+      // a key, and one reached in another case is walked again, on the budget.
+      if (seen.has(sub)) continue;
+      seen.add(sub);
       // A folder under this gitdir's modules/ with a HEAD (a file or a link,
       // as git accepts either) is a submodule's gitdir: the top below it.
       const childRel = rel ? rel + '/' + x.name : x.name;
@@ -1105,9 +1120,9 @@ function moduleGitdirs(root) {
     if (why) return;
     if (out.length >= MAX_MODULE_GITDIRS) { why = 'many-submodules'; return; }
     if (depth > MAX_GITDIR_DEPTH) { why = 'deep-gitdir'; return; }
-    const k = WIN ? d.toLowerCase() : d;
-    if (seen.has(k)) return;
-    seen.add(k);
+    // By its exact text (see farConfig's seenKey).
+    if (seen.has(d)) return;
+    seen.add(d);
     let list;
     try { list = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { why = unlisted(d, e); return; }
     // A folder with a HEAD (a file or a link, as git accepts either) is a
@@ -1123,8 +1138,7 @@ function moduleGitdirs(root) {
       const f = follow(d, x);
       if (!f) return;
       if (f.dir && isGitdir && x.name === 'objects') {
-        const k2 = WIN ? f.p.toLowerCase() : f.p;
-        if (!seen.has(k2)) { seen.add(k2); objectsIn(f.p, depth + 1); }
+        if (!seen.has(f.p)) { seen.add(f.p); objectsIn(f.p, depth + 1); }
       } else if (f.dir) walk(f.p, depth + 1);
       if (why) return;
     }
@@ -1161,6 +1175,8 @@ function farGitConfigIn(cwd) {
   const root = path.parse(key).root;
   if ((NET_START.test(String(cwd || '')) || NET_START.test(key)) && !ALLOW_SHARE) why = 'network-folder';
   else if (key.slice(root.length).split(/[\\/]+/).some(isGitPart)) why = 'inside-gitdir';
+  // Windows runs git in `k` when the folder is given as `k.` (see dotEnd).
+  else if (dotEnd(key)) why = 'odd-path';
   const real = why ? '' : localPath(key);
   if (!why && !real) why = 'network-folder';
   if (!why && real.slice(path.parse(real).root.length).split(/[\\/]+/).some(isGitPart)) why = 'inside-gitdir';
@@ -1172,7 +1188,8 @@ function farGitConfigIn(cwd) {
     let d = start;
     for (let i = 0; !why; i++) {
       if (i > 512) { why = 'deep-folder'; break; }
-      const k = WIN ? d.toLowerCase() : d;
+      // By its exact text (see farConfig's seenKey).
+      const k = d;
       if (seenDirs.has(k)) {
         if (seenDirs.get(k)) break;
       } else {
@@ -1216,6 +1233,7 @@ function farNested(dir, base) {
   return withShare(base || dir, () => farNestedIn(dir));
 }
 function farNestedIn(dir) {
+  if (dotEnd(dir)) return 'odd-path';
   const real = localPath(dir);
   if (!real) return 'network-folder';
   return farGit(path.join(real, '.git'));

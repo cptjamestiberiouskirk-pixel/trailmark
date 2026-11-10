@@ -3967,3 +3967,100 @@ test('init: where the drive has no hard links, a link planted at handoff.md is n
   assert.ok(!created.includes('handoff.md'), created.join());
   assert.ok(created.includes('.jbmem.json'), created.join());
 });
+
+test('git pointers: two names JavaScript lower-cases alike are two names, and a name Windows opens under another is refused (next version)', () => {
+  const { farGitConfig, farModules, farNested, farLfsEntries, localPath } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far-fold-');
+  // 'k' and the Kelvin sign: one text in JavaScript's lower case, two names
+  // on Windows and Linux (RS-A-foldkeys). macOS folds them into one.
+  const K = 'K';
+  const BAD = '[core]\n\tattributesFile = //evil.invalid/share/x\n';
+  const repo = (name) => { const r = path.join(base, name); repoAt(r); return r; };
+  const gitdirAt = (d, config) => {
+    for (const x of ['objects', 'refs']) fs.mkdirSync(path.join(d, x), { recursive: true });
+    fs.writeFileSync(path.join(d, 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(d, 'config'), config);
+  };
+  // An included config file named like one already read is still read.
+  const inc = repo('inc');
+  fs.writeFileSync(path.join(inc, '.git', 'k.cfg'), '[x]\n\ty = 1\n');
+  fs.writeFileSync(path.join(inc, '.git', `${K}.cfg`), BAD);
+  fs.appendFileSync(path.join(inc, '.git', 'config'), `[include]\n\tpath = k.cfg\n[include]\n\tpath = ${K}.cfg\n`);
+  assert.strictEqual(farGitConfig(inc), 'network-config', 'an include named like one already read');
+  // The same file included twice is read once, as before.
+  const twice = repo('twice');
+  fs.writeFileSync(path.join(twice, '.git', 'k.cfg'), '[x]\n\ty = 1\n');
+  fs.appendFileSync(path.join(twice, '.git', 'config'), '[include]\n\tpath = k.cfg\n'.repeat(60));
+  assert.strictEqual(farGitConfig(twice), '', 'one include 60 times is one file of the 50');
+  // A submodule gitdir named like a folder already walked is still found.
+  const mod = repo('mod');
+  fs.mkdirSync(path.join(mod, '.git', 'modules', 'k'), { recursive: true });
+  gitdirAt(path.join(mod, '.git', 'modules', K), BAD);
+  assert.strictEqual(farModules(mod), 'network-config', 'a module gitdir named like a folder already walked');
+  // The same for a gitdir's objects folder, where a submodule named
+  // <Kelvin sign>/objects/sub keeps its gitdir.
+  const obj = repo('obj');
+  for (const n of ['k', K]) gitdirAt(path.join(obj, '.git', 'modules', n), '');
+  gitdirAt(path.join(obj, '.git', 'modules', K, 'objects', 'sub'), BAD);
+  assert.strictEqual(farModules(obj), 'network-config', 'a gitdir\'s objects folder named like a folder already walked');
+  // A folder in .git named like one already walked is still listed: as many
+  // listings as with two names that differ in any case.
+  const lists = (fn) => {
+    const readdir = fs.readdirSync;
+    let n = 0;
+    fs.readdirSync = (...a) => { n++; return readdir(...a); };
+    try { return [fn(), n]; } finally { fs.readdirSync = readdir; }
+  };
+  const heads = (name, second) => {
+    const r = repo(name);
+    for (const x of ['k', second]) fs.mkdirSync(path.join(r, '.git', 'refs', 'heads', x, 'in'), { recursive: true });
+    return r;
+  };
+  const [kz, kK] = [heads('kz', 'z'), heads('kK', K)];
+  const two = fs.readdirSync(path.join(kK, '.git', 'refs', 'heads')).filter(n => n === 'k' || n === K).length === 2;
+  if (process.platform !== 'darwin') assert.ok(two, 'k and the Kelvin sign are two folders here');
+  const [nz, nK] = [lists(() => farGitConfig(kz)), lists(() => farGitConfig(kK))];
+  assert.deepStrictEqual([nz[0], nK[0]], ['', '']);
+  // (Where the file system made one folder of the two, there is one less.)
+  if (two) assert.strictEqual(nK[1], nz[1], 'refs/heads/k and refs/heads/<Kelvin sign> are both listed');
+  // The search for a .git above the session's folder: a folder named like one
+  // already looked at is still looked at. The session is in k/link, a
+  // junction to <Kelvin sign>/sub, and k is a repo. (Windows: junctions need
+  // no privilege, and elsewhere a path through a link is not kept as given.)
+  if (WIN) {
+    const up = path.join(base, 'up');
+    const r = repo(path.join('up', 'k'));
+    fs.appendFileSync(path.join(r, '.git', 'config'), BAD);
+    fs.mkdirSync(path.join(up, K, 'sub'), { recursive: true });
+    const notes = [];
+    busyRetry(() => fs.symlinkSync(path.join(up, K, 'sub'), path.join(r, 'link'), 'junction'), { onRetry: m => notes.push(m) });
+    assert.strictEqual(farGitConfig(path.join(r, 'link')), 'network-config', `a repo above the session folder, named like a folder already looked at ${notes.join()}`);
+  }
+  // A name that ends in a dot or a space: Windows opens it without them, so
+  // the check and git would look at different folders (RS-A-trailingdot).
+  // Elsewhere it is a name like any other.
+  const top = path.join(base, 'dots');
+  fs.mkdirSync(path.join(top, 'k'), { recursive: true });
+  for (const v of ['k.', 'k..', 'k...', 'k./a', 'a/k. /b', 'k /a', './k.']) {
+    assert.strictEqual(farLfsEntries([['lfs.storage', v]], top), WIN ? 'odd-config-path' : '', `lfs.storage = ${JSON.stringify(v)}`);
+  }
+  // A backslash separates names on Windows only.
+  if (WIN) assert.strictEqual(farLfsEntries([['lfs.storage', 'k.\\a']], top), 'odd-config-path', 'k. before a backslash');
+  for (const v of ['k', '.', '..', './k', '../k', 'k/.', 'k/..', '.k', 'k.d', 'k.d/a b', 'k/', '.../k'.slice(1)]) {
+    assert.strictEqual(farLfsEntries([['lfs.storage', v]], top), '', `lfs.storage = ${JSON.stringify(v)}`);
+  }
+  // An include and a session folder written that way, and a nested repo's.
+  const dot = repo('dot');
+  fs.appendFileSync(path.join(dot, '.git', 'config'), BAD);
+  assert.strictEqual(farGitConfig(dot), 'network-config');
+  assert.strictEqual(farGitConfig(dot + '.'), WIN ? 'odd-path' : '', 'a session folder with a dot at its end');
+  assert.strictEqual(farGitConfig(path.join(dot + ' ', 'sub')), WIN ? 'odd-path' : '', 'a session folder below a name with a space at its end');
+  assert.strictEqual(farNested(dot + '.', base), WIN ? 'odd-path' : '', 'a nested repo\'s folder with a dot at its end');
+  // Whatever else asks: such a path is never taken as a local one.
+  assert.strictEqual(localPath(path.join(top, 'k.')), WIN ? null : path.join(top, 'k.'));
+  assert.strictEqual(localPath(path.join(top, 'k')), path.join(top, 'k'));
+  const incDot = repo('incdot');
+  fs.writeFileSync(path.join(incDot, '.git', 'i.cfg'), BAD);
+  fs.appendFileSync(path.join(incDot, '.git', 'config'), '[include]\n\tpath = i.cfg.\n');
+  assert.strictEqual(farGitConfig(incDot), WIN ? 'odd-config-path' : '', 'an include with a dot at its end');
+});

@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: Test code appended through a heredoc lost a backslash
+
+- What went wrong: the RS-A-foldkeys test was appended to the test file with an inline `cat >> file <<'EOF'`. The Bash tool collapsed `'k.\\a'` to `'k.\a'`, which JavaScript reads as `k.a`, and the new test failed on a value that is rightly accepted. One run lost.
+- Why: the limit is in PLAYBOOK ("Constraints", and "Writing code and docs" step 4), and I read it as being about edit scripts. A heredoc that writes code is the same inline text.
+- Rule going forward: code and tests are never written through an inline command, a heredoc included. New text goes in with the Edit or Write tool. PLAYBOOK's step 4 now says so.
+- Status: promoted to PLAYBOOK
+
 ## 2026-11-10: A test's macOS branch expected what the file system did, not what the code does
 
 - What went wrong: the `k` and Kelvin sign assertion (585e5ef) expected as many listings as folders the file system made. macOS made one folder, and the code, keyed by exact path text, listed it twice: `2 !== 1` in the three macOS jobs. The product was right and the test's guard was wrong.
