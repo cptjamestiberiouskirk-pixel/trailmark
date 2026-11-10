@@ -1023,6 +1023,10 @@ test('git pointers: an LFS store next to an alternate is walked once, and too ma
   fs.mkdirSync(path.join(line('b0', 'lfs'), ...Array(70).fill('d')), { recursive: true });
   fs.symlinkSync(line('b0', 'o'), line('h', 'jalt'), 'junction');
   assert.strictEqual(farGitConfig(repoWith([line('h', 'q'), line('h', 'jalt')])), 'deep-gitdir', 'the store beside where a linked line leads, after a seen one');
+  // The same where the first place has no store at all (no n/lfs).
+  fs.mkdirSync(line('n'), { recursive: true });
+  fs.symlinkSync(line('b0', 'o'), line('n', 'jalt'), 'junction');
+  assert.strictEqual(farGitConfig(repoWith([line('n', 'jalt')])), 'deep-gitdir', 'the store beside where a linked line leads, after a missing one');
   if (NO_LINKS) return;
   // A store after a clean one, and after a repeat of it, is still walked.
   fs.symlinkSync('//evil.invalid/share/x', line('s1', 'lfs', 'objects'));
