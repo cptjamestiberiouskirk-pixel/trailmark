@@ -260,16 +260,19 @@ function dotEnd(p) {
 // `worktree add ../wt` have a word that ends in a dot. Their values are
 // checked as before RS-A-trailingdot, without the rule on such names.
 const WORDS_KEY = /^(?:alias|pretty)\./i;
-// real (a path localPath gave) with its names as the disk has them, where
-// that differs in letter case only. A link's target is kept in the case its
-// maker wrote, so one folder comes back under many texts; this is the one
-// text the walks' sets of what was seen can tell it by, and two folders never
-// get the same one (RS-A-foldkeys). Any other difference (a drive made with
-// subst, a mapped drive, a short name) keeps the path as it was found.
+// A folder a link led to (real, a path localPath gave), as the disk names it.
+// A link's target is kept as its maker wrote it, so one folder comes back
+// under many texts: in any letter case, by a short name, or with a stream's
+// name after it (a::$INDEX_ALLOCATION opens a). `key` is the one text the
+// walks' sets of what was seen tell the folder by, and two folders never get
+// the same one (RS-A-foldkeys). `at` is where the walk goes on: that text
+// where it differs from real in letter case only, so that the names found
+// below it match the ones found without a link; else real, since a drive
+// made with subst or a mapped one must keep its own spelling.
 function onDisk(real) {
   let c;
-  try { c = fs.realpathSync.native(real); } catch { return real; }
-  return c !== real && c.toLowerCase() === real.toLowerCase() ? c : real;
+  try { c = fs.realpathSync.native(real); } catch { return { key: real, at: real }; }
+  return { key: c, at: c.toLowerCase() === real.toLowerCase() ? c : real };
 }
 const UNSAFE = Symbol('unsafe');
 // The longest path any system opens is 32,767 characters (Windows; Linux
@@ -787,15 +790,17 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false, tally = 
         continue;
       }
       let sub = path.join(d, x.name);
+      let key = sub;
       let isDir = x.isDirectory();
       if (x.isSymbolicLink()) {
         const real = localPath(sub);
         if (!real) return 'linked-gitdir';
         try { isDir = fs.statSync(real).isDirectory(); } catch { isDir = false; }
-        // Spelled as the disk has it, so `seen` below knows a folder that
-        // many links name in many cases (240 such links: 605 listings and
+        // Named as the disk has it, so `seen` below knows a folder that
+        // many links name in many ways (240 such links: 605 listings and
         // 4.8 s where 5 listings do).
-        sub = isDir ? onDisk(real) : real;
+        sub = key = real;
+        if (isDir) ({ key, at: sub } = onDisk(real));
       }
       if (!isDir) continue;
       // Loose-object folders of git's own object stores only (objects/ and a
@@ -819,9 +824,9 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false, tally = 
       if ((own || leftover) && /^[0-9a-f]{2}$/i.test(x.name) && !(leftover && (headAt(sub) || !onlyFiles(sub)))) continue;
       if (depth >= MAX_GITDIR_DEPTH) return 'deep-gitdir';
       // By its exact text (see farConfig's seenKey): two folders never share
-      // a key. A link's target was respelled as the disk has it (onDisk).
-      if (seen.has(sub)) continue;
-      seen.add(sub);
+      // a key. A folder a link led to has the disk's own name for it (onDisk).
+      if (seen.has(key)) continue;
+      seen.add(key);
       // A folder under this gitdir's modules/ with a HEAD (a file or a link,
       // as git accepts either) is a submodule's gitdir: the top below it.
       const childRel = rel ? rel + '/' + x.name : x.name;
@@ -1122,13 +1127,15 @@ function moduleGitdirs(root) {
   // that leads to a share (why is set).
   const follow = (d, x) => {
     const p = path.join(d, x.name);
-    if (!x.isSymbolicLink()) return { p, dir: x.isDirectory() };
+    if (!x.isSymbolicLink()) return { p, key: p, dir: x.isDirectory() };
     const real = localPath(p);
     if (!real) { why = 'linked-gitdir'; return null; }
     let dir;
     try { dir = fs.statSync(real).isDirectory(); } catch { dir = false; }
-    // Spelled as the disk has it, for `seen` (see linkedEntries).
-    return { p: dir ? onDisk(real) : real, dir };
+    if (!dir) return { p: real, key: real, dir };
+    // Named as the disk has it, for `seen` (see linkedEntries).
+    const { key, at } = onDisk(real);
+    return { p: at, key, dir };
   };
   // A gitdir's objects/: a submodule named vendor/objects/x keeps its gitdir
   // there when vendor is one. git 2.56 won't make one by that name, and
@@ -1144,17 +1151,18 @@ function moduleGitdirs(root) {
       if (x.name.includes('\uFFFD')) { if (x.isFile()) continue; why = 'odd-path'; return; }
       const f = follow(od, x);
       if (!f) return;
-      if (f.dir) walk(f.p, depth + 1);
+      if (f.dir) walk(f.p, depth + 1, f.key);
       if (why) return;
     }
   };
-  const walk = (d, depth) => {
+  const walk = (d, depth, key = d) => {
     if (why) return;
     if (out.length >= MAX_MODULE_GITDIRS) { why = 'many-submodules'; return; }
     if (depth > MAX_GITDIR_DEPTH) { why = 'deep-gitdir'; return; }
-    // By its exact text (see farConfig's seenKey).
-    if (seen.has(d)) return;
-    seen.add(d);
+    // By its exact text (see farConfig's seenKey), or the disk's own name
+    // for a folder a link led to.
+    if (seen.has(key)) return;
+    seen.add(key);
     let list;
     try { list = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { why = unlisted(d, e); return; }
     // A folder with a HEAD (a file or a link, as git accepts either) is a
@@ -1170,8 +1178,8 @@ function moduleGitdirs(root) {
       const f = follow(d, x);
       if (!f) return;
       if (f.dir && isGitdir && x.name === 'objects') {
-        if (!seen.has(f.p)) { seen.add(f.p); objectsIn(f.p, depth + 1); }
-      } else if (f.dir) walk(f.p, depth + 1);
+        if (!seen.has(f.key)) { seen.add(f.key); objectsIn(f.p, depth + 1); }
+      } else if (f.dir) walk(f.p, depth + 1, f.key);
       if (why) return;
     }
   };
@@ -1219,7 +1227,7 @@ function farGitConfigIn(cwd) {
   // a link's target written in another case would have every folder above
   // it looked at twice.
   const seenDirs = new Map();
-  for (const start of why ? [] : [real === key ? real : onDisk(real), key]) {
+  for (const start of why ? [] : [real === key ? real : onDisk(real).at, key]) {
     let d = start;
     for (let i = 0; !why; i++) {
       if (i > 512) { why = 'deep-folder'; break; }

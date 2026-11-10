@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: A fix covered the reviewer's example, not its class
+
+- What went wrong: round 1 showed one folder walked once for each letter case a junction named it in. My fix respelled a target only when it differed in case. Round 2 added `::$INDEX_ALLOCATION` to the targets and had the 605 listings back (7.6 s); a short name does the same. One more batch and round.
+- Why: I fixed the input I was given and tested that input. I had tied the key to the text the walk goes on under, so the guard that keeps a `subst` drive's spelling also narrowed the key.
+- Rule going forward: before fixing a reviewer's example, write down its class (here: every way two path texts name one folder: case, short name, stream name, a link, a drive made with `subst`) and say for each member whether the fix covers it, with a test or a reason. A value with two jobs (what is remembered, where the walk goes) gets a part for each.
+- Status: open
+
 ## 2026-11-10: A refusal by a key's last letters hit values that are not paths
 
 - What went wrong: RS-A-trailingdot refused any value with a name ending in a dot under a key that ends like a path setting. `[alias] adddir = add .` and `newworktree = worktree add ../wt` then kept git out. Review round 1 found it; one more batch and round.
@@ -46,7 +53,7 @@ Format:
 
 - What went wrong: RS-A-storagewalk's set of walked `lfs.storage` folders was keyed by `real.toLowerCase()` on Windows, copied from the sets around it. `k` and the Kelvin sign (U+212A) lower-case alike in JavaScript and are two folders on NTFS and ReFS, so a clean `k` named first left the second folder unwalked: refused before, accepted after (3dbc23c). Round 1 found it. The same key in `linkedEntries` is older and deferred (RS-A-foldkeys).
 - Why: the key had lived for one value, where two folders could not meet in it. Making it live for a whole check changed what a collision costs, and I tested that a folder in two cases is walked once, the opposite of the risk.
-- Rule going forward: a key that decides "already checked" is never coarser than what it stands for. Use the exact text, or an identity the system gives, and let the cost limits take the repeats. When a set starts to live longer, ask what two different things could share a key in it.
+- Rule going forward: a key that decides "already checked" is never coarser than what it stands for. Use the exact text, or an identity the system gives, and let the cost limits take the repeats. When a set starts to live longer, ask what two different things could share a key in it. PLAYBOOK "Writing code and docs" step 9, since the exact text proved too fine in turn (2026-11-10, "The exact key made one folder many").
 - Status: promoted to PLAYBOOK
 
 ## 2026-11-10: A limit on a count of folders passed its probe and let 45 seconds through
@@ -102,7 +109,7 @@ Format:
 
 - What went wrong: the first limit for RS-A-manyvalues was 200 different path values, chosen from "a real config has a handful". The review found that git 2.56 can write `submodule.<name>.gitdir` for every submodule, a key the check's pattern matches, so a repo with 201 submodules was refused where it had been accepted.
 - Why: the limit came from how long the check takes, with no look at which keys match the pattern in a real repo. The record even said "a real config has a handful" with no label and no check behind it.
-- Rule going forward: before a new limit refuses anything, list what real tools write that counts toward it (for a key pattern: search git's own config names for matches) and size the limit from the largest real case, with an existing limit for the same thing where there is one. A sentence like "a real repo has few" gets a label and a check like any other claim.
+- Rule going forward: before a new limit refuses anything, list what real tools write that counts toward it (for a key pattern: search git's own config names for matches) and size the limit from the largest real case, with an existing limit for the same thing where there is one. A sentence like "a real repo has few" gets a label and a check like any other claim. PLAYBOOK "Writing code and docs" step 8.
 - Status: promoted to PLAYBOOK
 
 ## 2026-11-09: Two mutations passed because the test's link cases were skipped here

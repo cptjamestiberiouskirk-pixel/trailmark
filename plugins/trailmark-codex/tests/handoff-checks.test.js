@@ -4076,6 +4076,11 @@ test('git pointers: two names JavaScript lower-cases alike are two names, and a 
   assert.strictEqual(farGitConfig(conf('rooted', '[alias]\n\txdir = /x\n')), WIN ? 'odd-config-path' : '', 'an alias from the drive\'s root');
   // The same text as a path setting is still refused, named after the alias.
   assert.strictEqual(farGitConfig(conf('both', '[alias]\n\tadddir = k.\n[core]\n\tattributesFile = k.\n')), WIN ? 'odd-config-path' : '', 'a path setting with an alias\'s text');
+  // Only the sections alias and pretty, by their whole name in any case.
+  for (const k of ['difftool.alias.x.path', 'aliasx.adddir', 'xalias.adddir', 'core.attributesfile']) {
+    assert.strictEqual(farLfsEntries([[k, 'k.']], top), WIN ? 'odd-config-path' : '', `${k} = k.`);
+  }
+  assert.strictEqual(farLfsEntries([['Alias.adddir', 'add .'], ['PRETTY.logfile', '%h %s.']], top), '', 'the section in upper case');
   // One folder that many links name in many cases is walked once: as many
   // listings as when every link names it as the disk does. (Windows: a
   // junction keeps its target as written, and the folder opens in any case.)
@@ -4090,16 +4095,52 @@ test('git pointers: two names JavaScript lower-cases alike are two names, and a 
       for (let level = 0; level < 3; level++) {
         const a = path.join(d, 'a');
         fs.mkdirSync(a, { recursive: true });
-        for (let i = 1; i <= 20; i++) link(vary ? cased(a, i + level * 20) : a, path.join(d, 'j' + i));
+        for (let i = 1; i <= 20; i++) link(vary === false ? a : cased(a, i + level * 20) + vary, path.join(d, 'j' + i));
         d = a;
       }
       return r;
     };
     for (const [where, fn] of [['modules', farModules], ['refs', farGitConfig]]) {
-      const [same, vary] = [lists(() => fn(chain(where + '-same', where, false))), lists(() => fn(chain(where + '-vary', where, true)))];
-      assert.deepStrictEqual(vary, same, `.git/${where}: links to one folder in 60 cases ${notes.join()}`);
+      const same = lists(() => fn(chain(where + '-same', where, false)));
       assert.strictEqual(same[0], '');
+      assert.deepStrictEqual(lists(() => fn(chain(where + '-vary', where, ''))), same, `.git/${where}: links to one folder in 60 cases ${notes.join()}`);
+      // A folder also opens with its index stream's name after it: one more
+      // way to write it that differs in more than case.
+      assert.deepStrictEqual(lists(() => fn(chain(where + '-stream', where, '::$INDEX_ALLOCATION'))), same, `.git/${where}: links to one folder by its stream name ${notes.join()}`);
     }
+    // The same inside a submodule gitdir's objects folder (20 links to one
+    // folder there), and for one folder that 20 gitdirs' objects lead to.
+    const inObjects = (name, vary) => {
+      const r = repo(name);
+      const g = path.join(r, '.git', 'modules', 'g');
+      gitdirAt(g, '');
+      const sub = path.join(g, 'objects', 'sub');
+      fs.mkdirSync(sub);
+      for (let i = 1; i <= 20; i++) link(vary === false ? sub : cased(sub, i) + vary, path.join(g, 'objects', 'j' + i));
+      return r;
+    };
+    const asObjects = (name, vary) => {
+      const r = repo(name);
+      const shared = path.join(base, name + '-shared');
+      fs.mkdirSync(shared);
+      for (let i = 1; i <= 20; i++) {
+        const g = path.join(r, '.git', 'modules', 'g' + i);
+        fs.mkdirSync(path.join(g, 'refs'), { recursive: true });
+        fs.writeFileSync(path.join(g, 'HEAD'), 'ref: refs/heads/main\n');
+        link(vary === false ? shared : cased(shared, i) + vary, path.join(g, 'objects'));
+      }
+      return r;
+    };
+    for (const [what, make] of [['links in a gitdir\'s objects', inObjects], ['one folder as 20 gitdirs\' objects', asObjects]]) {
+      const tag = make === inObjects ? 'ino' : 'aso';
+      const same = lists(() => farModules(make(tag + '-same', false)));
+      assert.strictEqual(same[0], '');
+      assert.deepStrictEqual(lists(() => farModules(make(tag + '-stream', '::$INDEX_ALLOCATION'))), same, `${what}, by its stream name ${notes.join()}`);
+    }
+    // Words keep the rule on a link's target: an alias through a link to k.
+    const dotLink = conf('dotlink', '[alias]\n\txdir = lnk/x\n');
+    link(path.join(top, 'k.'), path.join(dotLink, 'lnk'));
+    assert.strictEqual(farGitConfig(dotLink), 'network-config', `an alias through a link whose target ends in a dot ${notes.join()}`);
     // Two folders that links lead to stay two: k and <Kelvin sign> outside
     // the gitdir, the second holding what is refused.
     const twoLinks = (name, where, fill) => {
