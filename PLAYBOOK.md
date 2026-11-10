@@ -54,10 +54,12 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 1. Match the file's existing style. Docs: no em or en dashes (use `--`), no tricolons, plain words.
 2. A bug fix comes with a test that fails on the old code. Run it on the parent commit to prove that.
 3. A file-system error path: list what Windows, Linux and macOS each return for it (ENOENT, ENOTDIR, EPERM, ...). This machine runs only Windows, so the test stubs the other systems' answer. A test that bounds the size of a text holding a path also runs with a TMPDIR 30 characters longer: CI's temp paths are longer than `E:\DevTemp`.
-4. Wording edits across several files go through a script of exact old/new pairs that asserts each old text occurs once before it writes. Old text with backslashes or `\n` in it (code, tests) doesn't go in such a script: use the Edit tool on one copy and copy the file to the other, or swap a block between two plain markers from a text file.
+4. Wording edits across several files go through a script of exact old/new pairs that asserts each old text occurs once before it writes. Old text with backslashes or `\n` in it (code, tests) doesn't go in such a script: use the Edit tool on one copy and copy the file to the other, or swap a block between two plain markers from a text file. New code or tests never go in through an inline command either, a heredoc included: the Edit or Write tool.
 5. Before handing over a script or file, read it for destructive or malicious operations, and say what you found.
 6. After fixing a pattern, search the whole repo for that pattern before the first review.
 7. A condition that skips a block, or code moved out of one: list each thing the block does in each case and ask whether the condition is about that thing. A value read before a lock can be older than the state under it: try the other order.
+8. A new limit or refusal on a class matched by a pattern (a key's last letters, a name's shape): before it is written, list what real tools and users write in that class, starting with the sections where the user picks the key's name (`alias`, `pretty`), and run those values through it.
+9. A key that decides "already checked" stands for exactly one thing. Test both ways it can be wrong: two things under one key (one goes unchecked), and one thing under many keys (it is checked once for each, and links can make thousands).
 
 ## Testing
 

@@ -14,6 +14,41 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: A better key widened an older gap
+
+- What went wrong: round 2 gave a folder a link led to the system's own path as its key, so the walks knew it under any spelling. A folder walked where part of it is passed over (a gitdir's `objects`) was then taken as seen where it is walked in full (`refs/x`, a junction to `objects` by its stream name). f97553a and edd988d refused that input; 734f14f answered `''`. Round 3 found it. With a plain target the gap was there on f97553a too, and I had deferred it one round earlier as older behavior.
+- Why: I asked what the key stands for and not what "seen" is taken to mean where the set is read. The set was shared by places that walk by different rules, and only the keys' mismatches had kept them apart. I also deferred a gap in the very set I was changing.
+- Rule going forward: before a set's key gets better at matching, list every place the set is read and what "seen" lets that place skip. If two places skip different things, they don't share entries. An older gap in code the change touches is fixed with the change or shown not to widen, not deferred on its age.
+- Status: open
+
+## 2026-11-10: A fix covered the reviewer's example, not its class
+
+- What went wrong: round 1 showed one folder walked once for each letter case a junction named it in. My fix respelled a target only when it differed in case. Round 2 added `::$INDEX_ALLOCATION` to the targets and had the 605 listings back (7.6 s); a short name does the same. One more batch and round.
+- Why: I fixed the input I was given and tested that input. I had tied the key to the text the walk goes on under, so the guard that keeps a `subst` drive's spelling also narrowed the key.
+- Rule going forward: before fixing a reviewer's example, write down its class (here: every way two path texts name one folder: case, short name, stream name, a link, a drive made with `subst`) and say for each member whether the fix covers it, with a test or a reason. A value with two jobs (what is remembered, where the walk goes) gets a part for each.
+- Status: open
+
+## 2026-11-10: A refusal by a key's last letters hit values that are not paths
+
+- What went wrong: RS-A-trailingdot refused any value with a name ending in a dot under a key that ends like a path setting. `[alias] adddir = add .` and `newworktree = worktree add ../wt` then kept git out. Review round 1 found it; one more batch and round.
+- Why: I wrote "INFERRED never in a real repo" from what folder names Windows can make, and never listed what else sits under keys matched by their last letters. The 2026-11-09 lesson on a count limit said to list what real tools write; I read it as about limits only.
+- Rule going forward: a new refusal gets the same list as a new limit: what real tools and users write in the matched class, sections with user-named keys first, run through the rule before the first review. PLAYBOOK "Writing code and docs" step 8.
+- Status: promoted to PLAYBOOK
+
+## 2026-11-10: The exact key made one folder many
+
+- What went wrong: RS-A-foldkeys replaced lower-cased keys with the exact text. A junction keeps its target in the case its maker wrote, so 240 junctions to one folder were 240 keys: 605 listings and 4.8 s where the old code made 5. Review round 1 found it.
+- Why: I fixed the direction the earlier lesson named (two things, one key) and tested only that. I wrote "walked again, within the limits" without timing what the limits let through.
+- Rule going forward: a key for "already checked" is tested both ways: two things under one key, and one thing under many keys, with links making the many. The key is the name the system gives (here the path as the disk spells it). PLAYBOOK "Writing code and docs" step 9.
+- Status: promoted to PLAYBOOK
+
+## 2026-11-10: Test code appended through a heredoc lost a backslash
+
+- What went wrong: the RS-A-foldkeys test was appended to the test file with an inline `cat >> file <<'EOF'`. The Bash tool collapsed `'k.\\a'` to `'k.\a'`, which JavaScript reads as `k.a`, and the new test failed on a value that is rightly accepted. One run lost.
+- Why: the limit is in PLAYBOOK ("Constraints", and "Writing code and docs" step 4), and I read it as being about edit scripts. A heredoc that writes code is the same inline text.
+- Rule going forward: code and tests are never written through an inline command, a heredoc included. New text goes in with the Edit or Write tool. PLAYBOOK's step 4 now says so.
+- Status: promoted to PLAYBOOK
+
 ## 2026-11-10: A test's macOS branch expected what the file system did, not what the code does
 
 - What went wrong: the `k` and Kelvin sign assertion (585e5ef) expected as many listings as folders the file system made. macOS made one folder, and the code, keyed by exact path text, listed it twice: `2 !== 1` in the three macOS jobs. The product was right and the test's guard was wrong.
@@ -25,8 +60,8 @@ Format:
 
 - What went wrong: RS-A-storagewalk's set of walked `lfs.storage` folders was keyed by `real.toLowerCase()` on Windows, copied from the sets around it. `k` and the Kelvin sign (U+212A) lower-case alike in JavaScript and are two folders on NTFS and ReFS, so a clean `k` named first left the second folder unwalked: refused before, accepted after (3dbc23c). Round 1 found it. The same key in `linkedEntries` is older and deferred (RS-A-foldkeys).
 - Why: the key had lived for one value, where two folders could not meet in it. Making it live for a whole check changed what a collision costs, and I tested that a folder in two cases is walked once, the opposite of the risk.
-- Rule going forward: a key that decides "already checked" is never coarser than what it stands for. Use the exact text, or an identity the system gives, and let the cost limits take the repeats. When a set starts to live longer, ask what two different things could share a key in it.
-- Status: open
+- Rule going forward: a key that decides "already checked" is never coarser than what it stands for. Use the exact text, or an identity the system gives, and let the cost limits take the repeats. When a set starts to live longer, ask what two different things could share a key in it. PLAYBOOK "Writing code and docs" step 9, since the exact text proved too fine in turn (2026-11-10, "The exact key made one folder many").
+- Status: promoted to PLAYBOOK
 
 ## 2026-11-10: A limit on a count of folders passed its probe and let 45 seconds through
 
@@ -81,8 +116,8 @@ Format:
 
 - What went wrong: the first limit for RS-A-manyvalues was 200 different path values, chosen from "a real config has a handful". The review found that git 2.56 can write `submodule.<name>.gitdir` for every submodule, a key the check's pattern matches, so a repo with 201 submodules was refused where it had been accepted.
 - Why: the limit came from how long the check takes, with no look at which keys match the pattern in a real repo. The record even said "a real config has a handful" with no label and no check behind it.
-- Rule going forward: before a new limit refuses anything, list what real tools write that counts toward it (for a key pattern: search git's own config names for matches) and size the limit from the largest real case, with an existing limit for the same thing where there is one. A sentence like "a real repo has few" gets a label and a check like any other claim.
-- Status: open
+- Rule going forward: before a new limit refuses anything, list what real tools write that counts toward it (for a key pattern: search git's own config names for matches) and size the limit from the largest real case, with an existing limit for the same thing where there is one. A sentence like "a real repo has few" gets a label and a check like any other claim. PLAYBOOK "Writing code and docs" step 8.
+- Status: promoted to PLAYBOOK
 
 ## 2026-11-09: Two mutations passed because the test's link cases were skipped here
 
