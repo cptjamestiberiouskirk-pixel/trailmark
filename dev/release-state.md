@@ -23,6 +23,21 @@ PR #47 (RS-A-nestedtime) merged as 8fd6b84 at 2026-11-11 17:03:35Z. That merge w
 - Not covered by this fix, older, each already in the deferred list: `linkedEntries` runs outside the limit on the work for each `.git` (RS-A-gitdirlinks), and one check can take seconds by other means than path work (RS-A-nestedone: includes with a quote, large config files). With several `.git` folders on the way up those add up as before; `farGitConfig` has no look at the time (RS-A-lfsconfigtime).
 - Not shown: macOS and Linux times; the old-git case with a real git before 2.38.
 
+### RS-A-abovegit round 1 (2026-11-11, on 8fd6b84..dcb403f, PR #48)
+
+Fable on `gitbin.js` and the test, Sonnet on the MANUAL.md and SECURITY.md sentences, each from a copy of the repo under `E:/DevTemp`. Fable: "Nothing CONFIRMED wrong in the changed code." Sonnet: neither sentence false, one too narrow.
+
+- Fixed in this batch:
+  - The test (Fable, CONFIRMED there and re-run here): a change that gives each `.git` a limit of its own again only on the way up from the folder as given, where a link leads elsewhere (`work: real !== key && start === key ? null : above`), passed all nine assertions, since every case that refuses had the folder as given equal to its real path. Here that change passed the test of dcb403f (2/2). The test has one more case: a linked session folder with three stores on the way up from the folder as given and none on the other, refused. The mutation script has that change as a ninth: all 9 fail, unchanged passes.
+  - MANUAL.md (Sonnet; seen here in the loop, which starts at the session's folder): "in a folder between the session's folder and its repo" left out the session's own folder. Now "in the session's folder or in one above it that git passes on its way to the repo".
+  - SECURITY.md (Fable, Sonnet): the 1.6 seconds are for the `lfs.storage` shape and were measured on Windows, and the sentence now says both, and that what a `.git` costs outside this limit still adds up for each one found.
+- CONFIRMED by Fable, not re-run: `above` is made inside the loop over the two ways up and nothing at module level was added, so no state passes between calls or ways; `farNested`, `farModules` and `localRepoRoot` give the same answers and times on both versions; nothing that was refused before is let through; a limit that starts at -1000 to 400 always answers `many-config-paths`; four ordinary strays count 1,055 of 8,388,608 together (410 at most each here), two stores 6.66 million, so only a repo within about 0.01% of the limit could flip (INFERRED). The same store named by three `.git` entries on one way is counted three times. The stand-in for `execFileSync` is hit once and put back, and the cache entry is the same object after. The test fails on the parent at its first refusal; run one by one there, the four refusals fail and the five let-through cases pass.
+- A property of the test, CONFIRMED by Fable, not re-run, shared with the RS-A-altcase and RS-A-altmodules tests: a store counts 3.37 million with a temp folder path of 37 characters and 3.02 million at 317; at 397 three stores fit and the refusals would fail. The temp folder is far shorter on the three CI systems and here.
+- Deferred, older and the same on 8fd6b84 and dcb403f, each CONFIRMED by Fable, not re-run, each `''` on both:
+  - New, RS-A-worktreeslinks, FLAGGED for the time: `otherWorktrees` (`gitbin.js` 962 to 988, called at 1098) runs under no limit. A stray `.git` whose `worktrees` is a junction to 400 folders, each with a `gitdir` file naming a 900-character path: 1 stray 2.85 s, 4 strays 12.2 s, 8 strays 24.6 s. 10,000 entries are allowed, about 70 s for one repo, INFERRED. Repro: the same shape, timing `farGitConfig` from the innermost folder.
+  - Added to RS-A-gitdirlinks: 8 strays, each with a junction to 120 long links, 3.7 s (3.9 s on the parent).
+  - Added to RS-A-nestedone: 8 strays, each including 20 files with a quote in the path, 10.0 s (9.9 s on the parent).
+
 ## Next version: RS-A-nestedtime (2026-11-11, branch `claude/rs-a-nestedtime` off af25b72, merged in PR #47 as 8fd6b84)
 
 PR #46 (RS-A-altmodules) merged as af25b72 at 2026-11-11 16:25:02Z, when the user said "Yes, auto-merge 46" (9 of 9 jobs passed). The user, on this item: "Yes, continue with RS-A-nestedtime once PR 46 merges."

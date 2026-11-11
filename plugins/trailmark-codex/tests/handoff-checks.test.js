@@ -1126,15 +1126,16 @@ test('git pointers: every .git found on one way up from the session\'s folder sh
   // other for each number in `below`, each with a .git that has only a
   // config naming that many stores: no HEAD, so git goes on up past it.
   // Checked from the innermost folder.
-  const check = (top, below) => {
+  const tree = (top, below) => {
     let cwd = repo(top);
     below.forEach((n, i) => {
       cwd = path.join(cwd, `f${i}`);
       fs.mkdirSync(path.join(cwd, '.git'), { recursive: true });
       fs.writeFileSync(path.join(cwd, '.git', 'config'), '[core]\n\trepositoryformatversion = 0\n' + lfs(n));
     });
-    return farGitConfig(cwd);
+    return cwd;
   };
+  const check = (top, below) => farGitConfig(tree(top, below));
   assert.strictEqual(check(2, []), '', 'two stores in the repo, nothing below it');
   assert.strictEqual(check(2, [0, 0]), '', 'two stores in the repo, and two .git folders below it that name none');
   assert.strictEqual(check(1, [1]), '', 'one store in the repo and one in a .git below it');
@@ -1150,6 +1151,14 @@ test('git pointers: every .git found on one way up from the session\'s folder sh
   const here = repo(2);
   fs.symlinkSync(path.join(there, 'sub'), path.join(here, 'in'), 'junction');
   assert.strictEqual(farGitConfig(path.join(here, 'in')), '', 'a linked folder: two stores on each way up');
+  // The way up from the folder as given shares its limit like the other:
+  // the link leads into a repo that names no store, and the three stores
+  // are all above the link.
+  const plain = repo(0);
+  fs.mkdirSync(path.join(plain, 'sub'));
+  const given = tree(1, [1, 1]);
+  fs.symlinkSync(path.join(plain, 'sub'), path.join(given, 'in'), 'junction');
+  assert.strictEqual(farGitConfig(path.join(given, 'in')), 'many-config-paths', 'a linked folder: three stores on the way up from the folder as given, none on the other');
   // A git before 2.38 uses a folder with a HEAD, objects and refs as a repo,
   // so that folder is checked like a .git, with what is left of the same
   // limit. The library is loaded again with a git that says it is 2.34.1
