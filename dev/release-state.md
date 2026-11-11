@@ -22,6 +22,19 @@ PR #43 (RS-A-altcase and RS-A-storelinks) merged as 3cb56b5 at 2026-11-11 03:38:
 - Repro: `repro-altread.js <repo root> <temp base> [FG]` in the session's scratch folder; the shapes are described above and in its header.
 - Still deferred: RS-A-altmodules (each module gitdir has limits of its own; `lfs.storage` and the alternates each have a work limit of their own).
 
+### RS-A-altread round 1 (2026-11-11, on 3cb56b5..9d4266b, PR #45)
+
+Fable on `gitbin.js` and the test, Sonnet on the two doc sentences, each from an export under `E:/DevTemp`. Neither found anything wrong in the changed code.
+
+- Fixed in this batch: MANUAL.md's row said "the largest read", which could be taken as the largest file read so far (Sonnet; seen here on reading the row). It now says a larger file is refused.
+- CONFIRMED by Fable, not re-run: the new line is reached only inside `limitedWalk`; a refusal leaves later checks of other repos right (a fresh repo, a plain one and a 100-file one answered `''` after it); the test's body gives `''`, `''`, `''` on the old file and `''`, `many-config-paths`, `''` on the new. Margin: 100 files use 6.09M of 8.39M (6.19M with the temp path 160 characters deeper); 136 files pass and 138 are refused. The Fable run of the 6 by 3,000 shape, each alternate with a folder of its own: 12.7 s old under load, refused in 0.07 s new.
+- Also refused now, CONFIRMED by Fable, not re-run: 1,000 files of two quoted 32 KB lines (old `''` in 14.1 s, new refused in 1.3 s); a gitdir and its commondir with 75 files of 60 KB each (old `''`, new refused: one limit for both).
+- Left as it is: the length is counted in characters, so files of 3-byte characters count a third of their bytes. 370 reads of 64 KB of such text (24 MB) pass in 68 ms (CONFIRMED by Fable, not re-run), so there is no time in it; the docs' "about 125 files" holds for ASCII.
+- Deferred, older and unchanged:
+  - New, RS-A-altsmall, CONFIRMED by Fable, not re-run, seen on 3cb56b5 and 9d4266b: many letter cases of one folder with small alternates files still answer `''` in 2 to 2.9 s (6 alternates by 3,000 cases with 7-byte files: 2.0 s old, 1.9 s new; with 3 empty subfolders each: 2.9 s and 2.8 s). The time is the lstat and the listing for each spelling, not the read. SECURITY.md says the slowest inputs let through take 1 to 2 seconds, so this is a little past it. Windows as built. Repro: `repro-altread.js` shape F with the sibling's alternates file cut to 7 bytes; time `farGitConfig`.
+  - RS-A-altmodules again, CONFIRMED by Fable, not re-run: 3 module gitdirs with 100 files of 60 KB each answer `''` (6.06M of work used in each module).
+- INFERRED by Fable from the code, not run: off Windows, `.` and `..` parts, trailing separators and quoted spellings come to one `seen` key.
+
 ## Next version: RS-A-altcase and RS-A-storelinks (2026-11-10, branch `claude/rs-a-altcase` off cc06828, merged in PR #43 as 3cb56b5)
 
 Both FLAGGED in PR #42's round 1. The user: "Yes, both together".
