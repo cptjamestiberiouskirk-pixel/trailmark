@@ -1870,6 +1870,63 @@ test('git checks: folders git tries as bare repos, tracked files turned folders,
   assert.strictEqual(mods('m4', md => { for (const n of ['libs/one', 'libs/two']) { const d = path.join(md, n); fs.mkdirSync(path.join(d, 'objects'), { recursive: true }); fs.mkdirSync(path.join(d, 'refs')); fs.writeFileSync(path.join(d, 'HEAD'), 'ref: refs/heads/main\n'); } }), '');
 });
 
+test('git status: the time is looked at before each folder with a .git is checked (RS-A-nestedtime)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-nested-time-');
+  // Four tracked files that are now folders, each with a .git file to a
+  // plain gitdir: git status would look for a repo in each, so each is
+  // checked first.
+  // plain: the folders hold no .git, so there is nothing to check in them.
+  const repo = (name, plain) => {
+    const r = path.join(base, name); const g = repoAt(r);
+    const subs = ['sub0', 'sub1', 'sub2', 'sub3'];
+    for (const s of subs) fs.writeFileSync(path.join(r, s), 'x');
+    g('add', ...subs); g('commit', '-qm', 'subs');
+    for (const s of subs) {
+      fs.rmSync(path.join(r, s)); fs.mkdirSync(path.join(r, s));
+      if (plain) continue;
+      const gd = path.join(base, `${name}-gitdirs`, s);
+      fs.mkdirSync(path.join(gd, 'objects'), { recursive: true });
+      fs.mkdirSync(path.join(gd, 'refs'));
+      fs.writeFileSync(path.join(gd, 'HEAD'), 'ref: refs/heads/main\n');
+      fs.writeFileSync(path.join(gd, 'config'), '[core]\n\trepositoryformatversion = 0\n');
+      fs.writeFileSync(path.join(r, s, '.git'), `gitdir: ${gd.replace(/\\/g, '/')}\n`);
+    }
+    return r;
+  };
+  // The clock stands still at the start of the 5 s, and jumps to `left` ms
+  // before their end at the first look at one of those .git files. Seconds
+  // aren't measured: the looks at those files are counted.
+  const run = (name, left, plain = false) => {
+    const r = repo(name, plain);
+    const now = Date.now; const lstat = fs.lstatSync;
+    const start = now();
+    let clock = start; let looks = 0;
+    Date.now = () => clock;
+    fs.lstatSync = (p, ...a) => {
+      if (typeof p === 'string' && path.basename(p) === '.git' && /^sub\d$/.test(path.basename(path.dirname(p)))) {
+        if (!looks++ && left !== null) clock = start + 5000 - left;
+      }
+      return lstat(p, ...a);
+    };
+    try { return { skipped: gitFacts(r, ['status'], { budgetMs: 5000 }).statusSkipped, looks }; } finally { Date.now = now; fs.lstatSync = lstat; }
+  };
+  // 500 ms left when the first one is reached: it isn't checked, and the
+  // other three aren't looked at.
+  assert.deepStrictEqual(run('short', 500), { skipped: 'git-timeout', looks: 1 });
+  // 900 ms left, and time in hand: all four are checked (each is looked at
+  // by the loop and again by its check) and status is read.
+  const enough = run('enough', 900);
+  assert.strictEqual(enough.skipped, undefined, '900 ms left');
+  assert.ok(enough.looks >= 8, `900 ms left: ${enough.looks} looks`);
+  const plenty = run('plenty', null);
+  assert.strictEqual(plenty.skipped, undefined, 'time in hand');
+  assert.ok(plenty.looks >= 8, `time in hand: ${plenty.looks} looks`);
+  // Folders with no .git cost a look each and no check, so 500 ms left
+  // doesn't stop there: all four are looked at once, and status is read.
+  assert.deepStrictEqual(run('plain', 500, true), { skipped: undefined, looks: 4 });
+});
+
 test('scan: only the folder a session started in counts; a memory folder named notes (loop round 7)', { skip: NO_LINKS }, () => {
   const base = realTemp('jbmem-r7-');
   const cfg = path.join(base, 'cfg');

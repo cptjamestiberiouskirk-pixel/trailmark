@@ -8,7 +8,22 @@ Added at the user's request on 2026-11-09, to work on later:
 
 - Make the lessons check enforced as well as followed. Today the only part a tool enforces is the log's format, which `dev/release-check.sh` fails on if an entry is broken. Sessions still follow the rest by hand. A commit or push hook could force the rules to appear, but that is a settings change and needs the user's approval.
 
-## Next version: RS-A-altmodules (2026-11-11, branch `claude/rs-a-altmodules` off f7df599)
+## Next version: RS-A-nestedtime (2026-11-11, branch `claude/rs-a-nestedtime` off af25b72)
+
+PR #46 (RS-A-altmodules) merged as af25b72 at 2026-11-11 16:25:02Z, when the user said "Yes, auto-merge 46" (9 of 9 jobs passed). The user, on this item: "Yes, continue with RS-A-nestedtime once PR 46 merges."
+
+- What was wrong, CONFIRMED here on af25b72 (Windows, `repro-nestedtime.js`): before `git status`, the loop over folders of tracked files in `farWorktree` (`gitfacts.js`) ran `farNested`, a whole repo check, on each subfolder that holds a `.git`, and looked at the time once in 500 folders of tracked files. One folder can hold any number of such subfolders. With 5 s given and N subfolders, each with a `.git` file to a gitdir whose config names two `lfs.storage` folders of 120 links to a folder at the end of a 900-character path: N=1 1.33 s (status read), N=6 5.60 s, N=12 12.35 s, the last two `git-timeout`. About 0.93 s for each. Opus saw 22.4 s for 24.
+  - The folder needs three or more tracked files: with one or two, only those names are looked up and the subfolders aren't listed (the first run here showed nothing for that reason).
+  - Windows and macOS check every subfolder on disk; elsewhere only one named like a tracked file, so there the shape needs a tracked file for each (INFERRED from the code, not run).
+- Fix (`gitfacts.js`, both copies, one line): `if (g && r.left() < 800) return 'git-timeout';` before `farNested`, as the loop over submodules below it already does.
+- After, CONFIRMED here: N=1 1.30 s (status read), N=6 4.87 s, N=12 5.07 s, both `git-timeout`. The most past the time is one check.
+- Test: "git status: the time is looked at before each folder with a .git is checked (RS-A-nestedtime)", both copies, every system: four tracked files that are now folders with a `.git` file. `Date.now` stands still and jumps to 500 or 900 ms before the end of the 5 s at the first look at one of those `.git` files; the looks are counted, no seconds are measured. 500 ms left: `git-timeout` after one look. 900 ms left, and time in hand: all four checked and status read. Four folders with no `.git` and 500 ms left: four looks and status read. Fails on af25b72.
+- Mutations (`mutate-nestedtime.js`, each through `--only 'RS-A-nestedtime'`): the parent's file; 400 for 800; 1000 for 800; the time looked at after the check; the time looked at for folders with no `.git` too; another reason word. All 6 fail; unchanged passes. The fifth passed until the case with no `.git` was added.
+- Docs: SECURITY.md's paragraph on the status check gained two sentences.
+- Not shown: macOS and Linux times; more than 12 subfolders here.
+- Still deferred: RS-A-modlinks, RS-A-gitdirlinks, RS-A-abovegit, RS-A-altsmall, RS-A-dotwords, RS-A-sharefold, RS-A-storecost, RS-A-biglisting.
+
+## Next version: RS-A-altmodules (2026-11-11, branch `claude/rs-a-altmodules` off f7df599, merged in PR #46 as af25b72)
 
 PR #45 (RS-A-altread) merged as f7df599 at 2026-11-11 15:19:50Z, when the user said "Yes, auto-merge 45" (9 of 9 jobs passed; CI on main passed).
 

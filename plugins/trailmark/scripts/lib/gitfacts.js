@@ -212,6 +212,11 @@ function farWorktree(r, cwd) {
       const at = path.join(top.top, dir, nm);
       let g = false;
       try { fs.lstatSync(path.join(at, '.git')); g = true; } catch { g = false; }
+      // The time is looked at before each one, as for the submodules below:
+      // a check can take a second, and one folder can hold any number of
+      // these. 12 slow ones took 12.4 s where 5 s were given, since the look
+      // above comes once in 500 folders of tracked files (RS-A-nestedtime).
+      if (g && r.left() < 800) return 'git-timeout';
       if (g && farNested(at, top.top)) return 'submodule-pointer';
       if (g || want.has(fold(nm))) anyFolder = true;
     }
