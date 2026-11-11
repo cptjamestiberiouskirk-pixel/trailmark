@@ -1906,6 +1906,11 @@ test('git status: the time is looked at before each folder with a .git is checke
     fs.lstatSync = (p, ...a) => {
       if (typeof p === 'string' && path.basename(p) === '.git' && /^sub\d$/.test(path.basename(path.dirname(p)))) {
         if (!looks++ && left !== null) clock = start + 5000 - left;
+      } else if (typeof p === 'string' && path.basename(p) === '.gitmodules') {
+        // Past the folders: the clock goes back, so the git calls that
+        // follow have their whole time on a slow machine too (what is left
+        // is the timeout they are run with).
+        clock = start;
       }
       return lstat(p, ...a);
     };
