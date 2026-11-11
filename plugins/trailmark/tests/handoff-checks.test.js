@@ -2048,31 +2048,36 @@ test('git status: the time is looked at before each folder of tracked files (RS-
     const r = repo(name, links);
     const now = Date.now; const lstat = fs.lstatSync;
     const start = now();
-    let clock = start; const seen = new Set();
+    let clock = start; let back = false; const seen = new Set();
     Date.now = () => clock;
     fs.lstatSync = (p, ...a) => {
-      if (typeof p === 'string' && /^d\d$/.test(path.basename(p))) {
+      // By the path from this repo: a part of the temp folder's own path
+      // may be named like one of the four (`d7`).
+      const rel = typeof p === 'string' ? path.relative(r, p).replace(/\\/g, '/') : '';
+      if (/^d\d$/.test(rel)) {
         if (!seen.size && left !== null) clock = start + 5000 - left;
-        seen.add(path.basename(p));
-      } else if (typeof p === 'string' && path.basename(p) === '.gitmodules') {
-        // Past the folders: the clock goes back, so the git calls that
-        // follow have their whole time on a slow machine too.
-        clock = start;
+        seen.add(rel);
+      } else if (rel === 'a' || /^d\d\/f$/.test(rel)) {
+        // Past the folders, at the first tracked file looked up: the clock
+        // goes back, so the git calls that follow have their whole time on
+        // a slow machine too (what is left is the timeout they run with).
+        clock = start; back = true;
       }
       return lstat(p, ...a);
     };
-    try { return { skipped: gitFacts(r, ['status'], { budgetMs: 5000 }).statusSkipped, folders: seen.size }; } finally { Date.now = now; fs.lstatSync = lstat; }
+    try { return { skipped: gitFacts(r, ['status'], { budgetMs: 5000 }).statusSkipped, folders: seen.size, back }; } finally { Date.now = now; fs.lstatSync = lstat; }
   };
   // 500 ms left once the first folder is reached: the other three aren't
-  // looked at.
-  assert.deepStrictEqual(run('short', 500), { skipped: 'git-timeout', folders: 1 });
-  // 900 ms left, and time in hand: all four are looked at and status is read.
-  assert.deepStrictEqual(run('enough', 900), { skipped: undefined, folders: 4 });
-  assert.deepStrictEqual(run('plenty', null), { skipped: undefined, folders: 4 });
+  // looked at, and nothing after the folders is.
+  assert.deepStrictEqual(run('short', 500), { skipped: 'git-timeout', folders: 1, back: false });
+  // 900 ms left, and time in hand: all four are looked at and status is
+  // read (`back`: the clock did go back before git ran again).
+  assert.deepStrictEqual(run('enough', 900), { skipped: undefined, folders: 4, back: true });
+  assert.deepStrictEqual(run('plenty', null), { skipped: undefined, folders: 4, back: true });
   // The same for folders that are no links: the look at the time comes
   // before each folder, whatever it turns out to be.
-  assert.deepStrictEqual(run('plain-short', 500, false), { skipped: 'git-timeout', folders: 1 });
-  assert.deepStrictEqual(run('plain-enough', 900, false), { skipped: undefined, folders: 4 });
+  assert.deepStrictEqual(run('plain-short', 500, false), { skipped: 'git-timeout', folders: 1, back: false });
+  assert.deepStrictEqual(run('plain-enough', 900, false), { skipped: undefined, folders: 4, back: true });
 });
 
 test('scan: only the folder a session started in counts; a memory folder named notes (loop round 7)', { skip: NO_LINKS }, () => {

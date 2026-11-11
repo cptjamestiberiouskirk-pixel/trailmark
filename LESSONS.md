@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-11: A test's stub matched paths outside the test, and one of its branches never ran
+- What went wrong: the RS-A-linkfolders test stubbed `fs.lstatSync` and told its four folders by the last part of the path (`d0` to `d3`). The walk of a link looks at every part of the temp folder's own path, so under a temp folder named `d7` the test counted 5 and failed. The same stub was to set its clock back at the look at `.gitmodules`, which never comes in that repo: the git calls after the loop ran with a real 900 ms timeout. Both found by the reviewer of PR #49 and reproduced here; the test had passed here and on the mutations.
+- Why: the stub was copied from the RS-A-nestedtime test, where `.gitmodules` is looked at (a tracked file turned folder) and the names matched are two parts long. Nothing in the test showed whether the branch ran.
+- Rule going forward: a stub on a shared function matches on the path from the test's own folder, not on a name alone. A stub branch that changes what the rest of the test sees (a clock, a counter) sets a flag, and the test asserts the flag in each case.
+- Status: open
+
 ## 2026-11-11: A merge chained after a push went in before CI saw the push
 - What went wrong: PR #47's round 1 batch (cb14d67: a test's stub clock, a SECURITY.md wording, the notes) was pushed and `gh pr merge 47 --auto --merge` ran in the same script. The PR merged at once as 8fd6b84 with all 9 jobs of cb14d67 still pending, so CI did not gate that commit. Its parent b82ab59 had passed CI, and `--sums --quick` had passed here on cb14d67.
 - Why: right after a push the new head's jobs aren't registered yet, and `--auto` merges straight away when nothing is seen pending (admins are also exempt from the required jobs). PLAYBOOK.md already said a merge is run as its own command; the script chained it after the push.
