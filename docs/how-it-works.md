@@ -2,6 +2,8 @@
 
 This is the technical reference: what each hook does, how commits are traced to the folder they ran in, how parallel sessions stay safe, the sandbox, the size budget, and exactly what is read and written. For installing and everyday use, see the [README](../README.md) and the [manual](../MANUAL.md). Paths below are inside the plugin folder, `plugins/trailmark/`, unless they say otherwise.
 
+This page describes the Claude Code plugin. The Codex copy, `plugins/trailmark-codex/`, writes the same handoff in the same memory folder, and its [README](../plugins/trailmark-codex/README.md) lists what differs under "How it differs from the Claude Code plugin": the hooks it has, its skill names and its size cap among them. What it reads and writes outside the memory folder is under "Your data" there.
+
 ## What happens automatically
 
 Once Trailmark is installed at user scope, the hooks act only in repos set up with `/trailmark:memory-setup`.
