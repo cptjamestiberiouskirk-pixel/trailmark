@@ -8,7 +8,38 @@ Added at the user's request on 2026-11-09, to work on later:
 
 - Make the lessons check enforced as well as followed. Today the only part a tool enforces is the log's format, which `dev/release-check.sh` fails on if an entry is broken. Sessions still follow the rest by hand. A commit or push hook could force the rules to appear, but that is a settings change and needs the user's approval.
 
-## Next version: RS-A-altmodules (2026-11-11, branch `claude/rs-a-altmodules` off f7df599)
+## Next version: RS-A-nestedtime (2026-11-11, branch `claude/rs-a-nestedtime` off af25b72)
+
+PR #46 (RS-A-altmodules) merged as af25b72 at 2026-11-11 16:25:02Z, when the user said "Yes, auto-merge 46" (9 of 9 jobs passed). The user, on this item: "Yes, continue with RS-A-nestedtime once PR 46 merges."
+
+- What was wrong, CONFIRMED here on af25b72 (Windows, `repro-nestedtime.js`): before `git status`, the loop over folders of tracked files in `farWorktree` (`gitfacts.js`) ran `farNested`, a whole repo check, on each subfolder that holds a `.git`, and looked at the time once in 500 folders of tracked files. One folder can hold any number of such subfolders. With 5 s given and N subfolders, each with a `.git` file to a gitdir whose config names two `lfs.storage` folders of 120 links to a folder at the end of a 900-character path: N=1 1.33 s (status read), N=6 5.60 s, N=12 12.35 s, the last two `git-timeout`. About 0.93 s for each. Opus saw 22.4 s for 24.
+  - The folder needs three or more tracked files: with one or two, only those names are looked up and the subfolders aren't listed (the first run here showed nothing for that reason).
+  - Windows and macOS check every subfolder on disk; elsewhere only one named like a tracked file, so there the shape needs a tracked file for each (INFERRED from the code, not run).
+- Fix (`gitfacts.js`, both copies, one line): `if (g && r.left() < 800) return 'git-timeout';` before `farNested`, as the loop over submodules below it already does.
+- After, CONFIRMED here: N=1 1.30 s (status read), N=6 4.87 s, N=12 5.07 s, both `git-timeout`. The most past the time is one check.
+- Test: "git status: the time is looked at before each folder with a .git is checked (RS-A-nestedtime)", both copies, every system: four tracked files that are now folders with a `.git` file. `Date.now` stands still and jumps to 500 or 900 ms before the end of the 5 s at the first look at one of those `.git` files; the looks are counted, no seconds are measured. 500 ms left: `git-timeout` after one look. 900 ms left, and time in hand: all four checked and status read. Four folders with no `.git` and 500 ms left: four looks and status read. Fails on af25b72.
+- Mutations (`mutate-nestedtime.js`, each through `--only 'RS-A-nestedtime'`): the parent's file; 400 for 800; 1000 for 800; the time looked at after the check; the time looked at for folders with no `.git` too; another reason word. All 6 fail; unchanged passes. The fifth passed until the case with no `.git` was added.
+- Docs: SECURITY.md's paragraph on the status check gained two sentences.
+- Not shown: macOS and Linux times; more than 12 subfolders here.
+
+### RS-A-nestedtime round 1 (2026-11-11, on af25b72..b82ab59, PR #47)
+
+Fable on `gitfacts.js` and the test, Sonnet on the SECURITY.md sentences, each from an export under `E:/DevTemp`. Neither found anything wrong in the changed line. The user had said "Yes, auto-merge 47 once the security review is clean", and then left the merges of these PRs to the session.
+
+- Fixed in this batch:
+  - The test (Fable, INFERRED; seen here in `runner`, where what is left is the timeout a git call is run with): after the jump the stub clock stayed at 500 or 900 ms before the end, so the git calls after the loop ran with that as a real timeout, and a slow machine could fail the test there. The stub now sets the clock back at the look at `.gitmodules`, which comes right after the loop. The six mutations were run again: all fail, unchanged passes.
+  - SECURITY.md (Sonnet, Fable): "each folder with a `.git`", "only once in every 500 folders", and that 5.1 seconds is the time and the one check that was running, not a bound of its own.
+- CONFIRMED by Fable, not re-run: after `git-timeout` from this line only `rev-parse` (twice) and `ls-files --stage` had run, and no `git status`. The test fails on the old file (status read, 12 looks) and passes on the new; looks are 3 for each folder checked, 4 in all for the plain case. Times with 5 s given: 12 subfolders 11.1 to 11.3 s old and 4.6 to 4.7 s new at rest; under load 18 to 41 s old and 4.6 to 5.6 s new.
+- A change in behavior, CONFIRMED by Fable, not re-run: with 250 to 799 ms left when such a folder is reached, the old code went on and read status if the calls fit; the new answers `git-timeout`. The loop over submodules has the same rule.
+- Deferred, older and the same on af25b72 and b82ab59, each CONFIRMED by Fable, not re-run, unless marked:
+  - New, RS-A-linkfolders, FLAGGED for the time: the first loop of `farWorktree` (`gitfacts.js` 168 to 176, an lstat and a readlink for each folder of tracked files) never looks at the time. 500 tracked folders that are junctions to a 900-character path: 5.2 s there (10.4 ms each). 20,000 are allowed: about 3.5 minutes, INFERRED. Repro: a repo with N tracked files `dN/f` where each `dN` is a junction to one folder at the end of a 900-character path; time `gitFacts(r, ['status'], { budgetMs: 5000 })`.
+  - Added to RS-A-biglisting: the look at line 191 comes once in 500 folders. 499 tracked folders that are junctions to one folder of 20,000 files and 200 subfolders, three tracked names each: 8.0 s (with two names 150 ms).
+  - New, RS-A-nestedone, FLAGGED for the time: one `farNested` can take seconds, and the look comes before it, not inside. A `.git` whose config names two stores and includes 48 files with a quote in the path (a git call each): 4.15 s; four config files of 4 MB: 3.0 s, and 50 are allowed, about 37 s INFERRED. With 1.1 s given: 4.36 s.
+  - New, RS-A-lfsconfigtime: `filterOverrides` reads `.lfsconfig` with no look at the time; one naming two stores of 120 links adds about 1 s (1.3 s with 1 s given). `farGitConfig(cwd)` at the start of `gitFacts` has no look either (read, not run).
+  - INFERRED by Fable, not run: on Windows and macOS a submodule's folder is checked by this loop and again by the loop over submodules.
+- Still deferred: RS-A-modlinks, RS-A-gitdirlinks, RS-A-abovegit, RS-A-altsmall, RS-A-dotwords, RS-A-sharefold, RS-A-storecost, RS-A-biglisting.
+
+## Next version: RS-A-altmodules (2026-11-11, branch `claude/rs-a-altmodules` off f7df599, merged in PR #46 as af25b72)
 
 PR #45 (RS-A-altread) merged as f7df599 at 2026-11-11 15:19:50Z, when the user said "Yes, auto-merge 45" (9 of 9 jobs passed; CI on main passed).
 
