@@ -217,12 +217,21 @@ let LSTAT_SEEN = null;
 // read by git itself, a call each, and 50 files are allowed, so one check of
 // a config that included 48 such files took 3.2 s with nothing looking at
 // the time (RS-A-nestedone).
+// floor: with less than this left, no further config file is read. 800 where
+// the caller's own loops stop at 800 (the status check); the check before a
+// git call hands in the 250 that call itself needs, so a caller with a second
+// in all (the look into another session's folder) still gets its call.
 let TIME_LEFT = null;
-function withTime(left, fn) {
-  const prev = TIME_LEFT;
+let TIME_FLOOR = 800;
+function withTime(left, fn, floor = 800) {
+  const prev = TIME_LEFT; const prevFloor = TIME_FLOOR;
   TIME_LEFT = typeof left === 'function' ? left : null;
-  try { return fn(); } finally { TIME_LEFT = prev; }
+  TIME_FLOOR = floor;
+  try { return fn(); } finally { TIME_LEFT = prev; TIME_FLOOR = prevFloor; }
 }
+// What configEntries answers when git was stopped by a timeout cut to the
+// caller's time: not an unreadable file, the time ran out.
+const TIMED = Symbol('timed');
 const MAX_LSTAT_SEEN = 20000;
 function lstatPart(p) {
   if (!LSTAT_SEEN) return fs.lstatSync(p);
@@ -430,17 +439,26 @@ function configEntries(file) {
   if (!/[\\"]|\/\/|%\(|include/i.test(st)) { const e = plainConfig(st); if (e) return e; }
   const bin = gitPath(__dirname);
   if (!bin) return UNSAFE;
+  // No longer than the caller has left, in whole ms (Node refuses another
+  // number), and at least 1: 0 would be no timeout at all. The time can be
+  // gone by now, though farConfig looked: reading a large file comes between.
+  const left = TIME_LEFT ? TIME_LEFT() : Infinity;
+  const timeout = Number.isFinite(left) ? Math.max(1, Math.min(3000, Math.floor(left))) : 3000;
   try {
     const out = execFileSync(bin, [...GIT_GLOBAL, 'config', '--file', file, '--no-includes', '--null', '--list'], {
       cwd: __dirname, env: { ...gitEnv(), GIT_CEILING_DIRECTORIES: path.dirname(__dirname) },
-      // No longer than the caller has left (farConfig looked: 800 ms or more).
-      encoding: 'utf8', timeout: TIME_LEFT ? Math.max(1, Math.min(3000, TIME_LEFT())) : 3000, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+      encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
     });
     return out.split('\0').filter(Boolean).map(r => {
       const i = r.indexOf('\n');
       return i < 0 ? [r, ''] : [r.slice(0, i), r.slice(i + 1)];
     });
-  } catch { return UNSAFE; }
+  } catch (e) {
+    // git stopped by a timeout shorter than its own 3 s: the caller's time
+    // ran out, and the file may be fine.
+    if (timeout < 3000 && e && e.code === 'ETIMEDOUT') return TIMED;
+    return UNSAFE;
+  }
 }
 const REMOTE_ADDRESS = /^remote\..+\.(?:url|pushurl)$|^url\..+\.(?:insteadof|pushinsteadof)$|^submodule\..+\.url$/i;
 // Settings whose value names a file or folder git may open (core.attributesFile,
@@ -616,12 +634,13 @@ function farConfig(file, depth, st) {
   if (st.seen.has(seenKey)) return '';
   st.seen.add(seenKey);
   if (++st.files > MAX_CONFIG_FILES) return 'many-config-files';
-  // Before each file is read: with under 0.8 s of the caller's time left the
-  // check stops, as before each submodule gitdir (farModules). The caller
-  // takes the answer as a git call that ran out of time (gitfacts.js).
-  if (TIME_LEFT && TIME_LEFT() < 800) return 'git-timeout';
+  // Before each file is read: with less of the caller's time left than the
+  // floor it gave (withTime), the check stops. The caller takes the answer
+  // as a git call that ran out of time (gitfacts.js).
+  if (TIME_LEFT && TIME_LEFT() < TIME_FLOOR) return 'git-timeout';
   const entries = configEntries(real);
   if (entries === null) return '';
+  if (entries === TIMED) return 'git-timeout';
   if (entries === UNSAFE) return 'unreadable-config';
   for (const [key, value] of entries) {
     // A remote's address is used only to fetch and push, and every transport
@@ -1435,6 +1454,7 @@ function farLfsFile(file, top) {
   if (!st.isFile()) return 'lfs-config';
   const entries = configEntries(file);
   if (entries === null) return '';
+  if (entries === TIMED) return 'git-timeout';
   if (entries === UNSAFE) return 'lfs-config';
   return farLfsEntries(entries, top);
 }

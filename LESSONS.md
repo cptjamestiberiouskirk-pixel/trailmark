@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-11: A line copied from one caller cut another caller's smaller budget
+- What went wrong: RS-A-nestedone's fix stopped every config check at 800 ms left, the line the status check's loops use with their 5 s. The same check also runs before each git call of a runner that has a second in all (the look into another session's folder), so that runner lost its calls after 200 ms and another command's commits were logged as this one's. A second fault in the same fix: git stopped by the shortened timeout was read as an unreadable file and kept, where the parent said the time ran out. A reviewer found both; the first test passed with them.
+- Why: the line was taken from the nearest code that had one, without listing who else reaches the changed function and with what budget. The shortened timeout was added without asking what its own failure looks like to the code after it.
+- Rule going forward: a limit handed down a call chain is named by each caller, and before it is written every runner that reaches the function is listed with its budget (`grep 'runner('`), smallest first. A timeout that is made shorter gets a case for the call being stopped by it: which word comes out, and whether it is kept.
+- Status: open
+
 ## 2026-11-11: A fix was timed through the library, and the real hook paid the cost somewhere else
 - What went wrong: RS-A-nestedone's fix was first timed only by calling `gitFacts` from a script: 8 folders above the session's folder with slow configs went from 10.0 s to 4.2 s. Started as a real PreCompact hook, the same shape took 10.2 s before and after. The launcher's own first check (`hookMemory`, to find the memory folder) reads the same config files with no time, before `gitFacts` starts, and keeps the answer. The docs sentence in draft would have claimed the 4.2 s for a hook.
 - Why: the repro started at the function that was changed, not at what a user runs. The call that pays first in a hook is in another file.

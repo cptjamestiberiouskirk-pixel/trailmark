@@ -42,7 +42,9 @@ function runner(budgetMs) {
   r.run = (cwd, args, input) => {
     const left = Math.min(4000, deadline - Date.now());
     if (r.hung || left < 250) { r.late = true; return { ok: false, out: '', why: 'timeout' }; }
-    const far = withTime(r.left, () => farGitConfig(cwd));
+    // The check stops at the 250 ms this call needs, not at the status
+    // check's 800: a runner with a second in all still gets its calls.
+    const far = withTime(r.left, () => farGitConfig(cwd), 250);
     // The check ran out of the time: the same answer as a call that did.
     if (far === 'git-timeout') { r.late = true; return { ok: false, out: '', why: 'timeout' }; }
     if (far) { r.refused = r.refused || far; return { ok: false, out: '', why: far }; }
@@ -72,11 +74,10 @@ function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
   const git = (args) => (wanted.length ? r.run(cwd, args).out.trim() : '');
   const f = {};
   // git kept out of this folder: no facts, and the reason (a fixed word).
-  const refused = withTime(r.left, () => farGitConfig(cwd));
+  const refused = withTime(r.left, () => farGitConfig(cwd), 250);
   // The check ran out of the time: git isn't kept out for that, and each
   // call below answers as one that ran out of time (r.run).
-  if (refused === 'git-timeout') r.late = true;
-  else if (refused) { f.gitRefused = refused; return f; }
+  if (refused && refused !== 'git-timeout') { f.gitRefused = refused; return f; }
   if (wanted.includes('branch')) {
     // 'unknown' when git didn't answer (a timeout); 'detached' when it said
     // there is no current branch, or failed (not a repo), as before.
