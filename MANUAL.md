@@ -50,7 +50,7 @@ Version 0.6.2, for both Claude Code and the Codex copy (trailmark-watchdog 1.7.0
 | Node.js | 22.23.4, 24.22.1 or 26.12.1, or later in the same line | Every hook runs `node`. Older releases miss two fixes to the permission model the sandbox relies on, and the installer refuses them unless you pass `--allow-old-node` / `-AllowOldNode`. Lines before 22, and odd-numbered lines before 26, are refused the same way, since they get no security releases |
 | Claude Code | 2.1.304 or later (the oldest tested) | The hooks use the `args` and `if` options, which 2.1.42 ignores. Versions between the two are untested. The installer warns on an older one. The installers need the `claude` command, with `--codex` / `-Codex` too; the Codex copy itself doesn't (section 8) |
 | git | Any current release | Optional. Without it nothing breaks, but no commits are logged and the handoff's `Updated:` line has no branch or HEAD |
-| Windows | Windows 10 or 11, with Windows PowerShell 5.1 (built in) | PowerShell 7 also runs the installer and the scripts. trailmark-watchdog's scheduled scans run under 5.1 |
+| Windows | Windows 10 or 11. PowerShell 7 (`pwsh`) for the commands this manual gives | PowerShell 7 isn't part of Windows: `winget install --id Microsoft.PowerShell --source winget` installs it next to Windows PowerShell 5.1, which stays. `install.cmd` and the other `.cmd` files need nothing extra, since they start the built-in Windows PowerShell 5.1, which runs the installer and the scripts too. trailmark-watchdog is the exception: its scheduled scans run under 5.1, so its commands in section 10 use `powershell.exe` |
 | macOS, Linux | bash | The plugin's tests run in CI on Linux, macOS and Windows. The installer is tested on Linux |
 | Codex copy | The ChatGPT desktop app with Codex mode, and the Codex CLI for the marketplace command | Tested with the desktop app on Windows. macOS and Linux are untested there, though CI runs the copy's own tests on all three |
 
@@ -73,10 +73,10 @@ cd ~/tools/trailmark
 ./install.sh
 ```
 
-Windows: double-click `install.cmd`, or in PowerShell:
+Windows: double-click `install.cmd`, or in PowerShell 7:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tools\trailmark\install.ps1"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tools\trailmark\install.ps1"
 ```
 
 The installer downloads nothing and changes no file in the release folder. It stops at the first problem and says what to do. When it's done, set up each repo you want covered (section 4).
@@ -329,6 +329,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<release folder>\tools\
 
 You can also run `install.ps1 -Watchdog`, or double-click `tools\windows\install-trailmark-watchdog.cmd`.
 
+The commands in this section use Windows PowerShell 5.1 (`powershell.exe`) on purpose. The scheduled scans run under 5.1, and a scan under another PowerShell version than the one that accepted is reported, because the two can read some values differently. The watchdog's installer stops when 5.1 isn't there.
+
 The installer copies the watchdog to `%LOCALAPPDATA%\trailmark-watchdog` and shows a summary of the folder. It asks you to type `yes` to record that as known-good. Then it adds two scheduled tasks (`trailmark-watchdog` every 15 minutes, `trailmark-watchdog-reminder` at logon and unlock), runs each once and sends a test notification. Run from `tools\windows`, it watches the release folder two levels up. `-Root <folder>` names another.
 
 ### Using it
@@ -366,7 +368,7 @@ A file over 64 MB is checked by its first and last 8 MB, its size and its time, 
 
 ## 11. Diagnostic scripts (Windows)
 
-All of these live in `tools\windows`. Run each with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <script>`. Each writes a `.log` next to itself, which trailmark-watchdog ignores. The read-only ones take `-Repo <path>` and default to the current folder; `trace-handoff-writes.ps1` also needs `-Session <id>`.
+All of these live in `tools\windows`. Run each with `pwsh -NoProfile -ExecutionPolicy Bypass -File <script>` (Windows PowerShell 5.1 runs them too). Each writes a `.log` next to itself, which trailmark-watchdog ignores. The read-only ones take `-Repo <path>` and default to the current folder; `trace-handoff-writes.ps1` also needs `-Session <id>`.
 
 The scripts that read or start sessions work on Claude Code sessions. `test-trailmark-watchdog.ps1` also covers the Codex copy's hooks file, and `test-node-lookup.ps1` has an optional Codex step. For Codex chats, the copy's own log shows how its hooks ran (its README, "Checking how the hooks ran").
 

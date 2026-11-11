@@ -30,7 +30,7 @@ What the release relies on, and what the installers do about each:
 
 | Needed | Used for | The installers (`install.sh`, `install.ps1`) |
 |---|---|---|
-| Node.js 22.23.4, 24.22.1 or 26.12.1, or later in the same line | Every hook, the launcher and the sandbox | Stop without `node`. Stop on an older Node unless `--allow-old-node` / `-AllowOldNode` is given. Stop when the sandbox check doesn't print `SANDBOX OK` |
+| Node.js 22.23.4, 24.22.1 or 26.12.1, or later in the same line | Every hook, the launcher and the sandbox | Stop without `node`. Stop on an older Node, a line before 22, or line 23 or 25, unless `--allow-old-node` / `-AllowOldNode` is given. Stop when the sandbox check doesn't print `SANDBOX OK` |
 | git (optional) | Commit and branch facts | Warn without it. Trailmark then logs no commits and shows no branch |
 | Claude Code 2.1.304 or later | The Claude Code plugin, and the `claude` command the installers run | Stop without `claude`. Warn on an older version |
 | The ChatGPT desktop app with Codex mode, and the Codex CLI | The Codex copy | Not checked, except that `--codex` / `-Codex` warns when `codex` isn't on PATH |
