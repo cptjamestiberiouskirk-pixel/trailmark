@@ -938,6 +938,56 @@ test('git pointers: many path values are checked once each, and too many are ref
   assert.strictEqual(farGitConfig(two), 'network-config', 'core.worktree from an included file');
 });
 
+test('git pointers: links in a gitdir or a store are followed up to a limit on the work, then git is kept out (RS-A-manylinks)', () => {
+  const { farGitConfig, farLfsEntries } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far-manylinks-');
+  // Every link leads to one folder at the end of a path 900 characters long,
+  // about 400 parts: what a link costs is its target's path, each part by
+  // the length of the path up to it, so about 150 such links are the limit.
+  // One folder, since a test that made thousands of them (33,600 in a first
+  // version) stalled a ReFS drive for minutes. (Junctions on Windows, which
+  // need no right; symlinks elsewhere.)
+  let deep = path.join(base, 'p');
+  while (deep.length + 2 <= 900) deep = path.join(deep, 'd');
+  fs.mkdirSync(deep, { recursive: true });
+  let made = 0;
+  const links = (dir, n) => {
+    fs.mkdirSync(dir, { recursive: true });
+    for (let i = 0; i < n; i++) fs.symlinkSync(deep, path.join(dir, `l${i}`), 'junction');
+    return dir;
+  };
+  // A repo of its own for each check: an answer is kept for its folder.
+  const repo = () => { const r = path.join(base, `r${made++}`); repoAt(r); return r; };
+  const inGitdir = (n) => { const r = repo(); links(path.join(r, '.git', 'zz'), n); return r; };
+  const store = (n) => links(path.join(base, `s${made++}`), n);
+  // A dozen links, as the tools that link a gitdir's entries make, and 125.
+  assert.strictEqual(farGitConfig(inGitdir(12)), '', '12 links in a gitdir');
+  assert.strictEqual(farGitConfig(inGitdir(125)), '', '125 links in a gitdir');
+  // 220 are past the limit (before, every link was followed).
+  assert.strictEqual(farGitConfig(inGitdir(220)), 'many-entries', '220 links in a gitdir');
+  // A link that leads nowhere the check can follow keeps its own reason.
+  const loop = repo();
+  fs.mkdirSync(path.join(loop, '.git', 'zz'));
+  fs.symlinkSync(path.join(loop, '.git', 'zz', 'b'), path.join(loop, '.git', 'zz', 'a'), 'junction');
+  fs.symlinkSync(path.join(loop, '.git', 'zz', 'a'), path.join(loop, '.git', 'zz', 'b'), 'junction');
+  assert.strictEqual(farGitConfig(loop), 'linked-gitdir', 'links that loop');
+  // The limit is one walk's: a gitdir and a store next to its alternate,
+  // 125 links each, are two walks.
+  const two = inGitdir(125);
+  fs.mkdirSync(path.join(two, '.git', 'objects', 'info'), { recursive: true });
+  links(path.join(base, 'alt', 'lfs'), 125);
+  fs.writeFileSync(path.join(two, '.git', 'objects', 'info', 'alternates'), path.join(base, 'alt', 'objects') + '\n');
+  assert.strictEqual(farGitConfig(two), '', 'a gitdir and a store, 125 links each');
+  // A store has the same limit, and what its links cost counts toward the
+  // limit on a config's path values too: two stores of 125 pass, three
+  // don't.
+  const storage = (...dirs) => dirs.map(d => ['lfs.storage', d]);
+  assert.strictEqual(farLfsEntries(storage(store(125)), base), '', 'a store of 125 links');
+  assert.strictEqual(farLfsEntries(storage(store(220)), base), 'many-entries', 'a store of 220 links');
+  assert.strictEqual(farLfsEntries(storage(store(125), store(125)), base), '', 'two stores of 125 links');
+  assert.strictEqual(farLfsEntries(storage(store(125), store(125), store(125)), base), 'many-config-paths', 'three stores of 125 links');
+});
+
 test('git pointers: an LFS store next to an alternate is walked once, and too many are refused (RS-A-altstores)', () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far-altstores-');

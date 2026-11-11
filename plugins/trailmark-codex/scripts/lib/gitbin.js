@@ -770,8 +770,24 @@ function unlisted(d, e) {
   if (code !== 'ENOENT' && code !== 'ENOTDIR') return '';
   try { return fs.lstatSync(d).isDirectory() ? 'odd-path' : ''; } catch { return ''; }
 }
+// What following the links in one walk may cost, counted as localPath counts
+// its work (see WALK_LEFT). The budgets above count entries, and an entry
+// that is a link costs what its target's path does: 3,000 links to folders 40
+// levels down in a gitdir took 9 s, and 9,999 to folders two levels down 5 s
+// (Windows), where 100,000 plain entries take under one. About 3,500 links
+// to nearby folders fit, in 1.5 s; tools that link a gitdir's entries
+// (git-new-workdir, Android's repo) make a dozen. Past it git is kept out
+// (many-entries), since a link not followed could lead anywhere
+// (RS-A-manylinks). Inside a check of config values the smaller of this and
+// what that check has left holds.
+const MAX_LINK_WORK = 4 * 1024 * 1024;
 // tally: its `entries` grows by the entries looked at (an lfs.storage walk).
-function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false, tally = null } = {}) {
+function linkedEntries(gitdir, opts = {}) {
+  const outer = WALK_LEFT;
+  const start = WALK_LEFT = Math.min(outer, MAX_LINK_WORK);
+  try { return linkedEntriesIn(gitdir, opts); } finally { WALK_LEFT = outer === Infinity ? Infinity : outer - (start - WALK_LEFT); }
+}
+function linkedEntriesIn(gitdir, { objectsRoot = false, lfsStore = false, tally = null } = {}) {
   // JBMEM_TEST_GITDIR_BUDGET can only lower it (the tests use 20,000).
   const low = Number(process.env.JBMEM_TEST_GITDIR_BUDGET);
   const main = { n: lfsStore ? LFS_BUDGET : (low > 0 && low < GITDIR_BUDGET ? low : GITDIR_BUDGET), lfs: lfsStore };
@@ -808,7 +824,7 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false, tally = 
       let isDir = x.isDirectory();
       if (x.isSymbolicLink()) {
         const real = localPath(sub);
-        if (!real) return 'linked-gitdir';
+        if (!real) return WALK_LEFT < 0 ? 'many-entries' : 'linked-gitdir';
         try { isDir = fs.statSync(real).isDirectory(); } catch { isDir = false; }
         // Named as the disk has it, so `seen` below knows a folder that
         // many links name in many ways (240 such links: 605 listings and
@@ -876,7 +892,7 @@ function linkedEntries(gitdir, { objectsRoot = false, lfsStore = false, tally = 
   if (why || !lfsLater) return why;
   // The lfs/ folder (a link to a share there is refused like any other).
   let sub = path.join(gitdir, 'lfs');
-  if (lfsLater.isSymbolicLink()) { const real = localPath(sub); if (!real) return 'linked-gitdir'; sub = real; }
+  if (lfsLater.isSymbolicLink()) { const real = localPath(sub); if (!real) return WALK_LEFT < 0 ? 'many-entries' : 'linked-gitdir'; sub = real; }
   let isDir = false;
   try { isDir = fs.statSync(sub).isDirectory(); } catch { isDir = false; }
   return isDir ? walk(sub, 'lfs', 1, { n: LFS_BUDGET, lfs: true }) : '';
