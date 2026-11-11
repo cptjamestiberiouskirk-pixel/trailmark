@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-10: A test that made 33,600 folders stalled the drive
+- What went wrong: the first RS-A-manylinks test made 840 folders 40 levels down for its links' targets. It passed, in 12 to 24 s, but in three runs it took 481, 961 and 1,308 s, and `rm` calls of the check script hung for minutes.
+- Why: the stall is in the file system of drive E: (ReFS, the Dev Drive the temp folder is on), not in the code under test. CONFIRMED here: during the 481 s both test processes had no CPU time and no I/O count for 7 minutes (a sampler every 15 s), and Windows logged ReFS event 147 for `rm.exe` on E:, an I/O of 373 s. The same steps timed alone, 8 rounds, never took over 24 s. Each failed run also kept its 38,000 entries, 20 runs deep. Which ReFS work stalls is not known.
+- Rule going forward: a test makes as few folders as show the fault. When work is counted by a model (here `localPath`'s), look for the input that costs most per entry before making many: one folder at the end of a 900-character path costs 27,000 per link, against 290 per folder made. For a slow run, sample CPU and I/O counts of the processes first: no CPU and no I/O means the wait is outside the code.
+- Status: open
+
 ## 2026-11-10: A search that wanted text before each match missed the ones at a line's start
 - What went wrong: I wrote in `dev/release-state.md` that no reference to another section by its place was left, and twenty were (Sonnet, PR #41 round 1; each seen here). My search asked for 60 characters before each match, to show context, and the twenty sat within 60 characters of a line's start.
 - Why: the pattern that printed context also decided what counted as a match. I took an empty-looking result as "none left" and wrote the claim from it.
