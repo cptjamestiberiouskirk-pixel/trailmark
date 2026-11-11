@@ -1058,6 +1058,34 @@ test('git pointers: a repo\'s alternates and the stores next to them share one l
   }
 });
 
+test('git pointers: reading the alternates files counts toward the limit on the work (RS-A-altread)', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far-altread-');
+  let made = 0;
+  // A repo of its own for each check: an answer is kept for its folder.
+  const withAlternates = (lines) => {
+    const r = path.join(base, `r${made++}`);
+    repoAt(r);
+    fs.mkdirSync(path.join(r, '.git', 'objects', 'info'), { recursive: true });
+    fs.writeFileSync(path.join(r, '.git', 'objects', 'info', 'alternates'), lines.join('\n') + '\n');
+    return r;
+  };
+  // 150 alternates, each with an alternates file of its own that is 60,000
+  // bytes of comment lines: nothing to follow, only text to read. 100 of
+  // them are 6 MB, under the limit of 8 MiB, and 150 are 9 MB.
+  const alts = Array.from({ length: 150 }, (_, i) => {
+    const o = path.join(base, `a${i}`);
+    fs.mkdirSync(path.join(o, 'info'), { recursive: true });
+    fs.writeFileSync(path.join(o, 'info', 'alternates'), '#\n'.repeat(30000));
+    return o;
+  });
+  assert.strictEqual(farGitConfig(withAlternates(alts.slice(0, 100))), '', '100 alternates files of 60 KB');
+  assert.strictEqual(farGitConfig(withAlternates(alts)), 'many-config-paths', '150 alternates files of 60 KB');
+  // Files of a real size don't add up: 150 alternates with a line each.
+  for (const o of alts) fs.writeFileSync(path.join(o, 'info', 'alternates'), '# none\n');
+  assert.strictEqual(farGitConfig(withAlternates(alts)), '', '150 alternates files of one line');
+});
+
 test('git pointers: an LFS store next to an alternate is walked once, and too many are refused (RS-A-altstores)', () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far-altstores-');

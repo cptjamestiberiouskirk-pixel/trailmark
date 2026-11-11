@@ -8,6 +8,33 @@ Added at the user's request on 2026-11-09, to work on later:
 
 - Make the lessons check enforced as well as followed. Today the only part a tool enforces is the log's format, which `dev/release-check.sh` fails on if an entry is broken. Sessions still follow the rest by hand. A commit or push hook could force the rules to appear, but that is a settings change and needs the user's approval.
 
+## Next version: RS-A-altread (2026-11-11, branch `claude/rs-a-altread` off 3cb56b5, main at ee252b5 merged in after round 1)
+
+PR #43 (RS-A-altcase and RS-A-storelinks) merged as 3cb56b5 at 2026-11-11 03:38:57Z, when the user said "Yes, auto-merge 43".
+
+- What was wrong, CONFIRMED here on 3cb56b5 (Windows): reading each alternate's own `info/alternates` counted toward no limit. 6 alternates, each listing 3,000 letter cases of one sibling folder whose own `info/alternates` is 62,000 bytes of comment lines: `''` in 8.34 s (one such alternate 1.67 s). Off Windows the same reads need a real folder per line, so the time there is INFERRED lower and was not measured.
+- Fix (`gitbin.js`, both copies, one line in `farAlternates`): after an alternates file is read, its length comes off `WALK_LEFT`, the work limit `limitedWalk` sets for all of a repo's alternates (8 MiB), and below zero the answer is `many-config-paths`. The repo's own `objects/info/alternates` is counted too. A file over 64 KB was refused before and still is, so about 125 files of the largest size reach the limit.
+- After, CONFIRMED here: the shape above gives `many-config-paths` in 0.07 s (one alternate 0.06 s). 100 alternates with a 60 KB comment-only file each: `''` in 0.05 s; 150: `many-config-paths` in 0.07 s.
+- Test: "git pointers: reading the alternates files counts toward the limit on the work (RS-A-altread)", both copies: 100 files of 60 KB pass, 150 give `many-config-paths`, 150 files of one line pass. It runs on all three systems, makes about 310 folders and 9 MB of files, and takes 1 to 2 s in each copy. Fails on 3cb56b5 (the parent's `gitbin.js`).
+- Mutations (`mutate-altread.js` in the session's scratch folder, each run through `--only 'RS-A-altread'`): the parent's file, half the length counted, twice the length, a fixed 60,000 for each file, the length compared but not taken off. All 5 fail the test; unchanged passes.
+- Docs: MANUAL.md section 16 row `many-config-paths` and SECURITY.md's alternates bullet each gained a sentence.
+- Not shown: the Windows-only shape is not a test (18,000 lines of letter cases; the 150-file shape covers the same line of code on every system). That no real repo has megabytes of alternates files is INFERRED: git writes a line per alternate.
+- Repro: `repro-altread.js <repo root> <temp base> [FG]` in the session's scratch folder; the shapes are described above and in its header.
+- Still deferred: RS-A-altmodules (each module gitdir has limits of its own; `lfs.storage` and the alternates each have a work limit of their own).
+
+### RS-A-altread round 1 (2026-11-11, on 3cb56b5..9d4266b, PR #45)
+
+Fable on `gitbin.js` and the test, Sonnet on the two doc sentences, each from an export under `E:/DevTemp`. Neither found anything wrong in the changed code.
+
+- Fixed in this batch: MANUAL.md's row said "the largest read", which could be taken as the largest file read so far (Sonnet; seen here on reading the row). It now says a larger file is refused.
+- CONFIRMED by Fable, not re-run: the new line is reached only inside `limitedWalk`; a refusal leaves later checks of other repos right (a fresh repo, a plain one and a 100-file one answered `''` after it); the test's body gives `''`, `''`, `''` on the old file and `''`, `many-config-paths`, `''` on the new. Margin: 100 files use 6.09M of 8.39M (6.19M with the temp path 160 characters deeper); 136 files pass and 138 are refused. The Fable run of the 6 by 3,000 shape, each alternate with a folder of its own: 12.7 s old under load, refused in 0.07 s new.
+- Also refused now, CONFIRMED by Fable, not re-run: 1,000 files of two quoted 32 KB lines (old `''` in 14.1 s, new refused in 1.3 s); a gitdir and its commondir with 75 files of 60 KB each (old `''`, new refused: one limit for both).
+- Left as it is: the length is counted in characters, so files of 3-byte characters count a third of their bytes. 370 reads of 64 KB of such text (24 MB) pass in 68 ms (CONFIRMED by Fable, not re-run), so there is no time in it; the docs' "about 125 files" holds for ASCII.
+- Deferred, older and unchanged:
+  - New, RS-A-altsmall, CONFIRMED by Fable, not re-run, seen on 3cb56b5 and 9d4266b: many letter cases of one folder with small alternates files still answer `''` in 2 to 2.9 s (6 alternates by 3,000 cases with 7-byte files: 2.0 s old, 1.9 s new; with 3 empty subfolders each: 2.9 s and 2.8 s). The time is the lstat and the listing for each spelling, not the read. SECURITY.md says the slowest inputs let through take 1 to 2 seconds, so this is a little past it. Windows as built. Repro: `repro-altread.js` shape F with the sibling's alternates file cut to 7 bytes; time `farGitConfig`.
+  - RS-A-altmodules again, CONFIRMED by Fable, not re-run: 3 module gitdirs with 100 files of 60 KB each answer `''` (6.06M of work used in each module).
+- INFERRED by Fable from the code, not run: off Windows, `.` and `..` parts, trailing separators and quoted spellings come to one `seen` key.
+
 ## Next version: RS-A-altcase and RS-A-storelinks (2026-11-10, branch `claude/rs-a-altcase` off cc06828, merged in PR #43 as 3cb56b5)
 
 Both FLAGGED in PR #42's round 1. The user: "Yes, both together".
@@ -80,7 +107,7 @@ Two reviewers started by this session, each on an export under E:/DevTemp with t
 - Docs (Sonnet): nothing wrong in the MANUAL.md row or the SECURITY.md sentence; the reason name, the figures and section 16 match the code. One note of mine was wrong, CONFIRMED here: the change touches one SECURITY.md sentence, not two bullets. Corrected above.
 - PR #42 merged as cc06828 at 2026-11-11 02:44:41Z on the user's word, "Yes, auto-merge 42". CI's run on 244e973 had completed with success when the merge was asked for, so it merged at once.
 
-## Docs: both hosts, prerequisites, pwsh (2026-11-10, branch `claude/docs-both-hosts` off cc06828, rebased onto 3cb56b5 on 2026-11-11)
+## Docs: both hosts, prerequisites, pwsh (2026-11-10, branch `claude/docs-both-hosts` off cc06828, rebased onto 3cb56b5 on 2026-11-11, merged in PR #44 as ee252b5 at 2026-11-11 14:58:49Z, when the user said "Yes, auto-merge 44")
 
 Asked by the user: README.md had install steps for Claude Code only; check every shipped doc for both hosts. Then, through the session that started this one: list every prerequisite per host and system and say what "sandbox" means; and "the docs should use pwsh instead of powershell.exe". Docs only: no code, test or `gitbin.js` change. Not pushed when this was written. This section sits here, not first, so that it doesn't collide with the section `claude/rs-a-altcase` adds; `SHA256SUMS` is the one file both branches change, and the second to merge regenerates it.
 
