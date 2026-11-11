@@ -30,6 +30,8 @@ claude plugin install trailmark@trailmark
 
 You can also [download a release](https://github.com/cptjamestiberiouskirk-pixel/trailmark/releases) and run its installer (`install.sh` on macOS and Linux, `install.cmd` on Windows), which checks your Node version and proves the sandbox works on your machine before it installs anything.
 
+This is the Claude Code plugin. For Codex, install the trailmark-codex copy from a downloaded release as well or instead: its [README](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/plugins/trailmark-codex/README.md) has the steps.
+
 ## Set up a repo
 
 Trailmark does nothing until you turn it on for a repo. Open Claude Code in the repo and run:
