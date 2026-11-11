@@ -211,6 +211,18 @@ function withShare(cwd, fn) {
 // about 15 times. Dropped when that check returns, since a folder can be
 // swapped for a link between two checks.
 let LSTAT_SEEN = null;
+// What is left of the caller's time for git, in ms, while fn runs: a function,
+// or null where the caller has no limit (the launcher). The reading of config
+// files looks at it (farConfig, configEntries): a file with a quote in it is
+// read by git itself, a call each, and 50 files are allowed, so one check of
+// a config that included 48 such files took 3.2 s with nothing looking at
+// the time (RS-A-nestedone).
+let TIME_LEFT = null;
+function withTime(left, fn) {
+  const prev = TIME_LEFT;
+  TIME_LEFT = typeof left === 'function' ? left : null;
+  try { return fn(); } finally { TIME_LEFT = prev; }
+}
 const MAX_LSTAT_SEEN = 20000;
 function lstatPart(p) {
   if (!LSTAT_SEEN) return fs.lstatSync(p);
@@ -421,7 +433,8 @@ function configEntries(file) {
   try {
     const out = execFileSync(bin, [...GIT_GLOBAL, 'config', '--file', file, '--no-includes', '--null', '--list'], {
       cwd: __dirname, env: { ...gitEnv(), GIT_CEILING_DIRECTORIES: path.dirname(__dirname) },
-      encoding: 'utf8', timeout: 3000, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+      // No longer than the caller has left (farConfig looked: 800 ms or more).
+      encoding: 'utf8', timeout: TIME_LEFT ? Math.max(1, Math.min(3000, TIME_LEFT())) : 3000, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
     });
     return out.split('\0').filter(Boolean).map(r => {
       const i = r.indexOf('\n');
@@ -603,6 +616,10 @@ function farConfig(file, depth, st) {
   if (st.seen.has(seenKey)) return '';
   st.seen.add(seenKey);
   if (++st.files > MAX_CONFIG_FILES) return 'many-config-files';
+  // Before each file is read: with under 0.8 s of the caller's time left the
+  // check stops, as before each submodule gitdir (farModules). The caller
+  // takes the answer as a git call that ran out of time (gitfacts.js).
+  if (TIME_LEFT && TIME_LEFT() < 800) return 'git-timeout';
   const entries = configEntries(real);
   if (entries === null) return '';
   if (entries === UNSAFE) return 'unreadable-config';
@@ -1364,7 +1381,9 @@ function farGitConfigIn(cwd) {
     }
   }
   if (farCache.size > 64) farCache.clear();
-  farCache.set(key, why);
+  // An answer that only says the time ran out isn't kept: the next check
+  // starts over.
+  if (why !== 'git-timeout') farCache.set(key, why);
   return why;
 }
 // For a submodule's or nested repo's folder (git status looks into them).
@@ -1441,4 +1460,4 @@ function farLfsEntries(entries, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };
+module.exports = { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };

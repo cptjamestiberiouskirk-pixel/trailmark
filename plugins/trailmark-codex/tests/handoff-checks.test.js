@@ -2080,6 +2080,132 @@ test('git status: the time is looked at before each folder of tracked files (RS-
   assert.deepStrictEqual(run('plain-enough', 900, false), { skipped: undefined, folders: 4, back: true });
 });
 
+test('git pointers: the caller\'s time is looked at before each config file is read (RS-A-nestedone)', () => {
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  const { withTime, farGitConfig } = require(lib);
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-config-time-');
+  let made = 0;
+  // Six files with a quote in them (git itself is started to read such a
+  // file), and the config text that includes them all.
+  const includes = () => {
+    const dir = path.join(base, `inc${made++}`);
+    fs.mkdirSync(dir);
+    let text = '';
+    for (let i = 0; i < 6; i++) {
+      fs.writeFileSync(path.join(dir, `i${i}`), `[x]\n\ty${i} = "q"\n`);
+      text += `[include]\n\tpath = ${path.join(dir, `i${i}`).replace(/\\/g, '/')}\n`;
+    }
+    return { dir, text };
+  };
+  // A gitdir of its own whose config includes six such files.
+  const gitdir = (inc) => {
+    const gd = path.join(base, `gd${made++}`);
+    for (const s of ['objects', 'refs']) fs.mkdirSync(path.join(gd, s), { recursive: true });
+    fs.writeFileSync(path.join(gd, 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(gd, 'config'), '[core]\n\trepositoryformatversion = 0\n' + inc.text);
+    return gd;
+  };
+  const plain = () => { const r = path.join(base, `r${made++}`); const g = repoAt(r); return { r, g }; };
+  // A repo whose own config includes the six files.
+  const own = () => { const p = plain(); const inc = includes(); fs.appendFileSync(path.join(p.r, '.git', 'config'), inc.text); return { ...p, dir: inc.dir }; };
+
+  // 1. The library, with what is left handed in as a function: 5 s for the
+  // first `asks` times it is asked, 500 ms from then on. A file that git
+  // reads asks twice (the look, then the timeout of the call).
+  const until = (asks) => { let n = 0; return () => (++n > asks ? 500 : 5000); };
+  assert.strictEqual(withTime(until(Infinity), () => farGitConfig(own().r)), '', 'time in hand');
+  const late = own();
+  assert.strictEqual(withTime(until(0), () => farGitConfig(late.r)), 'git-timeout', 'no time from the start');
+  // Short of time only the fifth time it is asked, which is the look before
+  // the third file (the config and the first included file ask twice
+  // each): one look that finds too little is enough, at whichever file it
+  // comes, an included one too (config.worktree is looked for after them
+  // all, and by then there is time again).
+  const only = (ask) => { let n = 0; return () => (++n === ask ? 500 : 5000); };
+  assert.strictEqual(withTime(only(5), () => farGitConfig(own().r)), 'git-timeout', 'short of time at the look before the third file only');
+  // That answer isn't kept: with time in hand, or no limit, the check runs.
+  assert.strictEqual(farGitConfig(late.r), '', 'the same repo with no limit, after it ran out of time');
+  // The line is 0.8 s (a plain config: git isn't started for it).
+  assert.strictEqual(withTime(() => 900, () => farGitConfig(plain().r)), '', '900 ms left');
+  assert.strictEqual(withTime(() => 700, () => farGitConfig(plain().r)), 'git-timeout', '700 ms left');
+
+  // 2. git is started with no more time than is left. The library is loaded
+  // again with a stand-in that notes the timeout of each such call.
+  const cp = require('child_process');
+  const realRun = cp.execFileSync;
+  const key = require.resolve(lib);
+  const kept = require.cache[key];
+  const timeouts = [];
+  let answers;
+  cp.execFileSync = (bin, args, opts, ...rest) => {
+    if (Array.isArray(args) && args.includes('--file')) timeouts.push(opts.timeout);
+    return realRun(bin, args, opts, ...rest);
+  };
+  delete require.cache[key];
+  try {
+    const G = require(lib);
+    answers = [G.withTime(() => 2000, () => G.farGitConfig(own().r)), G.farGitConfig(own().r)];
+  } finally {
+    cp.execFileSync = realRun;
+    require.cache[key] = kept;
+  }
+  assert.deepStrictEqual(answers, ['', '']);
+  // Seven calls each (the config and the six files): 2 s left, then no limit.
+  assert.deepStrictEqual(timeouts, [...Array(7).fill(2000), ...Array(7).fill(3000)]);
+
+  // 3. The status check hands its own time on. The clock stands still at
+  // the start of the 5 s and jumps to 500 ms before their end when the
+  // second included file is looked at: `pass` 1 the first time the six are
+  // gone through, 2 the second time.
+  const facts = (cwd, dir, pass = 1) => {
+    const now = Date.now; const lstat = fs.lstatSync;
+    const start = now();
+    let clock = start; let ends = 0; let jumped = false;
+    Date.now = () => clock;
+    fs.lstatSync = (p, ...a) => {
+      const rel = typeof p === 'string' ? path.relative(dir, p) : '';
+      if (rel === 'i1' && ends >= pass - 1 && !jumped) { jumped = true; clock = start + 5000 - 500; }
+      const st = lstat(p, ...a);
+      if (rel === 'i5') ends++;
+      return st;
+    };
+    try { const f = gitFacts(cwd, ['status'], { budgetMs: 5000 }); return { refused: f.gitRefused, skipped: f.statusSkipped, jumped, read: ends }; } finally { Date.now = now; fs.lstatSync = lstat; }
+  };
+  // read: the looks at the last of the six, two each time all six are gone
+  // through (the walk of its path, then the read). Once the time has run
+  // out no later file is looked at, and the words are those of a git call
+  // that ran out of time, not of a repo git is kept out of.
+  // The session's own repo.
+  const mine = own();
+  assert.deepStrictEqual(facts(mine.r, mine.dir), { refused: undefined, skipped: 'git-timeout', jumped: true, read: 0 });
+  // A tracked file that is now a folder with a .git file to such a gitdir.
+  const nested = plain(); const nestedInc = includes();
+  fs.writeFileSync(path.join(nested.r, 'sub'), 'x'); nested.g('add', 'sub'); nested.g('commit', '-qm', 'sub');
+  fs.rmSync(path.join(nested.r, 'sub')); fs.mkdirSync(path.join(nested.r, 'sub'));
+  fs.writeFileSync(path.join(nested.r, 'sub', '.git'), `gitdir: ${gitdir(nestedInc).replace(/\\/g, '/')}\n`);
+  assert.deepStrictEqual(facts(nested.r, nestedInc.dir), { refused: undefined, skipped: 'git-timeout', jumped: true, read: 0 });
+  // A submodule in the index whose folder has a .git file to such a gitdir.
+  const head = (p) => p.g('rev-parse', 'HEAD');
+  const sub = plain(); const subInc = includes();
+  sub.g('update-index', '--add', '--cacheinfo', `160000,${head(sub)},subm`);
+  fs.mkdirSync(path.join(sub.r, 'subm'));
+  fs.writeFileSync(path.join(sub.r, 'subm', '.git'), `gitdir: ${gitdir(subInc).replace(/\\/g, '/')}\n`);
+  assert.deepStrictEqual(facts(sub.r, subInc.dir), { refused: undefined, skipped: 'git-timeout', jumped: true, read: 0 });
+  // A submodule with no folder, and such a gitdir in .git/modules.
+  const mod = plain(); const modInc = includes();
+  mod.g('update-index', '--add', '--cacheinfo', `160000,${head(mod)},subm`);
+  fs.mkdirSync(path.join(mod.r, '.git', 'modules'));
+  fs.renameSync(gitdir(modInc), path.join(mod.r, '.git', 'modules', 'm'));
+  assert.deepStrictEqual(facts(mod.r, modInc.dir), { refused: undefined, skipped: 'git-timeout', jumped: true, read: 0 });
+  // A session in a subfolder: the first check, from that folder, goes
+  // through, and the time runs out in the check before a git call in the
+  // top folder.
+  const deep = own();
+  fs.mkdirSync(path.join(deep.r, 'in'));
+  assert.deepStrictEqual(facts(path.join(deep.r, 'in'), deep.dir, 2), { refused: undefined, skipped: 'git-timeout', jumped: true, read: 2 });
+});
+
 test('scan: only the folder a session started in counts; a memory folder named notes (loop round 7)', { skip: NO_LINKS }, () => {
   const base = realTemp('jbmem-r7-');
   const cfg = path.join(base, 'cfg');

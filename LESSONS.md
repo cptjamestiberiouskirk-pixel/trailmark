@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-11: A fix was timed through the library, and the real hook paid the cost somewhere else
+- What went wrong: RS-A-nestedone's fix was first timed only by calling `gitFacts` from a script: 8 folders above the session's folder with slow configs went from 10.0 s to 4.2 s. Started as a real PreCompact hook, the same shape took 10.2 s before and after. The launcher's own first check (`hookMemory`, to find the memory folder) reads the same config files with no time, before `gitFacts` starts, and keeps the answer. The docs sentence in draft would have claimed the 4.2 s for a hook.
+- Why: the repro started at the function that was changed, not at what a user runs. The call that pays first in a hook is in another file.
+- Rule going forward: a time claimed for a hook is measured by starting the hook as a process (`trailmark.js --hook <name>` with a payload on stdin), on the parent and on the fix. A library timing is written down as a library timing. Before a fix that hands a limit down a call chain, `grep` every caller of the changed function and say for each whether it has the limit.
+- Status: open
+
+## 2026-11-11: A test told a timeout by its word, and a later look gave the same word
+- What went wrong: in RS-A-nestedone's test the mutation "the look only before the first file" passed. `config.worktree` is looked for after the included files, noticed the low clock there, and gave the same `git-timeout`. Later, when a first check out of time was made to read like any git timeout, the cases could no longer tell "stopped at the second file" from "read all six and ran out afterwards".
+- Why: the cases asserted the answer, and several places give that answer once the clock is low.
+- Rule going forward: a test of where a limit is looked at pins the place: a clock that is short at one ask only, or a count of what was touched after the limit was hit, asserted in each case. When the count surprises, trace the callers before changing the expectation (here each file is looked at twice for one read).
+- Status: open
+
 ## 2026-11-11: A test's stub matched paths outside the test, and one of its branches never ran
 - What went wrong: the RS-A-linkfolders test stubbed `fs.lstatSync` and told its four folders by the last part of the path (`d0` to `d3`). The walk of a link looks at every part of the temp folder's own path, so under a temp folder named `d7` the test counted 5 and failed. The same stub was to set its clock back at the look at `.gitmodules`, which never comes in that repo: the git calls after the loop ran with a real 900 ms timeout. Both found by the reviewer of PR #49 and reproduced here; the test had passed here and on the mutations.
 - Why: the stub was copied from the RS-A-nestedtime test, where `.gitmodules` is looked at (a tracked file turned folder) and the names matched are two parts long. Nothing in the test showed whether the branch ran.

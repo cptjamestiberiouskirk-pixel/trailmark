@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { oneLine, displayPath, inside } = require('./store');
-const { farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
+const { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
 // and Linux caps a variable at 128 KiB (the comment on PAYLOAD_MAX in
@@ -42,7 +42,9 @@ function runner(budgetMs) {
   r.run = (cwd, args, input) => {
     const left = Math.min(4000, deadline - Date.now());
     if (r.hung || left < 250) { r.late = true; return { ok: false, out: '', why: 'timeout' }; }
-    const far = farGitConfig(cwd);
+    const far = withTime(r.left, () => farGitConfig(cwd));
+    // The check ran out of the time: the same answer as a call that did.
+    if (far === 'git-timeout') { r.late = true; return { ok: false, out: '', why: 'timeout' }; }
     if (far) { r.refused = r.refused || far; return { ok: false, out: '', why: far }; }
     const bin = gitPath(cwd);
     if (!bin) return { ok: false, out: '', why: 'no-git' };
@@ -70,8 +72,11 @@ function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
   const git = (args) => (wanted.length ? r.run(cwd, args).out.trim() : '');
   const f = {};
   // git kept out of this folder: no facts, and the reason (a fixed word).
-  const refused = farGitConfig(cwd);
-  if (refused) { f.gitRefused = refused; return f; }
+  const refused = withTime(r.left, () => farGitConfig(cwd));
+  // The check ran out of the time: git isn't kept out for that, and each
+  // call below answers as one that ran out of time (r.run).
+  if (refused === 'git-timeout') r.late = true;
+  else if (refused) { f.gitRefused = refused; return f; }
   if (wanted.includes('branch')) {
     // 'unknown' when git didn't answer (a timeout); 'detached' when it said
     // there is no current branch, or failed (not a repo), as before.
@@ -221,7 +226,8 @@ function farWorktree(r, cwd) {
       // these. 12 slow ones took 12.4 s where 5 s were given, since the look
       // above comes once in 500 folders of tracked files (RS-A-nestedtime).
       if (g && r.left() < 800) return 'git-timeout';
-      if (g && farNested(at, top.top)) return 'submodule-pointer';
+      const nested = g ? withTime(r.left, () => farNested(at, top.top)) : '';
+      if (nested) return nested === 'git-timeout' ? nested : 'submodule-pointer';
       if (g || want.has(fold(nm))) anyFolder = true;
     }
   }
@@ -229,7 +235,8 @@ function farWorktree(r, cwd) {
     if (!link) continue;
     if (++n > MAX_SUBMODULES) return 'many-submodules';
     if (r.left() < 800) return 'git-timeout';
-    if (farNested(path.join(top.top, rel), top.top)) return 'submodule-pointer';
+    const sub = withTime(r.left, () => farNested(path.join(top.top, rel), top.top));
+    if (sub) return sub === 'git-timeout' ? sub : 'submodule-pointer';
   }
   // With submodules (or a tracked file that is now a folder), git status
   // may read .gitmodules for names (it must be a plain file or missing) and
@@ -238,7 +245,7 @@ function farWorktree(r, cwd) {
     let gm = null;
     try { gm = fs.lstatSync(path.join(top.top, '.gitmodules')); } catch { gm = null; }
     if (gm && !gm.isFile()) return 'submodule-pointer';
-    const why = farModules(top.top, () => r.left());
+    const why = withTime(r.left, () => farModules(top.top, () => r.left()));
     if (why) return why === 'git-timeout' || why === 'many-submodules' ? why : 'submodule-pointer';
   }
   return '';
