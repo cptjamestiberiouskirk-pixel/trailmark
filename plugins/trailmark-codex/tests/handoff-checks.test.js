@@ -2133,17 +2133,25 @@ test('git pointers: the caller\'s time is looked at before each config file is r
   assert.strictEqual(withTime(() => 799, () => farGitConfig(plain().r)), 'git-timeout', '799 ms left');
   assert.strictEqual(withTime(() => 250, () => farGitConfig(plain().r), 250), '', '250 ms left, a line of 250');
   assert.strictEqual(withTime(() => 249, () => farGitConfig(plain().r), 250), 'git-timeout', '249 ms left, a line of 250');
+  // A line the caller names is taken as it is: 100, 1000 and 0 here.
+  assert.strictEqual(withTime(() => 150, () => farGitConfig(plain().r), 100), '', '150 ms left, a line of 100');
+  assert.strictEqual(withTime(() => 900, () => farGitConfig(plain().r), 1000), 'git-timeout', '900 ms left, a line of 1000');
+  assert.strictEqual(withTime(() => 500, () => farGitConfig(plain().r), 0), '', '500 ms left, a line of 0');
   // The time is gone between the look and the start of git (nothing left
-  // the second time it is asked, which is for git's timeout): git gets 1 ms
-  // and is stopped. That is the time running out, not a file that can't be
-  // read, and it isn't kept either.
+  // the second time it is asked, which is for git's timeout): git gets 1 ms.
+  // Real git is stopped by that on nearly every machine, and then the time
+  // has run out. Where git is done within the 1 ms, the file was read. It
+  // is never a file that can't be read, and the answer isn't kept either.
+  // Part 2 has the case with a stand-in that is stopped every time.
   const cut = own();
-  assert.strictEqual(withTime(only(2, 0), () => farGitConfig(cut.r)), 'git-timeout', 'git stopped by the time that was left');
-  assert.strictEqual(farGitConfig(cut.r), '', 'the same repo with no limit, after git was stopped');
+  const cutAnswer = withTime(only(2, 0), () => farGitConfig(cut.r));
+  assert.ok(cutAnswer === 'git-timeout' || cutAnswer === '', 'git given 1 ms: ' + cutAnswer);
+  assert.strictEqual(farGitConfig(cut.r), '', 'the same repo with no limit, after git was given 1 ms');
   // The same for a .lfsconfig that git reads.
   const lfsFile = path.join(base, 'lfsconfig');
   fs.writeFileSync(lfsFile, '[lfs]\n\turl = "x"\n');
-  assert.strictEqual(withTime(() => 0, () => farLfsFile(lfsFile, base)), 'git-timeout', '.lfsconfig: git stopped by the time that was left');
+  const lfsAnswer = withTime(() => 0, () => farLfsFile(lfsFile, base));
+  assert.ok(lfsAnswer === 'git-timeout' || lfsAnswer === '', '.lfsconfig, git given 1 ms: ' + lfsAnswer);
   assert.strictEqual(farLfsFile(lfsFile, base), '', '.lfsconfig with no limit');
   // withTime puts back what was there before it: after a call inside it
   // (the time, and the line), where null means no limit, and after a throw.
@@ -2155,8 +2163,10 @@ test('git pointers: the caller\'s time is looked at before each config file is r
 
   // 2. git is started with no more time than is left. The library is loaded
   // again with a stand-in that notes the timeout of each such call.
-  // gitfacts.js is loaded again with it too: its branch call is noted and
-  // run with time to spare, and the line each of its checks names is noted.
+  // gitfacts.js is loaded again with it too: its branch call is noted, and
+  // the line each of its checks names. Every call the stand-in passes on
+  // runs with time to spare, so a slow machine changes nothing here. On
+  // `stop` it is git stopped by its timeout, on `fail` git that failed.
   const head = (p) => p.g('rev-parse', 'HEAD');
   const gitdirFile = (folder, inc) => { fs.mkdirSync(folder); fs.writeFileSync(path.join(folder, '.git'), `gitdir: ${gitdir(inc).replace(/\\/g, '/')}\n`); };
   const cp = require('child_process');
@@ -2164,11 +2174,16 @@ test('git pointers: the caller\'s time is looked at before each config file is r
   const key = require.resolve(lib); const factsKey = require.resolve(factsLib);
   const kept = require.cache[key]; const keptFacts = require.cache[factsKey];
   const timeouts = []; const branchCalls = []; const lines = [];
-  let answers; let short; let shortBranch;
+  let answers; let short; let shortBranch; let mode = 'run';
+  const stops = {};
   cp.execFileSync = (bin, args, opts, ...rest) => {
-    if (Array.isArray(args) && args.includes('--file')) timeouts.push(opts.timeout);
-    if (Array.isArray(args) && args.includes('--show-current')) { branchCalls.push(opts.timeout); return realRun(bin, args, { ...opts, timeout: 20000 }, ...rest); }
-    return realRun(bin, args, opts, ...rest);
+    if (Array.isArray(args) && args.includes('--file')) {
+      timeouts.push(opts.timeout);
+      if (mode === 'stop') throw Object.assign(new Error('spawnSync git ETIMEDOUT'), { code: 'ETIMEDOUT' });
+      if (mode === 'fail') throw Object.assign(new Error('Command failed'), { status: 128 });
+    }
+    if (Array.isArray(args) && args.includes('--show-current')) branchCalls.push(opts.timeout);
+    return realRun(bin, args, { ...opts, timeout: 20000 }, ...rest);
   };
   delete require.cache[key]; delete require.cache[factsKey];
   try {
@@ -2177,7 +2192,25 @@ test('git pointers: the caller\'s time is looked at before each config file is r
       G.withTime(() => 2000, () => G.farGitConfig(own().r)), G.farGitConfig(own().r),
       G.withTime(() => 5000, () => G.farGitConfig(own().r)), G.withTime(() => 1500.5, () => G.farGitConfig(own().r)),
       G.withTime(() => NaN, () => G.farGitConfig(own().r)),
+      // Nothing left, and a line of 0, so the look lets it through.
+      G.withTime(() => 0, () => G.farGitConfig(own().r), 0),
     ];
+    // git stopped by a timeout under the 3 s it gets when no time is
+    // counted: the time has run out, and that isn't kept. Stopped after the
+    // full 3 s, or failing for another reason, the file can't be read, as
+    // before.
+    const halted = own();
+    mode = 'stop';
+    stops.short = G.withTime(() => 2000, () => G.farGitConfig(halted.r));
+    stops.lfsShort = G.withTime(() => 2000, () => G.farLfsFile(lfsFile, base));
+    stops.full = G.withTime(() => 5000, () => G.farGitConfig(own().r));
+    stops.noLimit = G.farGitConfig(own().r);
+    stops.lfsNoLimit = G.farLfsFile(lfsFile, base);
+    mode = 'fail';
+    stops.failed = G.withTime(() => 2000, () => G.farGitConfig(own().r));
+    stops.lfsFailed = G.withTime(() => 2000, () => G.farLfsFile(lfsFile, base));
+    mode = 'run';
+    stops.after = G.farGitConfig(halted.r);
     const realWithTime = G.withTime;
     G.withTime = (left, fn, line) => { lines.push(line); return realWithTime(left, fn, line); };
     const GF = require(factsLib);
@@ -2199,16 +2232,26 @@ test('git pointers: the caller\'s time is looked at before each config file is r
     fs.mkdirSync(path.join(all.r, '.git', 'modules'));
     fs.renameSync(gitdir(includes()), path.join(all.r, '.git', 'modules', 'm'));
     lines.length = 0;
-    GF.gitFacts(all.r, ['status'], { budgetMs: 5000 });
+    // The clock stands still here too: which line a check names doesn't
+    // depend on how long the checks before it took.
+    Date.now = () => t0;
+    try { GF.gitFacts(all.r, ['status'], { budgetMs: 5000 }); } finally { Date.now = now; }
   } finally {
     cp.execFileSync = realRun;
     require.cache[key] = kept; require.cache[factsKey] = keptFacts;
   }
-  assert.deepStrictEqual(answers, ['', '', '', '', '']);
+  assert.deepStrictEqual(answers, ['', '', '', '', '', '']);
   // Seven calls each (the config and the six files): what is left when that
   // is under 3 s, in whole ms; 3 s with more left, with no limit, and with
-  // an answer that is no number.
-  assert.deepStrictEqual(timeouts.slice(0, 35), [...Array(7).fill(2000), ...Array(14).fill(3000), ...Array(7).fill(1500), ...Array(7).fill(3000)]);
+  // an answer that is no number; 1 ms with nothing left (0 would be no
+  // timeout at all).
+  assert.deepStrictEqual(timeouts.slice(0, 42), [...Array(7).fill(2000), ...Array(14).fill(3000), ...Array(7).fill(1500), ...Array(7).fill(3000), ...Array(7).fill(1)]);
+  assert.deepStrictEqual(stops, {
+    short: 'git-timeout', lfsShort: 'git-timeout',
+    full: 'unreadable-config', noLimit: 'unreadable-config', lfsNoLimit: 'lfs-config',
+    failed: 'unreadable-config', lfsFailed: 'lfs-config',
+    after: '',
+  });
   assert.deepStrictEqual({ branch: short.branch, calls: branchCalls }, { branch: shortBranch, calls: [700] });
   // The first check and the check before each git call name 250 ms, the
   // line of the call itself; the three checks before status name none, and
