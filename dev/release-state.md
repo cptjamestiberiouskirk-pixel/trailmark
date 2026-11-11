@@ -80,6 +80,16 @@ Opus on the test, Sonnet on the SECURITY.md sentences, each from a fresh copy of
 - Deferred, older, the same on f285816: INFERRED by Opus on 39027c2 (read, not run slow): the cases that start real git with its own 3 s (part 1's "time in hand" and `only(5)`, and part 3) fail if one git call takes over 3 s. That is the product's own timeout, as in every test that starts git, and no run has shown it, so it is not on "Load-sensitive tests". Repro: a `git` on PATH that waits 3.1 s before `config --file`, then the test.
 - Not checked in this round: macOS and Linux; a slow or loaded machine.
 
+### RS-A-nestedone round 4 (2026-11-11, on 39027c2..df2da83, PR #50)
+
+Opus on the test's 11 added lines, from a fresh copy of the repo under `E:/DevTemp`. Nothing CONFIRMED against the diff: the round is clean, and PR #50 goes to auto-merge. This record is a notes-only commit on top of df2da83; no check reads this file and it is not in `SHA256SUMS`.
+
+- CONFIRMED by Opus, not re-run (both were run here before the push, in round 3's mutation list): `return timeout <= 1 ? [] : TIMED;` fails df2da83's test at `atOne` and `lfsAtOne`, and git's timeout taken from the look fails it at the seventh case (3000 where 2000 is expected). Each passes 39027c2's test.
+- CONFIRMED by Opus, not re-run: ten more single changes to the timeout and marker lines of `configEntries` each fail the test (`<= 3000`, `timeout > 1 &&`, no ETIMEDOUT check, a least of 0, ceil, round, NaN not read as 3000, `floor(left) || 3000`, null for the marker, `left()` asked twice). No new line depends on real time, and nothing new stays replaced.
+- Noted, no change: INFERRED by Opus on df2da83 (read): the case with 5 s at each look and 2 s at each start of git counts on the asks coming in turn, look then git. `TIME_LEFT` is read in two places only (`farConfig`'s look, and `configEntries` when git is started), and for the test's repo the one look with no git after it (`config.worktree`, missing) comes last. A later change that adds a look between two files git reads would fail this case with correct code. It cannot let wrong code pass. The case's comment says what it hands in.
+- CI: 39027c2 had 8 of 9 jobs passed and none failed when last read; df2da83 had 6 of 9 passed and none failed when this was written.
+- Not checked in this round: macOS and Linux beyond CI; changes outside `configEntries`.
+
 ## Next version: RS-A-linkfolders (2026-11-11, branch `claude/rs-a-linkfolders` off d212f16, merged in PR #49 as fe29963)
 
 PR #48 (RS-A-abovegit) merged as d212f16 at 2026-11-11 18:26:42Z by auto-merge, after 9 of 9 jobs passed on its last head b7d3d37 (CONFIRMED here from `gh`). Auto-merge was turned on as a step of its own, once `gh pr view` showed b7d3d37 with its 9 jobs listed; right after the push it showed none for some seconds. The merge was the session's to make under the user's delegation of 2026-11-11 (round 1 found nothing CONFIRMED wrong in the changed code, round 2 found the reworded sentences true).
