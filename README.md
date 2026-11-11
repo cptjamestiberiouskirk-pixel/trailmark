@@ -24,13 +24,29 @@ Claude updates the note at milestones (a commit, a merged PR, a subagent's resul
 
 Trailmark runs no background model and makes no network requests, and there's no telemetry. Each hook starts a small launcher that only reads: it runs git with hardened settings to look up commits and status. The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. [SECURITY.md](SECURITY.md) has the full model and its limits.
 
+## What you need
+
+Install these yourself first. The installers check for them and stop or warn, as the last column says. They install none of them, and they download nothing.
+
+| What | Needed for | Notes | When it's missing, the installer |
+|---|---|---|---|
+| Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines) | Both copies, on Windows, macOS and Linux | Every hook starts `node` from PATH | Stops. On an older Node it stops too, unless you pass `--allow-old-node` (`-AllowOldNode`) |
+| git | Both copies | Recommended. Without it the handoff still works, but no commits are logged and the note shows no branch or HEAD | Warns |
+| Claude Code 2.1.304 or later | The Claude Code plugin, and the installers themselves | Windows, macOS and Linux | Stops without the `claude` command. Warns on an older version |
+| The ChatGPT desktop app with Codex mode | The Codex copy | Tested with the app on Windows. With the app on macOS and Linux it is untested, though CI runs the copy's own tests on all three | Doesn't check |
+| The Codex CLI (`codex`) | The Codex copy, to add its marketplace | | With `--codex` (`-Codex`): warns and leaves that step out |
+| bash | `install.sh` on macOS and Linux | It uses `getent` and `getfacl` for its permission checks when they are there. Neither is required | |
+| Windows PowerShell 5.1 (built into Windows) or PowerShell 7 | `install.ps1`, and the optional scripts in `tools/windows` | Only on Windows | |
+
+Nothing else is needed: no WSL, no Windows Sandbox and no other package.
+
+**The sandbox.** In these docs "the sandbox" means Node's permission model (`node --permission`), a part of Node.js itself. It is not the Windows Sandbox feature, and there is nothing to install or turn on for it. It works the same on Windows, macOS and Linux, and CI runs the sandbox check on all three with Node 22, 24 and 26. The installer runs that check (`node plugins/trailmark/scripts/trailmark.js --sandbox-check`) on your machine and stops if it fails. Codex has a sandbox of its own that decides where the agent may write; the docs call that one "Codex's sandbox".
+
+Installed straight from GitHub, no installer runs. `/trailmark:memory-setup` then checks Node and runs the sandbox check when you set up a repo, and session start warns about a Node that is too old.
+
 ## Install
 
-Both copies need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines). git is recommended. CI runs the tests of both copies on Windows, macOS and Linux.
-
 ### Claude Code
-
-You need Claude Code 2.1.304 or later. Windows, macOS and Linux are supported.
 
 Straight from GitHub:
 
@@ -50,7 +66,7 @@ Or [download a release](https://github.com/cptjamestiberiouskirk-pixel/trailmark
 
 ### Codex
 
-You need the ChatGPT desktop app with Codex mode, and the Codex CLI for the marketplace command. The Codex copy is tested with the desktop app on Windows; macOS and Linux are untested. Part of the install happens in the app, so there is no single command for it.
+Part of the install happens in the app, so there is no single command for it.
 
 1. [Download a release](https://github.com/cptjamestiberiouskirk-pixel/trailmark/releases), check it against its `.sha256` file, and unzip it somewhere permanent that only you can write to.
 2. Add the Codex marketplace. If you use Claude Code too, run the installer with `--codex` (`-Codex` on Windows, also through `install.cmd`): it installs the Claude Code plugin, then adds the Codex marketplace. The installer needs Claude Code, so for Codex alone add the marketplace by hand:

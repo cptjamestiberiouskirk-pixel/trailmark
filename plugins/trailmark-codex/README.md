@@ -13,7 +13,7 @@ It's the Codex copy of [Trailmark](https://github.com/cptjamestiberiouskirk-pixe
 
 ## What it doesn't do
 
-It runs no background model, makes no network requests and sends no telemetry. Each hook starts a small launcher that only reads, running git with hardened settings. The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. The one other file it writes is a small log of hook payload shapes in the plugin's own data folder (see "Checking how the hooks ran").
+It runs no background model, makes no network requests and sends no telemetry. Each hook starts a small launcher that only reads, running git with hardened settings. The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. That is what "the sandbox" means here: it is part of Node.js, works the same on Windows, macOS and Linux, and needs nothing installed besides Node. It isn't the Windows Sandbox feature, and it is separate from Codex's own sandbox. The one other file it writes is a small log of hook payload shapes in the plugin's own data folder (see "Checking how the hooks ran").
 
 ## Install
 
@@ -40,7 +40,7 @@ You need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines), t
    writable_roots = ['<memory folder, as dir printed it>']
    ```
 
-   Single quotes keep Windows backslashes as they are. Add one entry per repo, and don't add the whole `projects` folder, which also holds Claude Code's transcripts. If the file already has a `[sandbox_workspace_write]` table, add the entry to its list. Whether the Windows sandbox honors this setting hasn't been checked yet; approving each write works.
+   Single quotes keep Windows backslashes as they are. Add one entry per repo, and don't add the whole `projects` folder, which also holds Claude Code's transcripts. If the file already has a `[sandbox_workspace_write]` table, add the entry to its list. Whether Codex's own sandbox on Windows honors this setting hasn't been checked yet; approving each write works.
 
 4. **Windows: keep `node` from being found in a repo folder.** Every hook starts `node` by name. If Codex runs hooks through cmd.exe, cmd looks in the current folder (the repo) before PATH, so a `node.exe` or `node.cmd` committed to a repo would run in place of Node. One user setting turns that lookup off:
 
@@ -146,7 +146,7 @@ With the ChatGPT desktop app on Windows:
 - The app starts short `fork` chats next to a chat. Each gets the handoff and logs a start; they do no harm.
 - `CODEX_THREAD_ID` isn't set in the hooks' environment, so the skills take the session ID from the chat-start note.
 
-Not checked yet: whether `writable_roots` applies under the Windows sandbox, whether a compacted chat gets the handoff text back, and anything on macOS or Linux, where the same hooks and skills are expected to work.
+Not checked yet: whether `writable_roots` applies under Codex's own sandbox on Windows, whether a compacted chat gets the handoff text back, and anything on macOS or Linux, where the same hooks and skills are expected to work.
 
 ## Tests
 

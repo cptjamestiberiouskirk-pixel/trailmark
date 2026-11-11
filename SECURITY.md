@@ -1,6 +1,6 @@
 # Security
 
-Trailmark runs code as you at every Claude Code session start and compaction, and after every tool call and prompt. This file says what that code can and can't do, what it trusts, and what's left to you.
+Trailmark runs code as you at every Claude Code session start and compaction, and after every tool call and prompt. The Codex copy does the same at every Codex chat start and compaction, and around every shell command. This file says what that code can and can't do, what it trusts, and what's left to you.
 
 The short version: the part that writes runs under Node's permission model and can write only in the repo's memory folder. git runs with every repo setting that could start a program switched off, and is kept away from network shares. Nothing in the release makes network requests. The limits that remain are listed under "Known limits".
 
@@ -21,6 +21,21 @@ Every hook and skill command enters through `plugins/trailmark/scripts/trailmark
 | Child processes, worker threads, native addons, WASI | None |
 
 `node plugins/trailmark/scripts/trailmark.js --sandbox-check` proves this on the current machine, and the installers refuse to install when it fails. Node calls its permission model a seat belt. It stops trusted code from touching the wrong files, and it doesn't promise to contain malicious code. It also follows a symbolic link out of a granted folder.
+
+### What the sandbox is, and what it needs
+
+"The sandbox" in Trailmark's docs is this permission model (`node --permission`). It is part of Node.js, so it needs Node and nothing else: no Windows Sandbox, no WSL, no container and no extra package, on Windows, macOS or Linux. The same check runs on all three, and CI runs it there with Node 22, 24 and 26 for both copies. Codex has a separate sandbox of its own, which decides where the agent's commands may write ("Codex write access" below); the docs call it "Codex's sandbox".
+
+What the release relies on, and what the installers do about each:
+
+| Needed | Used for | The installers (`install.sh`, `install.ps1`) |
+|---|---|---|
+| Node.js 22.23.4, 24.22.1 or 26.12.1, or later in the same line | Every hook, the launcher and the sandbox | Stop without `node`. Stop on an older Node unless `--allow-old-node` / `-AllowOldNode` is given. Stop when the sandbox check doesn't print `SANDBOX OK` |
+| git (optional) | Commit and branch facts | Warn without it. Trailmark then logs no commits and shows no branch |
+| Claude Code 2.1.304 or later | The Claude Code plugin, and the `claude` command the installers run | Stop without `claude`. Warn on an older version |
+| The ChatGPT desktop app with Codex mode, and the Codex CLI | The Codex copy | Not checked, except that `--codex` / `-Codex` warns when `codex` isn't on PATH |
+
+The installers install none of these and download nothing. A plugin installed straight from GitHub runs no installer: the setup skill then runs the sandbox check, and session start warns about an old Node.
 
 git is run by the launcher, outside the sandbox. It runs by full path (found on absolute PATH entries only), with no shell, with timeouts, and with every repo-controlled setting that can run a program switched off: fsmonitor, hooks, transports, signing programs, pagers and repo-configured filters. `plugins/trailmark/scripts/lib/gitbin.js` lists each setting and why.
 

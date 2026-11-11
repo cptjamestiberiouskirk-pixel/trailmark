@@ -54,6 +54,10 @@ Version 0.6.2, for both Claude Code and the Codex copy (trailmark-watchdog 1.7.0
 | macOS, Linux | bash | The plugin's tests run in CI on Linux, macOS and Windows. The installer is tested on Linux |
 | Codex copy | The ChatGPT desktop app with Codex mode, and the Codex CLI for the marketplace command | Tested with the desktop app on Windows. macOS and Linux are untested there, though CI runs the copy's own tests on all three |
 
+You install these yourself. The installers check for them and install none (section 3 says which check stops the install and which only warns).
+
+"The sandbox" in this manual is Node's permission model (`node --permission`), a part of Node.js. It is not the Windows Sandbox feature, it works the same on Windows, macOS and Linux, and it needs nothing installed besides Node. "Codex's sandbox" (section 8) is a different thing: Codex's own limit on where the agent may write.
+
 ## 3. Install
 
 First put the release folder somewhere permanent that only you can write to, such as `~/tools/trailmark` or `%USERPROFILE%\tools\trailmark`. Claude Code loads the plugin from that folder in place. Moving or deleting it later breaks the install, and anyone who can write to it can change what the hooks run.
@@ -364,7 +368,7 @@ A file over 64 MB is checked by its first and last 8 MB, its size and its time, 
 
 All of these live in `tools\windows`. Run each with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <script>`. Each writes a `.log` next to itself, which trailmark-watchdog ignores. The read-only ones take `-Repo <path>` and default to the current folder; `trace-handoff-writes.ps1` also needs `-Session <id>`.
 
-These scripts check Claude Code sessions. For Codex, the copy's own log shows how its hooks ran (its README, "Checking how the hooks ran"), and `test-node-lookup.ps1` has an optional Codex step.
+The scripts that read or start sessions work on Claude Code sessions. `test-trailmark-watchdog.ps1` also covers the Codex copy's hooks file, and `test-node-lookup.ps1` has an optional Codex step. For Codex chats, the copy's own log shows how its hooks ran (its README, "Checking how the hooks ran").
 
 | Script | Changes anything | Model calls | Use it to |
 |---|---|---|---|
@@ -411,7 +415,7 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 | A checkpoint or park says a line starts with `JBMEM_EOF` | That is the end marker of the heredoc the Claude Code skills pass text in. A line starting with it could end the heredoc early when the handoff is copied forward | The skill indents the line and writes again. `handoff` and session start show such a line indented |
 | Each worktree of a bare repo has its own handoff | Worktrees share a memory folder through a main checkout's `.git`, and a bare repo has none | Nothing to fix. Set up each worktree you use |
 | Codex never shows the handoff | The hooks aren't trusted (they must be trusted again after an update that changes them); the app wasn't restarted; the plugin was installed from the CLI | Trust the hooks in the app; restart it; install from the app |
-| Codex shows no `[trailmark]` line at a chat's start | Nothing is wrong: Codex shows that message as a warning, so the Codex copy sends it only when there is one | Ask the agent to run `tm-memory-setup`, which confirms the chat got the handoff |
+| Codex shows no `[trailmark]` line at a chat's start | Nothing, when the chat has the handoff: Codex shows that message as a warning, so the Codex copy sends it only when there is one. When the chat doesn't have the handoff, see the row above | Ask the agent to run `tm-memory-setup`, whose step 4 checks that a new chat gets the handoff |
 | Codex asks you to approve every checkpoint | The memory folder is outside the workspace, so Codex's sandbox refuses the write until you approve it | Nothing to fix. Section 8, step 4, says how to skip the prompts and what that costs |
 | trailmark-watchdog reports two names that differ only by case | A case-sensitive folder holds both | Remove one. The pair can't be accepted |
 
@@ -421,7 +425,7 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 2. Run `./install.sh --uninstall` or `install.ps1 -Uninstall`. It runs `claude plugin uninstall trailmark@trailmark` and `claude plugin marketplace remove trailmark`. While Codex's `config.toml` still lists trailmark-codex, it keeps the `trailmark-codex` marketplace and says so; run it again after step 1 to remove that too.
 3. If you installed trailmark-watchdog, run `install-trailmark-watchdog.ps1 -Uninstall`. It stays until you do.
 
-The installer's uninstall needs the `claude` command. By hand, step 2 is `claude plugin uninstall trailmark@trailmark` and `claude plugin marketplace remove trailmark` for Claude Code, and `codex plugin marketplace remove trailmark-codex` for Codex once step 1 is done. With Codex alone, do step 1 and then that last command.
+The installer's uninstall needs the `claude` command. By hand, step 2 is `claude plugin uninstall trailmark@trailmark` and `claude plugin marketplace remove trailmark` for Claude Code, and `codex plugin marketplace remove trailmark-codex` for Codex once step 1 is done. With Codex alone, do step 1 and then that last command. Newer Codex CLIs also have `codex plugin remove`; uninstalling the Codex copy that way hasn't been tested.
 
 Nothing in your repos or memory folders is deleted. Each repo's handoff, archive and logs stay in `~/.claude/projects/<key>/memory`; delete them by hand if you want them gone. After that you can delete the release folder.
 
