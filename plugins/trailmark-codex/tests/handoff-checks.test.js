@@ -988,6 +988,76 @@ test('git pointers: links in a gitdir or a store are followed up to a limit on t
   assert.strictEqual(farLfsEntries(storage(store(125), store(125), store(125)), base), 'many-config-paths', 'three stores of 125 links');
 });
 
+test('git pointers: a repo\'s alternates and the stores next to them share one limit on the work and one on the entries (RS-A-altcase, RS-A-storelinks)', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far-altwork-');
+  let made = 0;
+  // A repo of its own for each check: an answer is kept for its folder.
+  const withAlternates = (lines) => {
+    const r = path.join(base, `r${made++}`);
+    repoAt(r);
+    fs.mkdirSync(path.join(r, '.git', 'objects', 'info'), { recursive: true });
+    fs.writeFileSync(path.join(r, '.git', 'objects', 'info', 'alternates'), lines.join('\n') + '\n');
+    return r;
+  };
+  // Stores of links: each store's walk has a limit of its own, and there
+  // can be 64 stores. 120 links to a folder at the end of a path 900
+  // characters long use about four fifths of one walk's limit (see the
+  // RS-A-manylinks test), so two stores fit in the repo's and three don't.
+  let deep = path.join(base, 'p');
+  while (deep.length + 2 <= 900) deep = path.join(deep, 'd');
+  fs.mkdirSync(deep, { recursive: true });
+  const stores = [0, 1, 2].map((i) => {
+    const a = path.join(base, `a${i}`);
+    fs.mkdirSync(path.join(a, 'objects'), { recursive: true });
+    fs.mkdirSync(path.join(a, 'lfs'));
+    for (let k = 0; k < 120; k++) fs.symlinkSync(deep, path.join(a, 'lfs', `l${k}`), 'junction');
+    return path.join(a, 'objects');
+  });
+  assert.strictEqual(farGitConfig(withAlternates(stores.slice(0, 2))), '', 'two stores of 120 links');
+  assert.strictEqual(farGitConfig(withAlternates(stores)), 'many-config-paths', 'three stores of 120 links');
+  // Entries: every alternate here holds one link to the same folder of 5,000
+  // files, so each one's walk looks at 5,002 entries. 19 alternates stay
+  // under 100,000 and 22 don't (the 21st is the first one refused).
+  const big = path.join(base, 'big');
+  fs.mkdirSync(big);
+  for (let i = 0; i < 5000; i++) fs.writeFileSync(path.join(big, `f${i}`), '');
+  const alts = Array.from({ length: 22 }, (_, i) => {
+    const o = path.join(base, `b${i}`, 'objects');
+    fs.mkdirSync(path.join(o, 'pack'), { recursive: true });
+    fs.symlinkSync(big, path.join(o, 'pack', 'j'), 'junction');
+    return o;
+  });
+  assert.strictEqual(farGitConfig(withAlternates(alts.slice(0, 19))), '', '19 alternates of 5,002 entries');
+  assert.strictEqual(farGitConfig(withAlternates(alts)), 'many-entries', '22 alternates of 5,002 entries');
+  // The count is the repo's, also for the alternates of an alternate.
+  fs.mkdirSync(path.join(alts[0], 'info'));
+  fs.writeFileSync(path.join(alts[0], 'info', 'alternates'), alts.slice(1).join('\n') + '\n');
+  assert.strictEqual(farGitConfig(withAlternates([alts[0]])), 'many-entries', '21 alternates of an alternate');
+  // And for a gitdir and its commondir together: 11 alternates each.
+  const shared = (n) => {
+    const r = withAlternates(alts.slice(0, n));
+    const c = path.join(base, `c${made++}`);
+    fs.mkdirSync(path.join(c, 'objects', 'info'), { recursive: true });
+    fs.writeFileSync(path.join(c, 'objects', 'info', 'alternates'), alts.slice(11, 11 + n).join('\n') + '\n');
+    fs.writeFileSync(path.join(r, '.git', 'commondir'), c + '\n');
+    return r;
+  };
+  fs.rmSync(path.join(alts[0], 'info'), { recursive: true });
+  assert.strictEqual(farGitConfig(shared(8)), '', 'a gitdir and its commondir, 8 alternates each');
+  assert.strictEqual(farGitConfig(shared(11)), 'many-entries', 'a gitdir and its commondir, 11 alternates each');
+  // On Windows one folder is as many alternates as it has spellings.
+  if (WIN) {
+    const o = path.join(base, 'abcdefgh', 'objects');
+    fs.mkdirSync(path.join(o, 'pack'), { recursive: true });
+    fs.symlinkSync(big, path.join(o, 'pack', 'j'), 'junction');
+    const spelled = Array.from({ length: 22 }, (_, i) =>
+      path.join(base, [...'abcdefgh'].map((c, b) => ((i >> b) & 1 ? c.toUpperCase() : c)).join(''), 'objects'));
+    assert.strictEqual(farGitConfig(withAlternates(spelled)), 'many-entries', 'one alternate in 22 letter cases');
+    assert.strictEqual(farGitConfig(withAlternates(spelled.slice(0, 19))), '', 'one alternate in 19 letter cases');
+  }
+});
+
 test('git pointers: an LFS store next to an alternate is walked once, and too many are refused (RS-A-altstores)', () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far-altstores-');

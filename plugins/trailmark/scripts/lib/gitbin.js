@@ -675,7 +675,14 @@ function altEntries(text) {
 // store of 10,100 folders were 40 walks, 410,000 listings), and past 64
 // folders, or once those before held 20,000 entries, git is kept out
 // (RS-A-altstores).
-function farAlternates(objects, depth, seen, tops = [], stores = { seen: new Set(), dirs: 0, entries: 0 }) {
+// stores.alt counts the entries looked at in the alternates' own folders,
+// all of one repo's together: an alternate is known by its exact text, so
+// one folder named in 100 letter cases on Windows (or 100 folders) was
+// walked 100 times, 17 s for 9,999 folders in it. Once the walks before
+// held MAX_ALT_ENTRIES, git is kept out (RS-A-altcase). A real alternate
+// holds its packs and up to 256 loose-object folders.
+const MAX_ALT_ENTRIES = 100000;
+function farAlternates(objects, depth, seen, tops = [], stores = { seen: new Set(), dirs: 0, entries: 0, alt: { entries: 0 } }) {
   if (depth > 6) return '';
   const real = localPath(objects);
   if (!real) return 'network-config';
@@ -683,7 +690,11 @@ function farAlternates(objects, depth, seen, tops = [], stores = { seen: new Set
   seen.add(real);
   // An alternate's own folders (pack/, info/, its loose objects) are read
   // like the repo's: no link in them may lead to a share.
-  if (depth > 0) { const linked = linkedEntries(real, { objectsRoot: true }); if (linked) return linked; }
+  if (depth > 0) {
+    if (stores.alt.entries >= MAX_ALT_ENTRIES) return 'many-entries';
+    const linked = linkedEntries(real, { objectsRoot: true, tally: stores.alt });
+    if (linked) return linked;
+  }
   const alt = readSmall(path.join(real, 'info', 'alternates'), 64 * 1024);
   if (alt === null) return '';
   if (alt === UNSAFE) return 'unreadable-config';
@@ -715,7 +726,7 @@ function farAlternates(objects, depth, seen, tops = [], stores = { seen: new Set
         if (linked) return linked;
       }
     }
-    const why = farAlternates(rawJoin(real, line), depth + 1, seen);
+    const why = farAlternates(rawJoin(real, line), depth + 1, seen, [], stores);
     if (why) return why;
   }
   return '';
@@ -1111,14 +1122,22 @@ function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
     return '';
   });
   if (valueWhy) return valueWhy;
-  const altStores = { seen: new Set(), dirs: 0, entries: 0 };
-  for (const d of dirs) {
-    // git-lfs takes a relative alternates line from where it runs: the
-    // worktree, a core.worktree included.
-    const why = farAlternates(path.join(d, 'objects'), 0, new Set(), bases.filter(Boolean), altStores);
-    if (why) return why;
-  }
-  return '';
+  const altStores = { seen: new Set(), dirs: 0, entries: 0, alt: { entries: 0 } };
+  // All of a repo's alternates, and the stores next to them, under one limit
+  // on the work, the one a config's path values have (limitedWalk): each
+  // walk of links has a limit of its own (MAX_LINK_WORK), and there can be
+  // many walks. 12 stores of links took 5.5 s, and one alternate of 1,000
+  // links named in 100 letter cases 10.8 s (Windows). Past the limit git is
+  // kept out, many-config-paths (RS-A-storelinks).
+  return limitedWalk(() => {
+    for (const d of dirs) {
+      // git-lfs takes a relative alternates line from where it runs: the
+      // worktree, a core.worktree included.
+      const why = farAlternates(path.join(d, 'objects'), 0, new Set(), bases.filter(Boolean), altStores);
+      if (why) return why;
+    }
+    return '';
+  });
 }
 // Submodule gitdirs kept in .git/modules (and the commondir's): git status
 // may open one by the name in .gitmodules when the submodule's own .git can't
