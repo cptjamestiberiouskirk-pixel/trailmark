@@ -36,7 +36,7 @@ Install these yourself first. The installers check for them and stop or warn, as
 | The ChatGPT desktop app with Codex mode | The Codex copy | Tested with the app on Windows. With the app on macOS and Linux it is untested, though CI runs the copy's own tests on all three | Doesn't check |
 | The Codex CLI (`codex`) | The Codex copy, to add its marketplace | | With `--codex` (`-Codex`): warns and leaves that step out |
 | bash | `install.sh` on macOS and Linux | It uses `getent` and `getfacl` for its permission checks when they are there. Neither is required | Can't run without it |
-| PowerShell 7 (`pwsh`) | On Windows, the typed commands for `install.ps1` and the optional scripts in `tools/windows` | Not part of Windows: `winget install --id Microsoft.PowerShell --source winget` installs it next to Windows PowerShell 5.1, which stays. Double-clicking `install.cmd` needs nothing extra, since it starts the built-in Windows PowerShell 5.1. The optional watchdog runs under 5.1 | Doesn't check. It runs under either PowerShell |
+| PowerShell 7 (`pwsh`) | On Windows, the typed commands for `install.ps1` and the optional scripts in `tools/windows` | Not part of Windows: `winget install --id Microsoft.PowerShell --source winget` installs it next to Windows PowerShell 5.1, which stays. Every `pwsh` command in these docs needs it. Double-clicking `install.cmd` needs nothing extra, since it starts the built-in Windows PowerShell 5.1. The optional watchdog needs 5.1, so its commands use `powershell.exe` | Doesn't check which PowerShell runs it |
 
 Trailmark itself needs nothing else: no WSL, no Windows Sandbox and no other package. Its skills run their commands in the shell Claude Code or Codex already uses.
 
@@ -60,7 +60,7 @@ Or [download a release](https://github.com/cptjamestiberiouskirk-pixel/trailmark
 | Platform | Command |
 |---|---|
 | macOS, Linux | `./install.sh` |
-| Windows | double-click `install.cmd`, or in PowerShell 7 `pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1` |
+| Windows | double-click `install.cmd`, which needs nothing extra. Or, with PowerShell 7 installed ("What you need" above says how to get it), `pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1` |
 
 `--check` (`-Check` on Windows) runs the checks without changing anything.
 

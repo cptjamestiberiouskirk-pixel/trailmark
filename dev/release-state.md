@@ -110,6 +110,15 @@ No finding. By the stop rule the round is clean. CONFIRMED by Sonnet in code, ma
 
 The user chose to open the PR after PR #43 merged (passed on by the session that started this one, 2026-11-11). Next: the merge is the user's word, asked by name.
 
+### Docs round 4 (Sonnet, on the change after 7cef733, PR #44)
+
+The user, through the session that started this one, 2026-11-11: "it should be clear in the README and instructions that whenever we suggest running pwsh that they need to have PowerShell 7 installed, or show both versions of the command for both powershell 5.1 and powershell 7.x". Taken the first way: each `pwsh` command (README.md's installer row, MANUAL.md section 3's installer command and section 11's diagnostic scripts) says it needs PowerShell 7 and points at the place that says how to get it (README.md "What you need", MANUAL.md section 2). The `powershell.exe` form is given only for the watchdog, which needs 5.1.
+
+- Why not both forms: nothing was run under Windows PowerShell 5.1 for this work (this user's rule is pwsh only for what a session runs). CONFIRMED here in `tests.yml` 57-90: CI parses every script with both shells and runs only `test-trailmark-watchdog.ps1` under 5.1. So the two sentences that said 5.1 "runs the installer and the scripts too" and "runs them too" are gone, and README.md's cell "It runs under either PowerShell" now reads "Doesn't check which PowerShell runs it". `install.cmd`, which starts 5.1, stays the way without PowerShell 7.
+- Round 4: no finding. Sonnet's search (`grep -n -i -E "pwsh|powershell ?7|PowerShell 5|powershell\.exe|5\.1"` over the shipped docs and the skills) found no `pwsh` command without the note, and no sentence left that promises 5.1 for `install.ps1` or the diagnostic scripts. INFERRED by Sonnet, not run: the plain PowerShell blocks (`$env:`, `[Environment]::SetEnvironmentVariable`, `Get-ChildItem`) work in 5.1 too. The README.md cell above was reworded after the round, at its own remark.
+- Decided by the user separately, not in this PR: the `.cmd` wrappers and the watchdog stay on Windows PowerShell 5.1; the messages in `install.ps1` and the migration script and the `tm-memory-setup` label change to pwsh in a later small PR.
+- To confirm, if both forms are wanted later: run `install.ps1 -Check` and the read-only diagnostic scripts under Windows PowerShell 5.1 on a PC, then add the `powershell.exe` form beside each `pwsh` command.
+
 ## Next version: RS-A-altstores (2026-11-10, branch `claude/rs-a-altstores` off 06bfe98, merged in PR #41 as b3e7047)
 
 Deferred from RS-A-storagewalk's review and flagged (time). Taken next on my recommendation under the user's standing word of 2026-11-10 to work the deferred items one at a time: it was the only open item still flagged.

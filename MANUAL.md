@@ -50,7 +50,7 @@ Version 0.6.2, for both Claude Code and the Codex copy (trailmark-watchdog 1.7.0
 | Node.js | 22.23.4, 24.22.1 or 26.12.1, or later in the same line | Every hook runs `node`. Older releases miss two fixes to the permission model the sandbox relies on, and the installer refuses them unless you pass `--allow-old-node` / `-AllowOldNode`. Lines before 22, and odd-numbered lines before 26, are refused the same way, since they get no security releases |
 | Claude Code | 2.1.304 or later (the oldest tested) | The hooks use the `args` and `if` options, which 2.1.42 ignores. Versions between the two are untested. The installer warns on an older one. The installers need the `claude` command, with `--codex` / `-Codex` too; the Codex copy itself doesn't (section 8) |
 | git | Any current release | Optional. Without it nothing breaks, but no commits are logged and the handoff's `Updated:` line has no branch or HEAD |
-| Windows | Windows 10 or 11. PowerShell 7 (`pwsh`) for the commands this manual gives | PowerShell 7 isn't part of Windows: `winget install --id Microsoft.PowerShell --source winget` installs it next to Windows PowerShell 5.1, which stays. `install.cmd` and the other `.cmd` files need nothing extra, since they start the built-in Windows PowerShell 5.1, which runs the installer and the scripts too. trailmark-watchdog is the exception: its scheduled scans run under 5.1, so its commands in section 10 use `powershell.exe` |
+| Windows | Windows 10 or 11. PowerShell 7 (`pwsh`) for the commands this manual gives | PowerShell 7 isn't part of Windows: `winget install --id Microsoft.PowerShell --source winget` installs it next to Windows PowerShell 5.1, which stays. Every `pwsh` command in this manual needs it. `install.cmd` and the other `.cmd` files need nothing extra, since they start the built-in Windows PowerShell 5.1. trailmark-watchdog is the exception: it needs 5.1, which its scheduled scans run under, so its commands in section 10 use `powershell.exe` and need no PowerShell 7 |
 | macOS, Linux | bash | The plugin's tests run in CI on Linux, macOS and Windows. The installer is tested on Linux |
 | Codex copy | The ChatGPT desktop app with Codex mode, and the Codex CLI for the marketplace command | Tested with the desktop app on Windows. macOS and Linux are untested there, though CI runs the copy's own tests on all three |
 
@@ -73,7 +73,7 @@ cd ~/tools/trailmark
 ./install.sh
 ```
 
-Windows: double-click `install.cmd`, or in PowerShell 7:
+Windows: double-click `install.cmd`, which needs nothing extra. Or run this, which needs PowerShell 7 (section 2 says how to get it):
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tools\trailmark\install.ps1"
@@ -368,7 +368,7 @@ A file over 64 MB is checked by its first and last 8 MB, its size and its time, 
 
 ## 11. Diagnostic scripts (Windows)
 
-All of these live in `tools\windows`. Run each with `pwsh -NoProfile -ExecutionPolicy Bypass -File <script>` (Windows PowerShell 5.1 runs them too). Each writes a `.log` next to itself, which trailmark-watchdog ignores. The read-only ones take `-Repo <path>` and default to the current folder; `trace-handoff-writes.ps1` also needs `-Session <id>`.
+All of these live in `tools\windows`. Run each with `pwsh -NoProfile -ExecutionPolicy Bypass -File <script>`, which needs PowerShell 7 (section 2 says how to get it). Each writes a `.log` next to itself, which trailmark-watchdog ignores. The read-only ones take `-Repo <path>` and default to the current folder; `trace-handoff-writes.ps1` also needs `-Session <id>`.
 
 The scripts that read or start sessions work on Claude Code sessions. `test-trailmark-watchdog.ps1` also covers the Codex copy's hooks file, and `test-node-lookup.ps1` has an optional Codex step. For Codex chats, the copy's own log shows how its hooks ran (its README, "Checking how the hooks ran").
 
