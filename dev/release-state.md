@@ -38,6 +38,16 @@ Fable on `gitbin.js` and the test, Sonnet on the MANUAL.md and SECURITY.md sente
   - Added to RS-A-gitdirlinks: 8 strays, each with a junction to 120 long links, 3.7 s (3.9 s on the parent).
   - Added to RS-A-nestedone: 8 strays, each including 20 files with a quote in the path, 10.0 s (9.9 s on the parent).
 
+### RS-A-abovegit round 2 (2026-11-11, on dcb403f..176078a, PR #48)
+
+Sonnet on the two reworded sentences, from a copy under `E:/DevTemp`: both true to the code, two wordings unclear. The test's change was checked by `--only` and the nine mutations, no model. CI on dcb403f passed 9 of 9.
+
+- Fixed in this batch, wording only:
+  - MANUAL.md: what "that git passes on" belonged to was unclear. Now "whether it is in the session's folder or in a folder above it on git's way to the repo; it shares the repo's limit".
+  - SECURITY.md: "links inside it" could be read to cover the links in the alternates and the `lfs.storage` folders, which the limit does count (their walks are inside `limitedWalk`). Now "links in the `.git` folder itself or in its `worktrees` folder". Both times are marked as measured on Windows.
+- CONFIRMED by Sonnet by reading, and seen here in `farGit`: `linkedEntries` for the gitdir, `otherWorktrees` and the reading of the config files with their includes run outside `limitedWalk`, so none of them is counted against the limit on the way up.
+- No model round on this batch: it changes two sentences to the reviewer's wording and no code or test.
+
 ## Next version: RS-A-nestedtime (2026-11-11, branch `claude/rs-a-nestedtime` off af25b72, merged in PR #47 as 8fd6b84)
 
 PR #46 (RS-A-altmodules) merged as af25b72 at 2026-11-11 16:25:02Z, when the user said "Yes, auto-merge 46" (9 of 9 jobs passed). The user, on this item: "Yes, continue with RS-A-nestedtime once PR 46 merges."
