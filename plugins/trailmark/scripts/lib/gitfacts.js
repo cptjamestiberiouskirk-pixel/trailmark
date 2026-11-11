@@ -165,7 +165,11 @@ function farWorktree(r, cwd) {
   }
   // The folders first, parents before their subfolders: nothing below looks
   // into one until it is known not to be a link to a network path.
+  // The time is looked at before each one: a folder that is a link has where
+  // it leads walked, and 500 links to a long path took 5.2 s with nothing
+  // looking at the time; 20,000 folders are allowed.
   for (const rel of folders) {
+    if (r.left() < 800) return 'git-timeout'; // RS-A-linkfolders
     let st;
     try { st = fs.lstatSync(path.join(top.top, rel)); } catch { continue; }
     if (!st.isSymbolicLink()) continue;
