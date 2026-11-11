@@ -8,7 +8,26 @@ Added at the user's request on 2026-11-09, to work on later:
 
 - Make the lessons check enforced as well as followed. Today the only part a tool enforces is the log's format, which `dev/release-check.sh` fails on if an entry is broken. Sessions still follow the rest by hand. A commit or push hook could force the rules to appear, but that is a settings change and needs the user's approval.
 
-## Next version: RS-A-altread (2026-11-11, branch `claude/rs-a-altread` off 3cb56b5, main at ee252b5 merged in after round 1)
+## Next version: RS-A-altmodules (2026-11-11, branch `claude/rs-a-altmodules` off f7df599)
+
+PR #45 (RS-A-altread) merged as f7df599 at 2026-11-11 15:19:50Z, when the user said "Yes, auto-merge 45" (9 of 9 jobs passed; CI on main passed).
+
+The item had two parts. One is fixed, the other is kept as it is, with the reason.
+
+- Part one, fixed: a repo's settings and its alternates each had a work limit of their own. CONFIRMED here on f7df599 (Windows, `repro-altmodules2.js`): stores of 120 links to a folder at the end of a 900-character path, two named by `lfs.storage` and two next to alternates: `''` in 1.73 s (2 and 1: 1.30 s; 1 and 2: 1.31 s).
+  - Fix (`gitbin.js`, both copies): `limitedWalk(fn, repo)` takes `{ left }`; `farGit` makes one of 8 MiB and gives it to both walks, so the alternates start with what the values left. `farLfsEntries` (`.lfsconfig`) is one walk and is unchanged.
+  - After, CONFIRMED here: 2 and 1, 1 and 2, 2 and 2 give `many-config-paths` in 1.1 s; 1 and 1, 2 and 0, 0 and 2 give `''` in 0.9 s.
+  - Test: "git pointers: a repo's lfs.storage folders and its alternates share one limit on the work (RS-A-altmodules)", both copies: those five counts but 2 and 2. About 400 folders, 480 links, 3 to 5 s in each copy. Fails on f7df599.
+  - Mutations (`mutate-altmodules.js`, each through `--only 'RS-A-altmodules'`): the parent's file; the values walk without the repo's limit; the alternates walk without it; what a walk left not kept; every walk starting with the whole limit; the limit doubled; the limit halved. All 7 fail the test; unchanged passes.
+- Part two, kept as it is: each module gitdir under `.git/modules` is checked with limits of its own. CONFIRMED here on f7df599 (`repro-altmodules.js`, `farModules` with no time limit): 1, 4 and 8 module gitdirs, each naming 2 alternates beside stores of 110 links: `''` in 0.90, 3.32 and 6.24 s, counting 6.12M, 23.97M and 47.76M.
+  - What bounds it: the hook gives `farModules` what is left of 5 s and it stops with `git-timeout` when under 800 ms are left, checked between gitdirs. CONFIRMED here with 5 s: the 8-gitdir shape gives `git-timeout` in 4.21 s (f7df599) and 4.71 s (with the fix). git is kept out.
+  - Why no limit for all module gitdirs: plain ones count too. CONFIRMED here: 1,000 module gitdirs with names of 60 characters and a `core.worktree` each, in a repo at a path of 192 characters, count 6.57M in 0.82 s, so 2,000 count about 13M (INFERRED by doubling). A limit with room for that (32 MiB with a margin of two) allows about 5 s of the slow shape, which is what the time allows already, and it would add a way to refuse a real repo for good where the time limit refuses for one run.
+  - 2,000 module gitdirs give `many-submodules` before any is checked (CONFIRMED here).
+- Docs: MANUAL.md section 16 row `many-config-paths` gained a sentence; SECURITY.md says the alternates start with what the values left, and how module gitdirs are bounded.
+- Dropped on the user's word ("Yes, drop it", 2026-11-11): changing code messages to `pwsh`. On ee252b5 the user-facing `powershell.exe` suggestions outside the watchdog installer are `install.ps1:153` and `tools/migrate-from-jb-memory.js:1209` (watchdog commands, which need Windows PowerShell 5.1) and `tools/migrate-from-jb-memory.js:1234` (runs `install.ps1` again, which works under 5.1 and 7). No skill file names PowerShell. CONFIRMED here by reading.
+- Still deferred: RS-A-altsmall, RS-A-dotwords, RS-A-sharefold, RS-A-storecost, RS-A-biglisting.
+
+## Next version: RS-A-altread (2026-11-11, branch `claude/rs-a-altread` off 3cb56b5, main at ee252b5 merged in after round 1, merged in PR #45 as f7df599)
 
 PR #43 (RS-A-altcase and RS-A-storelinks) merged as 3cb56b5 at 2026-11-11 03:38:57Z, when the user said "Yes, auto-merge 43".
 

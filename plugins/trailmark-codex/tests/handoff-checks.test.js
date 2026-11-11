@@ -1058,6 +1058,47 @@ test('git pointers: a repo\'s alternates and the stores next to them share one l
   }
 });
 
+test('git pointers: a repo\'s lfs.storage folders and its alternates share one limit on the work (RS-A-altmodules)', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-far-onework-');
+  // Stores of 120 links to a folder at the end of a path 900 characters
+  // long: two fit in the limit and three don't (see the RS-A-altcase test).
+  let deep = path.join(base, 'p');
+  while (deep.length + 2 <= 900) deep = path.join(deep, 'd');
+  fs.mkdirSync(deep, { recursive: true });
+  const store = (dir) => {
+    fs.mkdirSync(dir, { recursive: true });
+    for (let k = 0; k < 120; k++) fs.symlinkSync(deep, path.join(dir, `l${k}`), 'junction');
+    return dir;
+  };
+  // Two that lfs.storage names, and two next to alternates.
+  const values = [0, 1].map(i => store(path.join(base, `s${i}`)));
+  const alts = [0, 1].map((i) => {
+    const a = path.join(base, `a${i}`);
+    fs.mkdirSync(path.join(a, 'objects'), { recursive: true });
+    store(path.join(a, 'lfs'));
+    return path.join(a, 'objects');
+  });
+  let made = 0;
+  // A repo of its own for each check: an answer is kept for its folder.
+  const check = (nValues, nAlts) => {
+    const r = path.join(base, `r${made++}`);
+    repoAt(r);
+    if (nValues) fs.appendFileSync(path.join(r, '.git', 'config'), '[lfs]\n' + values.slice(0, nValues).map(v => `\tstorage = ${v.replace(/\\/g, '/')}\n`).join(''));
+    if (nAlts) {
+      fs.mkdirSync(path.join(r, '.git', 'objects', 'info'), { recursive: true });
+      fs.writeFileSync(path.join(r, '.git', 'objects', 'info', 'alternates'), alts.slice(0, nAlts).join('\n') + '\n');
+    }
+    return farGitConfig(r);
+  };
+  assert.strictEqual(check(2, 0), '', 'two stores, both named by lfs.storage');
+  assert.strictEqual(check(0, 2), '', 'two stores, both next to alternates');
+  assert.strictEqual(check(1, 1), '', 'one store of each kind');
+  // Three stores between the two kinds: each kind alone is under the limit.
+  assert.strictEqual(check(2, 1), 'many-config-paths', 'two stores named by lfs.storage and one next to an alternate');
+  assert.strictEqual(check(1, 2), 'many-config-paths', 'one store named by lfs.storage and two next to alternates');
+});
+
 test('git pointers: reading the alternates files counts toward the limit on the work (RS-A-altread)', () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far-altread-');

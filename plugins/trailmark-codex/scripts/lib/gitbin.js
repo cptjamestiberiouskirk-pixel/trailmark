@@ -548,16 +548,21 @@ const MAX_WORKTREE_VALUES = 16;
 // its answer, or many-config-paths when the limit ran out on the way.
 // What the disk showed is kept while it runs, also where the caller keeps
 // none (.lfsconfig), so a folder is looked at once.
-function limitedWalk(fn) {
+// repo: { left }, what is left of the limit for one repo whose check is more
+// than one walk; each walk starts with it and leaves what it didn't use.
+function limitedWalk(fn, repo = null) {
   const prev = [WALK_LEFT, LSTAT_SEEN, BASE_MISSING, STORES];
-  WALK_LEFT = MAX_PATH_WORK;
+  WALK_LEFT = repo ? repo.left : MAX_PATH_WORK;
   if (!LSTAT_SEEN) LSTAT_SEEN = new Map();
   BASE_MISSING = new Map();
   STORES = { seen: new Set(), dirs: 0, entries: 0 };
   try {
     const why = fn();
     return WALK_LEFT < 0 ? 'many-config-paths' : why;
-  } finally { [WALK_LEFT, LSTAT_SEEN, BASE_MISSING, STORES] = prev; }
+  } finally {
+    if (repo) repo.left = WALK_LEFT;
+    [WALK_LEFT, LSTAT_SEEN, BASE_MISSING, STORES] = prev;
+  }
 }
 // The settings to check, each different value once (a core.worktree once for
 // each folder its file is in, since it is taken from there; lfs.storage apart
@@ -1104,6 +1109,11 @@ function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
   // runs; it becomes one more folder relative values are taken from.
   const bases = cst.bases.slice();
   const pending = distinctPaths(cst.pending);
+  // One limit on the work for the repo: the alternates below start with what
+  // the values left. With a limit each, two lfs.storage folders of 120 links
+  // and two more next to alternates were let through after 1.7 s, twice
+  // what one limit allows (RS-A-altmodules).
+  const work = { left: MAX_PATH_WORK };
   const valueWhy = limitedWalk(() => {
     let trees = 0;
     for (const e of pending) {
@@ -1126,11 +1136,12 @@ function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
       if (why) return why;
     }
     return '';
-  });
+  }, work);
   if (valueWhy) return valueWhy;
   const altStores = { seen: new Set(), dirs: 0, entries: 0, alt: { entries: 0 } };
   // All of a repo's alternates, and the stores next to them, under one limit
-  // on the work, the one a config's path values have (limitedWalk): each
+  // on the work, the one its config's path values have and what they left of
+  // it (limitedWalk with `work`): each
   // walk of links has a limit of its own (MAX_LINK_WORK), and there can be
   // many walks. 12 stores of links took 5.5 s, and one alternate of 1,000
   // links named in 100 letter cases 10.8 s (Windows). Past the limit git is
@@ -1143,7 +1154,7 @@ function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
       if (why) return why;
     }
     return '';
-  });
+  }, work);
 }
 // Submodule gitdirs kept in .git/modules (and the commondir's): git status
 // may open one by the name in .gitmodules when the submodule's own .git can't
