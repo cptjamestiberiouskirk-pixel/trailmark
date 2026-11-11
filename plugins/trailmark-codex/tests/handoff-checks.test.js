@@ -1099,6 +1099,88 @@ test('git pointers: a repo\'s lfs.storage folders and its alternates share one l
   assert.strictEqual(check(1, 2), 'many-config-paths', 'one store named by lfs.storage and two next to alternates');
 });
 
+test('git pointers: every .git found on one way up from the session\'s folder shares one limit on the work (RS-A-abovegit)', () => {
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  const { farGitConfig } = require(lib);
+  const base = realTemp('jbmem-far-above-');
+  // Stores of 120 links to a folder at the end of a path 900 characters
+  // long: two fit in the limit and three don't (see the RS-A-altcase test).
+  let deep = path.join(base, 'p');
+  while (deep.length + 2 <= 900) deep = path.join(deep, 'd');
+  fs.mkdirSync(deep, { recursive: true });
+  const stores = [0, 1].map((i) => {
+    const s = path.join(base, `s${i}`);
+    fs.mkdirSync(s);
+    for (let k = 0; k < 120; k++) fs.symlinkSync(deep, path.join(s, `l${k}`), 'junction');
+    return s;
+  });
+  const lfs = (n) => (n ? '[lfs]\n' + stores.slice(0, n).map(s => `\tstorage = ${s.replace(/\\/g, '/')}\n`).join('') : '');
+  let made = 0;
+  const repo = (n) => {
+    const r = path.join(base, `r${made++}`);
+    repoAt(r);
+    fs.appendFileSync(path.join(r, '.git', 'config'), lfs(n));
+    return r;
+  };
+  // A repo whose config names `top` stores. Below it, one folder inside the
+  // other for each number in `below`, each with a .git that has only a
+  // config naming that many stores: no HEAD, so git goes on up past it.
+  // Checked from the innermost folder.
+  const check = (top, below) => {
+    let cwd = repo(top);
+    below.forEach((n, i) => {
+      cwd = path.join(cwd, `f${i}`);
+      fs.mkdirSync(path.join(cwd, '.git'), { recursive: true });
+      fs.writeFileSync(path.join(cwd, '.git', 'config'), '[core]\n\trepositoryformatversion = 0\n' + lfs(n));
+    });
+    return farGitConfig(cwd);
+  };
+  assert.strictEqual(check(2, []), '', 'two stores in the repo, nothing below it');
+  assert.strictEqual(check(2, [0, 0]), '', 'two stores in the repo, and two .git folders below it that name none');
+  assert.strictEqual(check(1, [1]), '', 'one store in the repo and one in a .git below it');
+  // Three stores between them: each .git alone is under the limit.
+  assert.strictEqual(check(2, [1]), 'many-config-paths', 'two stores in the repo and one in a .git below it');
+  assert.strictEqual(check(1, [1, 1]), 'many-config-paths', 'one store in the repo and one in each of two .git folders below it');
+  assert.strictEqual(check(0, [1, 1, 1]), 'many-config-paths', 'one store in each of three .git folders below the repo');
+  // The folder as given and its real path are two ways up, each with a
+  // limit of its own: a repo that fits is let through however its folder is
+  // reached. Here each way ends at a repo of its own with two stores.
+  const there = repo(2);
+  fs.mkdirSync(path.join(there, 'sub'));
+  const here = repo(2);
+  fs.symlinkSync(path.join(there, 'sub'), path.join(here, 'in'), 'junction');
+  assert.strictEqual(farGitConfig(path.join(here, 'in')), '', 'a linked folder: two stores on each way up');
+  // A git before 2.38 uses a folder with a HEAD, objects and refs as a repo,
+  // so that folder is checked like a .git, with what is left of the same
+  // limit. The library is loaded again with a git that says it is 2.34.1
+  // (the version is asked once and kept).
+  const old = repo(1);
+  const bare = (name, n) => {
+    const b = path.join(old, name);
+    for (const s of ['objects', 'refs']) fs.mkdirSync(path.join(b, s), { recursive: true });
+    fs.writeFileSync(path.join(b, 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(b, 'config'), '[core]\n\trepositoryformatversion = 0\n\tbare = true\n' + lfs(n));
+    return b;
+  };
+  const b1 = bare('b1', 1);
+  const b2 = bare('b2', 2);
+  const cp = require('child_process');
+  const realRun = cp.execFileSync;
+  const key = require.resolve(lib);
+  const kept = require.cache[key];
+  let answers;
+  cp.execFileSync = (bin, args, ...rest) => (Array.isArray(args) && args[0] === '--version' ? 'git version 2.34.1\n' : realRun(bin, args, ...rest));
+  delete require.cache[key];
+  try {
+    const oldGit = require(lib).farGitConfig;
+    answers = [oldGit(b1), oldGit(b2)];
+  } finally {
+    cp.execFileSync = realRun;
+    require.cache[key] = kept;
+  }
+  assert.deepStrictEqual(answers, ['', 'many-config-paths'], 'an older git: a bare repo below the repo with one store, then one with two, the repo itself naming one');
+});
+
 test('git pointers: reading the alternates files counts toward the limit on the work (RS-A-altread)', () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far-altread-');
