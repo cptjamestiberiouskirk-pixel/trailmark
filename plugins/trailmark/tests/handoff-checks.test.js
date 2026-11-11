@@ -1001,8 +1001,8 @@ test('git pointers: a repo\'s alternates and the stores next to them share one l
     return r;
   };
   // Stores of links: each store's walk has a limit of its own, and there
-  // can be 64 stores. 110 links to a folder at the end of a path 900
-  // characters long use about three quarters of one walk's limit (see the
+  // can be 64 stores. 120 links to a folder at the end of a path 900
+  // characters long use about four fifths of one walk's limit (see the
   // RS-A-manylinks test), so two stores fit in the repo's and three don't.
   let deep = path.join(base, 'p');
   while (deep.length + 2 <= 900) deep = path.join(deep, 'd');
@@ -1011,11 +1011,11 @@ test('git pointers: a repo\'s alternates and the stores next to them share one l
     const a = path.join(base, `a${i}`);
     fs.mkdirSync(path.join(a, 'objects'), { recursive: true });
     fs.mkdirSync(path.join(a, 'lfs'));
-    for (let k = 0; k < 110; k++) fs.symlinkSync(deep, path.join(a, 'lfs', `l${k}`), 'junction');
+    for (let k = 0; k < 120; k++) fs.symlinkSync(deep, path.join(a, 'lfs', `l${k}`), 'junction');
     return path.join(a, 'objects');
   });
-  assert.strictEqual(farGitConfig(withAlternates(stores.slice(0, 2))), '', 'two stores of 110 links');
-  assert.strictEqual(farGitConfig(withAlternates(stores)), 'many-config-paths', 'three stores of 110 links');
+  assert.strictEqual(farGitConfig(withAlternates(stores.slice(0, 2))), '', 'two stores of 120 links');
+  assert.strictEqual(farGitConfig(withAlternates(stores)), 'many-config-paths', 'three stores of 120 links');
   // Entries: every alternate here holds one link to the same folder of 5,000
   // files, so each one's walk looks at 5,002 entries. 19 alternates stay
   // under 100,000 and 22 don't (the 21st is the first one refused).
