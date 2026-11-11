@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-11: A case with real git was loosened, and its strict twin left out one value
+- What went wrong: round 2 let the two cases "real git is stopped at 1 ms" accept either answer and moved the strict check to a stand-in, but the stand-in was stopped at 2000 ms only. A change that reads git stopped at 1 ms as an empty file then passed the test, where the test before it failed (round 3's reviewer). A second gap had been there from the start: nothing showed that the time is asked again when git starts.
+- Why: the stand-in cases were written from the reviewer's list of survivors, not from what the loosened cases used to prove.
+- Rule going forward: before an assertion is loosened, write down each thing it proves (here: git stopped at 1 ms is a timeout, and a timeout of 0 never happens), and give each one a strict case that needs no real timing. Then run the whole mutation list, as the entry below says.
+- Status: open
+
 ## 2026-11-11: A probe that never ran was printed as a failed test
 - What went wrong: during a mutation run winget updated Node on the PC (26.13.0 to 26.13.1, 16:17 to 16:19 in the Windows event log). Five probes found no `node` for some seconds. `release-check.sh` printed "FAIL ? failed of ?" in 0 s, and the probe script passed that on as FAIL, which in a mutation list reads as "caught". The 0 s and the "?" gave it away. In the same run a loosened assertion let one probe pass (git's timeout of at least 1 ms), which only showed because the whole list was run again after a change to the test alone.
 - Why: the script took any FAIL line as the test failing, without asking whether the test had run.

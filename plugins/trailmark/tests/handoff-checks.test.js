@@ -2194,6 +2194,9 @@ test('git pointers: the caller\'s time is looked at before each config file is r
       G.withTime(() => NaN, () => G.farGitConfig(own().r)),
       // Nothing left, and a line of 0, so the look lets it through.
       G.withTime(() => 0, () => G.farGitConfig(own().r), 0),
+      // 5 s at each look and 2 s each time git is started: the time is
+      // asked again for git's timeout, not taken from the look.
+      G.withTime((() => { let n = 0; return () => (++n % 2 ? 5000 : 2000); })(), () => G.farGitConfig(own().r)),
     ];
     // git stopped by a timeout under the 3 s it gets when no time is
     // counted: the time has run out, and that isn't kept. Stopped after the
@@ -2206,6 +2209,10 @@ test('git pointers: the caller\'s time is looked at before each config file is r
     stops.full = G.withTime(() => 5000, () => G.farGitConfig(own().r));
     stops.noLimit = G.farGitConfig(own().r);
     stops.lfsNoLimit = G.farLfsFile(lfsFile, base);
+    // Stopped with nothing left and a line of 0: git had 1 ms, and that is
+    // the time running out too, never a file with nothing in it.
+    stops.atOne = G.withTime(() => 0, () => G.farGitConfig(own().r), 0);
+    stops.lfsAtOne = G.withTime(() => 0, () => G.farLfsFile(lfsFile, base), 0);
     mode = 'fail';
     stops.failed = G.withTime(() => 2000, () => G.farGitConfig(own().r));
     stops.lfsFailed = G.withTime(() => 2000, () => G.farLfsFile(lfsFile, base));
@@ -2240,15 +2247,16 @@ test('git pointers: the caller\'s time is looked at before each config file is r
     cp.execFileSync = realRun;
     require.cache[key] = kept; require.cache[factsKey] = keptFacts;
   }
-  assert.deepStrictEqual(answers, ['', '', '', '', '', '']);
+  assert.deepStrictEqual(answers, ['', '', '', '', '', '', '']);
   // Seven calls each (the config and the six files): what is left when that
   // is under 3 s, in whole ms; 3 s with more left, with no limit, and with
   // an answer that is no number; 1 ms with nothing left (0 would be no
-  // timeout at all).
-  assert.deepStrictEqual(timeouts.slice(0, 42), [...Array(7).fill(2000), ...Array(14).fill(3000), ...Array(7).fill(1500), ...Array(7).fill(3000), ...Array(7).fill(1)]);
+  // timeout at all); the 2 s of the second ask, not the 5 s of the look.
+  assert.deepStrictEqual(timeouts.slice(0, 49), [...Array(7).fill(2000), ...Array(14).fill(3000), ...Array(7).fill(1500), ...Array(7).fill(3000), ...Array(7).fill(1), ...Array(7).fill(2000)]);
   assert.deepStrictEqual(stops, {
     short: 'git-timeout', lfsShort: 'git-timeout',
     full: 'unreadable-config', noLimit: 'unreadable-config', lfsNoLimit: 'lfs-config',
+    atOne: 'git-timeout', lfsAtOne: 'git-timeout',
     failed: 'unreadable-config', lfsFailed: 'lfs-config',
     after: '',
   });
