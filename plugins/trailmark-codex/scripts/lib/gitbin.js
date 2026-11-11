@@ -698,6 +698,12 @@ function farAlternates(objects, depth, seen, tops = [], stores = { seen: new Set
   const alt = readSmall(path.join(real, 'info', 'alternates'), 64 * 1024);
   if (alt === null) return '';
   if (alt === UNSAFE) return 'unreadable-config';
+  // Reading the file is work too, counted by its length: 18,000 alternates
+  // (one folder in 3,000 letter cases, named by 6 others), each with 62 KB
+  // of comment lines, were read in 8.3 s while both limits stayed far from
+  // their ends. About 125 files of the full 64 KB reach the limit; a real
+  // alternates file is a line or two (RS-A-altread).
+  if ((WALK_LEFT -= alt.length) < 0) return 'many-config-paths';
   // Windows can't name a file with a CR in it, so a CRLF file reads the same
   // there; elsewhere a CR stays part of the path, as git keeps it.
   const entries = altEntries(WIN ? alt.replace(/\r\n/g, '\n') : alt);

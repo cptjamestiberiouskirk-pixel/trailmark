@@ -8,7 +8,21 @@ Added at the user's request on 2026-11-09, to work on later:
 
 - Make the lessons check enforced as well as followed. Today the only part a tool enforces is the log's format, which `dev/release-check.sh` fails on if an entry is broken. Sessions still follow the rest by hand. A commit or push hook could force the rules to appear, but that is a settings change and needs the user's approval.
 
-## Next version: RS-A-altcase and RS-A-storelinks (2026-11-10, branch `claude/rs-a-altcase` off cc06828)
+## Next version: RS-A-altread (2026-11-11, branch `claude/rs-a-altread` off 3cb56b5)
+
+PR #43 (RS-A-altcase and RS-A-storelinks) merged as 3cb56b5 at 2026-11-11 03:38:57Z, when the user said "Yes, auto-merge 43".
+
+- What was wrong, CONFIRMED here on 3cb56b5 (Windows): reading each alternate's own `info/alternates` counted toward no limit. 6 alternates, each listing 3,000 letter cases of one sibling folder whose own `info/alternates` is 62,000 bytes of comment lines: `''` in 8.34 s (one such alternate 1.67 s). Off Windows the same reads need a real folder per line, so the time there is INFERRED lower and was not measured.
+- Fix (`gitbin.js`, both copies, one line in `farAlternates`): after an alternates file is read, its length comes off `WALK_LEFT`, the work limit `limitedWalk` sets for all of a repo's alternates (8 MiB), and below zero the answer is `many-config-paths`. The repo's own `objects/info/alternates` is counted too. A file over 64 KB was refused before and still is, so about 125 files of the largest size reach the limit.
+- After, CONFIRMED here: the shape above gives `many-config-paths` in 0.07 s (one alternate 0.06 s). 100 alternates with a 60 KB comment-only file each: `''` in 0.05 s; 150: `many-config-paths` in 0.07 s.
+- Test: "git pointers: reading the alternates files counts toward the limit on the work (RS-A-altread)", both copies: 100 files of 60 KB pass, 150 give `many-config-paths`, 150 files of one line pass. It runs on all three systems, makes about 310 folders and 9 MB of files, and takes 1 to 2 s in each copy. Fails on 3cb56b5 (the parent's `gitbin.js`).
+- Mutations (`mutate-altread.js` in the session's scratch folder, each run through `--only 'RS-A-altread'`): the parent's file, half the length counted, twice the length, a fixed 60,000 for each file, the length compared but not taken off. All 5 fail the test; unchanged passes.
+- Docs: MANUAL.md section 16 row `many-config-paths` and SECURITY.md's alternates bullet each gained a sentence.
+- Not shown: the Windows-only shape is not a test (18,000 lines of letter cases; the 150-file shape covers the same line of code on every system). That no real repo has megabytes of alternates files is INFERRED: git writes a line per alternate.
+- Repro: `repro-altread.js <repo root> <temp base> [FG]` in the session's scratch folder; the shapes are described above and in its header.
+- Still deferred: RS-A-altmodules (each module gitdir has limits of its own; `lfs.storage` and the alternates each have a work limit of their own).
+
+## Next version: RS-A-altcase and RS-A-storelinks (2026-11-10, branch `claude/rs-a-altcase` off cc06828, merged in PR #43 as 3cb56b5)
 
 Both FLAGGED in PR #42's round 1. The user: "Yes, both together".
 
