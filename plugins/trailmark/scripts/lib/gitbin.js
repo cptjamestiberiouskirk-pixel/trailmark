@@ -1005,7 +1005,8 @@ function bareRefused() {
   } catch { /* unknown: old */ }
   return bareRefusedCache;
 }
-function farBareProbe(d) {
+// work: what is left of the limit on the way up (see farGit).
+function farBareProbe(d, work = null) {
   const h = path.join(d, 'HEAD');
   let st;
   try { st = fs.lstatSync(h); } catch { return ''; }
@@ -1045,7 +1046,7 @@ function farBareProbe(d) {
   // reads all of it, so then all of it is checked.
   if (!bareRefused()) {
     const usable = ['objects', 'refs'].every(s => { try { return fs.statSync(localPath(path.join(base, s))).isDirectory(); } catch { return false; } });
-    return usable ? farGit(d) : '';
+    return usable ? farGit(d, {}, { work }) : '';
   }
   return '';
 }
@@ -1053,7 +1054,10 @@ function farBareProbe(d) {
 // repo's gitdir); the rest of the checks are the same.
 // locate: only find the gitdir and commondir (out), for localRepoRoot; '' or
 // a reason found on the way there, and no config read, so no git call.
-function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
+// work: { left }, what is left of a limit on the work that this check shares
+// with others (the way up from the session's folder); without it the check
+// has a limit of its own.
+function farGit(gitEntry, out = {}, { light = false, locate = false, work = null } = {}) {
   let st;
   try { st = fs.lstatSync(gitEntry); } catch { return ''; }
   let gitdir = gitEntry;
@@ -1113,7 +1117,7 @@ function farGit(gitEntry, out = {}, { light = false, locate = false } = {}) {
   // the values left. With a limit each, two lfs.storage folders of 120 links
   // and two more next to alternates were let through after 1.7 s, twice
   // what one limit allows (RS-A-altmodules).
-  const work = { left: MAX_PATH_WORK };
+  if (!work) work = { left: MAX_PATH_WORK };
   const valueWhy = limitedWalk(() => {
     let trees = 0;
     for (const e of pending) {
@@ -1315,6 +1319,12 @@ function farGitConfigIn(cwd) {
   const seenDirs = new Map();
   for (const start of why ? [] : [real === key ? real : onDisk(real).at, key]) {
     let d = start;
+    // One limit on the work for all that is checked on this way up: git
+    // goes on past a .git it doesn't accept, and each one found used to be
+    // checked with a limit of its own. Eight folders, one inside the other,
+    // each with a .git that had only a config naming two lfs.storage folders
+    // of 120 links, were let through after 10.5 s (RS-A-abovegit).
+    const above = { left: MAX_PATH_WORK };
     for (let i = 0; !why; i++) {
       if (i > 512) { why = 'deep-folder'; break; }
       // By its exact text (see farConfig's seenKey).
@@ -1329,7 +1339,7 @@ function farGitConfigIn(cwd) {
         let accepted = false;
         if (found) {
           const at = {};
-          why = farGit(g, at);
+          why = farGit(g, at, { work: above });
           // git stops at the first repo it accepts; past one it doesn't, it
           // goes on looking, so the check does too.
           if (why) break;
@@ -1343,7 +1353,7 @@ function farGitConfigIn(cwd) {
         if (!accepted) {
           let head = false;
           try { fs.lstatSync(path.join(d, 'HEAD')); head = true; } catch { head = false; }
-          if (head) why = farBareProbe(d);
+          if (head) why = farBareProbe(d, above);
           if (why) break;
         }
         if (accepted) { seenDirs.set(k, true); break; }

@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-11: A merge chained after a push went in before CI saw the push
+- What went wrong: PR #47's round 1 batch (cb14d67: a test's stub clock, a SECURITY.md wording, the notes) was pushed and `gh pr merge 47 --auto --merge` ran in the same script. The PR merged at once as 8fd6b84 with all 9 jobs of cb14d67 still pending, so CI did not gate that commit. Its parent b82ab59 had passed CI, and `--sums --quick` had passed here on cb14d67.
+- Why: right after a push the new head's jobs aren't registered yet, and `--auto` merges straight away when nothing is seen pending (admins are also exempt from the required jobs). PLAYBOOK.md already said a merge is run as its own command; the script chained it after the push.
+- Rule going forward: after a push, the merge command goes in a later step, and only once `gh pr view <n> --json headRefOid,statusCheckRollup` shows the pushed head with its 9 jobs listed (pending or passed). If a merge does go in ungated, say so at once, watch the run on main for that merge commit, and fix forward on a failure.
+- Status: open
+
 ## 2026-11-10: A test that made 33,600 folders stalled the drive
 - What went wrong: the first RS-A-manylinks test made 840 folders 40 levels down for its links' targets. It passed, in 12 to 24 s, but in three runs it took 481, 961 and 1,308 s, and `rm` calls of the check script hung for minutes.
 - Why: the stall is in the file system of drive E: (ReFS, the Dev Drive the temp folder is on), not in the code under test. CONFIRMED here: during the 481 s both test processes had no CPU time and no I/O count for 7 minutes (a sampler every 15 s), and Windows logged ReFS event 147 for `rm.exe` on E:, an I/O of 373 s. The same steps timed alone, 8 rounds, never took over 24 s. Each failed run also kept its 38,000 entries, 20 runs deep. Which ReFS work stalls is not known.
