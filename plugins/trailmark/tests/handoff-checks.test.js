@@ -2023,6 +2023,58 @@ test('git status: the time is looked at before each folder with a .git is checke
   assert.deepStrictEqual(run('plain', 500, true), { skipped: undefined, looks: 4 });
 });
 
+test('git status: the time is looked at before each folder of tracked files (RS-A-linkfolders)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-link-time-');
+  // Four folders with a tracked file each.
+  // links: each folder is then a link to one plain folder with such a file,
+  // so where it leads is walked before git status may go through it.
+  const repo = (name, links) => {
+    const r = path.join(base, name); const g = repoAt(r);
+    const dirs = ['d0', 'd1', 'd2', 'd3'];
+    for (const d of dirs) { fs.mkdirSync(path.join(r, d)); fs.writeFileSync(path.join(r, d, 'f'), 'x'); }
+    g('add', ...dirs.map(d => `${d}/f`)); g('commit', '-qm', 'dirs');
+    if (links) {
+      const to = path.join(base, `${name}-to`);
+      fs.mkdirSync(to); fs.writeFileSync(path.join(to, 'f'), 'x');
+      for (const d of dirs) { fs.rmSync(path.join(r, d), { recursive: true }); fs.symlinkSync(to, path.join(r, d), 'junction'); }
+    }
+    return r;
+  };
+  // The clock stands still at the start of the 5 s, and jumps to `left` ms
+  // before their end at the first look at one of the four folders. Seconds
+  // aren't measured: the folders looked at are counted.
+  const run = (name, left, links = true) => {
+    const r = repo(name, links);
+    const now = Date.now; const lstat = fs.lstatSync;
+    const start = now();
+    let clock = start; const seen = new Set();
+    Date.now = () => clock;
+    fs.lstatSync = (p, ...a) => {
+      if (typeof p === 'string' && /^d\d$/.test(path.basename(p))) {
+        if (!seen.size && left !== null) clock = start + 5000 - left;
+        seen.add(path.basename(p));
+      } else if (typeof p === 'string' && path.basename(p) === '.gitmodules') {
+        // Past the folders: the clock goes back, so the git calls that
+        // follow have their whole time on a slow machine too.
+        clock = start;
+      }
+      return lstat(p, ...a);
+    };
+    try { return { skipped: gitFacts(r, ['status'], { budgetMs: 5000 }).statusSkipped, folders: seen.size }; } finally { Date.now = now; fs.lstatSync = lstat; }
+  };
+  // 500 ms left once the first folder is reached: the other three aren't
+  // looked at.
+  assert.deepStrictEqual(run('short', 500), { skipped: 'git-timeout', folders: 1 });
+  // 900 ms left, and time in hand: all four are looked at and status is read.
+  assert.deepStrictEqual(run('enough', 900), { skipped: undefined, folders: 4 });
+  assert.deepStrictEqual(run('plenty', null), { skipped: undefined, folders: 4 });
+  // The same for folders that are no links: the look at the time comes
+  // before each folder, whatever it turns out to be.
+  assert.deepStrictEqual(run('plain-short', 500, false), { skipped: 'git-timeout', folders: 1 });
+  assert.deepStrictEqual(run('plain-enough', 900, false), { skipped: undefined, folders: 4 });
+});
+
 test('scan: only the folder a session started in counts; a memory folder named notes (loop round 7)', { skip: NO_LINKS }, () => {
   const base = realTemp('jbmem-r7-');
   const cfg = path.join(base, 'cfg');
