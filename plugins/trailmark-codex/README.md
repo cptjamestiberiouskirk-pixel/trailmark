@@ -17,7 +17,7 @@ It runs no background model, makes no network requests and sends no telemetry. E
 
 ## Install
 
-You need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines) and the ChatGPT desktop app. Steps 1 and 5 are checked against Codex's documentation and in the ChatGPT app on Windows, step 2 against the documentation only, and step 3 says what hasn't been checked yet. The handoff, its budget, the commit log, parking, pruning and the sandbox work as [docs/how-it-works.md](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/docs/how-it-works.md) describes for Claude Code; the differences are below.
+You need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines), the ChatGPT desktop app with Codex mode, and the Codex CLI for the marketplace command. Install from a [downloaded release](https://github.com/cptjamestiberiouskirk-pixel/trailmark/releases), unzipped somewhere permanent that only you can write to. Steps 1 and 5 are checked against Codex's documentation and in the ChatGPT app on Windows, step 2 against the documentation only, and step 3 says what hasn't been checked yet. The handoff, its budget, the commit log, parking, pruning and the sandbox work as [docs/how-it-works.md](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/docs/how-it-works.md) describes for Claude Code; the differences are below.
 
 1. **Add the marketplace.** The release folder holds `.agents/plugins/marketplace.json`, which lists this plugin. With the Codex CLI on PATH:
 
@@ -25,7 +25,9 @@ You need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines) an
    codex plugin marketplace add <release folder>
    ```
 
-   Restart the ChatGPT desktop app, open the Plugins directory, choose the **trailmark-codex** marketplace and install the plugin. The CLI only manages marketplaces; installing happens in the app.
+   If you also use Claude Code, the release's installer does both: `./install.sh --codex` (`install.ps1 -Codex` on Windows) installs the Claude Code plugin and then runs that command. The installer needs Claude Code, so for Codex alone use the command above.
+
+   Restart the ChatGPT desktop app, open the Plugins directory, choose the **trailmark-codex** marketplace and install the plugin. Install it in the app, not from the command line: Codex runs a plugin's hooks only when it was installed there. Newer Codex CLIs also have `codex plugin add`; this copy hasn't been tested installed that way.
 
 2. **Trust the hooks.** Codex runs a plugin's hooks only after you review and trust them, and again after any change to them. Each hook should read `node -e "...PLUGIN_ROOT..." trailmark --hook <name>`. In the Codex CLI, `/hooks` lists them.
 
@@ -63,6 +65,20 @@ You need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines) an
 7. **Check it.** Start a new Codex chat in the repo and ask the agent to run the `tm-memory-setup` skill. It runs the sandbox check, finds the memory folder, writes a test note and confirms the session-start note arrived.
 
 [MANUAL.md](https://github.com/cptjamestiberiouskirk-pixel/trailmark/blob/main/MANUAL.md), section 8, walks through the same install with more detail.
+
+## Updating
+
+Replace the release folder's contents with the new release, keeping the same path. Restart the ChatGPT app, open Plugins and choose Upgrade for trailmark-codex when it is offered. Codex runs its own cached copy until then. Trust the hooks again when Codex asks.
+
+## Uninstalling
+
+Uninstall trailmark-codex in the ChatGPT app first, since the app shows a plugin only through its marketplace. Then remove the marketplace:
+
+```text
+codex plugin marketplace remove trailmark-codex
+```
+
+The release's installer does that second step too (`./install.sh --uninstall`, `install.ps1 -Uninstall`), but it needs Claude Code and also uninstalls the Claude Code plugin. Your notes stay in the memory folder either way. To stop using Trailmark in one repo only, delete `.jbmem.json` from that repo's memory folder. That stops it for Claude Code in that repo too, since both share the folder.
 
 ## Day to day
 

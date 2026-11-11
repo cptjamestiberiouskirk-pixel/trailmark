@@ -16,7 +16,7 @@ Claude updates the note at milestones (a commit, a merged PR, a subagent's resul
 
 - A handoff in every new session, kept under 8,500 characters so it fits inside Claude Code's 10,000-character hook limit. A cut note says which sections were left out.
 - Commits made since the handoff are listed, with any next step they may already cover.
-- Reminders to checkpoint after commits, PR merges and subagent results, and a git-state snapshot before each compaction.
+- Reminders to checkpoint after commits and PR merges (in Claude Code, after subagent results too), and a git-state snapshot before each compaction.
 - A request to checkpoint as the session nears auto-compaction, so the note is current before Claude Code summarizes the session (Claude Code only).
 - Version-checked writes, so parallel sessions and worktrees can't overwrite each other's notes.
 - One shared note for Claude Code and Codex in the same repo; its `Updated:` line names the agent that wrote it last.
@@ -26,7 +26,11 @@ Trailmark runs no background model and makes no network requests, and there's no
 
 ## Install
 
-You need Claude Code 2.1.304 or later and Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines). git is recommended. Windows, macOS and Linux are supported, and CI runs the tests on all three.
+Both copies need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines). git is recommended. CI runs the tests of both copies on Windows, macOS and Linux.
+
+### Claude Code
+
+You need Claude Code 2.1.304 or later. Windows, macOS and Linux are supported.
 
 Straight from GitHub:
 
@@ -44,17 +48,53 @@ Or [download a release](https://github.com/cptjamestiberiouskirk-pixel/trailmark
 
 `--check` (`-Check` on Windows) runs the checks without changing anything.
 
-Coming from jb-memory, Trailmark's name before 0.5.0? Run `node tools/migrate-from-jb-memory.js --dry-run` from the release folder (or `migrate-from-jb-memory.cmd --dry-run` on Windows) to see the plan, then run it without `--dry-run` instead of the installer. It removes jb-memory, installs Trailmark and leaves your notes where they are. [MANUAL.md](MANUAL.md), section 15, has the details.
+### Codex
+
+You need the ChatGPT desktop app with Codex mode, and the Codex CLI for the marketplace command. The Codex copy is tested with the desktop app on Windows; macOS and Linux are untested. Part of the install happens in the app, so there is no single command for it.
+
+1. [Download a release](https://github.com/cptjamestiberiouskirk-pixel/trailmark/releases), check it against its `.sha256` file, and unzip it somewhere permanent that only you can write to.
+2. Add the Codex marketplace. If you use Claude Code too, run the installer with `--codex` (`-Codex` on Windows, also through `install.cmd`): it installs the Claude Code plugin, then adds the Codex marketplace. The installer needs Claude Code, so for Codex alone add the marketplace by hand:
+
+   ```text
+   codex plugin marketplace add <release folder>
+   ```
+
+3. Restart the ChatGPT desktop app, open Plugins, choose the `trailmark-codex` marketplace and install `trailmark-codex`. Review and trust its hooks when the app asks. Codex runs a plugin's hooks only when it was installed in the app.
+4. On Windows, set `NoDefaultCurrentDirectoryInExePath` ([MANUAL.md](MANUAL.md), section 9) and restart the app once more.
+
+The [Codex copy's README](plugins/trailmark-codex/README.md) and [MANUAL.md](MANUAL.md), section 8, have every step in full, with what has and hasn't been tested.
+
+### Moving from jb-memory
+
+Coming from jb-memory, Trailmark's name before 0.5.0? Run `node tools/migrate-from-jb-memory.js --dry-run` from the release folder (or `migrate-from-jb-memory.cmd --dry-run` on Windows) to see the plan, then run it without `--dry-run` instead of the installer. It removes jb-memory, installs Trailmark and leaves your notes where they are. [MANUAL.md](MANUAL.md), section 15, has the details, with the steps left for you in the ChatGPT app when jb-memory-codex is installed.
+
+### Updating and uninstalling
+
+[MANUAL.md](MANUAL.md) covers both for Claude Code and for Codex: section 12 for updating and section 14 for uninstalling. Neither deletes your notes.
 
 ## Quick start
+
+In Claude Code:
 
 1. Open Claude Code in a repo and run `/trailmark:memory-setup`.
 2. Start a new session. Look for a status line like `[trailmark] handoff 2 h old, ~900 tokens injected, sandbox on`.
 3. Work as usual. Run `/trailmark:checkpoint` whenever you want the note brought up to date, and `/trailmark:session-end` before you stop.
 
+In Codex:
+
+1. Set the repo up. If you also use Claude Code in it, run `/trailmark:memory-setup` there. For a repo you use only from Codex, run the `init` command in [MANUAL.md](MANUAL.md), section 8, step 6, yourself in a terminal.
+2. Start a new Codex chat in the repo and ask the agent to run the `tm-memory-setup` skill. It runs the sandbox check and confirms the chat got the handoff. Codex shows a `[trailmark]` message only when there is a warning, so don't wait for a status line.
+3. Work as usual. Ask the agent to run `tm-checkpoint` whenever you want the note brought up to date, and `tm-session-end` before you stop. Codex asks you to approve each checkpoint's write, since the note lives outside the workspace.
+
 ## Codex
 
-The `trailmark-codex` copy brings the same handoff to Codex. It is tested with the ChatGPT desktop app on Windows; Codex runs a plugin's hooks only when it was installed there. In a repo you use from both, either agent can pick up where the other stopped. Installing it takes a few steps in the ChatGPT app; see [its README](plugins/trailmark-codex/README.md) or [MANUAL.md](MANUAL.md), section 8.
+The `trailmark-codex` copy brings the same handoff to Codex. In a repo you use from both, either agent can pick up where the other stopped. What differs from the Claude Code plugin:
+
+- Its skills are named `tm-checkpoint`, `tm-session-end`, `tm-park`, `tm-recall`, `tm-memory-prune` and `tm-memory-setup`, and you ask the agent to run them.
+- It has no reminder after a subagent's result and no request to checkpoint as the context fills up.
+- Each checkpoint's write needs your approval, unless you make the memory folder a writable root.
+
+[Its README](plugins/trailmark-codex/README.md) lists every difference and what has been tested.
 
 ## Optional: the Windows watchdog
 

@@ -1,6 +1,6 @@
 # Trailmark manual
 
-Trailmark keeps one short state file per repo, the handoff, and gives it to every new Claude Code session in that repo. Claude rewrites it at milestones (a commit, a merged PR, a subagent's result, before a compaction), so the next session starts from where the last one stopped instead of from a cold read of the code.
+Trailmark keeps one short state file per repo, the handoff, and gives it to every new Claude Code session in that repo. Claude rewrites it at milestones (a commit, a merged PR, a subagent's result, before a compaction), so the next session starts from where the last one stopped instead of from a cold read of the code. The Codex copy does the same for Codex chats, on the same handoff (section 8).
 
 Sections 2 to 7 get you installed and working. The rest covers the Codex copy for the ChatGPT desktop app, the optional Windows tools, updating, troubleshooting, uninstalling and moving from jb-memory. The internals are in [docs/how-it-works.md](docs/how-it-works.md) and the security model is in [SECURITY.md](SECURITY.md).
 
@@ -48,15 +48,17 @@ Version 0.6.2, for both Claude Code and the Codex copy (trailmark-watchdog 1.7.0
 | | Needed | Notes |
 |---|---|---|
 | Node.js | 22.23.4, 24.22.1 or 26.12.1, or later in the same line | Every hook runs `node`. Older releases miss two fixes to the permission model the sandbox relies on, and the installer refuses them unless you pass `--allow-old-node` / `-AllowOldNode`. Lines before 22, and odd-numbered lines before 26, are refused the same way, since they get no security releases |
-| Claude Code | 2.1.304 or later (the oldest tested) | The hooks use the `args` and `if` options, which 2.1.42 ignores. Versions between the two are untested. The installer warns on an older one |
+| Claude Code | 2.1.304 or later (the oldest tested) | The hooks use the `args` and `if` options, which 2.1.42 ignores. Versions between the two are untested. The installer warns on an older one. The installers need the `claude` command, with `--codex` / `-Codex` too; the Codex copy itself doesn't (section 8) |
 | git | Any current release | Optional. Without it nothing breaks, but no commits are logged and the handoff's `Updated:` line has no branch or HEAD |
 | Windows | Windows 10 or 11, with Windows PowerShell 5.1 (built in) | PowerShell 7 also runs the installer and the scripts. trailmark-watchdog's scheduled scans run under 5.1 |
 | macOS, Linux | bash | The plugin's tests run in CI on Linux, macOS and Windows. The installer is tested on Linux |
-| Codex copy | The ChatGPT desktop app with Codex mode, and the Codex CLI for the marketplace command | Tested with the desktop app on Windows. macOS is untested |
+| Codex copy | The ChatGPT desktop app with Codex mode, and the Codex CLI for the marketplace command | Tested with the desktop app on Windows. macOS and Linux are untested there, though CI runs the copy's own tests on all three |
 
 ## 3. Install
 
 First put the release folder somewhere permanent that only you can write to, such as `~/tools/trailmark` or `%USERPROFILE%\tools\trailmark`. Claude Code loads the plugin from that folder in place. Moving or deleting it later breaks the install, and anyone who can write to it can change what the hooks run.
+
+This section installs the Claude Code plugin. The installer needs the `claude` command and always installs that plugin; with `--codex` / `-Codex` it also adds the Codex marketplace, and the rest of the Codex install happens in the ChatGPT app (section 8). To use Codex without Claude Code, skip the installer and follow section 8, adding the marketplace by hand in its step 1.
 
 ### With the installer
 
@@ -83,6 +85,7 @@ It works through these steps in order:
 4. It runs the sandbox check.
 5. It refuses while jb-memory, the name before 0.5.0, is installed at any scope. It also refuses if Trailmark is already installed from another marketplace, or if a marketplace named `trailmark` points at another folder. Two copies would each run every hook.
 6. It runs `claude plugin validate` (part of `--check` and `--preflight` too), then `claude plugin marketplace add <folder>` and `claude plugin install trailmark@trailmark` (user scope).
+7. With `--codex` / `-Codex`, it runs `codex plugin marketplace add <folder>` and prints the steps left for you in the ChatGPT app. When `codex` isn't on PATH it warns and finishes without that step.
 
 Options:
 
@@ -136,6 +139,8 @@ claude plugin install trailmark@trailmark
 
 Claude Code then installs a copy into its plugin cache instead of reading a folder in place, and `claude plugin marketplace update trailmark` fetches new versions. The installers, trailmark-watchdog and the diagnostic scripts assume a local folder, so with a hosted marketplace you use the plugin alone.
 
+The Codex copy hasn't been tested from a git host. Add its marketplace from a release folder (section 8).
+
 ## 4. Set up a repo
 
 Trailmark does nothing in a repo until it is set up there. In each repo you want covered:
@@ -144,7 +149,9 @@ Trailmark does nothing in a repo until it is set up there. In each repo you want
 2. The skill checks Node, runs the sandbox check and finds Claude Code's memory folder for the repo (`~/.claude/projects/<key>/memory`). It asks whether the repo is public, which turns on extra checks before anything is promoted into committed files. Then it creates `.jbmem.json`, a starting `handoff.md` and the folders it uses.
 3. Start a new session (or run `/clear`). A status line starting `[trailmark]` should appear, ending with `sandbox on`. Check the terminal and the desktop app separately: a working terminal says nothing about the desktop app.
 
-To stop using Trailmark in a repo, delete `.jbmem.json` from its memory folder. The hooks go quiet and the files stay where they are.
+For Codex, a repo set up this way needs no second setup: both copies use the same memory folder. A repo you use only from Codex is set up by hand (section 8, step 6), and the `tm-memory-setup` skill checks it (section 8, step 7).
+
+To stop using Trailmark in a repo, delete `.jbmem.json` from its memory folder. The hooks of both copies go quiet and the files stay where they are.
 
 Every worktree of a repo shares one memory folder, so they share one handoff. Worktrees of a bare repo are the exception. With no main checkout to share through, each has its own.
 
@@ -180,6 +187,8 @@ You call the skills by their full names:
 | `/trailmark:memory-setup` | Set a repo up, or re-check one |
 
 Type the full name. Claude Code's own `/rewind` answers to `checkpoint`, so `/checkpoint` alone opens that instead.
+
+This section describes Claude Code. In Codex the same things happen at a new chat, a commit, a PR merge and a compaction, with these differences: there is no reminder after a subagent's result and no context watch, the `[trailmark]` message at a chat's start is shown only when it holds a warning, and the skills have other names, which you ask the agent to run (section 8). The Codex copy's README has the full list under "How it differs from the Claude Code plugin".
 
 Several sessions can work in one repo at once. Every handoff write names the version it started from, and a write based on an older version is refused. The skill then merges the other session's changes and writes again, so neither session can silently undo the other's checkpoint.
 
@@ -221,7 +230,7 @@ Test and build results are written only from output seen in that session, with t
 
 ### Changing the conventions
 
-The skills are plain text in `plugins/trailmark/skills/*/SKILL.md`. Edits there take effect at the next session start, and trailmark-watchdog (if installed) reports them like any other change. Two settings are better made in the repo's `CLAUDE.md` (or `AGENTS.md` for Codex), so the skills stay as shipped:
+The skills are plain text in `plugins/trailmark/skills/*/SKILL.md`. Edits there take effect at the next session start, and trailmark-watchdog (if installed) reports them like any other change. The Codex copy's skills are in `plugins/trailmark-codex/skills/tm-*/SKILL.md`, but Codex runs its own cached copy of the plugin (section 8), and how an edit in the release folder reaches that copy hasn't been checked. Two settings are better made in the repo's `CLAUDE.md` (or `AGENTS.md` for Codex), so the skills stay as shipped:
 
 - A model policy. The checkpoint skill adds a `-- model:` note to a next action only when the repo or you set a policy, for example "Planning and review: Opus at high effort. Executing a written plan: Sonnet."
 - A different provenance tag, such as your name in place of `user`. Say so in `CLAUDE.md` and keep it the same across sessions. The recall skill treats either form as a decision.
@@ -264,8 +273,8 @@ Environment variables:
 
 The Codex copy keeps the same handoff in the same folder as the Claude Code plugin. A Codex chat and a Claude Code session in one repo read and write one handoff, with the same version check. A repo you also use in Claude Code is set up from Claude Code (section 4). A repo you use only from Codex is set up by hand, in step 6 below.
 
-1. Add the marketplace: `./install.sh --codex`, `install.ps1 -Codex`, or by hand `codex plugin marketplace add <release folder>`.
-2. Restart the ChatGPT desktop app, open Plugins, choose the `trailmark-codex` marketplace and install `trailmark-codex`. The Codex CLI only manages marketplaces. Installing happens in the app, and Codex runs a plugin's hooks only when it was installed there.
+1. Add the marketplace from the release folder (section 3 says where to keep it). If you use Claude Code too, `./install.sh --codex` or `install.ps1 -Codex` installs the Claude Code plugin and then adds it. The installer needs the `claude` command, so for Codex alone add it by hand: `codex plugin marketplace add <release folder>`.
+2. Restart the ChatGPT desktop app, open Plugins, choose the `trailmark-codex` marketplace and install `trailmark-codex`. Install it in the app: Codex runs a plugin's hooks only when it was installed there. Newer Codex CLIs also have `codex plugin add`, and the Codex copy hasn't been tested installed that way.
 3. Review and trust the hooks when the app asks. Each should read `node -e "...PLUGIN_ROOT..." trailmark --hook <name>`. Codex asks again after any change to them.
 4. Checkpoints write outside the workspace, so Codex's sandbox refuses the first try and the skill asks you to approve the write. That is the safer default. `plugins/trailmark-codex/README.md`, step 3, explains how to skip the prompts with a writable root and what that costs.
 5. On Windows, set `NoDefaultCurrentDirectoryInExePath` (section 9), then restart the app once more so Codex's commands get it.
@@ -355,6 +364,8 @@ A file over 64 MB is checked by its first and last 8 MB, its size and its time, 
 
 All of these live in `tools\windows`. Run each with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <script>`. Each writes a `.log` next to itself, which trailmark-watchdog ignores. The read-only ones take `-Repo <path>` and default to the current folder; `trace-handoff-writes.ps1` also needs `-Session <id>`.
 
+These scripts check Claude Code sessions. For Codex, the copy's own log shows how its hooks ran (its README, "Checking how the hooks ran"), and `test-node-lookup.ps1` has an optional Codex step.
+
 | Script | Changes anything | Model calls | Use it to |
 |---|---|---|---|
 | `check-trailmark-checkpoints.ps1` | No | No | List, per session, the milestones next to the checkpoints, and flag gaps (a compaction with no checkpoint after it, a refused write never redone, a write that skipped the version check) |
@@ -400,6 +411,8 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 | A checkpoint or park says a line starts with `JBMEM_EOF` | That is the end marker of the heredoc the Claude Code skills pass text in. A line starting with it could end the heredoc early when the handoff is copied forward | The skill indents the line and writes again. `handoff` and session start show such a line indented |
 | Each worktree of a bare repo has its own handoff | Worktrees share a memory folder through a main checkout's `.git`, and a bare repo has none | Nothing to fix. Set up each worktree you use |
 | Codex never shows the handoff | The hooks aren't trusted (they must be trusted again after an update that changes them); the app wasn't restarted; the plugin was installed from the CLI | Trust the hooks in the app; restart it; install from the app |
+| Codex shows no `[trailmark]` line at a chat's start | Nothing is wrong: Codex shows that message as a warning, so the Codex copy sends it only when there is one | Ask the agent to run `tm-memory-setup`, which confirms the chat got the handoff |
+| Codex asks you to approve every checkpoint | The memory folder is outside the workspace, so Codex's sandbox refuses the write until you approve it | Nothing to fix. Section 8, step 4, says how to skip the prompts and what that costs |
 | trailmark-watchdog reports two names that differ only by case | A case-sensitive folder holds both | Remove one. The pair can't be accepted |
 
 ## 14. Uninstall
@@ -407,6 +420,8 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 1. For Codex, uninstall trailmark-codex in the ChatGPT app first. The app shows a plugin only through its marketplace, so the marketplace has to outlive the plugin.
 2. Run `./install.sh --uninstall` or `install.ps1 -Uninstall`. It runs `claude plugin uninstall trailmark@trailmark` and `claude plugin marketplace remove trailmark`. While Codex's `config.toml` still lists trailmark-codex, it keeps the `trailmark-codex` marketplace and says so; run it again after step 1 to remove that too.
 3. If you installed trailmark-watchdog, run `install-trailmark-watchdog.ps1 -Uninstall`. It stays until you do.
+
+The installer's uninstall needs the `claude` command. By hand, step 2 is `claude plugin uninstall trailmark@trailmark` and `claude plugin marketplace remove trailmark` for Claude Code, and `codex plugin marketplace remove trailmark-codex` for Codex once step 1 is done. With Codex alone, do step 1 and then that last command.
 
 Nothing in your repos or memory folders is deleted. Each repo's handoff, archive and logs stay in `~/.claude/projects/<key>/memory`; delete them by hand if you want them gone. After that you can delete the release folder.
 
@@ -473,7 +488,7 @@ The old marketplace is removed unless another plugin you still have comes from i
 
 Claude Code leaves old copies in its plugin cache after an uninstall, and Trailmark and the watchdog warn about them. The script moves them into a backup folder (`%LOCALAPPDATA%\trailmark-migration\<time>` on Windows, `~/.local/share/trailmark-migration/<time>` elsewhere), with a log. Nothing is deleted except the empty folder a move leaves behind.
 
-Codex uninstalls plugins only in the ChatGPT app, and the app shows an installed plugin only through its marketplace. So while Codex's `config.toml` still lists jb-memory-codex as installed, the script keeps the `jb-memory-codex` marketplace and the old cache copy, and asks you to uninstall the plugin in the app. Run the script again afterwards. It then removes that marketplace (kept when it offers other plugins too) and moves the old Codex copy to the backup folder.
+The script leaves uninstalling a Codex plugin to you, in the ChatGPT app, and the app shows an installed plugin only through its marketplace. So while Codex's `config.toml` still lists jb-memory-codex as installed, the script keeps the `jb-memory-codex` marketplace and the old cache copy, and asks you to uninstall the plugin in the app. Run the script again afterwards. It then removes that marketplace (kept when it offers other plugins too) and moves the old Codex copy to the backup folder.
 
 If the plugin is still installed but its marketplace is already gone, the app can't show it at all. The script then adds the old marketplace back from your old jb-memory release folder, so you can uninstall the plugin in the app. It finds that folder on its own when it sits next to this release with a name starting `jb-memory`, or when it was the old Claude Code marketplace (a local folder, or a copy Claude Code made from GitHub that is still there). Otherwise pass `--old-release <folder>`. When the old Codex marketplace is still configured but no longer offers jb-memory-codex, remove it first (`codex plugin marketplace remove <name>`), then add the old release folder.
 
