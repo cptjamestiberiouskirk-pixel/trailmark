@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-11: A reviewer's failed probes kept 2,431 folders
+- What went wrong: the round 2 regression reviewer of RS-A-firstcheck ran 34 probes that fail the test. A failed test keeps its folders, as designed, and they added up to 2,431 folders in the reviewer's `tmp-review`, past the 1,000 the brief allows for a tree. The reviewer removed them by name at the end.
+- Why: the brief limits a tree the reviewer makes and says nothing about what failing tests keep from one probe to the next.
+- Rule going forward: a brief that asks for probes that fail tests says to remove the kept folders by name after each probe, not at the end.
+- Status: open
+
 ## 2026-11-11: A clock that never moved passed, because the test's clock moved once
 - What went wrong: the sweep's lookup clock (`left: () => deadline - Date.now() - 800`) could be swapped for one that stands still and all three RS-A-firstcheck tests passed. The security review found it (round 1, F1) and measured session start at 20.2 s with the clock frozen (CONFIRMED by Fable, not re-run). The three survivors were reproduced here.
 - Why: the test's stand-in clock moved once, at the first file, before the sweep made its own clock. The mutation list had "a clock that does not run" for the hook's clock and only "no clock" and "keeps nothing back" for the sweep's.

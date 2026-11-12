@@ -310,7 +310,7 @@ All of this happens only in repos set up with `/trailmark:memory-setup`. In any 
 | Hook | Runs | Writes, in the memory folder |
 |---|---|---|
 | SessionStart | git: branch, top-level folder, HEAD's history since the handoff, commits in this session's folders | One log line, the state file |
-| PreToolUse (Bash and PowerShell, `git commit` and `git -C`) | The launcher's `git rev-parse` to find the memory folder (one second) | `pending/`: where the command starts |
+| PreToolUse (Bash and PowerShell, `git commit` and `git -C`) | The launcher's `git rev-parse` to find the memory folder (one second each, 3 seconds in all) | `pending/`: where the command starts |
 | PostToolUse (the same commands, and `gh pr merge`) and PostToolUseFailure (the same commands, without `gh pr merge`) | git: the commits the command made | Log lines, the state file |
 | PostToolUse (Agent, Task) | Nothing | The reminder time in the state file |
 | PreCompact | git: branch, HEAD, status | `snapshots/<session>.md`, one log line |

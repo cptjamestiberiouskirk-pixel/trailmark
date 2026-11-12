@@ -60,6 +60,25 @@ Three reviewers, each from a clone of its own: Fable on security, Opus on regres
   - Both: all three tests fail on 60c2a4b's `paths.js` and launchers.
 - The Codex bot on 7e5005d: its code review completed with no findings. Its security review completed too; its state gives no count of findings and the PR has no inline comment (read with `gh api` after the review ended). CI on 7e5005d: 9 of 9 jobs passed.
 
+### RS-A-firstcheck round 2 (2026-11-11, on 7e5005d..d231cf3, PR #51)
+
+Two reviewers, each from a clone of its own: Opus on the test change, Sonnet on the two docs. No file under `scripts/` changed in d231cf3, so the security row had nothing to read. Nothing CONFIRMED wrong in the changed code or text. CI on d231cf3: 9 of 9 jobs passed (CONFIRMED here from `gh`).
+
+- Opus, sound by its runs (not re-run here):
+  - Five standing clocks for the sweep fail the test in both copies. The first three pass on 7e5005d's test file, which is round 1's gap again.
+  - The expected values follow from the code: the deadline at 4.5 s, the lookup's clock at 3.7 s, the eighth file read is the other folder's config and the ninth its first include, and 2.7 s pins the 0.8 s kept back.
+  - Five unchanged runs per copy pass. Each new case passes alone, in another order, and with the session record written once.
+  - Every neighboring clock stood still fails: the hook's, the second lookup's, and the context watch's in its own test.
+  - The next test's body is the same as on 60c2a4b, and the round 1 record has no untrue sentence.
+- Opus, two notes, INFERRED, no change:
+  - The `root` field of the new cases shows nothing about the clock: the sweep's git call gets 500 ms in every case. The clock is pinned by the files' timeouts and by the root call that is not made.
+  - The sweep has no case near the 250 ms line (the 3.6 s case leaves 100 ms). The line is `LEAST_MS` in `paths.js`: part 1 of the test pins it at 249, 250 and 251, and the mutation list moves it both ways (caught in round 1's run). The launcher names no line of its own for the sweep.
+- Sonnet: no sentence wrong. Two wordings changed in the next push:
+  - SECURITY.md: "Before, that check had no look at the time" read as the links walk after round 1's two new sentences (INFERRED by Sonnet). Now "the first check".
+  - `docs/how-it-works.md`, the hook table: "(one second)" for the PreToolUse lookup stood beside the new 3 seconds (CONFIRMED here: 1,000 ms a call, 3,000 ms in all). Now "(one second each, 3 seconds in all)".
+  - No change: "at least 0.8 seconds" is true, and the next sentence gives the 0.25 s line. "When a session resumes or compacts" matches the other doc, and a fresh start's sweep does nothing.
+- A reviewer's kept folders: 34 failed runs left 2,431 folders in Opus's `tmp-review`, past the brief's 1,000 for a tree. It removed them by name. In LESSONS.
+
 ## Next version: RS-A-nestedone (2026-11-11, branch `claude/rs-a-nestedone` off fe29963, merged in PR #50 as 60c2a4b)
 
 PR #49 (RS-A-linkfolders) merged as fe29963 at 2026-11-11 19:11:26Z by auto-merge, after 9 of 9 jobs passed on its last head 045368a (CONFIRMED here from `gh`). Auto-merge was turned on as a step of its own, once that head's 9 jobs were listed. Its round 2 (Fable, on f0791a5..045368a): "Nothing CONFIRMED wrong in the changed test". CONFIRMED by Fable, not re-run: in the three let-through cases the clock goes back at the lstat of `a`, before `ls-files`, `check-attr` and `status` (timeout 4000, was 900 with the old stub); the test passes with its temp folder under `d7`, `a` or `f`, in other spellings on Windows, through a junction, and on Linux (WSL); it fails on d212f16's library.
