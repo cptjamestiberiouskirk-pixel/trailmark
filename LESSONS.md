@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-12: A hook timing read the same on the old code and the fix, because the hook had left early
+- What went wrong: the first timing of RS-A-deepindex through the PreCompact hook gave 0.17 s for the parent and for the fix. The hook leaves at once in a repo not set up for Trailmark, so neither run reached the code being timed. The same day the new test failed on the parent commit only because the function it calls was not exported there, which proves nothing about the fix.
+- Why: the harness had no sign that the timed code ran, and "fails on the parent" was taken as a property of the test without reading why it fails.
+- Rule going forward: a timing harness shows something only the timed code can make (the hook's answer, or a time that differs between parent and fix), and equal times for both are read as "did not run" until shown otherwise. A test that cannot run on the parent (a new export, a new option) gets its proof from a mutation that puts the old code back in the new file, and the review brief says so.
+- Status: open
+
 ## 2026-11-12: Three rounds each found a slower shape for the same bound
 - What went wrong: RS-A-worktreeslinks put a time in SECURITY.md for what its limit lets through, and each of three review rounds beat it with a more unusual tree (4 KB pointers, a path of 16,130 characters, a path with characters outside Latin-1). Two rounds added a term to the count and each new term drew the next round. The new test also could not see a path longer than a link's target allows, so a count cut off at 4,096 passed it.
 - Why: the shipped text ranked ("the slowest left") where it could only say what was measured, and each fix answered the last shape, not the family. The last two shapes need a path of thousands of characters, and the slowest of them one longer than git can open, which a cap on the path's length would refuse.
