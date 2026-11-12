@@ -8,7 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
-const { realTemp, sandbox, wh, jbm, SA, cp, contextWatchSetup, askText } = require('./helpers.js');
+const { realTemp, sandbox, wh, jbm, JBM, SA, cp, contextWatchSetup, askText } = require('./helpers.js');
 
 // ---------- 0.6.0: the context watch ----------
 
@@ -382,4 +382,62 @@ test('context watch: a hook whose launcher read the record before the first requ
   // A state with no seenAt says nothing about when it was saved: asking once
   // more stays the safe side.
   assert.deepStrictEqual(decide({ level: 1, firstAt: 1000, seen: 320000, point: 367000 }, {}, c, cfg, 1001).ask, { repeat: false, level: 1 });
+});
+
+// RS-A-firstcheck: this hook runs after every tool call past the first step,
+// and its only git work is finding the memory folder, which had no look at
+// the time (handoff-checks.test.js has the other hooks and the library).
+test('context watch: finding the memory folder is inside the hook\'s 5 s for git (RS-A-firstcheck)', () => {
+  const c = contextWatchSetup();
+  // Six files with a quote in them, included by the repo's config: git is
+  // started to read each, and the config, seven calls.
+  const inc = path.join(c.s.base, 'inc');
+  fs.mkdirSync(inc);
+  for (let i = 0; i < 6; i++) {
+    fs.writeFileSync(path.join(inc, `i${i}`), `[x]\n\ty${i} = "q"\n`);
+    fs.appendFileSync(path.join(c.s.repo, '.git', 'config'), `[include]\n\tpath = ${path.join(inc, `i${i}`).replace(/\\/g, '/')}\n`);
+  }
+  // The launcher with a preload that notes each git call that reads a config
+  // file or asks for the root, runs every call with time to spare, and
+  // stands the clock still: it moves only when the `at`th config file is
+  // read, by `by` ms.
+  let made = 0;
+  const hook = (at, by) => {
+    const log = path.join(c.s.base, `calls${++made}.txt`);
+    const stub = path.join(c.s.base, `clock${made}.js`);
+    fs.writeFileSync(stub, `const cp = require('child_process');
+const fs = require('fs');
+const real = cp.execFileSync;
+const t0 = Date.now();
+let moved = 0; let files = 0;
+Date.now = () => t0 + moved;
+cp.execFileSync = function (file, args, opts, ...rest) {
+  let kind = '';
+  if (Array.isArray(args)) kind = args.includes('--file') ? 'file' : args.includes('--git-common-dir') ? 'root' : '';
+  if (kind) fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify([kind, opts.timeout]) + String.fromCharCode(10));
+  if (kind === 'file' && ++files === ${at}) moved += ${by};
+  return real.call(this, file, args, { ...opts, timeout: 20000 }, ...rest);
+};
+`);
+    const r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', 'context-watch'], { cwd: c.s.repo, env: c.s.env, encoding: 'utf8', input: JSON.stringify({
+      session_id: SA, transcript_path: c.transcript, cwd: c.s.repo, hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_response: { stdout: '' },
+    }) });
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    let calls = [];
+    try { calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { calls = []; }
+    const of = (kind) => calls.filter(x => x[0] === kind).map(x => x[1]);
+    return { files: of('file'), root: of('root'), out: r.stdout.trim() ? JSON.parse(r.stdout) : null };
+  };
+  c.usage(316000);
+  // 3 s gone at the first file: the six after it get 2 s each, and so does
+  // the call for the root. The hook asks as usual.
+  let h = hook(1, 3000);
+  assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(2000)], root: [2000] });
+  assert.match(askText(h.out), /trailmark:checkpoint/);
+  // 4.8 s gone at the second file: no third file is read, no git is started
+  // for the root, and the memory folder is still found: the next step asks.
+  c.usage(335000);
+  h = hook(2, 4800);
+  assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, 3000], root: [] });
+  assert.match(askText(h.out), /has not written the handoff since the first request/);
 });

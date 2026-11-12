@@ -2334,7 +2334,208 @@ test('git pointers: the caller\'s time is looked at before each config file is r
   assert.deepStrictEqual(facts(path.join(deep.r, 'in'), deep.dir, 2, 200), { ...stopped, read: 2 });
 });
 
+// RS-A-firstcheck: the first thing a hook does is find the repo's memory
+// folder, and the check of the repo's config files that comes before git runs
+// there had no look at the hook's time. Eight folders above the session's
+// folder, each with a .git whose config included 20 files that git reads
+// itself, held the PreCompact hook for 10 s.
+test('git pointers: finding the repo for a hook stops with the hook\'s time (RS-A-firstcheck)', () => {
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  const pathsLib = path.join(ROOT, 'scripts', 'lib', 'paths.js');
+  const { samePath } = require(pathsLib);
+  // Six files with a quote in them, included by a repo's config: git itself
+  // is started to read each, and the config that includes them, seven calls.
+  const quoted = (repo, dir) => {
+    fs.mkdirSync(dir);
+    for (let i = 0; i < 6; i++) {
+      fs.writeFileSync(path.join(dir, `i${i}`), `[x]\n\ty${i} = "q"\n`);
+      fs.appendFileSync(path.join(repo, '.git', 'config'), `[include]\n\tpath = ${path.join(dir, `i${i}`).replace(/\\/g, '/')}\n`);
+    }
+  };
+  const seven = (ms) => Array(7).fill(ms);
+  const base = realTemp('jbmem-first-check-');
+  const repo = path.join(base, 'repo');
+  repoAt(repo);
+  quoted(repo, path.join(base, 'inc'));
+  // A subfolder: the root is the repo, and the folder itself is not.
+  const sub = path.join(repo, 'sub');
+  fs.mkdirSync(sub);
+
+  // 1. The library, loaded afresh for each case so that no answer is kept
+  // from the one before, with a stand-in for git that notes the timeout of
+  // each call that reads a config file (files) and of each rev-parse (revs),
+  // and one for withTime that notes the line each call names (lines). Every
+  // call passed on runs with time to spare, so a slow machine changes
+  // nothing here. `stop`: rev-parse is stopped by its timeout. `fail`: the
+  // first rev-parse fails for another reason.
+  const cp = require('child_process');
+  const realRun = cp.execFileSync;
+  const keys = [require.resolve(lib), require.resolve(pathsLib)];
+  const kept = keys.map(k => require.cache[k]);
+  const env = {};
+  for (const k of ['CLAUDE_CONFIG_DIR', 'JBMEM_DIR', 'CLAUDE_CODE_PROJECT_DIR_NAME']) env[k] = process.env[k];
+  let seen; let on;
+  cp.execFileSync = (bin, args, opts, ...rest) => {
+    if (Array.isArray(args) && args.includes('--file')) { seen.files.push(opts.timeout); if (on.file) on.file(seen.files.length); }
+    if (Array.isArray(args) && args.includes('rev-parse')) {
+      seen.revs.push(opts.timeout);
+      if (on.mode === 'stop') throw Object.assign(new Error('spawnSync git ETIMEDOUT'), { code: 'ETIMEDOUT' });
+      if (on.mode === 'fail' && args.includes('--git-common-dir')) throw Object.assign(new Error('Command failed'), { status: 128 });
+    }
+    return realRun(bin, args, { ...opts, timeout: 20000 }, ...rest);
+  };
+  // left: what the caller has left, handed to repoRoot (or, with `find`, to
+  // findMemoryDir). check: a stand-in for the check of the config files.
+  const look = (left, { timeoutMs, check, find, ...rest } = {}) => {
+    seen = { root: '', files: [], revs: [], lines: [] }; on = rest;
+    for (const k of keys) delete require.cache[k];
+    const G = require(lib);
+    const realTime = G.withTime;
+    G.withTime = (l, fn, floor) => { seen.lines.push(floor); if (on.line) on.line(seen.lines.length); return realTime(l, fn, floor); };
+    if (check) G.farGitConfig = check;
+    const P = require(pathsLib);
+    const root = find ? P.findMemoryDir({ cwd: sub, gitTimeoutMs: timeoutMs, left }).root : left === undefined ? P.repoRoot(sub, timeoutMs) : P.repoRoot(sub, timeoutMs, left);
+    seen.root = samePath(root, repo) ? 'repo' : samePath(root, sub) ? 'sub' : root;
+    return seen;
+  };
+  // 5 s left until flip() is called, 100 ms from then on.
+  const clock = () => { let low = false; return { left: () => (low ? 100 : 5000), flip: () => { low = true; } }; };
+  const is = (got, want, what) => assert.deepStrictEqual(got, want, what);
+  try {
+    process.env.CLAUDE_CONFIG_DIR = path.join(base, 'cfg'); delete process.env.JBMEM_DIR; delete process.env.CLAUDE_CODE_PROJECT_DIR_NAME;
+    // No time handed in (a command), or something that is no function: as
+    // before, 3 s for each git call and no withTime.
+    is(look(), { root: 'repo', files: seven(3000), revs: [3000], lines: [] }, 'a command');
+    is(look(5000), { root: 'repo', files: seven(3000), revs: [3000], lines: [] }, 'a number is no clock');
+    // Time in hand: the check and the git call each name 250, and git gets
+    // what is left, in whole ms, up to its own timeout.
+    is(look(() => 5000), { root: 'repo', files: seven(3000), revs: [3000], lines: [250, 250] }, '5 s left');
+    is(look(() => 2000.7), { root: 'repo', files: seven(2000), revs: [2000], lines: [250, 250] }, '2000.7 ms left');
+    is(look(() => 2000, { timeoutMs: 1000 }), { root: 'repo', files: seven(2000), revs: [1000], lines: [250, 250] }, '2 s left, git calls of 1 s');
+    is(look(() => NaN), { root: 'repo', files: seven(3000), revs: [3000], lines: [250, 250] }, 'no number is no limit');
+    is(look(() => Infinity), { root: 'repo', files: seven(3000), revs: [3000], lines: [250, 250] }, 'no end is no limit');
+    // The line is 250 ms: at it everything runs, under it no file is read
+    // and no git is started, and the root is still the repo (found from the
+    // .git entries), not the folder itself.
+    is(look(() => 250), { root: 'repo', files: seven(250), revs: [250], lines: [250, 250] }, '250 ms left');
+    is(look(() => 249), { root: 'repo', files: [], revs: [], lines: [250] }, '249 ms left');
+    // Short of time from the third file on: the check stops there, and no
+    // git is started for the root.
+    let c = clock();
+    is(look(c.left, { file: (n) => { if (n === 3) c.flip(); } }), { root: 'repo', files: [3000, 3000, 3000], revs: [], lines: [250] }, 'short of time inside the check');
+    // The check through, then short of time before git is started.
+    c = clock();
+    is(look(c.left, { line: (n) => { if (n === 2) c.flip(); } }), { root: 'repo', files: seven(3000), revs: [], lines: [250, 250] }, 'short of time after the check');
+    // git stopped by its timeout: no second call. Failing for another
+    // reason: the second call gets the time that is left too, and isn't
+    // started with too little.
+    is(look(() => 2000, { mode: 'stop' }), { root: 'repo', files: seven(2000), revs: [2000], lines: [250, 250] }, 'rev-parse stopped');
+    is(look(() => 2000.7, { mode: 'fail' }), { root: 'repo', files: seven(2000), revs: [2000, 2000], lines: [250, 250, 250] }, 'the first rev-parse failed');
+    c = clock();
+    is(look(c.left, { mode: 'fail', line: (n) => { if (n === 3) c.flip(); } }), { root: 'repo', files: seven(3000), revs: [3000], lines: [250, 250, 250] }, 'short of time before the second rev-parse');
+    // The check that comes right before git is started runs inside the time
+    // too: out of time there is a git call that timed out, not "no repo"
+    // (which would answer the folder itself).
+    let asked = 0;
+    is(look(() => 5000, { check: () => (asked++ ? 'git-timeout' : '') }), { root: 'repo', files: [], revs: [], lines: [250, 250] }, 'out of time in the check before git');
+    // git kept out, with a hook's time: as with none.
+    is(look(() => 5000, { check: () => 'network-config' }), { root: 'repo', files: [], revs: [], lines: [250] }, 'git kept out');
+    // findMemoryDir hands the time on.
+    is(look(() => 249, { find: true }), { root: 'repo', files: [], revs: [], lines: [250] }, 'findMemoryDir, 249 ms left');
+    is(look(() => 2000, { find: true, timeoutMs: 1000 }), { root: 'repo', files: seven(2000), revs: [1000], lines: [250, 250] }, 'findMemoryDir, 2 s left');
+  } finally {
+    cp.execFileSync = realRun;
+    keys.forEach((k, i) => { if (kept[i]) require.cache[k] = kept[i]; else delete require.cache[k]; });
+    for (const k of Object.keys(env)) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; }
+  }
+
+  // 2. The launcher, started as a hook's own process with a preload. The
+  // preload notes each git call that reads a config file and each one that
+  // asks for the root, runs every call with time to spare, and stands the
+  // clock still: it moves only when the `at`th config file is read, by `by`
+  // ms. So the timeouts noted say what the hook had left, on any machine.
+  const s = sandbox();
+  quoted(s.repo, path.join(s.base, 'inc'));
+  let made = 0;
+  const hook = (name, payload, at, by) => {
+    const log = path.join(s.base, `calls${++made}.txt`);
+    const stub = path.join(s.base, `clock${made}.js`);
+    fs.writeFileSync(stub, `const cp = require('child_process');
+const fs = require('fs');
+const real = cp.execFileSync;
+const t0 = Date.now();
+let moved = 0; let files = 0;
+Date.now = () => t0 + moved;
+cp.execFileSync = function (file, args, opts, ...rest) {
+  let kind = '';
+  if (Array.isArray(args)) kind = args.includes('--file') ? 'file' : args.includes('--git-common-dir') ? 'root' : '';
+  if (kind) fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify([kind, opts.timeout, kind === 'file' ? args[args.indexOf('--file') + 1] : String(opts.cwd)]) + String.fromCharCode(10));
+  if (kind === 'file' && ++files === ${at}) moved += ${by};
+  return real.call(this, file, args, { ...opts, timeout: 20000 }, ...rest);
+};
+`);
+    const cwd = payload.cwd || s.repo;
+    const r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', name], { cwd, env: s.env, input: JSON.stringify({ cwd, session_id: SA, ...payload }), encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, `${name}: ${r.stdout}${r.stderr}`);
+    let calls = [];
+    try { calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { calls = []; }
+    const of = (kind, part = '') => calls.filter(x => x[0] === kind && String(x[2]).replace(/\\/g, '/').includes(part)).map(x => x[1]);
+    return { files: of('file'), root: of('root'), of, out: r.stdout + r.stderr };
+  };
+  // PreCompact: 5 s for git, and finding the memory folder is inside them.
+  // 3 s gone at the first file: the six after it get 2 s each, and so does
+  // the call for the root.
+  let h = hook('precompact', { trigger: 'auto' }, 1, 3000);
+  assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(2000)], root: [2000] }, 'precompact, 3 s gone');
+  // 4.8 s gone at the second file: under 250 ms are left, so no third file
+  // is read, by this check or the next, and no git is started for the root.
+  // The hook still finds the memory folder and writes its snapshot there.
+  const snap = path.join(s.memdir, 'snapshots', `${SA}.md`);
+  assert.match(fs.readFileSync(snap, 'utf8'), /^Uncommitted files: 0$/m, 'with 2 s left, status is read');
+  fs.rmSync(snap);
+  h = hook('precompact', { trigger: 'auto' }, 2, 4800);
+  assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, 3000], root: [] }, 'precompact, 4.8 s gone');
+  assert.match(fs.readFileSync(snap, 'utf8'), /^Uncommitted files: not read \(git-timeout\)$/m, 'the snapshot says the time ran out');
+  // The PreToolUse hook: 3 s, of the 5 s Claude Code or Codex gives it, and
+  // git calls of 1 s. 1.5 s gone at the first file: the files after it get
+  // 1.5 s each and the call for the root its 1 s.
+  const pre = (id) => ({ tool_name: 'Bash', tool_input: { command: 'git commit -m x' }, tool_use_id: id, hook_event_name: 'PreToolUse' });
+  const record = (id) => fs.existsSync(path.join(s.memdir, 'pending', `${id}.json`));
+  h = hook('commit-start', pre('toolu_first1'), 1, 1500);
+  assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(1500)], root: [1000] }, 'commit-start, 1.5 s gone');
+  assert.ok(record('toolu_first1'), 'no commit-start record: ' + h.out);
+  // 2.8 s gone at the second file: no third file, no git for the root, and
+  // the record is still written in the repo's memory folder.
+  h = hook('commit-start', pre('toolu_first2'), 2, 2800);
+  assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, 3000], root: [] }, 'commit-start, 2.8 s gone');
+  assert.ok(record('toolu_first2'), 'no commit-start record when the time ran out: ' + h.out);
+  // The session's last command left it in another repo, one not set up: the
+  // lookup from the folder the session started in has the same clock. 3 s
+  // gone at the first file read there.
+  const away = path.join(s.base, 'away');
+  repoAt(away);
+  fs.mkdirSync(path.join(away, 'in'));
+  const transcript = path.join(path.dirname(s.memdir), `${SA}.jsonl`);
+  fs.writeFileSync(transcript, JSON.stringify({ type: 'user', cwd: s.repo, sessionId: SA, message: { role: 'user', content: 'hi' }, timestamp: new Date().toISOString() }) + '\n');
+  fs.rmSync(snap);
+  h = hook('precompact', { trigger: 'auto', cwd: path.join(away, 'in'), transcript_path: transcript }, 1, 3000);
+  assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(2000)], root: [3000, 2000] }, 'the lookup from the session\'s own folder');
+  assert.ok(fs.existsSync(snap), 'no snapshot from another repo: ' + h.out);
+  // Session start: the sweep looks up the memory folder of each folder the
+  // session committed in, inside its own time. 2 s gone at the first file:
+  // the sweep has 3 s, keeps 0.5 s and then 0.8 s back, so the files of the
+  // other folder's config get 1.7 s each (and each lookup's git call 0.5 s).
+  const other = path.join(s.base, 'other');
+  repoAt(other);
+  quoted(other, path.join(s.base, 'inc-other'));
+  S.updateState(s.memdir, SA, (state, rec) => { rec.start = Date.now() - 60000; rec.home = s.repo; rec.commitDirs = [other]; });
+  h = hook('session-start', { source: 'resume' }, 1, 2000);
+  assert.deepStrictEqual({ own: h.of('file', '/inc/'), other: h.of('file', '/inc-other/'), otherConfig: h.of('file', '/other/.git/config'), root: h.root },
+    { own: Array(6).fill(3000), other: Array(6).fill(1700), otherConfig: [1700], root: [3000, 500, 500] }, 'the sweep\'s lookups');
+});
+
 test('scan: only the folder a session started in counts; a memory folder named notes (loop round 7)', { skip: NO_LINKS }, () => {
+
   const base = realTemp('jbmem-r7-');
   const cfg = path.join(base, 'cfg');
   const R = path.join(base, 'R'); repoAt(R); fs.mkdirSync(path.join(R, 'sub'));
