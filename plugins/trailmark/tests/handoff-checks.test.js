@@ -2378,15 +2378,14 @@ test('git status: finding the folders of tracked files takes work that follows t
 });
 
 test('git status: a filter setting git does not know is never taken as a standard LFS one, whatever its name (RS-A-filterkey)', () => {
-  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const { gitFacts, lfsStandard } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = realTemp('jbmem-filterkey-');
   // One tracked file that uses a filter, the filter's process set the way
   // `git lfs install --local` writes it, and then the settings of the case.
   // The filter is not required (a standard value too), so that `git status`
   // answers on a machine without git-lfs: required, a filter that cannot
   // start stops git. One repo for each filter name: a case's settings are
-  // taken out again after it, or put back as set up.
-  const SET_UP = new Map([['process', 'git-lfs filter-process'], ['required', 'false']]);
+  // taken out again after it (no case changes one that was set up).
   const repos = new Map();
   const facts = (filter, ...more) => {
     if (!repos.has(filter)) {
@@ -2394,16 +2393,14 @@ test('git status: a filter setting git does not know is never taken as a standar
       fs.writeFileSync(path.join(r, '.gitattributes'), `*.bin filter=${filter}\n`);
       fs.writeFileSync(path.join(r, 'x.bin'), 'x');
       g('add', '.'); g('commit', '-qm', 'one file with a filter');
-      for (const [word, value] of SET_UP) g('config', `filter.${filter}.${word}`, value);
+      g('config', `filter.${filter}.process`, 'git-lfs filter-process');
+      g('config', `filter.${filter}.required`, 'false');
       repos.set(filter, { r, g });
     }
     const { r, g } = repos.get(filter);
     for (let i = 0; i < more.length; i += 2) g('config', more[i], more[i + 1]);
     const f = gitFacts(r, ['status']);
-    for (let i = 0; i < more.length; i += 2) {
-      const word = more[i].slice(more[i].lastIndexOf('.') + 1);
-      if (SET_UP.has(word)) g('config', more[i], SET_UP.get(word)); else g('config', '--unset', more[i]);
-    }
+    for (let i = 0; i < more.length; i += 2) g('config', '--unset', more[i]);
     return { skipped: f.statusSkipped, off: f.statusFiltersOff };
   };
   const left = { skipped: undefined, off: undefined };
@@ -2421,34 +2418,46 @@ test('git status: a filter setting git does not know is never taken as a standar
   assert.deepStrictEqual(facts('lfs', 'filter.lfs.foo', 'x'), off, 'a word git does not know');
   assert.deepStrictEqual(facts('lfs', 'filter.lfs.constructor', 'x'), off, 'a word every object has');
   assert.deepStrictEqual(facts('lfs', 'filter.lfs.constructor', 'git-lfs filter-process'), off, 'a word every object has, with a standard value');
-  // The value of each standard word (RS-A-filterkey round 1): its standard
-  // forms leave the filter running, and a value with more after the standard
-  // one or more before it switches the filter off. With such a value taken as
-  // standard, a command the repo wrote would run. `required` has no such
-  // ends: `yes` is true to git and is not what the install writes. Not told:
-  // a setting with no value at all, which only a config file written by hand
-  // has.
-  const more = ' && true';
-  const before = 'true && ';
-  assert.deepStrictEqual(facts('lfs', 'filter.lfs.smudge', 'git-lfs smudge -- %f'), left, 'smudge as installed');
-  assert.deepStrictEqual(facts('lfs', 'filter.lfs.smudge', 'git-lfs smudge --skip -- %f'), left, 'smudge with --skip');
-  assert.deepStrictEqual(facts('lfs', 'filter.lfs.process', 'git-lfs filter-process --skip'), left, 'process with --skip');
-  assert.deepStrictEqual(facts('lfs', 'filter.lfs.required', ''), left, 'required with an empty value');
-  assert.deepStrictEqual(facts('lfs', 'filter.lfs.required', 'FALSE'), left, 'required in capitals');
-  // Required, git stops where git-lfs is not installed: only the count is read.
-  assert.strictEqual(facts('lfs', 'filter.lfs.required', 'true').off, undefined, 'required true');
-  assert.deepStrictEqual(facts('lfs', 'filter.lfs.clean', `git-lfs clean -- %f${more}`), off, 'clean with more after it');
-  assert.deepStrictEqual(facts('lfs', 'filter.lfs.clean', `${before}git-lfs clean -- %f`), off, 'clean with more before it');
-  assert.deepStrictEqual(facts('lfs', 'filter.lfs.smudge', `git-lfs smudge -- %f${more}`), off, 'smudge with more after it');
-  assert.deepStrictEqual(facts('lfs', 'filter.lfs.smudge', `${before}git-lfs smudge -- %f`), off, 'smudge with more before it');
-  assert.deepStrictEqual(facts('lfs', 'filter.lfs.process', `git-lfs filter-process${more}`), off, 'process with more after it');
-  assert.deepStrictEqual(facts('lfs', 'filter.lfs.process', `${before}git-lfs filter-process`), off, 'process with more before it');
-  assert.deepStrictEqual(facts('lfs', 'filter.lfs.required', 'yes'), off, 'required with another word for true');
-  assert.deepStrictEqual(facts('lfs'), left, 'as installed again, with each case\'s setting taken out or put back');
+  // A value reaches the check as git gives it: a standard line with another
+  // after it is not standard, nor is one with a space after it. Not told: any
+  // other change to a value on its way there.
+  assert.deepStrictEqual(facts('lfs', 'filter.lfs.clean', 'git-lfs clean -- %f\ntrue'), off, 'a standard line with another after it');
+  assert.deepStrictEqual(facts('lfs', 'filter.lfs.clean', 'git-lfs clean -- %f '), off, 'a standard value with a space after it');
+  assert.deepStrictEqual(facts('lfs'), left, 'as installed again, with each case\'s setting taken out');
   // The filter's own name: `lfs` alone is left running, and a repo's filter
   // under any other name is switched off.
   assert.deepStrictEqual(facts('constructor'), off, 'a filter named constructor');
   assert.deepStrictEqual(facts('__proto__'), off, 'a filter named __proto__');
+  // The value of a standard word, asked of the function that decides it
+  // (rounds 1 and 2): real repos are too slow to try every text near a
+  // standard value. Each standard form is standard, asked twice (a pattern
+  // that remembers where it stopped answers once). A value is not standard
+  // with more after it or before it on its line, with a line after it or
+  // before it (an empty one too), with a space at either end, in capitals,
+  // cut short by one at either end, or under another word. With such a value
+  // taken as standard, a command the repo wrote would run. Not told: any
+  // other way two texts can be taken for one.
+  const words = ['clean', 'smudge', 'process', 'required'];
+  const forms = [
+    ['clean', 'git-lfs clean -- %f'],
+    ['smudge', 'git-lfs smudge -- %f'], ['smudge', 'git-lfs smudge --skip -- %f'],
+    ['process', 'git-lfs filter-process'], ['process', 'git-lfs filter-process --skip'],
+  ];
+  for (const [word, v] of forms) {
+    assert.deepStrictEqual([lfsStandard(word, v), lfsStandard(word, v)], [true, true], `${word}: ${v}`);
+    const near = [`${v} && true`, `true && ${v}`, `${v}\ntrue`, `true\n${v}`, `${v}\n`, `\n${v}`, `${v} `, ` ${v}`, v.toUpperCase(), v.slice(0, -1), v.slice(1)];
+    for (const other of near) assert.strictEqual(lfsStandard(word, other), false, `${word}: ${JSON.stringify(other)}`);
+    for (const w of words) if (w !== word) assert.strictEqual(lfsStandard(w, v), false, `${w}: ${v}`);
+  }
+  // `required`: true or false in any case, or empty. Another word that git
+  // takes for true or false is not what the install writes.
+  for (const v of ['true', 'false', '', 'TRUE', 'False']) assert.deepStrictEqual([lfsStandard('required', v), lfsStandard('required', v)], [true, true], `required: ${JSON.stringify(v)}`);
+  for (const v of ['yes', 'on', '1', 'no', 'off', '0', 'truex', 'xtrue', 'true\n', '\ntrue', 'true\nx', 'x\ntrue', '\n', ' ', ' true', 'true ', 'tru', 'rue']) assert.strictEqual(lfsStandard('required', v), false, `required: ${JSON.stringify(v)}`);
+  // A word the table does not have, names every object has among them, with
+  // any value: not standard, and nothing thrown.
+  for (const w of ['foo', '', 'constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+    for (const v of ['x', '', 'true', 'git-lfs clean -- %f', 'git-lfs filter-process']) assert.strictEqual(lfsStandard(w, v), false, `${JSON.stringify(w)}: ${JSON.stringify(v)}`);
+  }
 });
 
 test('git pointers: the caller\'s time is looked at before each config file is read (RS-A-nestedone)', () => {

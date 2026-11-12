@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-12: A second round found more loose patterns, because each value cost a real git call
+- What went wrong: RS-A-filterkey's test tried the values of the standard LFS settings through real `git status`, one setting of a real repo for each value. Round 1 found that the test passed with a pattern loosened, and its batch added 14 values. Round 2 then found two more changes of the kind inside the list the test stated: a pattern with an `m` flag let a standard line with another line after it through, and one with a `g` flag answered every other time. Of 14 such changes tried here, 10 passed.
+- Why: the pattern that decides was reachable only through the slow path. A case took about a second, so the number of values tried followed the cost of a case and not the class of texts near a valid one.
+- Rule going forward: a decision made from a text by a pattern or a table sits in a function of its own, and the test asks that function directly with every text near each valid one (more at either end, a line at either end, a space at either end, other capitals, cut short at either end, the same value under another key), each valid one asked twice. Cases with the real tool stay for the path a value takes to the function. When a second review beats the same list of cases, the test changes shape and gets no further cases of the old kind. This is "Three rounds each found a slower shape for the same bound" for a test.
+- Status: promoted (PLAYBOOK "Testing" step 10)
+
 ## 2026-11-12: A new test left a program running that a machine may not have
 - What went wrong: RS-A-filterkey's first test ran real `git status` in repos with `filter.lfs.process` set to `git-lfs filter-process`, with `filter.lfs.required` true in one case and left out in another. It passed here, where Git for Windows brings git-lfs. On a machine without git-lfs a required filter that cannot start stops `git status` (exit 128), and those cases would have read `git-error`. It was found by reading, before the first push: the sweep suite's test of the same setup skips without git-lfs. The test was changed, and the whole mutation list ran again.
 - Why: the cases were chosen from the table of standard values, and what git does with each value when it runs was not asked. This machine has git-lfs, so no run here could show it.
