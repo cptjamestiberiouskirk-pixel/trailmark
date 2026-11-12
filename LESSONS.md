@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-11: A reviewer's test run left a folder in the machine's temp folder
+- What went wrong: after round 2 of RS-A-worktreeslinks, `E:/DevTemp` held `jbmem-far-wt-5gZt0i` (23:00, the fixtures of the round's test). The brief told each reviewer to set TMPDIR, TEMP and TMP to its clone's `tmp-review` before a test run, and each clone was checked clean and empty.
+- Why: HYPOTHESIZED: one test run in a shell started after the variables were set (a new shell does not keep them), and the test failed there, so it kept its folders. The check of a clone looks only inside the clone.
+- Rule going forward: a review brief says "before EVERY test run" and that a later shell does not keep the variables. After a round, the owner lists `jbmem-*` in the machine's temp folder next to the check of the clones. This is "A subagent's test output landed on C:" (2026-11-07) again; its step did not stop it.
+- Status: open
+
+## 2026-11-11: The second "slowest found" was beaten too, by the length of a path
+- What went wrong: round 1's fix counted a pointer's text, and SECURITY.md said what is let through of that kind takes 0.6 seconds. Round 2's regression review measured 0.79 s for it (500 entries; the 0.6 was read at 390, not at the size where the refusals start), and the security review let 900 entries through after 4.3 to 4.8 s by putting the worktrees folder at a path of 16,130 characters: a look at the disk and `path.resolve(folder, text)` both take longer the longer the folder's path is, and neither count had a term for it.
+- Why: step 13 (from round 1) asks for one search shape for each step before the counted line. The join was on that list, with the pointer at its largest size. The folder it is joined to, and the path a disk call names, were not thought of as inputs: every search shape sat in a temp folder of about 50 characters. And the time for a shape was read below the size where the limit stops it.
+- Rule going forward: for each step before a counted line, list every input its time grows with (the text, the folder it is joined to, the path a disk call names), and search with each at its largest. Read "what is let through takes" at the last size that passes, three runs.
+- Status: promoted to PLAYBOOK (step 13 extended)
+
 ## 2026-11-11: A reviewer beat "the slowest found" with work the search never tried
 - What went wrong: SECURITY.md said the slowest worktrees folders the new limit lets through take 1 to 2 seconds. The security review of RS-A-worktreeslinks found one that takes 3 to 4: pointers of 4 KB made of `a/../` pairs, which Windows joins to next to nothing, so the walk counted about 67 for 190 microseconds of text work. The search here had five shapes, all of them differing in what is on disk. The same notes also said the parent repeated its looks at the disk, which the review showed was wrong (`withShare` already kept them).
 - Why: the search varied the things the new count weighs (entries, files, links) and not the work done before the counted step. The cause of the parent's time was written from the fix's design, not from a profile.
@@ -30,7 +42,7 @@ Format:
 - What went wrong: the search for the slowest worktrees folder the limit lets through read 2.22 and 3.64 s for one shape in its first run and under 0.8 s for the same shape in the three runs after it. The first reading alone would have put "up to 3.6 seconds" in SECURITY.md, and the later ones alone would have hidden it.
 - Why: one run of a timing probe on a machine that does other work.
 - Rule going forward: a timing that goes into a shipped text comes from at least three runs, one of them in the first run's order. A reading that does not come back is written in `dev/release-state.md` as unexplained, with what was ruled out, and the shipped text keeps its range with room.
-- Status: open
+- Status: promoted to PLAYBOOK ("Testing" step 14), after a second sighting in round 2 of RS-A-worktreeslinks: readings of 4.6 to 8.1 s for shapes that take about 1 s, not reproduced in two repeats with processor sampling
 
 ## 2026-11-11: A reviewer's failed probes kept 2,431 folders
 - What went wrong: the round 2 regression reviewer of RS-A-firstcheck ran 34 probes that fail the test. A failed test keeps its folders, as designed, and they added up to 2,431 folders in the reviewer's `tmp-review`, past the 1,000 the brief allows for a tree. The reviewer removed them by name at the end.

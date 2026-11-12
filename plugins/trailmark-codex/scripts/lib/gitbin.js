@@ -981,9 +981,10 @@ function validGitdir(gitdir, common) {
 }
 // '' when every worktrees/<id>/commondir and gitdir in wt leads to a local
 // place, else the reason. Runs inside a limitedWalk: each name in the folder
-// counts WORKTREE_COST against the limit on the work, and its pointers what
-// they cost to walk; out of it, or with more than 10,000 names, git is kept
-// out (about 2,000 worktrees made by git reach the limit).
+// counts WORKTREE_COST and the folder's path by its length against the limit,
+// and its pointers what they cost to join and walk; out of it, or with more
+// than 10,000 names, git is kept out (about 2,000 worktrees made by git
+// reach the limit).
 // The worktrees folder, or an entry in it, may be a link: git reads through
 // it, so it is resolved a part at a time first (a link to a share is never
 // listed or read through), and the files are read where it leads. A relative
@@ -1009,8 +1010,11 @@ function otherWorktrees(wt) {
   for (const n of names) {
     if (n.includes('\uFFFD')) return 'odd-path';
     // What an entry costs on disk before its pointers are walked: the entry
-    // looked up, and two small files looked up and read.
-    if ((WALK_LEFT -= WORKTREE_COST) < 0) return 'many-worktrees';
+    // looked up, and two small files looked up and read. Each of those takes
+    // longer the longer the path is (a plain file 0.03 ms at 50 characters
+    // and 0.67 ms at 16,130, on Windows), so the length of the folder's
+    // path counts too.
+    if ((WALK_LEFT -= WORKTREE_COST + top.dir.length) < 0) return 'many-worktrees';
     const d = path.join(wt, n);
     const r = realFolder(path.join(top.dir, n));
     if (r.why) return r.why;
@@ -1019,10 +1023,13 @@ function otherWorktrees(wt) {
     // A pointer's text is worked on before it is walked (checked, then
     // joined to each folder it is tried from), and the walk counts only what
     // Windows leaves of it: 2,080 entries, each with two pointers of 4 KB of
-    // "a/../" pairs, were let through after 3.1 s. So the text counts by its
-    // length for each folder, before the first join.
+    // "a/../" pairs, were let through after 3.1 s. So the text counts half
+    // its length for each folder, before the first join. The join works
+    // through the folder's path as well, so that counts the same way: with
+    // the worktrees folder at a path of 16,130 characters, 900 such entries
+    // were let through after 4.3 s.
     const far = (t) => {
-      WALK_LEFT -= bases.length * (TRY_COST + (t.length >> 1));
+      for (const b of bases) WALK_LEFT -= TRY_COST + ((t.length + b.length) >> 1);
       return bases.some(b => !gitdirAt(b, t));
     };
     const c = readSmall(path.join(r.dir, 'commondir'), 4096);
