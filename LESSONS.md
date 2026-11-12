@@ -14,6 +14,30 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-12: Cases were taken out, and what two of them held at the place that asks went with them
+- What went wrong: batch 2 of RS-A-filterkey moved the check of a value into a function, asked it with a table, and took 14 cases with real repos out. The notes said "what each held is in the table". Two of them ("process with more after it", "required with another word for true") also held that `filterOverrides` asks the function for `process` and for `required`. Round 3 found the test passing with either word taken without asking. The mutation list had the four words taken at once, which another case caught, and no change for one word alone.
+- Why: each case was read for what it said of the value, and not for each layer it ran through (the place that asks, then the pattern). The change to the caller in the mutation list was made once for the whole table.
+- Rule going forward: before a case is taken out or loosened, write down each thing it proves at each layer it runs through, and keep a case for each. For a table, the mutation list has one change for each key at each layer. This is "A case with real git was loosened, and its strict twin left out one value" (2026-11-11) a second time.
+- Status: promoted (PLAYBOOK "Testing" step 8)
+
+## 2026-11-12: A test's comment named a class, and its cases tried one member
+- What went wrong: the comment of RS-A-filterkey's test said a value is not standard "with more after it or before it on its line", and the cases tried one text (` && true`). Round 3 found the test passing with a pattern that takes a `;` and more, or any text without a space. Round 2 had found the same kind: "a value with more after the standard one" over cases that put the more on the same line only. The briefs tell a reviewer that a member of a stated list that passes is a finding, so the wide word made each such change one.
+- Why: the comment was written from the intent of the cases and not from the cases.
+- Rule going forward: a test's comment says what its cases try in the cases' own terms ("with ` && true` after it"). A word for a class ("more after it", "any value") stands only over a loop that tries every member, and the comment gives the loop's bounds (here: every text one character away, over 133 characters) and says that nothing further is told. The same holds for a note about a test. On the same day the notes of round 3 said the loop "covers more after it for every kind of character", which the comment did not say, and round 4 passed the test with a pattern that asks for two characters first.
+- Status: promoted (PLAYBOOK "Testing" step 10)
+
+## 2026-11-12: A second round found more loose patterns, because each value cost a real git call
+- What went wrong: RS-A-filterkey's test tried the values of the standard LFS settings through real `git status`, one setting of a real repo for each value. Round 1 found that the test passed with a pattern loosened, and its batch added 14 values. Round 2 then found two more changes of the kind inside the list the test stated: a pattern with an `m` flag let a standard line with another line after it through, and one with a `g` flag answered every other time. Of 14 such changes tried here, 10 passed.
+- Why: the pattern that decides was reachable only through the slow path. A case took about a second, so the number of values tried followed the cost of a case and not the class of texts near a valid one.
+- Rule going forward: a decision made from a text by a pattern or a table sits in a function of its own, and the test asks that function directly with every text near each valid one (more at either end, a line at either end, a space at either end, other capitals, cut short at either end, the same value under another key), each valid one asked twice. Cases with the real tool stay for the path a value takes to the function. When a second review beats the same list of cases, the test changes shape and gets no further cases of the old kind. This is "Three rounds each found a slower shape for the same bound" for a test.
+- Status: promoted (PLAYBOOK "Testing" step 10)
+
+## 2026-11-12: A new test left a program running that a machine may not have
+- What went wrong: RS-A-filterkey's first test ran real `git status` in repos with `filter.lfs.process` set to `git-lfs filter-process`, with `filter.lfs.required` true in one case and left out in another. It passed here, where Git for Windows brings git-lfs. On a machine without git-lfs a required filter that cannot start stops `git status` (exit 128), and those cases would have read `git-error`. It was found by reading, before the first push: the sweep suite's test of the same setup skips without git-lfs. The test was changed, and the whole mutation list ran again.
+- Why: the cases were chosen from the table of standard values, and what git does with each value when it runs was not asked. This machine has git-lfs, so no run here could show it.
+- Rule going forward: a test that runs a real tool with something left on (a filter, a hook, a helper program) lists each program the tool may start. It then skips without that program the way the suite already does (`HAVE_LFS`), or sets things so the tool answers without it. Before the first push the test runs once on a system that lacks the program (WSL here has no git-lfs).
+- Status: open
+
 ## 2026-11-12: A mutation list changed numbers and lines, and never the kind of table
 - What went wrong: RS-A-deepindex put the folders of tracked files in a tree, each folder with a Map of names. Its 13 single changes moved limits, removed lines and changed arithmetic, and all were caught. Both reviewers then found a change of the table itself that the test passed: every folder sharing the top level's Map (a folder `b` unchecked after `a/b`), and a plain object in place of the Map (a folder `hasOwnProperty` never looked at, a file below `__proto__/x` throwing). The test's names were all different at every level and none was a name every object has. The batch that fixed those two covered those two, and the next round found two more of the kind (the folders of one depth sharing a Map, names compared in lower case).
 - Why: the list was made from the lines of the fix, one change to each, and not from what the new structure has to keep apart.
@@ -35,8 +59,8 @@ Format:
 ## 2026-11-11: A reviewer's test run left a folder in the machine's temp folder
 - What went wrong: after round 2 of RS-A-worktreeslinks, `E:/DevTemp` held `jbmem-far-wt-5gZt0i` (23:00, the fixtures of the round's test). The brief told each reviewer to set TMPDIR, TEMP and TMP to its clone's `tmp-review` before a test run, and each clone was checked clean and empty.
 - Why: HYPOTHESIZED: one test run in a shell started after the variables were set (a new shell does not keep them), and the test failed there, so it kept its folders. The check of a clone looks only inside the clone.
-- Rule going forward: a review brief says "before EVERY test run" and that a later shell does not keep the variables. After a round, the owner lists `jbmem-*` in the machine's temp folder next to the check of the clones. This is "A subagent's test output landed on C:" (2026-11-07) again; its step did not stop it.
-- Status: open
+- Rule going forward: a review brief says "before EVERY test run" and that a later shell does not keep the variables. After a round, the owner lists `jbmem-*` in the machine's temp folder next to the check of the clones. This is "A subagent's test output landed on C:" (2026-11-07) again; its step did not stop it. It came back on 2026-11-12 (round 1 of RS-A-filterkey: `jbmem-filterkey-Uwji9Y` in `E:/DevTemp`, with both clones clean), with "before EVERY test run" in the brief. So the brief now gives the test command as one line with the three variables in front of it, and says to run a test no other way.
+- Status: promoted (PLAYBOOK "Reviewing" step 2)
 
 ## 2026-11-11: The second "slowest found" was beaten too, by the length of a path
 - What went wrong: round 1's fix counted a pointer's text, and SECURITY.md said what is let through of that kind takes 0.6 seconds. Round 2's regression review measured 0.79 s for it (500 entries; the 0.6 was read at 390, not at the size where the refusals start), and the security review let 900 entries through after 4.3 to 4.8 s by putting the worktrees folder at a path of 16,130 characters: a look at the disk and `path.resolve(folder, text)` both take longer the longer the folder's path is, and neither count had a term for it.
@@ -90,7 +114,7 @@ Format:
 - What went wrong: round 2 let the two cases "real git is stopped at 1 ms" accept either answer and moved the strict check to a stand-in, but the stand-in was stopped at 2000 ms only. A change that reads git stopped at 1 ms as an empty file then passed the test, where the test before it failed (round 3's reviewer). A second gap had been there from the start: nothing showed that the time is asked again when git starts.
 - Why: the stand-in cases were written from the reviewer's list of survivors, not from what the loosened cases used to prove.
 - Rule going forward: before an assertion is loosened, write down each thing it proves (here: git stopped at 1 ms is a timeout, and a timeout of 0 never happens), and give each one a strict case that needs no real timing. Then run the whole mutation list, as the entry below says.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 8, after it came back on 2026-11-12)
 
 ## 2026-11-11: A probe that never ran was printed as a failed test
 - What went wrong: during a mutation run winget updated Node on the PC (26.13.0 to 26.13.1, 16:17 to 16:19 in the Windows event log). Five probes found no `node` for some seconds. `release-check.sh` printed "FAIL ? failed of ?" in 0 s, and the probe script passed that on as FAIL, which in a mutation list reads as "caught". The 0 s and the "?" gave it away. In the same run a loosened assertion let one probe pass (git's timeout of at least 1 ms), which only showed because the whole list was run again after a change to the test alone.
