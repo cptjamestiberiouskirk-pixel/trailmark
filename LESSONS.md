@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-12: A commit went out in the same message as an edit it was meant to hold, and the edit failed
+- What went wrong: the notes-only commit of RS-A-filterkey round 4 (358d3c3) was sent in one message with an edit that added the quick check's reading to `dev/release-state.md`. The edit was refused, since the file had changed on disk after it was last read. The commit script ran all the same, and the push went out without that line. Nothing in the commit is untrue, and the reading is recorded with the next item.
+- Why: the two calls were sent together to save a step, the edit being one line. PLAYBOOK "Committing" step 1 says a commit goes in a later message than the edits it depends on. The commit script checks which files changed and not what a late edit was to add.
+- Rule going forward: PLAYBOOK "Committing" step 1 holds for a one-line edit too. A commit script that follows an edit of the notes also looks for a text only that edit adds.
+- Status: open
+
 ## 2026-11-12: Cases were taken out, and what two of them held at the place that asks went with them
 - What went wrong: batch 2 of RS-A-filterkey moved the check of a value into a function, asked it with a table, and took 14 cases with real repos out. The notes said "what each held is in the table". Two of them ("process with more after it", "required with another word for true") also held that `filterOverrides` asks the function for `process` and for `required`. Round 3 found the test passing with either word taken without asking. The mutation list had the four words taken at once, which another case caught, and no change for one word alone.
 - Why: each case was read for what it said of the value, and not for each layer it ran through (the place that asks, then the pattern). The change to the caller in the mutation list was made once for the whole table.

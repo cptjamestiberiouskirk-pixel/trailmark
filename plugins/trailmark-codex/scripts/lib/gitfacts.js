@@ -288,6 +288,12 @@ function farWorktree(r, cwd) {
 // switched off, which can show as modified when they aren't) or { why }
 // when status shouldn't run.
 const FILTER_NAME = /^[A-Za-z0-9._\-]{1,64}$/;
+// What `git check-attr` prints for a file with no filter: the attribute
+// unspecified, unset (`-filter`), set with no value (`filter`) or set to
+// nothing (`filter=`). It prints the same for a file whose filter has one of
+// those words for its name (`filter=set`), and git runs such a filter
+// (RS-A-filtername).
+const NO_FILTER = new Set(['', 'unspecified', 'unset', 'set']);
 // A Map, since the word looked up comes from a repo's config: a plain
 // object also answers for `constructor`, with something that is no pattern
 // (RS-A-filterkey).
@@ -339,13 +345,26 @@ function filterOverrides(r, cwd) {
   const ca = r.run(cwd, ['check-attr', '-z', '--stdin', 'filter'], ls.out);
   if (!ca.ok) return { why: ca.why === 'timeout' ? 'git-timeout' : 'filter-check' };
   const names = new Map(); // filter name -> tracked files that use it
+  const unsure = new Set(); // answers seen that mean no filter, or a filter so named
   const parts = ca.out.split('\0');
   for (let i = 0; i + 2 < parts.length; i += 3) {
     const v = parts[i + 2];
-    if (!v || v === 'unspecified' || v === 'unset' || v === 'set') continue;
+    if (NO_FILTER.has(v)) { unsure.add(v); continue; }
     if (!FILTER_NAME.test(v)) return { why: 'odd-filter-name' };
     names.set(v, (names.get(v) || 0) + 1);
     if (names.size > 32) return { why: 'many-filters' };
+  }
+  // A filter under one of those names, in any config git reads: the files
+  // that use it cannot be told from files with no filter, so status isn't
+  // read. Exit status 1 means no such setting.
+  if (unsure.size) {
+    const odd = r.run(cwd, ['config', '-z', '--get-regexp', '^filter\\.(set|unset|unspecified)?\\.']);
+    if (!odd.ok && odd.status !== 1) return { why: odd.why === 'timeout' ? 'git-timeout' : 'filter-check' };
+    for (const e of odd.out.split('\0')) {
+      const nl = e.indexOf('\n');
+      const m = /^filter\.(.*)\.[^.]+$/.exec(nl < 0 ? e : e.slice(0, nl));
+      if (m && unsure.has(m[1])) return { why: 'odd-filter-name' };
+    }
   }
   if (!names.size) return { args: [] };
   // Where each setting comes from (git 2.26 and later): "<scope>\0<key>\n<value>\0".
@@ -799,4 +818,4 @@ function facts(cwd, wanted) {
 }
 
 // farWorktree is here for its test, which hands it a made-up list of files.
-module.exports = { commitsSince, farNetwork, farWorktree, lfsStandard, gitFacts, commitFacts, fitCommitFacts, sweepCommits, facts, branchToken, sameFolder, windowMs, windowStart, STATUS_KEEP };
+module.exports = { commitsSince, farNetwork, farWorktree, filterOverrides, lfsStandard, gitFacts, commitFacts, fitCommitFacts, sweepCommits, facts, branchToken, sameFolder, windowMs, windowStart, STATUS_KEEP };

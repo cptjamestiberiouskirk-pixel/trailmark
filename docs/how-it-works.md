@@ -255,12 +255,14 @@ A filter with any setting in the repo's own config is switched off for the call 
 
 Git LFS also runs extension programs named in config (`lfs.extension.<name>.clean`), so while LFS runs, such a setting in the repo's own config skips `git status`.
 
+git gives `unspecified`, `unset`, `set` or an empty text for a file with no filter, and the same text for a file whose filter has that word, or nothing, as its name. Such a filter runs. So when a tracked file gets one of those answers, one more call (`git config --get-regexp`) asks whether any config git reads has a filter so named, and `git status` is skipped if one has.
+
 `git status` is also skipped, with the snapshot saying `not read (<reason>)`, in these cases:
 
 | Reason | When |
 |---|---|
 | `lfs-extension` | The repo's own config names an LFS extension program while LFS runs |
-| `odd-filter-name` | A filter name isn't plain letters, digits, `.`, `_` and `-` |
+| `odd-filter-name` | A filter name isn't plain letters, digits, `.`, `_` and `-`; or a config git reads has a filter named `set`, `unset` or `unspecified`, or one with no name, and git gives that same text for a tracked file |
 | `many-filters` | More than 32 filters |
 | `filter-check` | Listing the filters failed |
 | `git-error`, `git-timeout` | git failed or ran out of time |
