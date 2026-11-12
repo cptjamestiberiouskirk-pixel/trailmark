@@ -2319,12 +2319,19 @@ test('git status: finding the folders of tracked files takes work that follows t
     finally { Map.prototype.get = mapGet; Map.prototype.has = mapHas; Set.prototype.has = setHas; fs.lstatSync = lstat; }
   };
   // The folders are looked at once each, parents before their subfolders, in
-  // the order the list first names them.
-  const few = check(['a/b/c/f1', 'a/b/f2', 'a/x/f3', 'z/f4', 'a/b/c/f5', 'top']);
+  // the order the list first names them. A name that is a folder at one
+  // level is a folder of its own at another: `b` after `a/b`, `a/b/a` and
+  // `a/b/a/b` after `a` and `a/b`.
+  const few = check(['a/b/c/f1', 'a/b/f2', 'a/x/f3', 'z/f4', 'a/b/c/f5', 'top', 'b/f6', 'a/b/a/b/f7']);
   assert.strictEqual(few.why, '');
-  assert.deepStrictEqual(few.seen.filter(p => !/f\d$|^top$/.test(p)), ['a', 'a/b', 'a/b/c', 'a/x', 'z']);
+  assert.deepStrictEqual(few.seen.filter(p => !/f\d$|^top$/.test(p)), ['a', 'a/b', 'a/b/c', 'a/x', 'z', 'b', 'a/b/a', 'a/b/a/b']);
+  // A folder named like something every object has is a folder like any
+  // other, at the top and below it.
+  const named = check(['__proto__/f1', 'constructor/f2', 'hasOwnProperty/f3', 'toString/f4', 'a/__proto__/f5']);
+  assert.strictEqual(named.why, '');
+  assert.deepStrictEqual(named.seen.filter(p => !/f\d$/.test(p)), ['__proto__', 'constructor', 'hasOwnProperty', 'toString', 'a', 'a/__proto__']);
   // 200 files in one folder 400 deep. A name is looked up for each level of
-  // each file, and each file's folder once more to group the files: 2.3
+  // each file, and each file's folder twice more to group the files: 2.3
   // times the list's characters here. Joining each level's whole path and
   // looking that up, as before, is 190 times the list.
   const deep = check(Array.from({ length: 200 }, (_, k) => `${Array(400).fill('d').join('/')}/f${k}`));

@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-12: A mutation list changed numbers and lines, and never the kind of table
+- What went wrong: RS-A-deepindex put the folders of tracked files in a tree, each folder with a Map of names. Its 14 single changes moved limits, removed lines and changed arithmetic, and all were caught. Both reviewers then found a change of the table itself that the test passed: every folder sharing the top level's Map (a folder `b` unchecked after `a/b`), and a plain object in place of the Map (a folder `hasOwnProperty` never looked at, `__proto__` throwing). The test's names were all different at every level and none was a name every object has.
+- Why: the list was made from the lines of the fix, one change to each, and not from what the new structure has to keep apart.
+- Rule going forward: a fix that adds a structure keyed by text from a repo (a Map, a Set, a tree) gets test names that repeat across levels and names every object has (`__proto__`, `constructor`, `hasOwnProperty`, `toString`), and its mutation list has the structure swapped for a plain object and for one shared by all. This is the 2026-11-10 rule on keys ("two things under one key, one thing under many keys") for a new shape.
+- Status: open
+
 ## 2026-11-12: A hook timing read the same on the old code and the fix, because the hook had left early
 - What went wrong: the first timing of RS-A-deepindex through the PreCompact hook gave 0.17 s for the parent and for the fix. The hook leaves at once in a repo not set up for Trailmark, so neither run reached the code being timed. The same day the new test failed on the parent commit only because the function it calls was not exported there, which proves nothing about the fix.
 - Why: the harness had no sign that the timed code ran, and "fails on the parent" was taken as a property of the test without reading why it fails.
