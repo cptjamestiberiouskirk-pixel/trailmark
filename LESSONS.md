@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-11: A per-entry weight was guessed at 3 disk lookups and real entries cost four times that
+- What went wrong: the first draft of RS-A-worktreeslinks counted 3 looks at the disk for each worktrees entry. 100 worktrees made by `git worktree add` then counted 156,236 of 8,388,608 and took 0.08 to 0.33 s, so the limit would have let 4 to 17 s of them through. The weight went to 12 after the count and the time of real entries were measured.
+- Why: the weight was read off the code (one lookup of the entry, two files) and not measured. Opening and reading a small file costs more than a lookup, and so does the first look at a folder that was just made.
+- Rule going forward: none new. This is "A work count weighed text and not disk lookups" (2026-11-10) a third time, and its rule is PLAYBOOK "Testing" step 11: time the dearest thing one counted item can be, at the limit, before the weight is written. What this time adds is in the mutation list: the weight is held from both sides (10 and 14 both fail).
+- Status: promoted to PLAYBOOK
+
+## 2026-11-11: A probe's slow reading came once in four runs
+- What went wrong: the search for the slowest worktrees folder the limit lets through read 2.22 and 3.64 s for one shape in its first run and under 0.8 s for the same shape in the three runs after it. The first reading alone would have put "up to 3.6 seconds" in SECURITY.md, and the later ones alone would have hidden it.
+- Why: one run of a timing probe on a machine that does other work.
+- Rule going forward: a timing that goes into a shipped text comes from at least three runs, one of them in the first run's order. A reading that does not come back is written in `dev/release-state.md` as unexplained, with what was ruled out, and the shipped text keeps its range with room.
+- Status: open
+
 ## 2026-11-11: A reviewer's failed probes kept 2,431 folders
 - What went wrong: the round 2 regression reviewer of RS-A-firstcheck ran 34 probes that fail the test. A failed test keeps its folders, as designed, and they added up to 2,431 folders in the reviewer's `tmp-review`, past the 1,000 the brief allows for a tree. The reviewer removed them by name at the end.
 - Why: the brief limits a tree the reviewer makes and says nothing about what failing tests keep from one probe to the next.

@@ -1099,6 +1099,76 @@ test('git pointers: a repo\'s lfs.storage folders and its alternates share one l
   assert.strictEqual(check(1, 2), 'many-config-paths', 'one store named by lfs.storage and two next to alternates');
 });
 
+// RS-A-worktreeslinks: the check of a .git's other worktrees had no limit on
+// the work. 400 entries, each with a gitdir file naming a 900-character
+// path, took 3.7 s and were let through, and each .git on the way up added
+// as much again.
+test('git pointers: the check of other worktrees counts against the repo\'s limit on the work (RS-A-worktreeslinks)', () => {
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  const { farGitConfig } = require(lib);
+  const base = realTemp('jbmem-far-wt-');
+  let deep = path.join(base, 'p');
+  while (deep.length + 2 <= 900) deep = path.join(deep, 'd');
+  fs.mkdirSync(deep, { recursive: true });
+  const text = deep.replace(/\\/g, '/') + '\n';
+  // One worktrees folder of 25 entries, each with a commondir and a gitdir
+  // file naming that path. A .git reaches it through a link, so each pointer
+  // is walked from two folders: about a third of the limit for each .git
+  // (the same with a short temp folder and a long one, within a sixth).
+  const long = path.join(base, 'wt-long');
+  for (let k = 0; k < 25; k++) {
+    fs.mkdirSync(path.join(long, `w${k}`), { recursive: true });
+    for (const f of ['commondir', 'gitdir']) fs.writeFileSync(path.join(long, `w${k}`, f), text);
+  }
+  let made = 0;
+  // A repo, with that folder as its worktrees or with none. Below it, one
+  // folder inside the other, each with a .git that has a config (no HEAD, so
+  // git goes on up past it) and that folder as its worktrees. Checked from
+  // the innermost folder.
+  const tree = (own, below) => {
+    let cwd = path.join(base, `r${made++}`);
+    repoAt(cwd);
+    if (own) fs.symlinkSync(long, path.join(cwd, '.git', 'worktrees'), 'junction');
+    for (let i = 0; i < below; i++) {
+      cwd = path.join(cwd, `f${i}`);
+      fs.mkdirSync(path.join(cwd, '.git'), { recursive: true });
+      fs.writeFileSync(path.join(cwd, '.git', 'config'), '[core]\n\trepositoryformatversion = 0\n');
+      fs.symlinkSync(long, path.join(cwd, '.git', 'worktrees'), 'junction');
+    }
+    return cwd;
+  };
+  // Two thirds of the limit between them.
+  assert.strictEqual(farGitConfig(tree(true, 1)), '', 'the repo and one .git below it');
+  // Five times a third: each .git alone is under the limit.
+  assert.strictEqual(farGitConfig(tree(true, 4)), 'many-worktrees', 'the repo and four .git folders below it');
+  // What an entry costs before its pointers are walked. Plain files are
+  // entries too: 2,400 of them are under the limit, and 3,100 are over it,
+  // whatever the folder's path.
+  const flat = path.join(base, 'r-flat');
+  repoAt(flat);
+  const names = path.join(flat, '.git', 'worktrees');
+  fs.mkdirSync(names);
+  const fill = (from, to) => { for (let k = from; k < to; k++) fs.writeFileSync(path.join(names, `e${k}`), ''); };
+  fill(0, 2400);
+  fs.mkdirSync(path.join(flat, 'under'));
+  fs.mkdirSync(path.join(flat, 'over'));
+  assert.strictEqual(farGitConfig(path.join(flat, 'under')), '', '2,400 entries with no pointers');
+  fill(2400, 3100);
+  assert.strictEqual(farGitConfig(path.join(flat, 'over')), 'many-worktrees', '3,100 entries with no pointers');
+  // Worktrees shaped like git's own (a commondir of ../.. and a gitdir
+  // naming a .git file in a folder of their own): 40 are far under it.
+  const real = path.join(base, 'r-real');
+  repoAt(real);
+  for (let k = 0; k < 40; k++) {
+    const e = path.join(real, '.git', 'worktrees', `t${k}`);
+    fs.mkdirSync(e, { recursive: true });
+    fs.mkdirSync(path.join(base, 'trees', `t${k}`), { recursive: true });
+    fs.writeFileSync(path.join(e, 'commondir'), '../..\n');
+    fs.writeFileSync(path.join(e, 'gitdir'), path.join(base, 'trees', `t${k}`, '.git').replace(/\\/g, '/') + '\n');
+  }
+  assert.strictEqual(farGitConfig(real), '', '40 worktrees shaped like git\'s own');
+});
+
 test('git pointers: every .git found on one way up from the session\'s folder shares one limit on the work (RS-A-abovegit)', () => {
   const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
   const { farGitConfig } = require(lib);
