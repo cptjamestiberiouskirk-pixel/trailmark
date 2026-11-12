@@ -15,10 +15,10 @@ Format:
 ```
 
 ## 2026-11-12: A mutation list changed numbers and lines, and never the kind of table
-- What went wrong: RS-A-deepindex put the folders of tracked files in a tree, each folder with a Map of names. Its 14 single changes moved limits, removed lines and changed arithmetic, and all were caught. Both reviewers then found a change of the table itself that the test passed: every folder sharing the top level's Map (a folder `b` unchecked after `a/b`), and a plain object in place of the Map (a folder `hasOwnProperty` never looked at, `__proto__` throwing). The test's names were all different at every level and none was a name every object has.
+- What went wrong: RS-A-deepindex put the folders of tracked files in a tree, each folder with a Map of names. Its 13 single changes moved limits, removed lines and changed arithmetic, and all were caught. Both reviewers then found a change of the table itself that the test passed: every folder sharing the top level's Map (a folder `b` unchecked after `a/b`), and a plain object in place of the Map (a folder `hasOwnProperty` never looked at, a file below `__proto__/x` throwing). The test's names were all different at every level and none was a name every object has. The batch that fixed those two covered those two, and the next round found two more of the kind (the folders of one depth sharing a Map, names compared in lower case).
 - Why: the list was made from the lines of the fix, one change to each, and not from what the new structure has to keep apart.
 - Rule going forward: a fix that adds a structure keyed by text from a repo (a Map, a Set, a tree) gets test names that repeat across levels and names every object has (`__proto__`, `constructor`, `hasOwnProperty`, `toString`), and its mutation list has the structure swapped for a plain object and for one shared by all. This is the 2026-11-10 rule on keys ("two things under one key, one thing under many keys") for a new shape.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 11)
 
 ## 2026-11-12: A hook timing read the same on the old code and the fix, because the hook had left early
 - What went wrong: the first timing of RS-A-deepindex through the PreCompact hook gave 0.17 s for the parent and for the fix. The hook leaves at once in a repo not set up for Trailmark, so neither run reached the code being timed. The same day the new test failed on the parent commit only because the function it calls was not exported there, which proves nothing about the fix.
@@ -178,7 +178,7 @@ Format:
 - What went wrong: round 1 showed one folder walked once for each letter case a junction named it in. My fix respelled a target only when it differed in case. Round 2 added `::$INDEX_ALLOCATION` to the targets and had the 605 listings back (7.6 s); a short name does the same. One more batch and round.
 - Why: I fixed the input I was given and tested that input. I had tied the key to the text the walk goes on under, so the guard that keeps a `subst` drive's spelling also narrowed the key.
 - Rule going forward: before fixing a reviewer's example, write down its class (here: every way two path texts name one folder: case, short name, stream name, a link, a drive made with `subst`) and say for each member whether the fix covers it, with a test or a reason. A value with two jobs (what is remembered, where the walk goes) gets a part for each.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 11)
 
 ## 2026-11-10: A refusal by a key's last letters hit values that are not paths
 

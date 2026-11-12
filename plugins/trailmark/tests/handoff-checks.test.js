@@ -2325,11 +2325,17 @@ test('git status: finding the folders of tracked files takes work that follows t
   const few = check(['a/b/c/f1', 'a/b/f2', 'a/x/f3', 'z/f4', 'a/b/c/f5', 'top', 'b/f6', 'a/b/a/b/f7']);
   assert.strictEqual(few.why, '');
   assert.deepStrictEqual(few.seen.filter(p => !/f\d$|^top$/.test(p)), ['a', 'a/b', 'a/b/c', 'a/x', 'z', 'b', 'a/b/a', 'a/b/a/b']);
-  // A folder named like something every object has is a folder like any
-  // other, at the top and below it.
-  const named = check(['__proto__/f1', 'constructor/f2', 'hasOwnProperty/f3', 'toString/f4', 'a/__proto__/f5']);
-  assert.strictEqual(named.why, '');
-  assert.deepStrictEqual(named.seen.filter(p => !/f\d$/.test(p)), ['__proto__', 'constructor', 'hasOwnProperty', 'toString', 'a', 'a/__proto__']);
+  // Each folder has names of its own, told apart as git tells them. What
+  // this holds apart from a folder already seen: the same name under
+  // another parent (and at another depth, above), in another case, with a
+  // space before it, in another Unicode form, a number written two ways,
+  // and a name every object has, at the top, below a folder and above one.
+  // Another way of making two names one is not told here.
+  const apart = check(['a/x/f1', 'z/x/f2', 'A/f3', ' a/f4', 'e\u0301/f5', '\u00e9/f6', '1/f7', '01/f8',
+    '__proto__/f1', 'constructor/f2', 'hasOwnProperty/f3', 'toString/f4', 'a/__proto__/f5', '__proto__/x/f6', 'constructor/x/f7']);
+  assert.strictEqual(apart.why, '');
+  assert.deepStrictEqual(apart.seen.filter(p => !/f\d$/.test(p)), ['a', 'a/x', 'z', 'z/x', 'A', ' a', 'e\u0301', '\u00e9', '1', '01',
+    '__proto__', 'constructor', 'hasOwnProperty', 'toString', 'a/__proto__', '__proto__/x', 'constructor/x']);
   // 200 files in one folder 400 deep. A name is looked up for each level of
   // each file, and each file's folder twice more to group the files: 2.3
   // times the list's characters here. Joining each level's whole path and
