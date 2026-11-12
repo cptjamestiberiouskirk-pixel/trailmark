@@ -14,6 +14,42 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-11: A case with real git was loosened, and its strict twin left out one value
+- What went wrong: round 2 let the two cases "real git is stopped at 1 ms" accept either answer and moved the strict check to a stand-in, but the stand-in was stopped at 2000 ms only. A change that reads git stopped at 1 ms as an empty file then passed the test, where the test before it failed (round 3's reviewer). A second gap had been there from the start: nothing showed that the time is asked again when git starts.
+- Why: the stand-in cases were written from the reviewer's list of survivors, not from what the loosened cases used to prove.
+- Rule going forward: before an assertion is loosened, write down each thing it proves (here: git stopped at 1 ms is a timeout, and a timeout of 0 never happens), and give each one a strict case that needs no real timing. Then run the whole mutation list, as the entry below says.
+- Status: open
+
+## 2026-11-11: A probe that never ran was printed as a failed test
+- What went wrong: during a mutation run winget updated Node on the PC (26.13.0 to 26.13.1, 16:17 to 16:19 in the Windows event log). Five probes found no `node` for some seconds. `release-check.sh` printed "FAIL ? failed of ?" in 0 s, and the probe script passed that on as FAIL, which in a mutation list reads as "caught". The 0 s and the "?" gave it away. In the same run a loosened assertion let one probe pass (git's timeout of at least 1 ms), which only showed because the whole list was run again after a change to the test alone.
+- Why: the script took any FAIL line as the test failing, without asking whether the test had run.
+- Rule going forward: a mutation script counts a probe as caught only when the result line has a count for the tests it ran ("N failed of 2"). Any other line is "no result": it is run again, and it holds the batch if it stays. Read the times too: a probe that ends in 0 s did not run. After a change that loosens an assertion, the whole mutation list runs again, not only the new probes.
+- Status: open
+
+## 2026-11-11: One call in a test had the clock stood still, and the next one ran on real time
+- What went wrong: the RS-A-nestedone test stood the clock still for its 700 ms run and left it running for the call after it, which counts the checks that name no line. A check with under 800 ms left stops, so on a slow or busy machine the count came out short and the test failed with correct code (a reviewer: 3 of 3 with 24 busy processes). Two more cases expected real git to be stopped by a timeout of 1 ms. The mutation runs, all passing, showed none of it. While fixing it, a generator script went through an inline `node -e` and lost its line-break escapes, which the Constraints in `PLAYBOOK.md` already rule out.
+- Why: the rule of 2026-11-07 (a test with a wall-clock budget forces the in-time path) was applied to the call it was written for and not to the call added beside it in the same batch. Mutation runs show that a test catches changes to the code; they say nothing about the test on a slower machine.
+- Rule going forward: give each call with a real-time budget in a new test a third of its budget and run it once. A failure names an assertion tied to the machine's speed: stand the clock still for that call, or stand in for git. A case that needs real git to be stopped by a short timeout accepts git finishing too, and its strict form uses a stand-in.
+- Status: promoted to PLAYBOOK (Testing 12). Seen before on 2026-11-07 ("A test's time budget was taken for a fault").
+
+## 2026-11-11: A line copied from one caller cut another caller's smaller budget
+- What went wrong: RS-A-nestedone's fix stopped every config check at 800 ms left, the line the status check's loops use with their 5 s. The same check also runs before each git call of a runner that has a second in all (the look into another session's folder), so that runner lost its calls after 200 ms and another command's commits were logged as this one's. A second fault in the same fix: git stopped by the shortened timeout was read as an unreadable file and kept, where the parent said the time ran out. A reviewer found both; the first test passed with them.
+- Why: the line was taken from the nearest code that had one, without listing who else reaches the changed function and with what budget. The shortened timeout was added without asking what its own failure looks like to the code after it.
+- Rule going forward: a limit handed down a call chain is named by each caller, and before it is written every runner that reaches the function is listed with its budget (`grep 'runner('`), smallest first. A timeout that is made shorter gets a case for the call being stopped by it: which word comes out, and whether it is kept.
+- Status: open
+
+## 2026-11-11: A fix was timed through the library, and the real hook paid the cost somewhere else
+- What went wrong: RS-A-nestedone's fix was first timed only by calling `gitFacts` from a script: 8 folders above the session's folder with slow configs went from 10.0 s to 4.2 s. Started as a real PreCompact hook, the same shape took 10.2 s before and after. The launcher's own first check (`hookMemory`, to find the memory folder) reads the same config files with no time, before `gitFacts` starts, and keeps the answer. The docs sentence in draft would have claimed the 4.2 s for a hook.
+- Why: the repro started at the function that was changed, not at what a user runs. The call that pays first in a hook is in another file.
+- Rule going forward: a time claimed for a hook is measured by starting the hook as a process (`trailmark.js --hook <name>` with a payload on stdin), on the parent and on the fix. A library timing is written down as a library timing. Before a fix that hands a limit down a call chain, `grep` every caller of the changed function and say for each whether it has the limit.
+- Status: open
+
+## 2026-11-11: A test told a timeout by its word, and a later look gave the same word
+- What went wrong: in RS-A-nestedone's test the mutation "the look only before the first file" passed. `config.worktree` is looked for after the included files, noticed the low clock there, and gave the same `git-timeout`. Later, when a first check out of time was made to read like any git timeout, the cases could no longer tell "stopped at the second file" from "read all six and ran out afterwards".
+- Why: the cases asserted the answer, and several places give that answer once the clock is low.
+- Rule going forward: a test of where a limit is looked at pins the place: a clock that is short at one ask only, or a count of what was touched after the limit was hit, asserted in each case. When the count surprises, trace the callers before changing the expectation (here each file is looked at twice for one read).
+- Status: open
+
 ## 2026-11-11: A test's stub matched paths outside the test, and one of its branches never ran
 - What went wrong: the RS-A-linkfolders test stubbed `fs.lstatSync` and told its four folders by the last part of the path (`d0` to `d3`). The walk of a link looks at every part of the temp folder's own path, so under a temp folder named `d7` the test counted 5 and failed. The same stub was to set its clock back at the look at `.gitmodules`, which never comes in that repo: the git calls after the loop ran with a real 900 ms timeout. Both found by the reviewer of PR #49 and reproduced here; the test had passed here and on the mutations.
 - Why: the stub was copied from the RS-A-nestedtime test, where `.gitmodules` is looked at (a tracked file turned folder) and the names matched are two parts long. Nothing in the test showed whether the branch ran.
