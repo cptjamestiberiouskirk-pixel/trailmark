@@ -251,11 +251,11 @@ The commit hook runs git in folders named in command text, so every git call is 
 
 The PreCompact hook's `git status` would run a clean or process filter when a tracked file's timestamps changed. So it first lists the filters tracked files use (`git ls-files -z | git check-attr --stdin filter`) and where each one's settings come from (`git config --show-scope`).
 
-A filter with any setting in the repo's own config is switched off for the call (`-c filter.<name>.clean=` and the same for `smudge` and `process`, `required=false`). The snapshot says how many tracked files use one, since they can then show as modified when they aren't. A filter set only in the user's global or system config keeps running (unless it is named `set`, `unset`, `unspecified` or nothing, as described below), and so does Git LFS set up in the repo's own config with exactly what `git lfs install --local` writes.
+A filter with any setting in the repo's own config is switched off for the call (`-c filter.<name>.clean=` and the same for `smudge` and `process`, `required=false`). The snapshot says how many tracked files use one, since they can then show as modified when they aren't. A filter set only in the user's global or system config keeps running, and so does Git LFS set up in the repo's own config with exactly what `git lfs install --local` writes. The exception is a filter named `set`, `unset` or `unspecified`, or one with no name: when a tracked file shows that name, `git status` is skipped, as described below.
 
 Git LFS also runs extension programs named in config (`lfs.extension.<name>.clean`), so while LFS runs, such a setting in the repo's own config skips `git status`.
 
-git gives `unspecified`, `unset`, `set` or an empty text for a file with no filter, and the same text for a file whose filter has that word, or nothing, as its name. git runs such a filter, so `git status` would run it. So when a tracked file gets one of those answers, one more call (`git config --get-regexp`) asks whether any config git reads, the user's global and system config included, has a filter under that same name, and `git status` is skipped if one has.
+git gives `unspecified`, `unset`, `set` or an empty text for a file with no filter, and the same text for a file whose filter has that word as its name, or has no name. git runs such a filter, so `git status` would run it. So when a tracked file gets one of those answers, one more call (`git config --get-regexp`) asks whether any config git reads, the user's global and system config included, has a filter under that same name, and `git status` is skipped if one has.
 
 `git status` is also skipped, with the snapshot saying `not read (<reason>)`, in these cases:
 
@@ -271,7 +271,7 @@ git gives `unspecified`, `unset`, `set` or an empty text for a file with no filt
 | `linked-folder`, `submodule-pointer`, `many-submodules`, `outside-worktree` | A folder of tracked files, a submodule or `core.worktree` leads where the check can't follow (MANUAL.md, section 16) |
 | `lfs-config` | While git-lfs runs, the repo's `.lfsconfig` (the worktree's, else the index's or HEAD's copy) has includes, or the worktree's copy is a link (a value there that leads to a share gives `network-config`) |
 
-What is left: a filter program the user installed (global or system config) runs as usual, unless it has one of the four names above, and reads the repo's config as it chooses. git-lfs itself is one.
+What is left: a filter program the user installed (global or system config) runs as usual and reads the repo's config as it chooses (under one of the four names above, `git status` is skipped instead). git-lfs itself is one.
 
 The listing reads every tracked file's attributes once more, which adds time on a large repo (about 0.2 s for 60,000 files on Linux).
 

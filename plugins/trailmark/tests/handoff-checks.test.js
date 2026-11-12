@@ -2696,7 +2696,7 @@ test('git status: a filter named as git names "no filter" is not left running, i
   // marker is absent, and the changed file is counted), and a repo with no
   // filter is still read.
   const { gitEnv } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
-  const seen = {}; const meant = {}; const plains = [];
+  const seen = {}; const meant = {}; const forced = [];
   for (const [what, text] of [['an empty file', ''], ['a file with trailmark.asked', '[trailmark]\n\tasked = 1\n']]) {
     const one = path.join(base, `one${made}.cfg`);
     fs.writeFileSync(one, text);
@@ -2711,18 +2711,19 @@ test('git status: a filter named as git names "no filter" is not left running, i
       'no filter': { skipped: undefined, count: 1 },
       ran: { 'the filter named set': false, 'the ordinary filter': false },
     };
-    plains.push(plain);
+    forced.push([`the filter named set, ${what}`, named], [`the ordinary filter, ${what}`, plain]);
   }
   assert.deepStrictEqual(seen, meant, 'with GIT_CONFIG in the environment');
-  // git itself runs the ordinary filter here: without that, "ran: false" proves nothing.
-  for (const plain of plains) {
-    plain.g('status', '--porcelain');
-    assert.strictEqual(fs.existsSync(plain.marker), true, 'git did not run the ordinary filter');
+  // git itself runs each of these filters here: without that, "ran: false" proves nothing.
+  for (const [which, { g, marker }] of forced) {
+    g('status', '--porcelain');
+    assert.strictEqual(fs.existsSync(marker), true, `git did not run ${which}`);
   }
   // Only that variable is taken out: the ones that name the user's own
-  // config, or add settings, stay as the user set them.
-  assert.deepStrictEqual(gitEnv({ GIT_CONFIG: 'a', git_config: 'b', GIT_CONFIG_GLOBAL: 'c', GIT_CONFIG_SYSTEM: 'd', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_COUNT: '0', GIT_CONFIG_PARAMETERS: 'e' }),
-    { ...gitEnv({}), GIT_CONFIG_GLOBAL: 'c', GIT_CONFIG_SYSTEM: 'd', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_COUNT: '0', GIT_CONFIG_PARAMETERS: 'e' }, 'what gitEnv keeps of the GIT_CONFIG variables');
+  // config, or add settings (a count with its numbered keys and values, or
+  // the list git itself hands down), stay as the user set them.
+  const kept = { GIT_CONFIG_GLOBAL: 'c', GIT_CONFIG_SYSTEM: 'd', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'f.g', GIT_CONFIG_VALUE_0: 'h', GIT_CONFIG_PARAMETERS: 'e' };
+  assert.deepStrictEqual(gitEnv({ GIT_CONFIG: 'a', git_config: 'b', ...kept }), { ...gitEnv({}), ...kept }, 'what gitEnv keeps of the GIT_CONFIG variables');
   // Not told: what an answer of check-attr other than these four names
   // means, and attributes that come from another place than the top
   // `.gitattributes`. The cases that expect status read take it that the

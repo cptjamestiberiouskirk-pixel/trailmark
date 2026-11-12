@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-12: A class of variables was listed from git's pages, and the Windows build has three more
+- What went wrong: for RS-A-filtername round 2 the variables that could make the checks and `git status` see different things were listed from git's pages and from memory, ten were tried, and the notes said only `GIT_CONFIG` splits the two. Round 3 (Fable) found `GIT_REDIRECT_STDIN` and `GIT_REDIRECT_STDERR`, which Git for Windows adds: with either in the session's environment a repo's filter ran (reproduced here, deferred as RS-A-redirect).
+- Why: the list came from what is written about the program and not from the program. The three names are stored in `git.exe` as 16-bit text, so even a search of the file for plain text misses them.
+- Rule going forward: a class of names a program reads (environment variables, config keys) is listed from the installed program itself, in plain and in 16-bit text, on each system it runs on, and the notes say which of the names were gone through and which were not.
+- Status: open
+
+## 2026-11-12: A comment in a new assertion named a family, and the assertion had two of its members
+- What went wrong: the assertion on what `gitEnv` keeps said in its comment that the variables that add settings stay, and tried `GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS`. The numbered `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` that go with the count were not in it, and a pattern that drops them passed both tests (Opus, round 3).
+- Why: the members were written from the names remembered, the same day a lesson was logged about a test's comment naming a class.
+- Rule going forward: this is "A test's comment named a class, and its cases tried one member" (2026-11-12) a second time. When a comment names a family, the members are taken from where the program lists them (its page, or the names found in the program), and the mutation list widens the pattern by each member left out.
+- Status: promoted (PLAYBOOK "Testing" step 8, one sentence added)
+
 ## 2026-11-12: A commit script's expected line count was read while a mutation run had the file changed
 - What went wrong: the commit script for RS-A-filtername round 2 checks that `gitbin.js` differs from HEAD by a known number of lines. The number (5 and 1) was read with `git diff --numstat` while the mutation run was on its first probe, which puts the old pattern line back. The real diff is 6 and 2. The script stopped before the commit, and nothing was committed.
 - Why: the mutation run was in the background and the read looked harmless, since it changed nothing.
