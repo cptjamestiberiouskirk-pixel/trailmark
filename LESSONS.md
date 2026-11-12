@@ -14,6 +14,30 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-12: Two times in the notes were written from a guess
+- What went wrong: the notes of RS-A-filtername round 1 and a handoff gave clock times ("seen 15:10", "not committed at 15:25") that were reckoned from how long the steps had seemed to take. The clock, read later for another reason, said 15:27 where the reckoning had 15:40. The notes were corrected before the commit by reading CI again with the clock; the handoff's time was wrong for one version.
+- Why: the commands that read CI and the bot's state printed no time, and the note was written some steps later.
+- Rule going forward: a command whose result goes in the notes with a time prints the time itself (`date +%H:%M:%S` in front). A time that was not printed is not written.
+- Status: open
+
+## 2026-11-12: A stand-in for git answered whatever it was asked
+- What went wrong: the first test of RS-A-filtername asked `filterOverrides` with a stand-in for git that gave back the text of settings a case handed it, whatever the call's arguments were. Round 1 (Opus and Fable) found the test passing with the call narrowed to `clean` settings, with `--no-includes` and with `--local`: a filter named `set` with only a `process` setting, or one in an included file, would have run. The cases "its smudge", "its process" and "its required" held the code that reads the answer and nothing of the call. The real repos all defined the filter with `clean` in `.git/config`.
+- Why: the stand-in was written for the code after the call. What the call asks (its pattern, its options) was taken as given, and the real repos were written from the fault's one example.
+- Rule going forward: a stand-in for a program checks the question it gets (the arguments, all of them) and answers from the question as the program would. The cases with the real program have one for each way the thing asked about can come to be (here: each word that defines a filter, each place a config can come from). The mutation list changes the question too: its pattern narrowed, an option added.
+- Status: promoted (PLAYBOOK "Testing" step 10). Stand-ins that held less than the thing they stood for were logged three times on 2026-11-11 (a clock, a stub that matched other paths, a stand-in stopped at one time only).
+
+## 2026-11-12: A mutation list left out the swap a playbook step asks for
+- What went wrong: RS-A-filtername adds a Set of four texts that is asked with a text from a repo. Its first mutation list had the Set without each text and no change of its kind. Round 1 (Opus) passed the test with the Set asked as a plain object, which would take `constructor` for "no filter". PLAYBOOK "Writing code and docs" step 11 asks for that swap and for names every object has, since the morning of the same day.
+- Why: the lessons check before the list was run with the words for tests and mutations, and its lines were read for the layers (a change per key at each layer). The step on the kind of a table sits under "Writing code and docs" and was not read again when the list was written.
+- Rule going forward: none new. A mutation list for a fix that adds a Map, a Set or an object starts with the swap of its kind, before the changes of its members, and the test has a name every object has.
+- Status: open
+
+## 2026-11-12: An exit status that also means a failure was read as an answer
+- What went wrong: the new call of RS-A-filtername (`git config --get-regexp`) took exit status 1 for "no such setting". Round 1 (Fable) showed the same status for a git that gives up on the repo's config, and for a git ended from outside on Windows (reproduced here: `execFileSync` reports `status=1`, `signal=null`). Either was read as "no filter so named", the answer that lets status run.
+- Why: git's page gives 1 for "nothing matched", and the older call in the same function reads it so. What else ends with 1 was not listed.
+- Rule going forward: an answer that lets something run is never read from an exit status alone. The call brings something of its own that a whole answer must hold (here a setting given with `-c` that the pattern asks for), and its absence is a failure. Before an exit status is given a meaning, list what else ends with it (a signal, a kill from outside on Windows, the program giving up early).
+- Status: open
+
 ## 2026-11-12: A commit went out in the same message as an edit it was meant to hold, and the edit failed
 - What went wrong: the notes-only commit of RS-A-filterkey round 4 (358d3c3) was sent in one message with an edit that added the quick check's reading to `dev/release-state.md`. The edit was refused, since the file had changed on disk after it was last read. The commit script ran all the same, and the push went out without that line. Nothing in the commit is untrue, and the reading is recorded with the next item.
 - Why: the two calls were sent together to save a step, the edit being one line. PLAYBOOK "Committing" step 1 says a commit goes in a later message than the edits it depends on. The commit script checks which files changed and not what a late edit was to add.

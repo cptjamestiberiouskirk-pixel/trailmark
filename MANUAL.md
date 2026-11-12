@@ -565,9 +565,9 @@ Before a compaction, the snapshot runs `git status` to list changed files. When 
 | `lfs-extension` | Git LFS runs and the repo's own config names an LFS extension program |
 | `odd-path` | A tracked path is absolute, holds `..`, or isn't valid UTF-8, or a folder name among the tracked files' folders isn't; or (Windows) a tracked file or folder name ends in a dot or a space, which git there opens under the name without it; or (Windows) a tracked path holds a backslash or starts with a drive letter (`C:d/f`) |
 | `many-folders` | The tracked files are in more than 20,000 folders, too many to check for links before `git status` |
-| `odd-filter-name` | A filter name has characters other than letters, digits, `.`, `_` and `-`. Or git's config has a filter named `set`, `unset` or `unspecified`, or one with no name, and git reports a tracked file with that same text: it reports a file with no filter that way too, so the two can't be told apart. Renaming the filter brings status back |
+| `odd-filter-name` | A filter name has characters other than letters, digits, `.`, `_` and `-`. Or git's config, the repo's or your own, has a filter named `set`, `unset` or `unspecified`, or one with no name, and git reports a tracked file with that same text: it reports a file with no filter that way too, so the two can't be told apart. To get status back, give the filter another name, both in the config that defines it and in the attributes file that names it |
 | `many-filters` | Tracked files use more than 32 filters |
-| `filter-check` | Listing the filters tracked files use failed |
+| `filter-check` | Listing the filters tracked files use failed, or looking in git's config for a filter with one of the names in the `odd-filter-name` row did |
 | `git-error`, `git-timeout` | git failed or ran out of time |
 
 [docs/how-it-works.md](docs/how-it-works.md), "git hardening", explains the filter checks.

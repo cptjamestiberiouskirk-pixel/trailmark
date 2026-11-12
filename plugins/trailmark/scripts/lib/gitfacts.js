@@ -356,15 +356,22 @@ function filterOverrides(r, cwd) {
   }
   // A filter under one of those names, in any config git reads: the files
   // that use it cannot be told from files with no filter, so status isn't
-  // read. Exit status 1 means no such setting.
+  // read. The call brings a setting of its own and asks for it too, so a
+  // whole answer always has it: exit status 1 ("nothing matched", and also
+  // what Windows gives for a git ended from outside) is a failure like any
+  // other, and so is an answer without that setting.
   if (unsure.size) {
-    const odd = r.run(cwd, ['config', '-z', '--get-regexp', '^filter\\.(set|unset|unspecified)?\\.']);
-    if (!odd.ok && odd.status !== 1) return { why: odd.why === 'timeout' ? 'git-timeout' : 'filter-check' };
+    const odd = r.run(cwd, ['-c', 'trailmark.asked=1', 'config', '-z', '--get-regexp', '^(trailmark\\.asked$|filter\\.(set|unset|unspecified)?\\.)']);
+    if (!odd.ok) return { why: odd.why === 'timeout' ? 'git-timeout' : 'filter-check' };
+    let whole = false;
     for (const e of odd.out.split('\0')) {
       const nl = e.indexOf('\n');
-      const m = /^filter\.(.*)\.[^.]+$/.exec(nl < 0 ? e : e.slice(0, nl));
+      const key = nl < 0 ? e : e.slice(0, nl);
+      if (key === 'trailmark.asked') { whole = true; continue; }
+      const m = /^filter\.(.*)\.[^.]+$/.exec(key);
       if (m && unsure.has(m[1])) return { why: 'odd-filter-name' };
     }
+    if (!whole) return { why: 'filter-check' };
   }
   if (!names.size) return { args: [] };
   // Where each setting comes from (git 2.26 and later): "<scope>\0<key>\n<value>\0".
