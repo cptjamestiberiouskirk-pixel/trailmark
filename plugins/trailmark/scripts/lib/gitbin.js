@@ -980,12 +980,17 @@ function validGitdir(gitdir, common) {
   return usable(path.join(base, 'objects')) && usable(path.join(base, 'refs'));
 }
 // '' when every worktrees/<id>/commondir and gitdir in wt leads to a local
-// place, else the reason. Up to 10,000 worktrees are read; past that, git is kept out.
+// place, else the reason. Runs inside a limitedWalk: each name in the folder
+// counts WORKTREE_COST and the folder's path by its length against the limit,
+// and its pointers what they cost to join and walk; out of it, or with more
+// than 10,000 names, git is kept out (about 2,000 worktrees made by git
+// reach the limit).
 // The worktrees folder, or an entry in it, may be a link: git reads through
 // it, so it is resolved a part at a time first (a link to a share is never
 // listed or read through), and the files are read where it leads. A relative
 // commondir or gitdir there is checked from both the link and where it leads.
 const MAX_WORKTREES = 10000;
+const WORKTREE_COST = 12 * DISK_COST;
 function realFolder(p) {
   let st;
   try { st = fs.lstatSync(p); } catch { return { dir: '' }; }
@@ -1004,21 +1009,39 @@ function otherWorktrees(wt) {
   if (names.length > MAX_WORKTREES) return 'many-worktrees';
   for (const n of names) {
     if (n.includes('\uFFFD')) return 'odd-path';
+    // What an entry costs on disk before its pointers are walked: the entry
+    // looked up, and two small files looked up and read. Each of those takes
+    // longer the longer the path is (a plain file 0.03 ms at 50 characters
+    // and 0.67 ms at 16,130, on Windows), so the length of the folder's
+    // path counts too.
+    if ((WALK_LEFT -= WORKTREE_COST + top.dir.length) < 0) return 'many-worktrees';
     const d = path.join(wt, n);
     const r = realFolder(path.join(top.dir, n));
     if (r.why) return r.why;
     if (!r.dir) continue;
     const bases = [...new Set([d, path.join(top.dir, n), r.dir])];
+    // A pointer's text is worked on before it is walked (checked, then
+    // joined to each folder it is tried from), and the walk counts only what
+    // Windows leaves of it: 2,080 entries, each with two pointers of 4 KB of
+    // "a/../" pairs, were let through after 3.1 s. So the text counts half
+    // its length for each folder, before the first join. The join works
+    // through the folder's path as well, so that counts the same way: with
+    // the worktrees folder at a path of 16,130 characters, 900 such entries
+    // were let through after 4.3 s.
+    const far = (t) => {
+      for (const b of bases) WALK_LEFT -= TRY_COST + ((t.length + b.length) >> 1);
+      return bases.some(b => !gitdirAt(b, t));
+    };
     const c = readSmall(path.join(r.dir, 'commondir'), 4096);
     if (c === UNSAFE) return 'unreadable-config';
-    if (c !== null && c.replace(/[\r\n]+$/, '') && bases.some(b => !gitdirAt(b, c))) return 'network-gitdir';
+    if (c !== null && c.replace(/[\r\n]+$/, '') && far(c)) return 'network-gitdir';
     // The worktree's own folder, as recorded in gitdir: git 2.56 looks it up
     // for rev-list --all (and git worktree list), relative paths included
     // (worktree.useRelativePaths), so one that leads to a network path, or
     // through a link to one, keeps git out too.
     const g = readSmall(path.join(r.dir, 'gitdir'), 4096);
     if (g === UNSAFE) return 'unreadable-config';
-    if (g !== null && g.replace(/[\r\n]+$/, '') && bases.some(b => !gitdirAt(b, g))) return 'network-gitdir';
+    if (g !== null && g.replace(/[\r\n]+$/, '') && far(g)) return 'network-gitdir';
   }
   return '';
 }
@@ -1129,10 +1152,16 @@ function farGit(gitEntry, out = {}, { light = false, locate = false, work = null
   // Each other worktree's commondir: git reads the refs there for --all (and
   // a later git version may for more), so one that leads to a network path
   // keeps git out like the repo's own.
+  // One limit on the work for the repo, from here on: the worktrees start
+  // with it, the values and the alternates below with what is left. Without
+  // one, a .git whose worktrees folder held 400 entries, each with a gitdir
+  // file naming a 900-character path, took 3.7 s and was let through, and
+  // four such folders on the way up took 13.8 s (RS-A-worktreeslinks).
+  if (!work) work = { left: MAX_PATH_WORK };
   if (!light) {
     for (const d of dirs) {
-      const w = otherWorktrees(path.join(d, 'worktrees'));
-      if (w) return w;
+      const w = limitedWalk(() => otherWorktrees(path.join(d, 'worktrees')), work);
+      if (w) return w === 'many-config-paths' ? 'many-worktrees' : w;
     }
   }
   // Folders a relative path in a setting may be taken from.
@@ -1153,7 +1182,6 @@ function farGit(gitEntry, out = {}, { light = false, locate = false, work = null
   // the values left. With a limit each, two lfs.storage folders of 120 links
   // and two more next to alternates were let through after 1.7 s, twice
   // what one limit allows (RS-A-altmodules).
-  if (!work) work = { left: MAX_PATH_WORK };
   const valueWhy = limitedWalk(() => {
     let trees = 0;
     for (const e of pending) {
