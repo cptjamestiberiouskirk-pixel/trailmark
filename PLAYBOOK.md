@@ -89,7 +89,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 ## Reviewing
 
 1. One reviewer per row the diff touches (model table in `CLAUDE.md`), on `git diff <last reviewed>..HEAD` only.
-2. The brief gives the goal, the files, what earlier rounds fixed, a word limit, its own temp folder, and where the report lands (the owning branch's next batch push). It also says to use `pwsh`, never `powershell.exe`, and sets `TMPDIR=E:\DevTemp` itself when kept output should land on the Dev Drive (a subagent's Bash has TMPDIR on C:).
+2. The brief gives the goal, the files, what earlier rounds fixed, a word limit, its own temp folder, and where the report lands (the owning branch's next batch push). It also says to use `pwsh`, never `powershell.exe`, and sets `TMPDIR=E:\DevTemp` itself when kept output should land on the Dev Drive (a subagent's Bash has TMPDIR on C:). It gives the test command as one line with `TMPDIR`, `TEMP` and `TMP` set to the clone's `tmp-review` in front of it, and says to run a test no other way; after the round the owner lists `jbmem-*` in the temp folders.
 3. Tell the reviewer to read `PLAYBOOK.md` and `LESSONS.md` first.
 4. Reproduce every finding before acting on it.
 5. Gather a round's findings plus the scanner and Copilot comments on that head, fix them in one push, then review that push once.
