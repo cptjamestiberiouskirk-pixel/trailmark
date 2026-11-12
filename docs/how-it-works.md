@@ -70,7 +70,7 @@ A session often commits somewhere other than its own folder: `cd /e/other-clone 
 
 ### The PreToolUse record
 
-The PreToolUse hook (`commit-start`) records the folder the command starts in, in `pending/<tool call ID>.json`. With it go the folders the command's commits go to, as read from its text (at most 0.3 s of reading). Other sessions' commit hooks use those too (see "Other sessions committing in the same folder"). The hook runs no git and prints nothing. Its git calls for finding the memory folder get one second each, so a hung git holds the command up for seconds at most.
+The PreToolUse hook (`commit-start`) records the folder the command starts in, in `pending/<tool call ID>.json`. With it go the folders the command's commits go to, as read from its text (at most 0.3 s of reading). Other sessions' commit hooks use those too (see "Other sessions committing in the same folder"). The hook runs no git and prints nothing. Its git calls for finding the memory folder get one second each, and the lookup as a whole gets 3 seconds, so a hung git holds the command up for seconds at most.
 
 Only this record says for certain where a command started. Without one (an older Claude Code, a hook that didn't run or timed out), the end folder counts as the start only when the command never moves the shell's own folder, not even back to where it ends. For example, `git commit && cd /abs/clone`, read from the clone, would end where it began. Otherwise a commit whose folder depends on the start is unresolved.
 
@@ -310,7 +310,7 @@ All of this happens only in repos set up with `/trailmark:memory-setup`. In any 
 | Hook | Runs | Writes, in the memory folder |
 |---|---|---|
 | SessionStart | git: branch, top-level folder, HEAD's history since the handoff, commits in this session's folders | One log line, the state file |
-| PreToolUse (Bash and PowerShell, `git commit` and `git -C`) | The launcher's `git rev-parse` to find the memory folder (one second) | `pending/`: where the command starts |
+| PreToolUse (Bash and PowerShell, `git commit` and `git -C`) | The launcher's `git rev-parse` to find the memory folder (one second each, 3 seconds in all) | `pending/`: where the command starts |
 | PostToolUse (the same commands, and `gh pr merge`) and PostToolUseFailure (the same commands, without `gh pr merge`) | git: the commits the command made | Log lines, the state file |
 | PostToolUse (Agent, Task) | Nothing | The reminder time in the state file |
 | PreCompact | git: branch, HEAD, status | `snapshots/<session>.md`, one log line |

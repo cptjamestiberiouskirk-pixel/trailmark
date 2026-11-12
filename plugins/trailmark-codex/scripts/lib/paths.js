@@ -26,7 +26,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { farGitConfig, localRepoRoot, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
+const { farGitConfig, localRepoRoot, gitPath, gitEnv, GIT_GLOBAL, withTime } = require('./gitbin');
 
 function configDir() {
   return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -69,6 +69,9 @@ function candidateKeys(root) {
 // git by full path from PATH, never from the repo itself (see gitbin.js).
 function git(cwd, args, timeout = 3000) {
   const far = farGitConfig(cwd);
+  // The caller's time ran out in the check (repoRoot's left): as a git call
+  // that timed out.
+  if (far === 'git-timeout') throw late();
   if (far) { const e = new Error(`git not run: the repo's .git points at a network path (${far})`); e.code = 'JBMEM_FAR'; throw e; }
   const bin = gitPath(cwd);
   if (!bin) { const e = new Error('git not found on PATH'); e.code = 'ENOENT'; throw e; }
@@ -77,29 +80,58 @@ function git(cwd, args, timeout = 3000) {
   }).trim();
 }
 
+// A git call that wasn't started because the caller's time ran out: handled
+// as one that timed out.
+function late() {
+  const e = new Error('git not run: out of time');
+  e.code = 'ETIMEDOUT';
+  return e;
+}
+
+// The least of a caller's time a git call is started with (as in
+// gitfacts.js), and the least a check of the config files goes on with.
+const LEAST_MS = 250;
+
 // Main checkout root, also when called from inside a linked worktree.
 // timeoutMs: for each git call (3 s unless given).
-function repoRoot(cwd = process.cwd(), timeoutMs = 3000) {
+// left: what is left of the caller's time, in ms (a function; a hook hands
+// in its own). The check of the repo's config files stops once under 250 ms
+// are left, no git call is started with less, and a git call gets no more
+// than what is left. A check of a folder with 8 folders above it, each with
+// a .git whose config included 20 files that git reads itself, held a hook
+// for 10 s with nothing looking at the time (RS-A-firstcheck). Without left
+// (a command) nothing changes: timeoutMs for each git call, and no limit on
+// the check.
+function repoRoot(cwd = process.cwd(), timeoutMs = 3000, left) {
   const t = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 3000;
-  // git kept out (gitbin.js): the root found the way git would, without it,
-  // so a worktree or subfolder still finds the shared memory folder.
-  if (farGitConfig(cwd)) return localRepoRoot(cwd) || path.resolve(cwd);
-  // git too slow (it timed out): the root found the same way, without git.
-  // The folder itself would put a worktree or subfolder on a memory folder
-  // of its own, where hooks find nothing set up and init sets up the wrong
-  // one. A git that timed out once will time out again, so no second
-  // rev-parse, and localRepoRoot starts no git (it reads only the .git
-  // entries and pointer files).
+  const timed = typeof left === 'function';
+  const inTime = (fn) => (timed ? withTime(left, fn, LEAST_MS) : fn());
+  // git kept out (gitbin.js), or the caller's time ran out before the check
+  // was through (`git-timeout`): the root found the way git would, without
+  // it, so a worktree or subfolder still finds the shared memory folder.
+  if (inTime(() => farGitConfig(cwd))) return localRepoRoot(cwd) || path.resolve(cwd);
+  // git too slow (it timed out), or too little time left to start it: the
+  // root found the same way, without git. The folder itself would put a
+  // worktree or subfolder on a memory folder of its own, where hooks find
+  // nothing set up and init sets up the wrong one. A git that timed out once
+  // will time out again, so no second rev-parse, and localRepoRoot starts no
+  // git (it reads only the .git entries and pointer files).
   const slow = () => { try { return localRepoRoot(cwd) || path.resolve(cwd); } catch { return path.resolve(cwd); } };
+  // A time left that is no number is no limit, as in gitbin.js.
+  const run = (args) => inTime(() => {
+    const ms = timed ? left() : Infinity;
+    if (ms < LEAST_MS) throw late();
+    return git(cwd, args, Number.isFinite(ms) ? Math.min(t, Math.floor(ms)) : t);
+  });
   try {
-    const common = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'], t);
+    const common = run(['rev-parse', '--path-format=absolute', '--git-common-dir']);
     if (common && path.basename(common) === '.git') return path.dirname(common);
   } catch (e) {
     if (e && e.code === 'ETIMEDOUT') return slow();
     /* not a repo, or git older than 2.31 */
   }
   try {
-    const top = git(cwd, ['rev-parse', '--show-toplevel'], t);
+    const top = run(['rev-parse', '--show-toplevel']);
     if (top) return path.resolve(top);
   } catch (e) {
     if (e && e.code === 'ETIMEDOUT') return slow();
@@ -159,9 +191,10 @@ function scanForRoot(root, platform) {
   return null;
 }
 
-// ctx: { cwd, transcriptPath, platform, gitTimeoutMs, noScan }. noScan skips
-// reading other project folders' transcripts (the commit sweep asks about
-// several folders and has a time budget).
+// ctx: { cwd, transcriptPath, platform, gitTimeoutMs, left, noScan }. noScan
+// skips reading other project folders' transcripts (the commit sweep asks
+// about several folders and has a time budget). left: what is left of a
+// hook's time for git, a function (see repoRoot).
 function findMemoryDir(ctx = {}) {
   const cwd = ctx.cwd || process.cwd();
   const platform = ctx.platform || process.platform;
@@ -187,7 +220,7 @@ function findMemoryDir(ctx = {}) {
     return out(path.resolve(expandHome(settings.autoMemoryDirectory)), 'autoMemoryDirectory', cwd);
   }
 
-  const root = repoRoot(cwd, ctx.gitTimeoutMs);
+  const root = repoRoot(cwd, ctx.gitTimeoutMs, ctx.left);
 
   if (ctx.transcriptPath && !/^(\\\\|\/\/)/.test(String(ctx.transcriptPath)) && samePath(cwd, root, platform)) {
     const projectDir = path.dirname(path.resolve(String(ctx.transcriptPath)));

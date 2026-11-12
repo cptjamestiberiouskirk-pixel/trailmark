@@ -14,6 +14,30 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-11: A reviewer's failed probes kept 2,431 folders
+- What went wrong: the round 2 regression reviewer of RS-A-firstcheck ran 34 probes that fail the test. A failed test keeps its folders, as designed, and they added up to 2,431 folders in the reviewer's `tmp-review`, past the 1,000 the brief allows for a tree. The reviewer removed them by name at the end.
+- Why: the brief limits a tree the reviewer makes and says nothing about what failing tests keep from one probe to the next.
+- Rule going forward: a brief that asks for probes that fail tests says to remove the kept folders by name after each probe, not at the end.
+- Status: open
+
+## 2026-11-11: A clock that never moved passed, because the test's clock moved once
+- What went wrong: the sweep's lookup clock (`left: () => deadline - Date.now() - 800`) could be swapped for one that stands still and all three RS-A-firstcheck tests passed. The security review found it (round 1, F1) and measured session start at 20.2 s with the clock frozen (CONFIRMED by Fable, not re-run). The three survivors were reproduced here.
+- Why: the test's stand-in clock moved once, at the first file, before the sweep made its own clock. The mutation list had "a clock that does not run" for the hook's clock and only "no clock" and "keeps nothing back" for the sweep's.
+- Rule going forward: every clock handed down gets a case where time passes after that clock was made and before its last read. The mutation list has "does not run" for each clock, not only the first.
+- Status: open
+
+## 2026-11-11: "Every command is unchanged" was written without listing the callers
+- What went wrong: the notes, the PR text and the review brief said a caller with no clock, every command, was unchanged. `write-handoff` with `--session` runs the same sweep as session start, so its lookups got a clock too (round 1, the security review's note; CONFIRMED here: `sweepFacts` has two callers).
+- Why: the claim was written from `repoRoot`'s side (no `left`, no change), not from a list of who calls each changed function.
+- Rule going forward: before "callers of this kind are unchanged" is written, grep the callers of every function the change touched and name each one that changes.
+- Status: open
+
+## 2026-11-11: A job that hung had no time limit and left no log
+- What went wrong: on PR #50's last head the job "macos-latest, Node 22" sat in the step "trailmark tests" for 44 minutes, where that step takes 1 to 3. `tests.yml` sets no `timeout-minutes`, so GitHub's 6 hours applied and auto-merge waited on the job. A watcher here ran into its own time limit first, which says nothing about the job. A job that never answered leaves no log, so the cause could not be read afterwards: three reruns passed and it stays unproven.
+- Why: nothing in the workflow bounds a job, and the step's usual time was written down nowhere to compare with.
+- Rule going forward: a job that runs past three times its step's usual time is treated as hung. Take auto-merge off, cancel, ask for the log, compare the step's time on other heads, and rerun that job alone three times before anything merges. A watcher's own limit running out reads "still running", never "failed". A hang with no log and passing reruns is recorded as unexplained with its evidence, and the user decides the merge.
+- Status: open
+
 ## 2026-11-11: A case with real git was loosened, and its strict twin left out one value
 - What went wrong: round 2 let the two cases "real git is stopped at 1 ms" accept either answer and moved the strict check to a stand-in, but the stand-in was stopped at 2000 ms only. A change that reads git stopped at 1 ms as an empty file then passed the test, where the test before it failed (round 3's reviewer). A second gap had been there from the start: nothing showed that the time is asked again when git starts.
 - Why: the stand-in cases were written from the reviewer's list of survivors, not from what the loosened cases used to prove.

@@ -272,14 +272,17 @@ function sessionHome(payload) {
 // The memory folder for a hook. Claude Code's cwd is wherever the session's
 // last command left it, which can be another repo the session may use (an
 // added folder); then the folder the session started in decides.
-function hookMemory(payload, cwd, gitTimeoutMs) {
+// left: what is left of the hook's time for git, a function. Both lookups
+// share it: the check of a repo's config files before git runs there had no
+// limit (RS-A-firstcheck; lib/paths.js, repoRoot).
+function hookMemory(payload, cwd, gitTimeoutMs, left) {
   const tp = payload.transcript_path;
   let loc = null;
-  try { loc = findMemoryDir({ cwd, transcriptPath: tp, gitTimeoutMs }); } catch { loc = null; }
+  try { loc = findMemoryDir({ cwd, transcriptPath: tp, gitTimeoutMs, left }); } catch { loc = null; }
   if (loc && S.isEnabled(loc.dir)) return loc;
   const home = sessionHome(payload);
   if (!home || sameFolder(home, cwd)) return null;
-  try { loc = findMemoryDir({ cwd: home, transcriptPath: tp, gitTimeoutMs }); } catch { return null; }
+  try { loc = findMemoryDir({ cwd: home, transcriptPath: tp, gitTimeoutMs, left }); } catch { return null; }
   return loc && S.isEnabled(loc.dir) ? loc : null;
 }
 
@@ -620,8 +623,11 @@ function hookMode(name, extraIn) {
   const cwd = payload.cwd || process.cwd();
   // The PreToolUse hook holds up the command, so its git calls get a second
   // each, not three: when git hangs, the PostToolUse hook carries on without
-  // the record.
-  const loc = hookMemory(payload, cwd, name === 'commit-start' ? 1000 : undefined);
+  // the record. Finding the memory folder is inside the hook's time for git
+  // (5 s, below), and inside 3 s for the PreToolUse hook, which Codex stops
+  // after 5 s and which still has its record to write.
+  const gitMs = name === 'commit-start' ? 3000 : 5000;
+  const loc = hookMemory(payload, cwd, name === 'commit-start' ? 1000 : undefined, () => gitMs - (Date.now() - started));
   if (!loc) process.exit(0); // repo not set up: stay silent, and log nothing
   try { logShape(name, extra, rawPayload); } catch { /* diagnostics only */ }
   const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, payload: hookInput(payload), reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
@@ -847,7 +853,8 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
     if (left < 1300) { short = true; break; }
     let other = null;
     try {
-      const l2 = findMemoryDir({ cwd: d, gitTimeoutMs: Math.min(500, left - 800), noScan: true });
+      // The check before git runs in that folder stops with the sweep's time too.
+      const l2 = findMemoryDir({ cwd: d, gitTimeoutMs: Math.min(500, left - 800), noScan: true, left: () => deadline - Date.now() - 800 });
       if (l2 && l2.dir && !samePath(l2.dir, loc.dir) && S.isEnabled(l2.dir)) other = l2.dir;
     } catch { continue; } // not known: leave this folder for a later sweep
     const item = { dir: d, since: sinceFor(d), until: own.until };
