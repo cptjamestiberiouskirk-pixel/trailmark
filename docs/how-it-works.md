@@ -245,13 +245,13 @@ The commit hook runs git in folders named in command text, so every git call is 
 - no transport of any kind, so a partial clone's lazy fetch can't run the repo's `ext::` command, `uploadpack`, `sshCommand` or credential helper;
 - no signature program, no git started in submodules, no pager or color.
 
-`GIT_DIR` and the other repo-location variables are dropped. Before git runs in a folder at all, the `.git` above it is checked for anything that would send git to a network share; SECURITY.md, "Known limits", describes the check.
+`GIT_DIR` and the other repo-location variables are dropped. So is `GIT_CONFIG`, which makes `git config` read one file in place of the configs every other git command goes by: with it set, the checks below would ask about one config while `git status` went by another. Before git runs in a folder at all, the `.git` above it is checked for anything that would send git to a network share; SECURITY.md, "Known limits", describes the check.
 
 ### Filters and `git status`
 
 The PreCompact hook's `git status` would run a clean or process filter when a tracked file's timestamps changed. So it first lists the filters tracked files use (`git ls-files -z | git check-attr --stdin filter`) and where each one's settings come from (`git config --show-scope`).
 
-A filter with any setting in the repo's own config is switched off for the call (`-c filter.<name>.clean=` and the same for `smudge` and `process`, `required=false`). The snapshot says how many tracked files use one, since they can then show as modified when they aren't. A filter set only in the user's global or system config keeps running, and so does Git LFS set up in the repo's own config with exactly what `git lfs install --local` writes.
+A filter with any setting in the repo's own config is switched off for the call (`-c filter.<name>.clean=` and the same for `smudge` and `process`, `required=false`). The snapshot says how many tracked files use one, since they can then show as modified when they aren't. A filter set only in the user's global or system config keeps running (unless it is named `set`, `unset`, `unspecified` or nothing, as described below), and so does Git LFS set up in the repo's own config with exactly what `git lfs install --local` writes.
 
 Git LFS also runs extension programs named in config (`lfs.extension.<name>.clean`), so while LFS runs, such a setting in the repo's own config skips `git status`.
 
@@ -271,7 +271,7 @@ git gives `unspecified`, `unset`, `set` or an empty text for a file with no filt
 | `linked-folder`, `submodule-pointer`, `many-submodules`, `outside-worktree` | A folder of tracked files, a submodule or `core.worktree` leads where the check can't follow (MANUAL.md, section 16) |
 | `lfs-config` | While git-lfs runs, the repo's `.lfsconfig` (the worktree's, else the index's or HEAD's copy) has includes, or the worktree's copy is a link (a value there that leads to a share gives `network-config`) |
 
-What is left: a filter program the user installed (global or system config) runs as usual and reads the repo's config as it chooses. git-lfs itself is one.
+What is left: a filter program the user installed (global or system config) runs as usual, unless it has one of the four names above, and reads the repo's config as it chooses. git-lfs itself is one.
 
 The listing reads every tracked file's attributes once more, which adds time on a large repo (about 0.2 s for 60,000 files on Linux).
 

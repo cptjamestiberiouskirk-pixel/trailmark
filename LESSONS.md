@@ -14,6 +14,30 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-12: A commit script's expected line count was read while a mutation run had the file changed
+- What went wrong: the commit script for RS-A-filtername round 2 checks that `gitbin.js` differs from HEAD by a known number of lines. The number (5 and 1) was read with `git diff --numstat` while the mutation run was on its first probe, which puts the old pattern line back. The real diff is 6 and 2. The script stopped before the commit, and nothing was committed.
+- Why: the mutation run was in the background and the read looked harmless, since it changed nothing.
+- Rule going forward: while a mutation run is going, nothing is read from the files it changes, not only nothing written. A number a later check will hold is read after the run printed "restored: true".
+- Status: open
+
+## 2026-11-12: A check asked git one way and git acted another, because of a variable in the environment
+- What went wrong: round 2 of RS-A-filtername (Fable) found that with `GIT_CONFIG` set in the session's environment, `git config` reads that one file and nothing else, not the repo's config and not `-c`, while `git status` goes by the real configs. Reproduced here in real repos: with a file that holds `trailmark.asked`, the new call's answer counted as whole, a filter named `set` was not seen and ran; with either file an ordinary filter of the repo was not listed, so it was not switched off and ran (this part is older than the PR); with an empty file, 11391c1 read status in no repo at all (`filter-check`).
+- Why: `gitEnv` dropped the variables that point git at another repo, and nobody had listed the variables that change what one git command reads and not another. The call's own setting was taken to prove "git answered in full", and it proves that only while `git config` reads the configs `git status` reads.
+- Rule going forward: when one command is asked and another then acts on the answer, list what can make the two see different things, the environment first (read each command's page for variables that touch only that command), and drop or refuse each. A marker that proves an answer whole is tried against a source that can supply the marker without the tool having read what it should.
+- Status: open
+
+## 2026-11-12: Cases said a marker was absent that they could never have written
+- What went wrong: round 1's batch added six cases in real repos and the notes said of them "each `odd-filter-name` with the marker absent". Four could not write the marker whatever the code did (Opus, round 2, CONFIRMED by Opus and read here in the test): the case with only `process` and the one under `[filter.set]` had no marker command, and `smudge` and `required` settings never run during `git status`.
+- Why: the cases were made by a helper whose marker command sat in its `clean` form only, and the forced fault was run for the first case and taken to stand for the rest.
+- Rule going forward: PLAYBOOK "Testing" step 8 a second time, now per case: each case that says "did not happen" carries the thing that would make it happen, and one that cannot does not say it. The notes say of each case what it asserts, not what the group was meant to.
+- Status: promoted (PLAYBOOK "Testing" step 8, one clause added)
+
+## 2026-11-12: The notes said a repo's own copy of the code's marker "changes nothing", and no case tried it
+- What went wrong: 11391c1's notes say a repo that writes `trailmark.asked` in its own config "adds a line to the answer and changes nothing". That was read from the code. Round 2 (Fable) changed `continue` to `break` at the line that meets the marker, and both tests passed: with the repo's own `trailmark.asked` ahead of `[filter "set"]`, that change reads status and the filter runs.
+- Why: the marker was thought of as the code's own, so no case gave it to the repo.
+- Rule going forward: a sentence in the notes of the form "X changes nothing" gets a case that does X and a change in the mutation list at the line that makes it so. A name the code brings (a setting, a file name, a marker) is tried as the input's own, before and after the thing it guards.
+- Status: open
+
 ## 2026-11-12: Two times in the notes were written from a guess
 - What went wrong: the notes of RS-A-filtername round 1 and a handoff gave clock times ("seen 15:10", "not committed at 15:25") that were reckoned from how long the steps had seemed to take. The clock, read later for another reason, said 15:27 where the reckoning had 15:40. The notes were corrected before the commit by reading CI again with the clock; the handoff's time was wrong for one version.
 - Why: the commands that read CI and the bot's state printed no time, and the note was written some steps later.

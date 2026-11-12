@@ -59,8 +59,12 @@ const GIT_GLOBAL = [
 ];
 
 // Repo-location variables. Set in Claude Code's environment, they would point
-// every call at one repo, whatever folder it runs in.
-const DROP_ENV = /^GIT_(?:DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|PREFIX)$/i;
+// every call at one repo, whatever folder it runs in. GIT_CONFIG is dropped for
+// another reason: it makes `git config` read one file in place of the configs
+// every other git command goes by, so what the checks ask git and what
+// `git status` then does would differ. (GIT_CONFIG_GLOBAL and the others of
+// that family change what every command reads, and stay.)
+const DROP_ENV = /^GIT_(?:DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|PREFIX|CONFIG)$/i;
 
 function envValue(env, name) {
   if (Object.prototype.hasOwnProperty.call(env, name)) return env[name];

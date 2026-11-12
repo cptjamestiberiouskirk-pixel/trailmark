@@ -2575,6 +2575,14 @@ test('git status: a filter named as git names "no filter" is not left running, t
       // The filter itself is found both ways.
       assert.deepStrictEqual(ask([shown], setting('lfs') + setting(shown, 'process'), whole), skipped, `${files}, its process after another filter${how}`);
     }
+    // A setting of the repo's with the name of the question's own, before
+    // the filter or after it, hides nothing; alone it is no filter.
+    for (const whole of [false, true]) {
+      const how = whole ? ', the whole text' : '';
+      assert.deepStrictEqual(ask([shown], `trailmark.asked\nx\0${setting(shown)}`, whole), skipped, `${files}, its filter after the repo's own trailmark.asked${how}`);
+      assert.deepStrictEqual(ask([shown], `${setting(shown)}trailmark.asked\nx\0`, whole), skipped, `${files}, its filter before the repo's own trailmark.asked${how}`);
+      assert.deepStrictEqual(ask([shown], 'trailmark.asked\nx\0', whole), read, `${files}, the repo's own trailmark.asked and no such filter${how}`);
+    }
     // Among other files, and with a real filter beside it.
     assert.deepStrictEqual(ask(['other', shown, 'other'], setting(shown)), skipped, `${files}, among files with a filter`);
     // The question fails: status is not read, and a timeout is said to be one.
@@ -2613,13 +2621,14 @@ test('git status: a filter named as git names "no filter" is not left running, i
     fs.writeFileSync(path.join(r, 'x.bin'), 'x');
     fs.writeFileSync(path.join(r, '.gitattributes'), attributes);
     g('add', '.'); g('commit', '-qm', 'one file');
-    const section = `[filter "${named}"]\n\tclean = "echo ran >> '${marker}'; cat"\n`;
-    if (config) config(path.join(r, '.git'), section);
+    const command = `"echo ran >> '${marker}'; cat"`;
+    const section = `[filter "${named}"]\n\tclean = ${command}\n`;
+    if (config) config(path.join(r, '.git'), section, command);
     else if (named !== undefined) fs.appendFileSync(path.join(r, '.git', 'config'), section);
     fs.writeFileSync(path.join(r, 'x.bin'), 'y');
     const later = new Date(Date.now() + 5000);
     fs.utimesSync(path.join(r, 'x.bin'), later, later);
-    return { g, marker, facts: () => { const f = gitFacts(r, ['status']); return { skipped: f.statusSkipped, count: f.statusCount }; } };
+    return { g, dir: r, marker, facts: () => { const f = gitFacts(r, ['status']); return { skipped: f.statusSkipped, count: f.statusCount }; } };
   };
   for (const name of NAMES) {
     const { g, marker, facts } = repo(`*.bin filter=${name}\n`, name);
@@ -2632,22 +2641,36 @@ test('git status: a filter named as git names "no filter" is not left running, i
   // `filter` with no value shows `set` too. Git runs no filter for it, and
   // it cannot be told from `filter=set`: skipped as well.
   assert.deepStrictEqual(repo('*.bin filter\n', 'set').facts(), { skipped: 'odd-filter-name', count: undefined }, 'filter with no value, and a filter named set');
-  // The filter as git itself has to find it: with one setting that is not
-  // `clean`, under the older form of a section, and in a file the repo's
-  // config includes.
+  // The filter as git itself has to find it: with `process` and no `clean`,
+  // under the older form of a section, in a file the repo's config
+  // includes, in the worktree's own config, and after a setting of the
+  // repo's that has the name of the question's own. Each of these has the
+  // marker's command, and git itself is run afterwards to show that it runs
+  // the command there: without that, the marker's absence proves nothing.
+  // (git's talk with a `process` command that is no filter program fails
+  // once the command has started, so that call's own result is not read.)
   const others = {
-    'process only': (gd) => fs.appendFileSync(path.join(gd, 'config'), '[filter "set"]\n\tprocess = cat\n'),
-    'smudge only': (gd) => fs.appendFileSync(path.join(gd, 'config'), '[filter "set"]\n\tsmudge = cat\n'),
-    'required only': (gd) => fs.appendFileSync(path.join(gd, 'config'), '[filter "set"]\n\trequired = false\n'),
-    'the older form of a section': (gd) => fs.appendFileSync(path.join(gd, 'config'), '[filter.set]\n\tclean = cat\n'),
+    'process only': (gd, section, command) => fs.appendFileSync(path.join(gd, 'config'), `[filter "set"]\n\tprocess = ${command}\n`),
+    'the older form of a section': (gd, section, command) => fs.appendFileSync(path.join(gd, 'config'), `[filter.set]\n\tclean = ${command}\n`),
     'an included file': (gd, section) => { fs.writeFileSync(path.join(gd, 'more.cfg'), section); fs.appendFileSync(path.join(gd, 'config'), '[include]\n\tpath = more.cfg\n'); },
     'the worktree\'s own config': (gd, section) => { fs.writeFileSync(path.join(gd, 'config.worktree'), section); fs.appendFileSync(path.join(gd, 'config'), '[extensions]\n\tworktreeConfig = true\n'); },
+    'after the repo\'s own trailmark.asked': (gd, section) => fs.appendFileSync(path.join(gd, 'config'), `[trailmark]\n\tasked = x\n${section}`),
   };
   for (const [what, config] of Object.entries(others)) {
-    const { marker, facts } = repo('*.bin filter=set\n', 'set', config);
+    const { dir, marker, facts } = repo('*.bin filter=set\n', 'set', config);
     assert.deepStrictEqual(facts(), { skipped: 'odd-filter-name', count: undefined }, `a filter named set, ${what}`);
     assert.strictEqual(fs.existsSync(marker), false, `the filter named set ran, ${what}`);
+    try { execFileSync('git', ['status', '--porcelain'], { cwd: dir, stdio: 'ignore' }); } catch { /* the marker tells */ }
+    assert.strictEqual(fs.existsSync(marker), true, `git did not run the filter named set, ${what}`);
   }
+  // A filter with only `smudge` or only `required` has no command that
+  // status would run: these two say that git finds the filter, no more.
+  for (const word of ['smudge = cat', 'required = false']) {
+    const { facts } = repo('*.bin filter=set\n', 'set', (gd) => fs.appendFileSync(path.join(gd, 'config'), `[filter "set"]\n\t${word}\n`));
+    assert.deepStrictEqual(facts(), { skipped: 'odd-filter-name', count: undefined }, `a filter named set, only ${word}`);
+  }
+  // The repo's own `trailmark.asked` and no filter so named: read.
+  assert.deepStrictEqual(repo('*.bin filter=set\n', undefined, (gd) => fs.appendFileSync(path.join(gd, 'config'), '[trailmark]\n\tasked = x\n')).facts(), { skipped: undefined, count: 1 }, 'the repo\'s own trailmark.asked, no such filter');
   // No filter under such a name: status is read as before, whatever the file shows.
   for (const attributes of ['*.bin filter=set\n', '*.bin filter\n', '*.bin -filter\n', '*.bin filter=\n', '']) {
     assert.deepStrictEqual(repo(attributes).facts(), { skipped: undefined, count: 1 }, `no such filter, attributes ${JSON.stringify(attributes)}`);
@@ -2656,16 +2679,50 @@ test('git status: a filter named as git names "no filter" is not left running, i
   assert.deepStrictEqual(repo('*.bin -filter\n', 'set').facts(), { skipped: undefined, count: 1 }, 'a filter named set, and no file that shows set');
   // A filter named `set` in the user's own config skips status as well.
   // (GIT_CONFIG_GLOBAL names that file for git 2.32 and later.)
+  const withEnv = (name, value, f) => {
+    const before = process.env[name];
+    process.env[name] = value;
+    try { return f(); } finally { if (before === undefined) delete process.env[name]; else process.env[name] = before; }
+  };
   const mine = path.join(base, 'user.cfg');
   fs.writeFileSync(mine, '[filter "set"]\n\tclean = cat\n');
   const user = repo('*.bin filter=set\n');
-  const before = process.env.GIT_CONFIG_GLOBAL;
-  process.env.GIT_CONFIG_GLOBAL = mine;
-  try {
-    assert.deepStrictEqual(user.facts(), { skipped: 'odd-filter-name', count: undefined }, 'a filter named set in the user\'s own config');
-  } finally {
-    if (before === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = before;
+  assert.deepStrictEqual(withEnv('GIT_CONFIG_GLOBAL', mine, user.facts), { skipped: 'odd-filter-name', count: undefined }, 'a filter named set in the user\'s own config');
+  // GIT_CONFIG in the session's environment makes `git config` read one
+  // file in place of the configs `git status` goes by. The questions here
+  // are asked without it: with that file empty, and with a
+  // `trailmark.asked` of its own in it, a filter named `set` is still
+  // found, an ordinary filter of the repo's is still switched off (the
+  // marker is absent, and the changed file is counted), and a repo with no
+  // filter is still read.
+  const { gitEnv } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const seen = {}; const meant = {}; const plains = [];
+  for (const [what, text] of [['an empty file', ''], ['a file with trailmark.asked', '[trailmark]\n\tasked = 1\n']]) {
+    const one = path.join(base, `one${made}.cfg`);
+    fs.writeFileSync(one, text);
+    const named = repo('*.bin filter=set\n', 'set');
+    const plain = repo('*.bin filter=evil\n', 'evil');
+    const none = repo('');
+    seen[what] = withEnv('GIT_CONFIG', one, () => ({ 'a filter named set': named.facts(), 'an ordinary filter': plain.facts(), 'no filter': none.facts() }));
+    seen[what].ran = { 'the filter named set': fs.existsSync(named.marker), 'the ordinary filter': fs.existsSync(plain.marker) };
+    meant[what] = {
+      'a filter named set': { skipped: 'odd-filter-name', count: undefined },
+      'an ordinary filter': { skipped: undefined, count: 1 },
+      'no filter': { skipped: undefined, count: 1 },
+      ran: { 'the filter named set': false, 'the ordinary filter': false },
+    };
+    plains.push(plain);
   }
+  assert.deepStrictEqual(seen, meant, 'with GIT_CONFIG in the environment');
+  // git itself runs the ordinary filter here: without that, "ran: false" proves nothing.
+  for (const plain of plains) {
+    plain.g('status', '--porcelain');
+    assert.strictEqual(fs.existsSync(plain.marker), true, 'git did not run the ordinary filter');
+  }
+  // Only that variable is taken out: the ones that name the user's own
+  // config, or add settings, stay as the user set them.
+  assert.deepStrictEqual(gitEnv({ GIT_CONFIG: 'a', git_config: 'b', GIT_CONFIG_GLOBAL: 'c', GIT_CONFIG_SYSTEM: 'd', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_COUNT: '0', GIT_CONFIG_PARAMETERS: 'e' }),
+    { ...gitEnv({}), GIT_CONFIG_GLOBAL: 'c', GIT_CONFIG_SYSTEM: 'd', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_COUNT: '0', GIT_CONFIG_PARAMETERS: 'e' }, 'what gitEnv keeps of the GIT_CONFIG variables');
   // Not told: what an answer of check-attr other than these four names
   // means, and attributes that come from another place than the top
   // `.gitattributes`. The cases that expect status read take it that the
