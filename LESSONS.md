@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-12: A new test left a program running that a machine may not have
+- What went wrong: RS-A-filterkey's first test ran real `git status` in repos with `filter.lfs.process` set to `git-lfs filter-process`, with `filter.lfs.required` true in one case and left out in another. It passed here, where Git for Windows brings git-lfs. On a machine without git-lfs a required filter that cannot start stops `git status` (exit 128), and those cases would have read `git-error`. It was found by reading, before the first push: the sweep suite's test of the same setup skips without git-lfs. The test was changed, and the whole mutation list ran again.
+- Why: the cases were chosen from the table of standard values, and what git does with each value when it runs was not asked. This machine has git-lfs, so no run here could show it.
+- Rule going forward: a test that runs a real tool with something left on (a filter, a hook, a helper program) lists each program the tool may start. It then skips without that program the way the suite already does (`HAVE_LFS`), or sets things so the tool answers without it. Before the first push the test runs once on a system that lacks the program (WSL here has no git-lfs).
+- Status: open
+
 ## 2026-11-12: A mutation list changed numbers and lines, and never the kind of table
 - What went wrong: RS-A-deepindex put the folders of tracked files in a tree, each folder with a Map of names. Its 13 single changes moved limits, removed lines and changed arithmetic, and all were caught. Both reviewers then found a change of the table itself that the test passed: every folder sharing the top level's Map (a folder `b` unchecked after `a/b`), and a plain object in place of the Map (a folder `hasOwnProperty` never looked at, a file below `__proto__/x` throwing). The test's names were all different at every level and none was a name every object has. The batch that fixed those two covered those two, and the next round found two more of the kind (the folders of one depth sharing a Map, names compared in lower case).
 - Why: the list was made from the lines of the fix, one change to each, and not from what the new structure has to keep apart.

@@ -2377,6 +2377,54 @@ test('git status: finding the folders of tracked files takes work that follows t
   assert.ok(heap - before < 100 * long.size, `memory grew by ${heap - before} bytes for a list of ${long.size} characters`);
 });
 
+test('git status: a filter setting git does not know is never taken as a standard LFS one, whatever its name (RS-A-filterkey)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-filterkey-');
+  // One tracked file that uses a filter, the filter's process set the way
+  // `git lfs install --local` writes it, and then the settings of the case.
+  // The filter is not required (a standard value too), so that `git status`
+  // answers on a machine without git-lfs: required, a filter that cannot
+  // start stops git. One repo for each filter name: a case's settings are
+  // taken out again after it.
+  const repos = new Map();
+  const facts = (filter, ...more) => {
+    if (!repos.has(filter)) {
+      const r = path.join(base, `r${repos.size}`); const g = repoAt(r);
+      fs.writeFileSync(path.join(r, '.gitattributes'), `*.bin filter=${filter}\n`);
+      fs.writeFileSync(path.join(r, 'x.bin'), 'x');
+      g('add', '.'); g('commit', '-qm', 'one file with a filter');
+      g('config', `filter.${filter}.process`, 'git-lfs filter-process');
+      g('config', `filter.${filter}.required`, 'false');
+      repos.set(filter, { r, g });
+    }
+    const { r, g } = repos.get(filter);
+    for (let i = 0; i < more.length; i += 2) g('config', more[i], more[i + 1]);
+    const f = gitFacts(r, ['status']);
+    for (let i = 0; i < more.length; i += 2) g('config', '--unset', more[i]);
+    return { skipped: f.statusSkipped, off: f.statusFiltersOff };
+  };
+  const left = { skipped: undefined, off: undefined };
+  const off = { skipped: undefined, off: 1 };
+  // What this holds apart from a standard setting of the lfs filter: a word
+  // the table of standard settings has, with another value; a word it does
+  // not have; and `constructor`, which every object has. That last one is the
+  // only such name a setting can carry: git allows letters, digits and `-` in
+  // the last word of a key, and prints it in lower case. A filter and its
+  // settings are also told apart by the filter's name when that is a name
+  // every object has. Nothing here tells what git-lfs does when it runs.
+  assert.deepStrictEqual(facts('lfs'), left, 'two settings as installed');
+  assert.deepStrictEqual(facts('lfs', 'filter.lfs.clean', 'git-lfs clean -- %f'), left, 'three settings as installed');
+  assert.deepStrictEqual(facts('lfs', 'filter.lfs.smudge', 'cat'), off, 'a standard word with another value');
+  assert.deepStrictEqual(facts('lfs', 'filter.lfs.foo', 'x'), off, 'a word git does not know');
+  assert.deepStrictEqual(facts('lfs', 'filter.lfs.constructor', 'x'), off, 'a word every object has');
+  assert.deepStrictEqual(facts('lfs', 'filter.lfs.constructor', 'git-lfs filter-process'), off, 'a word every object has, with a standard value');
+  assert.deepStrictEqual(facts('lfs'), left, 'as installed again, with each case\'s setting taken out');
+  // The filter's own name: `lfs` alone is left running, and a repo's filter
+  // under any other name is switched off.
+  assert.deepStrictEqual(facts('constructor'), off, 'a filter named constructor');
+  assert.deepStrictEqual(facts('__proto__'), off, 'a filter named __proto__');
+});
+
 test('git pointers: the caller\'s time is looked at before each config file is read (RS-A-nestedone)', () => {
   const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
   const { withTime, farGitConfig, farLfsFile } = require(lib);

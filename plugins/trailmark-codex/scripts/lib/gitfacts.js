@@ -288,12 +288,15 @@ function farWorktree(r, cwd) {
 // switched off, which can show as modified when they aren't) or { why }
 // when status shouldn't run.
 const FILTER_NAME = /^[A-Za-z0-9._\-]{1,64}$/;
-const LFS_STANDARD = {
-  clean: /^git-lfs clean -- %f$/,
-  smudge: /^git-lfs smudge(?: --skip)? -- %f$/,
-  process: /^git-lfs filter-process(?: --skip)?$/,
-  required: /^(?:true|false|)$/i, // a key with no value is true
-};
+// A Map, since the word looked up comes from a repo's config: a plain
+// object also answers for `constructor`, with something that is no pattern
+// (RS-A-filterkey).
+const LFS_STANDARD = new Map([
+  ['clean', /^git-lfs clean -- %f$/],
+  ['smudge', /^git-lfs smudge(?: --skip)? -- %f$/],
+  ['process', /^git-lfs filter-process(?: --skip)?$/],
+  ['required', /^(?:true|false|)$/i], // a key with no value is true
+]);
 const USER_SCOPES = /^(?:global|system|command)$/i;
 
 // The .lfsconfig git-lfs would read: the worktree's (checked like a config
@@ -367,7 +370,7 @@ function filterOverrides(r, cwd) {
   for (const [n, count] of names) {
     if (scoped) {
       const own = repoKeys.get(n) || [];
-      const lfsAsInstalled = n === 'lfs' && own.every(e => LFS_STANDARD[e.key] && LFS_STANDARD[e.key].test(e.value));
+      const lfsAsInstalled = n === 'lfs' && own.every(e => LFS_STANDARD.has(e.key) && LFS_STANDARD.get(e.key).test(e.value));
       if (!own.length || lfsAsInstalled) {
         if (n === 'lfs' && lfsExtension) return { why: 'lfs-extension' };
         // git-lfs, left running, reads the repo's .lfsconfig with includes on.
