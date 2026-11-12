@@ -1271,21 +1271,24 @@ test('git pointers: the check of other worktrees counts against the repo\'s limi
     return r;
   };
   // Plain files: an entry counts the length of the folder's path with its 12
-  // looks at the disk, six times what it counts at a short path. 330 are
-  // under the limit (76% of it) and 500 over it (115%); with the length cut
-  // off at 4,096 the 500 are 43% of it, with half of it 66%, and with twice
-  // the length the 330 are 139%.
+  // looks at the disk, six times what it counts at a short path. 418 are
+  // under the limit (96% of it) and 454 over it (104%); with the length cut
+  // off at 4,096 the 454 are 39% of it, with half of it 60%, and with twice
+  // the length the 418 are 176%. The two sizes sit 4% either side of the
+  // limit (a temp folder 100 characters longer moves them by 0.6), so a
+  // count that leaves out more than that of the path is told from the whole
+  // one: a cut-off below about 15,400 characters is, one above it is not.
   const files16 = madeAt('files');
   const fillFiles = (from, to) => { for (let k = from; k < to; k++) fs.writeFileSync(path.join(files16, '.git', 'worktrees', `e${k}`), ''); };
-  fillFiles(0, 330);
-  assert.strictEqual(farGitConfig(path.join(files16, 'under')), '', '330 entries with no pointers at a path of 16,200 characters');
-  fillFiles(330, 500);
-  assert.strictEqual(farGitConfig(path.join(files16, 'over')), 'many-worktrees', '500 entries with no pointers at a path of 16,200 characters');
+  fillFiles(0, 418);
+  assert.strictEqual(farGitConfig(path.join(files16, 'under')), '', '418 entries with no pointers at a path of 16,200 characters');
+  fillFiles(418, 454);
+  assert.strictEqual(farGitConfig(path.join(files16, 'over')), 'many-worktrees', '454 entries with no pointers at a path of 16,200 characters');
   // Folders with two short pointers (110 times "..", which ends at the
-  // drive's root). 180 are under the limit (77% of it) and 270 over it
-  // (116%); with the folder at a quarter of its length the 270 are 90% of
-  // it, with the length cut off at 4,096 77%, and with the whole length the
-  // 180 are 112%.
+  // drive's root). 224 are under the limit (96% of it) and 244 over it
+  // (104%); with the folder at a quarter of its length the 244 are 81% of
+  // it, with the length cut off at 4,096 70%, and with the whole length the
+  // 224 are 139%. For a pointer a cut-off below about 14,600 is told.
   const dots16 = madeAt('dots');
   const up16 = Array(110).fill('..').join('/') + '\n';
   const fillDots16 = (from, to) => {
@@ -1295,10 +1298,10 @@ test('git pointers: the check of other worktrees counts against the repo\'s limi
       for (const f of ['commondir', 'gitdir']) fs.writeFileSync(path.join(e, f), up16);
     }
   };
-  fillDots16(0, 180);
-  assert.strictEqual(farGitConfig(path.join(dots16, 'under')), '', '180 entries with two short pointers at a path of 16,200 characters');
-  fillDots16(180, 270);
-  assert.strictEqual(farGitConfig(path.join(dots16, 'over')), 'many-worktrees', '270 entries with two short pointers at a path of 16,200 characters');
+  fillDots16(0, 224);
+  assert.strictEqual(farGitConfig(path.join(dots16, 'under')), '', '224 entries with two short pointers at a path of 16,200 characters');
+  fillDots16(224, 244);
+  assert.strictEqual(farGitConfig(path.join(dots16, 'over')), 'many-worktrees', '244 entries with two short pointers at a path of 16,200 characters');
 });
 
 test('git pointers: every .git found on one way up from the session\'s folder shares one limit on the work (RS-A-abovegit)', () => {
