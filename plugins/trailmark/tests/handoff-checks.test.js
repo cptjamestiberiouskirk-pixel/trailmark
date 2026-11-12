@@ -1143,7 +1143,7 @@ test('git pointers: the check of other worktrees counts against the repo\'s limi
   assert.strictEqual(farGitConfig(tree(true, 4)), 'many-worktrees', 'the repo and four .git folders below it');
   // What an entry costs before its pointers are walked. Plain files are
   // entries too: 2,400 of them are under the limit, and 2,800 are over it.
-  // (The folder's path counts by its length with each entry, 50 to 280
+  // (The folder's path counts by its length with each entry, 66 to 277
   // characters here by the temp folder: 2,400 are 89% to 96% of the limit
   // and 2,800 are 104% to 112%. With 10 looks at the disk for an entry
   // 2,800 are under it, and with 14 looks 2,400 are over it.)
@@ -1219,9 +1219,10 @@ test('git pointers: the check of other worktrees counts against the repo\'s limi
   // A look at the disk, and the join of a pointer to a folder, take longer
   // the longer the folder's path is, so its length counts too: with the
   // worktrees folder at a path of 16,130 characters, 900 entries with two
-  // pointers of 4 KB were let through after 4.3 s. Here two folders at the
-  // end of a path of about 3,100 characters are each a repo's worktrees
-  // folder, through a link (Windows only: macOS has no path that long).
+  // pointers of 4 KB were let through after 4.3 s. First a folder at the end
+  // of a path of about 3,100 characters that is a repo's worktrees folder
+  // through a link, so a pointer is tried from a short folder and a long
+  // one (Windows only: macOS has no path that long).
   if (!WIN) return;
   let end = path.join(base, 'L');
   for (let i = 0; i < 15; i++) end = path.join(end, 'd'.repeat(200));
@@ -1235,15 +1236,6 @@ test('git pointers: the check of other worktrees counts against the repo\'s limi
     fs.mkdirSync(path.join(r, 'over'));
     return { wt, r };
   };
-  // Plain files: an entry counts the length of the folder's path with its 12
-  // looks at the disk, twice what it counts at a short path. 1,150 are under
-  // the limit (85% of it) and 1,600 over it (118%); without the path's
-  // length 1,600 are 59% of it, and with half of it 88%.
-  const plain = farAway('files');
-  for (let k = 0; k < 1150; k++) fs.writeFileSync(path.join(plain.wt, `e${k}`), '');
-  assert.strictEqual(farGitConfig(path.join(plain.r, 'under')), '', '1,150 entries with no pointers at a long path');
-  for (let k = 1150; k < 1600; k++) fs.writeFileSync(path.join(plain.wt, `e${k}`), '');
-  assert.strictEqual(farGitConfig(path.join(plain.r, 'over')), 'many-worktrees', '1,600 entries with no pointers at a long path');
   // Folders with two short pointers (40 times "..", which ends at the
   // drive's root from either folder, so nothing is left to walk). A pointer
   // is tried from the link and from where it leads, and each try counts half
@@ -1262,6 +1254,51 @@ test('git pointers: the check of other worktrees counts against the repo\'s limi
   assert.strictEqual(farGitConfig(path.join(dots.r, 'under')), '', '700 entries with two short pointers at a long path');
   fillDots(700, 1000);
   assert.strictEqual(farGitConfig(path.join(dots.r, 'over')), 'many-worktrees', '1,000 entries with two short pointers at a long path');
+  // A link's target stops near 4,000 characters, so the case above can't
+  // tell a count that stops growing with the path there, and it tells half
+  // the folder's length from a quarter only in a short temp folder. So two
+  // repos at the end of a path of about 16,200 characters, with no link:
+  // made by hand, since git can't work at a path that long (Node can).
+  let end16 = path.join(base, 'M');
+  for (let i = 0; i < 80; i++) end16 = path.join(end16, 'd'.repeat(200));
+  const madeAt = (name) => {
+    const r = path.join(end16, name);
+    for (const d of ['objects', 'refs', 'worktrees']) fs.mkdirSync(path.join(r, '.git', d), { recursive: true });
+    fs.writeFileSync(path.join(r, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(r, '.git', 'config'), '[core]\n\trepositoryformatversion = 0\n');
+    fs.mkdirSync(path.join(r, 'under'));
+    fs.mkdirSync(path.join(r, 'over'));
+    return r;
+  };
+  // Plain files: an entry counts the length of the folder's path with its 12
+  // looks at the disk, six times what it counts at a short path. 330 are
+  // under the limit (76% of it) and 500 over it (115%); with the length cut
+  // off at 4,096 the 500 are 43% of it, with half of it 66%, and with twice
+  // the length the 330 are 139%.
+  const files16 = madeAt('files');
+  const fillFiles = (from, to) => { for (let k = from; k < to; k++) fs.writeFileSync(path.join(files16, '.git', 'worktrees', `e${k}`), ''); };
+  fillFiles(0, 330);
+  assert.strictEqual(farGitConfig(path.join(files16, 'under')), '', '330 entries with no pointers at a path of 16,200 characters');
+  fillFiles(330, 500);
+  assert.strictEqual(farGitConfig(path.join(files16, 'over')), 'many-worktrees', '500 entries with no pointers at a path of 16,200 characters');
+  // Folders with two short pointers (110 times "..", which ends at the
+  // drive's root). 180 are under the limit (77% of it) and 270 over it
+  // (116%); with the folder at a quarter of its length the 270 are 90% of
+  // it, with the length cut off at 4,096 77%, and with the whole length the
+  // 180 are 112%.
+  const dots16 = madeAt('dots');
+  const up16 = Array(110).fill('..').join('/') + '\n';
+  const fillDots16 = (from, to) => {
+    for (let k = from; k < to; k++) {
+      const e = path.join(dots16, '.git', 'worktrees', `p${k}`);
+      fs.mkdirSync(e);
+      for (const f of ['commondir', 'gitdir']) fs.writeFileSync(path.join(e, f), up16);
+    }
+  };
+  fillDots16(0, 180);
+  assert.strictEqual(farGitConfig(path.join(dots16, 'under')), '', '180 entries with two short pointers at a path of 16,200 characters');
+  fillDots16(180, 270);
+  assert.strictEqual(farGitConfig(path.join(dots16, 'over')), 'many-worktrees', '270 entries with two short pointers at a path of 16,200 characters');
 });
 
 test('git pointers: every .git found on one way up from the session\'s folder shares one limit on the work (RS-A-abovegit)', () => {

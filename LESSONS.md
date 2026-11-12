@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-12: Three rounds each found a slower shape for the same bound
+- What went wrong: RS-A-worktreeslinks put a time in SECURITY.md for what its limit lets through, and each of three review rounds beat it with a more unusual tree (4 KB pointers, a path of 16,130 characters, a path with characters outside Latin-1). Two rounds added a term to the count and each new term drew the next round. The new test also could not see a path longer than a link's target allows, so a count cut off at 4,096 passed it.
+- Why: the shipped text ranked ("the slowest left") where it could only say what was measured, and each fix answered the last shape, not the family. All three shapes need a path longer than git can open, which one cap would refuse.
+- Rule going forward: a shipped text gives times by shape and never a ranking. When a second review beats the same bound, stop and ask what the shapes have in common before adding a term; a cap on the input is preferred to another weight. A test of a term runs at the size that drew the fix, not at the size its fixture is easy to make.
+- Status: promoted (PLAYBOOK "Testing" step 15)
+
 ## 2026-11-11: A reviewer's test run left a folder in the machine's temp folder
 - What went wrong: after round 2 of RS-A-worktreeslinks, `E:/DevTemp` held `jbmem-far-wt-5gZt0i` (23:00, the fixtures of the round's test). The brief told each reviewer to set TMPDIR, TEMP and TMP to its clone's `tmp-review` before a test run, and each clone was checked clean and empty.
 - Why: HYPOTHESIZED: one test run in a shell started after the variables were set (a new shell does not keep them), and the test failed there, so it kept its folders. The check of a clone looks only inside the clone.
