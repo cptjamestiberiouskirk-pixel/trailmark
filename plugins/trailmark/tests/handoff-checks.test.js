@@ -2288,6 +2288,95 @@ test('git status: the time is looked at before each folder of tracked files (RS-
   assert.deepStrictEqual(run('plain-enough', 900, false), { skipped: undefined, folders: 4, back: true });
 });
 
+test('git status: finding the folders of tracked files takes work that follows the list, and looks at the time (RS-A-deepindex)', () => {
+  const { farWorktree } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  // An empty folder for a repo, and git's two answers made up: the top
+  // level, and a list of tracked files that are not on disk. `left` is what
+  // each look at the time is told, by its number; the looks are counted.
+  const top = realTemp('jbmem-deep-index-');
+  const sha = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
+  const check = (rels, left = () => 5000) => {
+    const list = rels.map(p => `100644 ${sha} 0\t${p}\0`).join('');
+    let asks = 0;
+    const r = {
+      run: (cwd, args) => (args[0] === 'rev-parse' ? { ok: true, out: `${top}\n` } : args[0] === 'ls-files' ? { ok: true, out: list } : { ok: false, out: '', why: 'error' }),
+      left: () => left(++asks),
+    };
+    // The characters of every text looked up in a Map or a Set during the
+    // check, and the folders of the repo looked at on disk, in order.
+    const mapGet = Map.prototype.get; const mapHas = Map.prototype.has; const setHas = Set.prototype.has; const lstat = fs.lstatSync;
+    let looked = 0; const seen = [];
+    const count = (k) => { if (typeof k === 'string') looked += k.length; };
+    Map.prototype.get = function get(k) { count(k); return mapGet.call(this, k); };
+    Map.prototype.has = function has(k) { count(k); return mapHas.call(this, k); };
+    Set.prototype.has = function has(k) { count(k); return setHas.call(this, k); };
+    fs.lstatSync = (p, ...a) => {
+      const rel = typeof p === 'string' ? path.relative(top, p).replace(/\\/g, '/') : '..';
+      if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) seen.push(rel);
+      return lstat(p, ...a);
+    };
+    try { return { why: farWorktree(r, top), asks, looked, seen, size: list.length }; }
+    finally { Map.prototype.get = mapGet; Map.prototype.has = mapHas; Set.prototype.has = setHas; fs.lstatSync = lstat; }
+  };
+  // The folders are looked at once each, parents before their subfolders, in
+  // the order the list first names them. A name that is a folder at one
+  // level is a folder of its own at another: `b` after `a/b`, `a/b/a` and
+  // `a/b/a/b` after `a` and `a/b`.
+  const few = check(['a/b/c/f1', 'a/b/f2', 'a/x/f3', 'z/f4', 'a/b/c/f5', 'top', 'b/f6', 'a/b/a/b/f7']);
+  assert.strictEqual(few.why, '');
+  assert.deepStrictEqual(few.seen.filter(p => !/f\d$|^top$/.test(p)), ['a', 'a/b', 'a/b/c', 'a/x', 'z', 'b', 'a/b/a', 'a/b/a/b']);
+  // Each folder has names of its own, told apart as git tells them. What
+  // this holds apart from a folder already seen: the same name under
+  // another parent (and at another depth, above), in another case, with a
+  // space before it, in another Unicode form, a number written two ways,
+  // and a name every object has, at the top, below a folder and above one.
+  // Another way of making two names one is not told here.
+  const apart = check(['a/x/f1', 'z/x/f2', 'A/f3', ' a/f4', 'e\u0301/f5', '\u00e9/f6', '1/f7', '01/f8',
+    '__proto__/f1', 'constructor/f2', 'hasOwnProperty/f3', 'toString/f4', 'a/__proto__/f5', '__proto__/x/f6', 'constructor/x/f7']);
+  assert.strictEqual(apart.why, '');
+  assert.deepStrictEqual(apart.seen.filter(p => !/f\d$/.test(p)), ['a', 'a/x', 'z', 'z/x', 'A', ' a', 'e\u0301', '\u00e9', '1', '01',
+    '__proto__', 'constructor', 'hasOwnProperty', 'toString', 'a/__proto__', '__proto__/x', 'constructor/x']);
+  // 200 files in one folder 400 deep. A name is looked up for each level of
+  // each file, and each file's folder twice more to group the files: 2.3
+  // times the list's characters here. Joining each level's whole path and
+  // looking that up, as before, is 190 times the list.
+  const deep = check(Array.from({ length: 200 }, (_, k) => `${Array(400).fill('d').join('/')}/f${k}`));
+  assert.strictEqual(deep.why, '');
+  assert.ok(deep.looked < 8 * deep.size, `looked up ${deep.looked} characters for a list of ${deep.size}`);
+  assert.ok(deep.looked > deep.size, `the count works: ${deep.looked} characters for a list of ${deep.size}`);
+  // A list of 2.6 MB in one folder: the time is looked at twice on the way
+  // through the list (once for each 1,048,576 characters), then once before
+  // the folder is looked at.
+  const big = Array.from({ length: 10400 }, (_, k) => `a/${'x'.repeat(200)}${k}`);
+  const plenty = check(big);
+  assert.ok(plenty.size > 2.5 * 1048576 && plenty.size < 3 * 1048576, `the list has ${plenty.size} characters`);
+  assert.deepStrictEqual({ why: plenty.why, asks: plenty.asks }, { why: '', asks: 3 });
+  // Out of time at the second look: the answer comes from inside the list,
+  // with no folder looked at.
+  const late = check(big, (n) => (n === 2 ? 500 : 5000));
+  assert.deepStrictEqual({ why: late.why, asks: late.asks, seen: late.seen }, { why: 'git-timeout', asks: 2, seen: [] });
+  // 800 ms left is enough, as for the looks that follow.
+  assert.deepStrictEqual(check(big, (n) => (n === 2 ? 800 : 5000)).why, '');
+  // A short list is gone through without a look: the one look is the
+  // folder's.
+  assert.strictEqual(check(['a/f1', 'a/f2', 'a/f3']).asks, 1);
+  // One folder more than can be looked at: the answer comes from the list,
+  // before any folder is looked at.
+  const many = check(Array.from({ length: 20001 }, (_, k) => `d${k}/f`));
+  assert.deepStrictEqual({ why: many.why, seen: many.seen }, { why: 'many-folders', seen: [] });
+  // One tracked path 1,500 folders deep, each name 400 characters: a list
+  // of 600,000 characters. The paths of its folders add up to 750 times
+  // that (450 MB), so they are not built while the list is gone through: at
+  // the first look at the time, which is the first folder's, the memory in
+  // use has grown by less than 100 times the list. (One path of 16 MB with
+  // 19,000 folders ran the loop before out of memory.)
+  let heap = 0;
+  const before = process.memoryUsage().heapUsed;
+  const long = check([`${`${'n'.repeat(400)}/`.repeat(1500)}f`], () => { heap = process.memoryUsage().heapUsed; return 0; });
+  assert.deepStrictEqual({ why: long.why, asks: long.asks, seen: long.seen }, { why: 'git-timeout', asks: 1, seen: [] });
+  assert.ok(heap - before < 100 * long.size, `memory grew by ${heap - before} bytes for a list of ${long.size} characters`);
+});
+
 test('git pointers: the caller\'s time is looked at before each config file is read (RS-A-nestedone)', () => {
   const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
   const { withTime, farGitConfig, farLfsFile } = require(lib);

@@ -129,6 +129,9 @@ function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
 // The time check below is what bounds the run; this only caps a huge index.
 const MAX_SUBMODULES = 2000;
 const MAX_TREE_FOLDERS = 20000;
+// How much of git's list of tracked files is gone through between two looks
+// at the time (characters).
+const LIST_STEP = 1 << 20;
 // Windows and macOS find a file whatever the case of its name.
 const CASELESS = process.platform === 'win32' || process.platform === 'darwin';
 const WIN = process.platform === 'win32';
@@ -144,9 +147,16 @@ function farWorktree(r, cwd) {
   let n = 0;
   let files = 0;
   let anyFolder = false;
-  const folders = new Set();
+  // The folders, as a tree of names (to tell a new one with one short lookup
+  // for each level) and as a list of paths, parents before their subfolders.
+  const tree = { path: '', kids: new Map() };
+  const folders = [];
   const entries = [];
+  let read = 0;
   for (const e of ls.out.split('\0')) {
+    // The list can be 32 MB, and nothing below looks at the disk, so the
+    // time is looked at once for each LIST_STEP characters of it.
+    if ((read += e.length + 1) >= LIST_STEP) { read -= LIST_STEP; if (r.left() < 800) return 'git-timeout'; }
     const rel = e.slice(e.indexOf('\t') + 1);
     if (!rel || e.indexOf('\t') < 0) continue;
     if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes('..')) return 'odd-path';
@@ -162,10 +172,21 @@ function farWorktree(r, cwd) {
     // Every folder on the way to the file. Past MAX_TREE_FOLDERS the rest
     // can't be looked at, and git status would go through them, so the file
     // list isn't read (the rest of the snapshot still is).
+    // One lookup of a name for each level, and a path built only for a new
+    // folder: joining every level's whole path for every file took 12 s for
+    // 1,500 files in a folder 1,500 deep, with nothing on disk and nothing
+    // looking at the time (RS-A-deepindex).
     const parts = rel.split('/');
-    for (let i = 1; i < parts.length; i++) {
-      const f = parts.slice(0, i).join('/');
-      if (!folders.has(f)) { if (folders.size >= MAX_TREE_FOLDERS) return 'many-folders'; folders.add(f); }
+    let at = tree;
+    for (let i = 0; i < parts.length - 1; i++) {
+      let next = at.kids.get(parts[i]);
+      if (!next) {
+        if (folders.length >= MAX_TREE_FOLDERS) return 'many-folders';
+        next = { path: i ? `${at.path}/${parts[i]}` : parts[i], kids: new Map() };
+        at.kids.set(parts[i], next);
+        folders.push(next.path);
+      }
+      at = next;
     }
     entries.push({ rel, link: e.startsWith('160000 ') });
   }
@@ -768,4 +789,5 @@ function facts(cwd, wanted) {
   return gitFacts(cwd, wanted);
 }
 
-module.exports = { commitsSince, farNetwork, gitFacts, commitFacts, fitCommitFacts, sweepCommits, facts, branchToken, sameFolder, windowMs, windowStart, STATUS_KEEP };
+// farWorktree is here for its test, which hands it a made-up list of files.
+module.exports = { commitsSince, farNetwork, farWorktree, gitFacts, commitFacts, fitCommitFacts, sweepCommits, facts, branchToken, sameFolder, windowMs, windowStart, STATUS_KEEP };
