@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-11: A clock that never moved passed, because the test's clock moved once
+- What went wrong: the sweep's lookup clock (`left: () => deadline - Date.now() - 800`) could be swapped for one that stands still and all three RS-A-firstcheck tests passed. The security review found it (round 1, F1) and measured session start at 20.2 s with the clock frozen (CONFIRMED by Fable, not re-run). The three survivors were reproduced here.
+- Why: the test's stand-in clock moved once, at the first file, before the sweep made its own clock. The mutation list had "a clock that does not run" for the hook's clock and only "no clock" and "keeps nothing back" for the sweep's.
+- Rule going forward: every clock handed down gets a case where time passes after that clock was made and before its last read. The mutation list has "does not run" for each clock, not only the first.
+- Status: open
+
+## 2026-11-11: "Every command is unchanged" was written without listing the callers
+- What went wrong: the notes, the PR text and the review brief said a caller with no clock, every command, was unchanged. `write-handoff` with `--session` runs the same sweep as session start, so its lookups got a clock too (round 1, the security review's note; CONFIRMED here: `sweepFacts` has two callers).
+- Why: the claim was written from `repoRoot`'s side (no `left`, no change), not from a list of who calls each changed function.
+- Rule going forward: before "callers of this kind are unchanged" is written, grep the callers of every function the change touched and name each one that changes.
+- Status: open
+
 ## 2026-11-11: A job that hung had no time limit and left no log
 - What went wrong: on PR #50's last head the job "macos-latest, Node 22" sat in the step "trailmark tests" for 44 minutes, where that step takes 1 to 3. `tests.yml` sets no `timeout-minutes`, so GitHub's 6 hours applied and auto-merge waited on the job. A watcher here ran into its own time limit first, which says nothing about the job. A job that never answered leaves no log, so the cause could not be read afterwards: three reruns passed and it stays unproven.
 - Why: nothing in the workflow bounds a job, and the step's usual time was written down nowhere to compare with.

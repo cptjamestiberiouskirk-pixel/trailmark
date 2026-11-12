@@ -2528,14 +2528,26 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   const other = path.join(s.base, 'other');
   repoAt(other);
   quoted(other, path.join(s.base, 'inc-other'));
-  S.updateState(s.memdir, SA, (state, rec) => { rec.start = Date.now() - 60000; rec.home = s.repo; rec.commitDirs = [other]; });
-  h = hook('session-start', { source: 'resume' }, 1, 2000);
-  assert.deepStrictEqual({ own: h.of('file', '/inc/'), other: h.of('file', '/inc-other/'), otherConfig: h.of('file', '/other/.git/config'), root: h.root },
+  const sweep = (at, by) => {
+    S.updateState(s.memdir, SA, (state, rec) => { rec.start = Date.now() - 60000; rec.home = s.repo; rec.commitDirs = [other]; });
+    const r = hook('session-start', { source: 'resume' }, at, by);
+    return { own: r.of('file', '/inc/'), other: r.of('file', '/inc-other/'), otherConfig: r.of('file', '/other/.git/config'), root: r.root };
+  };
+  assert.deepStrictEqual(sweep(1, 2000),
     { own: Array(6).fill(3000), other: Array(6).fill(1700), otherConfig: [1700], root: [3000, 500, 500] }, 'the sweep\'s lookups');
+  // The sweep's clock runs while its lookup reads. With no time gone before
+  // it, the sweep has 5 s and the lookup 3.7 s of them. The ninth file read
+  // is the first one the other folder's config includes: 1 s gone there, and
+  // the five files after it get 2.7 s each.
+  assert.deepStrictEqual(sweep(9, 1000),
+    { own: Array(6).fill(3000), other: [3000, ...Array(5).fill(2700)], otherConfig: [3000], root: [3000, 500, 500] }, 'the sweep\'s clock runs during its lookup');
+  // 3.6 s gone there: 0.1 s is left, so no further file is read and no git
+  // is started for the other folder's root.
+  assert.deepStrictEqual(sweep(9, 3600),
+    { own: Array(6).fill(3000), other: [3000], otherConfig: [3000], root: [3000, 500] }, 'the sweep\'s lookup stops with its clock');
 });
 
 test('scan: only the folder a session started in counts; a memory folder named notes (loop round 7)', { skip: NO_LINKS }, () => {
-
   const base = realTemp('jbmem-r7-');
   const cfg = path.join(base, 'cfg');
   const R = path.join(base, 'R'); repoAt(R); fs.mkdirSync(path.join(R, 'sub'));

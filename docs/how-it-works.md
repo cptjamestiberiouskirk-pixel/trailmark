@@ -70,7 +70,7 @@ A session often commits somewhere other than its own folder: `cd /e/other-clone 
 
 ### The PreToolUse record
 
-The PreToolUse hook (`commit-start`) records the folder the command starts in, in `pending/<tool call ID>.json`. With it go the folders the command's commits go to, as read from its text (at most 0.3 s of reading). Other sessions' commit hooks use those too (see "Other sessions committing in the same folder"). The hook runs no git and prints nothing. Its git calls for finding the memory folder get one second each, so a hung git holds the command up for seconds at most.
+The PreToolUse hook (`commit-start`) records the folder the command starts in, in `pending/<tool call ID>.json`. With it go the folders the command's commits go to, as read from its text (at most 0.3 s of reading). Other sessions' commit hooks use those too (see "Other sessions committing in the same folder"). The hook runs no git and prints nothing. Its git calls for finding the memory folder get one second each, and the lookup as a whole gets 3 seconds, so a hung git holds the command up for seconds at most.
 
 Only this record says for certain where a command started. Without one (an older Claude Code, a hook that didn't run or timed out), the end folder counts as the start only when the command never moves the shell's own folder, not even back to where it ends. For example, `git commit && cd /abs/clone`, read from the clone, would end where it began. Otherwise a commit whose folder depends on the start is unresolved.
 
