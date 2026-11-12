@@ -76,6 +76,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 10. A validator's negative cases include inputs one small edit away from valid, what happens to the data after a line it doesn't recognize, and state left open when the input ends.
 11. A limit on a count or on counted work: before it is written down, time the dearest thing one counted item can be (a folder to list, not a file's name; a disk lookup, not text) at the limit itself, on Windows and Linux.
 12. A new test's calls with a real-time budget: give each a third of its budget and run the test once. A failure names an assertion tied to the machine's speed: stand the clock still for that call, or stand in for git. A case that needs real git to be stopped by a short timeout accepts git finishing too, and its strict form uses a stand-in.
+13. Before a time for a limit goes in a shipped text: list every step between reading an input and the first counted line, and give the search for the slowest input one shape for each, the input at its largest size included (text work before a walk was missed twice). The cause of a slow path is written from a profile or a probe, not from what the fix changes.
 
 ## Committing
 

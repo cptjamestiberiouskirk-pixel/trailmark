@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-11: A reviewer beat "the slowest found" with work the search never tried
+- What went wrong: SECURITY.md said the slowest worktrees folders the new limit lets through take 1 to 2 seconds. The security review of RS-A-worktreeslinks found one that takes 3 to 4: pointers of 4 KB made of `a/../` pairs, which Windows joins to next to nothing, so the walk counted about 67 for 190 microseconds of text work. The search here had five shapes, all of them differing in what is on disk. The same notes also said the parent repeated its looks at the disk, which the review showed was wrong (`withShare` already kept them).
+- Why: the search varied the things the new count weighs (entries, files, links) and not the work done before the counted step. The cause of the parent's time was written from the fix's design, not from a profile.
+- Rule going forward: before a time goes in a shipped text, list every step between reading an input and the first counted line, and give the search one shape for each (here: the text of a pointer at its largest size). The cause of a slow path is written from a profile or a probe, with its label, not from what the fix changes. This is "The time was in a call nobody profiled" (2026-11-10) again, so it is a PLAYBOOK step now ("Testing" step 13).
+- Status: promoted to PLAYBOOK
+
 ## 2026-11-11: A per-entry weight was guessed at 3 disk lookups and real entries cost four times that
 - What went wrong: the first draft of RS-A-worktreeslinks counted 3 looks at the disk for each worktrees entry. 100 worktrees made by `git worktree add` then counted 156,236 of 8,388,608 and took 0.08 to 0.33 s, so the limit would have let 4 to 17 s of them through. The weight went to 12 after the count and the time of real entries were measured.
 - Why: the weight was read off the code (one lookup of the entry, two files) and not measured. Opening and reading a small file costs more than a lookup, and so does the first look at a folder that was just made.

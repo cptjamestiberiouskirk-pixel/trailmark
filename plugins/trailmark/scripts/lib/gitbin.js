@@ -1016,16 +1016,25 @@ function otherWorktrees(wt) {
     if (r.why) return r.why;
     if (!r.dir) continue;
     const bases = [...new Set([d, path.join(top.dir, n), r.dir])];
+    // A pointer's text is worked on before it is walked (checked, then
+    // joined to each folder it is tried from), and the walk counts only what
+    // Windows leaves of it: 2,080 entries, each with two pointers of 4 KB of
+    // "a/../" pairs, were let through after 3.1 s. So the text counts by its
+    // length for each folder, before the first join.
+    const far = (t) => {
+      WALK_LEFT -= bases.length * (TRY_COST + (t.length >> 1));
+      return bases.some(b => !gitdirAt(b, t));
+    };
     const c = readSmall(path.join(r.dir, 'commondir'), 4096);
     if (c === UNSAFE) return 'unreadable-config';
-    if (c !== null && c.replace(/[\r\n]+$/, '') && bases.some(b => !gitdirAt(b, c))) return 'network-gitdir';
+    if (c !== null && c.replace(/[\r\n]+$/, '') && far(c)) return 'network-gitdir';
     // The worktree's own folder, as recorded in gitdir: git 2.56 looks it up
     // for rev-list --all (and git worktree list), relative paths included
     // (worktree.useRelativePaths), so one that leads to a network path, or
     // through a link to one, keeps git out too.
     const g = readSmall(path.join(r.dir, 'gitdir'), 4096);
     if (g === UNSAFE) return 'unreadable-config';
-    if (g !== null && g.replace(/[\r\n]+$/, '') && bases.some(b => !gitdirAt(b, g))) return 'network-gitdir';
+    if (g !== null && g.replace(/[\r\n]+$/, '') && far(g)) return 'network-gitdir';
   }
   return '';
 }

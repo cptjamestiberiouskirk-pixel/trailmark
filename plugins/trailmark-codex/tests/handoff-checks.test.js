@@ -1167,6 +1167,52 @@ test('git pointers: the check of other worktrees counts against the repo\'s limi
     fs.writeFileSync(path.join(e, 'gitdir'), path.join(base, 'trees', `t${k}`, '.git').replace(/\\/g, '/') + '\n');
   }
   assert.strictEqual(farGitConfig(real), '', '40 worktrees shaped like git\'s own');
+  // One of them recorded on a share: the check's own answer comes out as it
+  // is (no link needed, so this runs where links can't be made).
+  fs.writeFileSync(path.join(real, '.git', 'worktrees', 't0', 'gitdir'), '//evil.invalid/share/x/wt/.git\n');
+  fs.mkdirSync(path.join(real, 'sub'));
+  assert.strictEqual(farGitConfig(path.join(real, 'sub')), 'network-gitdir', 'a worktree recorded on a share');
+  // A nested repo's folder is checked with no limit handed in (farNested),
+  // so the check makes its own, and it is one for the gitdir and the folder
+  // its commondir names. Each has a worktrees folder of 50 entries as above,
+  // two thirds of the limit.
+  const { farNested } = require(lib);
+  const long2 = path.join(base, 'wt-long2');
+  for (let k = 0; k < 50; k++) {
+    fs.mkdirSync(path.join(long2, `w${k}`), { recursive: true });
+    for (const f of ['commondir', 'gitdir']) fs.writeFileSync(path.join(long2, `w${k}`, f), text);
+  }
+  const nested = (both) => {
+    const top = path.join(base, `n${made++}`);
+    const gd = path.join(top, 'gd');
+    const common = path.join(top, 'common');
+    for (const d of [path.join(top, 'w'), gd, common]) fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(top, 'w', '.git'), 'gitdir: ' + gd.replace(/\\/g, '/') + '\n');
+    fs.writeFileSync(path.join(gd, 'commondir'), common.replace(/\\/g, '/') + '\n');
+    fs.symlinkSync(long2, path.join(gd, 'worktrees'), 'junction');
+    if (both) fs.symlinkSync(long2, path.join(common, 'worktrees'), 'junction');
+    return path.join(top, 'w');
+  };
+  assert.strictEqual(farNested(nested(false)), '', 'a nested repo: the gitdir\'s worktrees alone');
+  assert.strictEqual(farNested(nested(true)), 'many-worktrees', 'a nested repo: the gitdir\'s worktrees and the common folder\'s');
+  // A pointer's text counts by its length before it is joined to a folder:
+  // on Windows 4 KB of "a/../" pairs is next to no path once it is joined,
+  // and 2,080 entries with two such pointers were let through after 3 s.
+  // 700 entries, each a link to one folder with the two pointers, reached
+  // through a linked worktrees folder, so each pointer is tried from three
+  // folders: a third over the limit with the text counted, a third of it
+  // without. Elsewhere '..' is taken where it stands, after a folder that
+  // isn't there, and the first entry is refused for that.
+  const pairs = path.join(base, 'r-pairs');
+  repoAt(pairs);
+  const one = path.join(base, 'pairs-entry');
+  fs.mkdirSync(one);
+  for (const f of ['commondir', 'gitdir']) fs.writeFileSync(path.join(one, f), 'a/../'.repeat(812) + Array(11).fill('..').join('/') + '\n');
+  const links = path.join(base, 'wt-pairs');
+  fs.mkdirSync(links);
+  for (let k = 0; k < 700; k++) fs.symlinkSync(one, path.join(links, `p${k}`), 'junction');
+  fs.symlinkSync(links, path.join(pairs, '.git', 'worktrees'), 'junction');
+  assert.strictEqual(farGitConfig(pairs), WIN ? 'many-worktrees' : 'network-gitdir', '700 entries with two pointers of 4 KB each');
 });
 
 test('git pointers: every .git found on one way up from the session\'s folder shares one limit on the work (RS-A-abovegit)', () => {
