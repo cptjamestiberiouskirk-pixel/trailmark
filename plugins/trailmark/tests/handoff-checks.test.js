@@ -1272,12 +1272,14 @@ test('git pointers: the check of other worktrees counts against the repo\'s limi
   };
   // Plain files: an entry counts the length of the folder's path with its 12
   // looks at the disk, six times what it counts at a short path. 418 are
-  // under the limit (96% of it) and 454 over it (104%); with the length cut
-  // off at 4,096 the 454 are 39% of it, with half of it 60%, and with twice
-  // the length the 418 are 176%. The two sizes sit 4% either side of the
+  // under the limit (96% of it, and 97% with the 1.2% the rest of the check
+  // counts after them) and 454 over it (104%); with the length cut off at
+  // 4,096 the 454 are 39% of it, with half of it 60%, and with twice the
+  // length the 418 are 176%. The two sizes sit 3% under and 4% over the
   // limit (a temp folder 100 characters longer moves them by 0.6), so a
-  // count that leaves out more than that of the path is told from the whole
-  // one: a cut-off below about 15,400 characters is, one above it is not.
+  // count that leaves out more than 4% of what an entry counts is told from
+  // the whole one: a cut-off below about 15,400 characters is, one above it
+  // is not.
   const files16 = madeAt('files');
   const fillFiles = (from, to) => { for (let k = from; k < to; k++) fs.writeFileSync(path.join(files16, '.git', 'worktrees', `e${k}`), ''); };
   fillFiles(0, 418);
@@ -1285,10 +1287,11 @@ test('git pointers: the check of other worktrees counts against the repo\'s limi
   fillFiles(418, 454);
   assert.strictEqual(farGitConfig(path.join(files16, 'over')), 'many-worktrees', '454 entries with no pointers at a path of 16,200 characters');
   // Folders with two short pointers (110 times "..", which ends at the
-  // drive's root). 224 are under the limit (96% of it) and 244 over it
-  // (104%); with the folder at a quarter of its length the 244 are 81% of
-  // it, with the length cut off at 4,096 70%, and with the whole length the
-  // 224 are 139%. For a pointer a cut-off below about 14,600 is told.
+  // drive's root). 224 are under the limit (96% of it, 97% with the rest of
+  // the check) and 244 over it (104%); with the folder at a quarter of its
+  // length the 244 are 81% of it, with the length cut off at 4,096 70%, and
+  // with the whole length the 224 are 139%. For a pointer a cut-off below
+  // about 14,600 is told.
   const dots16 = madeAt('dots');
   const up16 = Array(110).fill('..').join('/') + '\n';
   const fillDots16 = (from, to) => {
