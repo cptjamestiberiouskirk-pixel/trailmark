@@ -2805,8 +2805,11 @@ test('git status: an answer of check-attr that is not one for each path sent is 
   // entries, so only the compare of that entry refuses it.
   // Not told: a text two or more changes away, other than those five.
   const CHARS = [...Array.from({ length: 127 }, (_, n) => String.fromCharCode(n + 1)), '\u00a0', '\u0131', '\u0130', '\u017f', '\u212a', '\u0301'];
-  // The set is what the comment says: each code from 1 to 127 is in it.
+  // The set is what the comment says: each code from 1 to 127 is in it, and
+  // each of the six others, and it has 133 members, so nothing else.
   for (let n = 1; n < 128; n++) assert.ok(CHARS.includes(String.fromCharCode(n)), `the character ${n} is among those tried`);
+  for (const n of [0xa0, 0x131, 0x130, 0x17f, 0x212a, 0x301]) assert.ok(CHARS.includes(String.fromCharCode(n)), `the character ${n} is among those tried`);
+  assert.strictEqual(CHARS.length, 133, 'and no other character is in the set');
   const wide = (ch) => (ch === ' ' ? '\u3000' : ch > ' ' && ch <= '~' ? String.fromCharCode(ch.charCodeAt(0) + 0xfee0) : ch);
   const near = (t) => {
     const out = new Set([`./${t}`, t.toUpperCase(), [...t].map(wide).join(''), t.replace(/\//g, '\\'), '']);

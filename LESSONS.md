@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: The batch that promoted "a sentence is held by a check" added two sentences nothing held
+- What went wrong: batch 4 of RS-A-redirect added an assert with the comment "The set is what the comment says", and the assert walked the codes 1 to 127 and not the six other members of the set. It also marked a round 2 note "untrue of DEL at be6a7d9 and 30656fc", and be6a7d9's test has no set of characters. Round 4 (Opus) found both.
+- Why: the rule was written into LESSONS.md and PLAYBOOK.md in that batch and applied to the finding it came from, not to the batch's own new sentences. The commit name in the mark came from the round 3 report's words about the gap, and that commit's file was not read.
+- Rule going forward: before a batch's commit, each sentence it adds (a comment, a note, the commit message) is read once against the line or the run that makes it true. One that names a commit is read at that commit (`git show <commit>:<file>`).
+- Status: promoted to PLAYBOOK
+
 ## 2026-11-13: A comment named a range the code stopped one short of, and a count could not see it
 - What went wrong: the decision test of RS-A-redirect, 30656fc's commit message and the round 2 note said the characters tried are "every ASCII character but NUL". The code made the codes 1 to 126. Round 3 (Opus) passed every test with a compare that leaves DEL (127) out of the answer's path, and one that does so for the word.
 - Why: the sentence was written from what the loop was meant to make. The only check on the set was a floor on the number of texts (more than 250 for each character of the right one), and one character in 132 does not move a floor.

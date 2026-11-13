@@ -85,6 +85,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 
 1. A commit goes in a later message than the edits it depends on, after they succeeded.
 2. Never chain a commit after a check piped into `tail` or `head`: read the check's summary, then commit.
+3. Before a batch's commit, each sentence it adds (a comment, a note, the commit message) is read once against the line or the run that makes it true. One that names a commit is read at that commit (`git show <commit>:<file>`).
 
 ## Reviewing
 
