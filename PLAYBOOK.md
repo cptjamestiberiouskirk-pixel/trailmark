@@ -62,6 +62,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 9. A key that decides "already checked" stands for exactly one thing. Test both ways it can be wrong: two things under one key (one goes unchecked), and one thing under many keys (it is checked once for each, and links can make thousands).
 10. In `dev/release-state.md`, point at another section by its name ("section RS-A-foldkeys"), never by its place ("top section", "second section", "above"): each new section moves every place.
 11. Before fixing a reviewer's example, write down its class and say for each member whether the fix and the test cover it. For a table keyed by text from a repo (a Map, a Set, a tree) the members are: the same name under another parent and at another depth, in another case, with spaces at its ends (each on a system where such a name reaches the table), in another Unicode form, a number written two ways, and a name every object has (`__proto__`, `constructor`). Its mutation list swaps the table for a plain object, for one shared by all and for one shared by each depth. The test's comment says which members it holds; a change outside them is its stated margin.
+12. A sentence in a doc or a comment about what another program does not do names the command that was run and what it did ("`git add` doesn't write such a path"), not the program as a whole ("git's own commands don't"). A comment that lists several commands says with which setup they were tried (a full index, a sparse one).
 
 ## Testing
 

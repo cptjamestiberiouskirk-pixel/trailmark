@@ -14,6 +14,24 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: The reworded sentence was again wider than what was tried
+- What went wrong: batch 1 of RS-A-dotpath changed "git's own commands don't put such a path in the index" to "don't give a tracked file such a path", in two docs rows and a code comment. Round 2 (Fable) made a sparse index and checked out a hand-made tree with an entry named `.` in a folder outside the cone: `git checkout` took it. No filter ran (git then fails to list the files, and status stays unread). It was the third wording of that sentence, counting one caught before the first commit.
+- Why: each wording said what git never does, from a few commands tried with a full index. Trying commands shows what those commands did, and no number of them shows a "never".
+- Rule going forward: a sentence in a doc or a comment about what another program does not do names the command that was run and what it did ("`git add` doesn't write such a path"). A comment that lists several commands says with which setup they were tried.
+- Status: promoted to PLAYBOOK
+
+## 2026-11-13: A list in the notes was written by hand next to a test that could print it
+- What went wrong: the notes of RS-A-dotpath round 1 listed five shapes of the decision test that start with a slash. The test has seven: `/bb` and `/yy/zz` come from a part replaced by nothing. Round 2 (Opus) found it.
+- Why: the list was written from reading the test, and the count was not taken from a run.
+- Rule going forward: a count or a list in the notes that describes a test's data is printed by a script that runs the test's own lines (here `count-dotpath-shapes.js`), and the notes name the script.
+- Status: open
+
+## 2026-11-13: An edit took a space out of a line it was not meant to change
+- What went wrong: after batch 1 of RS-A-dotpath a line of the decision test read `const odd =[`. An edit of the comment over it had ended in the middle of that line. The tests passed, since the line still runs. Round 2 (Opus) found it.
+- Why: the edit's old and new text stopped inside a line. The commit script counts changed lines for each file, and that line was one of several the batch changed in the test.
+- Rule going forward: the old and the new text of an edit end at the end of a line. Before a commit, the diff of code and tests is read line by line, not only counted.
+- Status: open
+
 ## 2026-11-13: A new case went into the whole mutation list before it had run once alone
 - What went wrong: batch 1 of RS-A-dotpath added a sparse-index case whose expected lists left out the file `a` that the test's own `repoAt` helper commits. The 24-entry mutation list was started on it, and its last entry, the unchanged file, failed. That run was void and the list was run again (three minutes).
 - Why: the expected lists came from a probe that made its repo by hand, with no file `a`. The changed test was not run once on the unchanged code before the list.
@@ -24,7 +42,7 @@ Format:
 - What went wrong: the two docs rows and the code comment of RS-A-dotpath said git's own commands don't put a path with an empty part "in the index". A sparse index that git writes has an entry for a folder, `out/`. Round 1 (Opus) found it. The code was right, since it asks for the list without `--sparse`.
 - Why: the sentence was written from four routes that were tried (`add`, `update-index`, `read-tree`, `checkout`), and about the store, not about the list the code reads. The notes of the same batch had the sparse index's listing in the same bullet, and the new sentence was not read against it.
 - Rule going forward: a sentence in a doc or a comment about what a program holds names the thing the code reads (here: a tracked file in the list `ls-files` gives), and it is read against every probe result of its batch, not only the probes it came from.
-- Status: open
+- Status: promoted to PLAYBOOK
 
 ## 2026-11-13: The odd path was tried at each place of a list of three, and a check of the first three paths passed
 - What went wrong: the RS-A-dotpath decision test put the odd path first, in the middle and last of three tracked paths. Round 1 (Opus) made the check for the first three paths only, and every test passed.

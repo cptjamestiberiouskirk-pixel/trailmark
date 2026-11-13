@@ -177,12 +177,15 @@ function farWorktree(r, cwd) {
     // 1,500 files in a folder 1,500 deep, with nothing on disk and nothing
     // looking at the time (RS-A-deepindex).
     const parts = rel.split('/');
-    // A part that is empty or `.` (`d//f`, `d/./f`, `./f`, `d/`): git's own
-    // commands did not give a tracked file such a path when tried (`add`
-    // wrote `d/f`; `update-index`, `read-tree` and `checkout` refused), so
-    // one is in this list when another tool wrote the index. (A sparse index
-    // has an entry for a folder that ends in a slash, `out/`; this list is
-    // asked for without `--sparse` and has that folder's files in its place.)
+    // A part that is empty or `.` (`d//f`, `d/./f`, `./f`, `d/`): with a
+    // full index, git's own commands did not give a tracked file such a path
+    // when tried (`add` wrote `d/f`; `update-index`, `read-tree` and
+    // `checkout` refused), so one is in this list when another tool wrote
+    // the index. (A sparse index has an entry for a folder that ends in a
+    // slash, `out/`; this list is asked for without `--sparse` and has that
+    // folder's files in its place. With a sparse index, `checkout` took a
+    // tree that had such a part in a folder outside the cone, and git 2.56.1
+    // then failed to write this list, which is `git-error` above.)
     // For the first three of these shapes `git check-attr` answered
     // `unspecified` where an attributes line of the same text named a filter,
     // and `git status` then ran that filter: the filter check that comes

@@ -3771,7 +3771,7 @@ test('git status: a tracked path with an empty part or a part of one dot keeps s
   // shape with the empty part in front (`/a`) starts with a slash, and so do
   // `/` and `//` below: the older rule on absolute paths refuses those,
   // before this one is asked.
-  const odd =[...shapes(''), ...shapes('.')].filter(t => t !== '');
+  const odd = [...shapes(''), ...shapes('.')].filter(t => t !== '');
   assert.strictEqual(odd.length, 29, 'the shapes: 15 for each of the two parts, less the one that is no path');
   for (const t of ['./', '/', '//', 'd///b', 'd/././b', 'd/.//b', './/.', 'a/./']) odd.push(t);
   for (const t of odd) {
