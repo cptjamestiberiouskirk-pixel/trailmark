@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: A script that reads a test run's lines got none
+- What went wrong: a scratch script for RS-A-redirect ran `node --test` on the parent's code and printed why each test fails, by reading lines that start with "not ok". It printed nothing: this Node (26) writes another report unless it is told to write TAP. The first run looked like "no test failed".
+- Why: the script took the report's form for granted, and an empty result read the same as a pass.
+- Rule going forward: a script that reads a test run passes `--test-reporter=tap`, and prints the run's pass and fail counts whatever else it finds, so that nothing found is told apart from nothing run.
+- Status: open
+
 ## 2026-11-13: A check in the background ended with no result line
 - What went wrong: the quick check for RS-A-filtername round 4 was started in the background by one command that also started the load sampler with `&` and wrote the check's output to a file renamed at the end. The app reported the command done within minutes while the check still ran, and 17 minutes after its start the check was gone, with `SHA256SUMS` rewritten and no result line anywhere.
 - Why: not known. The check may have stopped with the shell that started it (HYPOTHESIZED). The run that passed the next morning was started as a command of its own, with the sampler as a second one.

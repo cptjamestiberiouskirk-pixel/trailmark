@@ -2733,6 +2733,162 @@ test('git status: a filter named as git names "no filter" is not left running, i
   // machine's own config has no filter under one of the four names.
 });
 
+test('git status: an answer of check-attr that is not one for each path sent is not taken (RS-A-redirect)', () => {
+  const { filterOverrides } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  // filterOverrides sends `git check-attr` the paths `git ls-files` printed
+  // and reads "<path>\0filter\0<value>\0" for each. When git reads other
+  // input than those paths (on Windows, GIT_REDIRECT_STDIN in the session's
+  // environment makes it), the answer is empty or about other files, and a
+  // file left out of it would keep its filter running. Here git is stood in
+  // for: `paths` is what ls-files prints, `answer` what check-attr prints.
+  // The stand-in holds both questions (every word, and for check-attr the
+  // paths as its input). The filter `evil` is one the repo's own config
+  // defines, so a whole answer switches it off for the one file that has
+  // it. `later` counts the questions asked after check-attr's answer.
+  const ask = (paths, answer) => {
+    const sent = paths.map(p => `${p}\0`).join('');
+    let later = 0;
+    const r = { run: (cwd, args, input) => {
+      if (args[0] === 'ls-files') { assert.deepStrictEqual([args, input], [['ls-files', '-z'], undefined], 'the question to ls-files'); return { ok: true, out: sent }; }
+      if (args[0] === 'check-attr') { assert.deepStrictEqual([args, input], [['check-attr', '-z', '--stdin', 'filter'], sent], 'the question to check-attr'); return { ok: true, out: answer }; }
+      later++;
+      if (args.includes('--show-scope')) return { ok: true, out: 'local\0filter.evil.clean\nrun-me\0' };
+      if (args.includes('config')) return { ok: true, out: 'trailmark.asked\n1\0' };
+      throw new Error(`not expected: ${args.join(' ')}`);
+    } };
+    const got = filterOverrides(r, 'x');
+    return { why: got.why, off: got.offFiles, later };
+  };
+  const one = (p, v = 'unspecified', word = 'filter') => `${p}\0${word}\0${v}\0`;
+  const paths = ['a.txt', 'dir/b.bin', 'c d.txt'];
+  const [a, b, c] = [one('a.txt'), one('dir/b.bin', 'evil'), one('c d.txt')];
+  const read = { why: undefined, off: 1, later: 2 };
+  const refused = { why: 'filter-check', off: undefined, later: 0 };
+  assert.deepStrictEqual(ask(paths, a + b + c), read, 'one answer for each path, in order');
+  // A file in a conflict is listed once for each of its entries, and is
+  // asked about and answered as often.
+  assert.deepStrictEqual(ask(['f', 'f', 'f', 'g.bin'], one('f').repeat(3) + one('g.bin', 'evil')), read, 'a path listed three times');
+  const wrong = {
+    'an empty answer': '',
+    'the first path left out': b + c,
+    'the path with the filter left out': a + c,
+    'the last path left out': a + b,
+    'the answers in another order': b + a + c,
+    'another path in place of one': a + one('dir/x.bin', 'evil') + c,
+    'a path in other capitals': one('A.TXT') + b + c,
+    'a path with ./ in front': one('./a.txt') + b + c,
+    'a path with a space after it': one('a.txt ') + b + c,
+    'an answer twice, in place of the next': a + a + c,
+    'an answer more': a + b + c + one('z'),
+    'another word than filter': one('a.txt', 'unspecified', 'text') + b + c,
+    'the word in capitals': one('a.txt', 'unspecified', 'FILTER') + b + c,
+    'no end mark': (a + b + c).slice(0, -1),
+    'an end mark more': `${a}${b}${c}\0`,
+    'a mark in front': `\0${a}${b}${c}`,
+    'a value left out': `a.txt\0filter\0${b}${c}`,
+    'a line in front of the first path': `warning: x\n${a}${b}${c}`,
+    'a line after the last end mark': `${a}${b}${c}warning: x\n`,
+  };
+  for (const [what, answer] of Object.entries(wrong)) assert.deepStrictEqual(ask(paths, answer), refused, what);
+  // Not told: an answer with the right paths in the right order and other
+  // values than git would give. Nothing here can tell that from git's own.
+});
+
+test('git\'s environment: the variables that send git\'s input and output to a file are dropped (RS-A-redirect)', () => {
+  const { gitEnv } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  // Git for Windows reads these three names (the three its program holds
+  // that start with GIT_REDIRECT_, 2.56.1). Each is dropped alone, in
+  // capitals, in small letters and in a mix, and all three together. The
+  // names one step away, listed here, stay.
+  const dropped = ['GIT_REDIRECT_STDIN', 'GIT_REDIRECT_STDOUT', 'GIT_REDIRECT_STDERR'];
+  const kept = { GIT_REDIRECT: '1', GIT_REDIRECT_: '2', GIT_REDIRECT_STD: '3', GIT_REDIRECT_STDIN_: '4', GIT_REDIRECT_STDINX: '5', XGIT_REDIRECT_STDIN: '6', GIT_REDIRECTSTDIN: '7', REDIRECT_STDIN: '8', GIT_REDIRECT_STDLOG: '9', 'GIT_REDIRECT_STDIN ': '10', GIT_REDIRECT_STDOUTX: '11', GIT_REDIRECT_STDERRX: '12' };
+  const left = { ...gitEnv({}), ...kept };
+  for (const name of dropped) {
+    for (const form of [name, name.toLowerCase(), name[0] + name.slice(1).toLowerCase()]) assert.deepStrictEqual(gitEnv({ [form]: 'a file', ...kept }), left, form);
+  }
+  assert.deepStrictEqual(gitEnv({ GIT_REDIRECT_STDIN: 'a', GIT_REDIRECT_STDOUT: 'b', GIT_REDIRECT_STDERR: '2>&1', ...kept }), left, 'all three');
+});
+
+test('git status: with git\'s input or output sent to a file by the environment, a repo\'s filter still does not run, in real repos (RS-A-redirect)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  // Git for Windows reads GIT_REDIRECT_STDIN, GIT_REDIRECT_STDOUT and
+  // GIT_REDIRECT_STDERR: a file to read its input from, a file to write its
+  // output to, and `2>&1` to put its warnings into its output. With one of
+  // them in the session's environment, the question that lists each tracked
+  // file's filter got no answer or a wrong one, and a filter the repo's own
+  // config defines ran during `git status`. The repos here have one tracked
+  // file with a filter (changed, and newer than the index, so status reads
+  // it again), and the filter writes a marker. With `extension` the index
+  // has an extension git skips with a warning, and the file is the first
+  // one listed and named in `.git/info/attributes`: the warning then lands
+  // in front of that file's path.
+  const base = realTemp('jbmem-redirect-');
+  let made = 0;
+  const repo = (name, extension) => {
+    const r = path.join(base, `r${made}`); const g = repoAt(r);
+    const marker = path.join(base, `ran${made++}`).replace(/\\/g, '/');
+    const file = extension ? '0.bin' : 'x.bin';
+    fs.writeFileSync(path.join(r, file), 'x');
+    if (extension) { fs.mkdirSync(path.join(r, '.git', 'info'), { recursive: true }); fs.writeFileSync(path.join(r, '.git', 'info', 'attributes'), `/0.bin filter=${name}\n`); }
+    else fs.writeFileSync(path.join(r, '.gitattributes'), `*.bin filter=${name}\n`);
+    g('add', '.'); g('commit', '-qm', 'one file');
+    fs.appendFileSync(path.join(r, '.git', 'config'), `[filter "${name}"]\n\tclean = "echo ran >> '${marker}'; cat"\n`);
+    if (extension) {
+      // `ABCD` and a length of 0, with the index's checksum redone.
+      const f = path.join(r, '.git', 'index');
+      const body = Buffer.concat([fs.readFileSync(f).subarray(0, -20), Buffer.from('ABCD'), Buffer.alloc(4)]);
+      fs.writeFileSync(f, Buffer.concat([body, require('crypto').createHash('sha1').update(body).digest()]));
+    }
+    fs.writeFileSync(path.join(r, file), 'y');
+    const later = new Date(Date.now() + 5000);
+    fs.utimesSync(path.join(r, file), later, later);
+    return { dir: r, marker, facts: () => { const f = gitFacts(r, ['status']); return { skipped: f.statusSkipped, count: f.statusCount, off: f.statusFiltersOff }; } };
+  };
+  const withEnv = (vars, f) => {
+    const before = {};
+    for (const [k, v] of Object.entries(vars)) { before[k] = process.env[k]; process.env[k] = v; }
+    try { return f(); } finally { for (const [k, v] of Object.entries(before)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
+  };
+  const empty = path.join(base, 'empty.txt'); fs.writeFileSync(empty, '');
+  const out = path.join(base, 'out.txt');
+  // Whether the variable does anything in the git these tests run: asked
+  // about one path, check-attr answers nothing when its input comes from the
+  // empty file. On Windows it must, or the cases below could not fail. With
+  // any other git they hold only that the answers are right.
+  const probe = repo('evil');
+  const raw = (env) => execFileSync('git', ['check-attr', '-z', '--stdin', 'filter'], { cwd: probe.dir, encoding: 'utf8', input: 'x.bin\0', env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'ignore'] });
+  assert.strictEqual(raw({}), 'x.bin\0filter\0evil\0', 'check-attr, asked plainly');
+  if (process.platform === 'win32') assert.strictEqual(raw({ GIT_REDIRECT_STDIN: empty }), '', 'GIT_REDIRECT_STDIN does nothing in this git, so the cases below would prove nothing');
+  const rows = [
+    ['GIT_REDIRECT_STDIN, an empty file', { GIT_REDIRECT_STDIN: empty }, false],
+    ['git_redirect_stdin in small letters', { git_redirect_stdin: empty }, false],
+    ['GIT_REDIRECT_STDERR as 2>&1, with the index extension', { GIT_REDIRECT_STDERR: '2>&1' }, true],
+    ['GIT_REDIRECT_STDOUT, a file', { GIT_REDIRECT_STDOUT: out }, false],
+    ['all three, with the index extension', { GIT_REDIRECT_STDIN: empty, GIT_REDIRECT_STDOUT: out, GIT_REDIRECT_STDERR: '2>&1' }, true],
+  ];
+  const seen = {}; const meant = {}; const forced = [];
+  for (const [what, vars, extension] of rows) {
+    const plain = repo('evil', extension); const named = repo('set', extension);
+    seen[what] = withEnv(vars, () => ({ 'an ordinary filter': plain.facts(), 'a filter named set': named.facts() }));
+    seen[what].ran = { 'the ordinary filter': fs.existsSync(plain.marker), 'the filter named set': fs.existsSync(named.marker) };
+    meant[what] = {
+      'an ordinary filter': { skipped: undefined, count: 1, off: 1 },
+      'a filter named set': { skipped: 'odd-filter-name', count: undefined, off: undefined },
+      ran: { 'the ordinary filter': false, 'the filter named set': false },
+    };
+    forced.push([`the ordinary filter, ${what}`, plain], [`the filter named set, ${what}`, named]);
+  }
+  assert.deepStrictEqual(seen, meant, 'with the variables in the environment');
+  assert.strictEqual(fs.existsSync(out), false, 'git wrote to the file GIT_REDIRECT_STDOUT names');
+  // git itself runs each of these filters here: without that, "ran: false" proves nothing.
+  for (const [which, { dir, marker }] of forced) {
+    try { execFileSync('git', ['status', '--porcelain'], { cwd: dir, stdio: 'ignore' }); } catch { /* the marker tells */ }
+    assert.strictEqual(fs.existsSync(marker), true, `git did not run ${which}`);
+  }
+  // Not told: a git for Windows other than Git for Windows, and any other
+  // way a session's environment could change where git reads and writes.
+});
+
 test('git pointers: the caller\'s time is looked at before each config file is read (RS-A-nestedone)', () => {
   const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
   const { withTime, farGitConfig, farLfsFile } = require(lib);

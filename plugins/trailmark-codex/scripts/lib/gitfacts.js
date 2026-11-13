@@ -346,8 +346,16 @@ function filterOverrides(r, cwd) {
   if (!ca.ok) return { why: ca.why === 'timeout' ? 'git-timeout' : 'filter-check' };
   const names = new Map(); // filter name -> tracked files that use it
   const unsure = new Set(); // answers seen that mean no filter, or a filter so named
+  // The answer is taken only when it is "<path>\0filter\0<value>\0" for
+  // each path sent, in the order sent. Anything else is not the answer to
+  // this question (git read its paths from somewhere else, or was cut
+  // short), and a file left out of it would keep its filter running
+  // (RS-A-redirect).
+  const sent = ls.out.split('\0').slice(0, -1);
   const parts = ca.out.split('\0');
-  for (let i = 0; i + 2 < parts.length; i += 3) {
+  if (parts.pop() !== '' || parts.length !== sent.length * 3) return { why: 'filter-check' };
+  for (let i = 0; i < parts.length; i += 3) {
+    if (parts[i] !== sent[i / 3] || parts[i + 1] !== 'filter') return { why: 'filter-check' };
     const v = parts[i + 2];
     if (NO_FILTER.has(v)) { unsure.add(v); continue; }
     if (!FILTER_NAME.test(v)) return { why: 'odd-filter-name' };

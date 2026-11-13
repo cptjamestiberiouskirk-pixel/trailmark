@@ -63,8 +63,13 @@ const GIT_GLOBAL = [
 // another reason: it makes `git config` read one file in place of the configs
 // every other git command goes by, so what the checks ask git and what
 // `git status` then does would differ. (GIT_CONFIG_GLOBAL and the others of
-// that family change what every command reads, and stay.)
-const DROP_ENV = /^GIT_(?:DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|PREFIX|CONFIG)$/i;
+// that family change what every command reads, and stay.) Git for Windows
+// reads three variables more, GIT_REDIRECT_STDIN, GIT_REDIRECT_STDOUT and
+// GIT_REDIRECT_STDERR: each names a file git reads its input from or writes
+// its output to, in place of what the caller hands it. With one set, a check
+// gets no answer, or an answer about other files, or git's warnings inside
+// the answer (RS-A-redirect).
+const DROP_ENV = /^GIT_(?:DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|PREFIX|CONFIG|REDIRECT_STDIN|REDIRECT_STDOUT|REDIRECT_STDERR)$/i;
 
 function envValue(env, name) {
   if (Object.prototype.hasOwnProperty.call(env, name)) return env[name];
