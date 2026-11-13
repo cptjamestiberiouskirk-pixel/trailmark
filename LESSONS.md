@@ -14,6 +14,54 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: The batch that promoted "a sentence is held by a check" added two sentences nothing held
+- What went wrong: batch 4 of RS-A-redirect added an assert with the comment "The set is what the comment says", and the assert walked the codes 1 to 127 and not the six other members of the set. It also marked a round 2 note "untrue of DEL at be6a7d9 and 30656fc", and be6a7d9's test has no set of characters. Round 4 (Opus) found both.
+- Why: the rule was written into LESSONS.md and PLAYBOOK.md in that batch and applied to the finding it came from, not to the batch's own new sentences. The commit name in the mark came from the round 3 report's words about the gap, and that commit's file was not read.
+- Rule going forward: before a batch's commit, each sentence it adds (a comment, a note, the commit message) is read once against the line or the run that makes it true. One that names a commit is read at that commit (`git show <commit>:<file>`).
+- Status: promoted to PLAYBOOK
+
+## 2026-11-13: A comment named a range the code stopped one short of, and a count could not see it
+- What went wrong: the decision test of RS-A-redirect, 30656fc's commit message and the round 2 note said the characters tried are "every ASCII character but NUL". The code made the codes 1 to 126. Round 3 (Opus) passed every test with a compare that leaves DEL (127) out of the answer's path, and one that does so for the word.
+- Why: the sentence was written from what the loop was meant to make. The only check on the set was a floor on the number of texts (more than 250 for each character of the right one), and one character in 132 does not move a floor.
+- Rule going forward: this is the third sentence in this PR that said more than a run showed (after "does not cover" and "another place than the one the hook reads"). A set or a range that a comment or a note names is held by an assert that walks it (each member named is among those tried). A floor on a count shows that a loop ran, not what it ran over.
+- Status: promoted to PLAYBOOK
+
+## 2026-11-13: A part of a mutation list was started one entry late
+- What went wrong: three probes were added to the end of `mutate-redirect-2.js` and the run was started from the 55th entry. The first new probe was the 54th, so the run left out the probe for the finding being reproduced, and it was run again from 54.
+- Why: "54 changes" in the notes counts the unchanged files at the end as one entry, and the start number was worked out from that sentence and not from the script.
+- Rule going forward: a partial run of a list starts from a number the script printed (the "N probes" line of its last whole run), and its output is read for the names expected before anything is concluded from it.
+- Status: open
+
+## 2026-11-13: Ten chosen texts stood for "near", and the next round found compares they let through
+- What went wrong: batch 2 of RS-A-redirect gave the decision test a loop over ten texts near the right path and word. Round 2 (Opus) passed every test with a compare that ignores the second character, one that ignores the last but one, other capitals after an exact first character, NFKC, a backslash read as a slash and a tab read as a space. Twelve such changes passed here.
+- Why: the texts were chosen, one for each loosening already thought of, so the next loosening had no text. This is "A second round found more loose patterns, because each value cost a real git call" (2026-11-12) again: its rule says the test changes shape when a second review beats the same list, and batch 2 added cases of the old kind.
+- Rule going forward: for a compare of two texts, the near texts are made by a loop and not chosen: every text one change away at every place (a character left out, put in or changed, two neighbors swapped) over a stated set of characters, with the wide forms, and a letter in its other Unicode form. The comment says what is not told (two or more changes away).
+- Status: promoted to PLAYBOOK
+
+## 2026-11-13: A docs sentence was reworded for style and still said the opposite of what one variable does
+- What went wrong: `docs/how-it-works.md` said the three `GIT_REDIRECT_` variables send git's output or its warnings "somewhere else than the hook reads". Round 1 called the wording odd, batch 2 reworded it, and round 2 (Sonnet) showed it untrue: with `GIT_REDIRECT_STDERR=2>&1` the warning lands in the output the hook reads, which is the case the fix is for.
+- Why: the sentence summed up three variables in one clause and was never held against a run of each. The reword was read against the code's comment, not against git.
+- Rule going forward: a sentence that says what several settings do names one effect for each, and each effect is one a run showed (here `probe-redirect-where.js`, a row for each variable). An effect that was not seen stays out (`GIT_REDIRECT_STDERR=<a file>` made an empty file here).
+- Status: open
+
+## 2026-11-13: Wrong answers were tried at the first answer only, and no path was cut short
+- What went wrong: the decision test of RS-A-redirect listed 19 wrong answers by hand. Round 1 (Opus) had the word `filter` checked for the first answer only, and a path cut short taken, and every test passed. A wider mutation list here found 8 such changes that passed: a path the path sent starts or ends with, a word that starts or ends with `filter` or that `filter` starts or ends with, the word with spaces around it, the word checked for the first answer only.
+- Why: PLAYBOOK "Testing" step 10 (every text near each valid one) was read as a rule for a pattern. This check is a plain compare, made once for each item of a list, and the cases were written for the first item.
+- Rule going forward: step 10 holds for a compare too. Where a decision is made once for each item of a list, the near texts are a loop over the items (first, middle, last) and over each part compared. The mutation list has each compare loosened each way (starts with and ends with in both directions, other capitals, spaces around) and held for one item only.
+- Status: promoted to PLAYBOOK
+
+## 2026-11-13: A note said one part of a fix "does not cover" a case nobody had run with that part alone
+- What went wrong: 5eb9170's notes say the answer check in `filterOverrides` "does not cover the stderr case: there the paths sent are already wrong and the answer matches them". Round 1 (Opus) ran it: check-attr prints the warning too, in front of its answer, so the answer is not about the path sent and is refused. The same wrong sentence went to the user in the conversation.
+- Why: the sentence was reasoned from what one command prints. The mutation run with the variable let through did fail the test, and only the count of failures was read, not what the failing row answered.
+- Rule going forward: this is "The notes said a repo's own copy of the code's marker 'changes nothing', and no case tried it" (2026-11-12) again, from the other side. A note that says what a part of a fix does or does not cover comes from a run with the other parts taken out, and gives what that run answered. The limit that is left gets a case of its own (here: a warning only ls-files prints is taken).
+- Status: promoted to PLAYBOOK
+
+## 2026-11-13: A script that reads a test run's lines got none
+- What went wrong: a scratch script for RS-A-redirect ran `node --test` on the parent's code and printed why each test fails, by reading lines that start with "not ok". It printed nothing: this Node (26) writes another report unless it is told to write TAP. The first run looked like "no test failed".
+- Why: the script took the report's form for granted, and an empty result read the same as a pass.
+- Rule going forward: a script that reads a test run passes `--test-reporter=tap`, and prints the run's pass and fail counts whatever else it finds, so that nothing found is told apart from nothing run.
+- Status: open
+
 ## 2026-11-13: A check in the background ended with no result line
 - What went wrong: the quick check for RS-A-filtername round 4 was started in the background by one command that also started the load sampler with `&` and wrote the check's output to a file renamed at the end. The app reported the command done within minutes while the check still ran, and 17 minutes after its start the check was gone, with `SHA256SUMS` rewritten and no result line anywhere.
 - Why: not known. The check may have stopped with the shell that started it (HYPOTHESIZED). The run that passed the next morning was started as a command of its own, with the sampler as a second one.
@@ -66,7 +114,7 @@ Format:
 - What went wrong: 11391c1's notes say a repo that writes `trailmark.asked` in its own config "adds a line to the answer and changes nothing". That was read from the code. Round 2 (Fable) changed `continue` to `break` at the line that meets the marker, and both tests passed: with the repo's own `trailmark.asked` ahead of `[filter "set"]`, that change reads status and the filter runs.
 - Why: the marker was thought of as the code's own, so no case gave it to the repo.
 - Rule going forward: a sentence in the notes of the form "X changes nothing" gets a case that does X and a change in the mutation list at the line that makes it so. A name the code brings (a setting, a file name, a marker) is tried as the input's own, before and after the thing it guards.
-- Status: open
+- Status: promoted to PLAYBOOK
 
 ## 2026-11-12: Two times in the notes were written from a guess
 - What went wrong: the notes of RS-A-filtername round 1 and a handoff gave clock times ("seen 15:10", "not committed at 15:25") that were reckoned from how long the steps had seemed to take. The clock, read later for another reason, said 15:27 where the reckoning had 15:40. The notes were corrected before the commit by reading CI again with the clock; the handoff's time was wrong for one version.

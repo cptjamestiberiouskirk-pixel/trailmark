@@ -245,13 +245,13 @@ The commit hook runs git in folders named in command text, so every git call is 
 - no transport of any kind, so a partial clone's lazy fetch can't run the repo's `ext::` command, `uploadpack`, `sshCommand` or credential helper;
 - no signature program, no git started in submodules, no pager or color.
 
-`GIT_DIR` and the other repo-location variables are dropped. So is `GIT_CONFIG`, which makes `git config` read one file in place of the configs every other git command goes by: with it set, the checks below would ask about one config while `git status` went by another. Before git runs in a folder at all, the `.git` above it is checked for anything that would send git to a network share; SECURITY.md, "Known limits", describes the check.
+`GIT_DIR` and the other repo-location variables are dropped. So is `GIT_CONFIG`, which makes `git config` read one file in place of the configs every other git command goes by: with it set, the checks below would ask about one config while `git status` went by another. Git for Windows also reads `GIT_REDIRECT_STDIN`, `GIT_REDIRECT_STDOUT` and `GIT_REDIRECT_STDERR`, which can make git read its input from a file, write its output to a file, or put its warnings in with its output. They are dropped too: with one set, a check would get no answer or a wrong one. Before git runs in a folder at all, the `.git` above it is checked for anything that would send git to a network share; SECURITY.md, "Known limits", describes the check.
 
 ### Filters and `git status`
 
-The PreCompact hook's `git status` would run a clean or process filter when a tracked file's timestamps changed. So it first lists the filters tracked files use (`git ls-files -z | git check-attr --stdin filter`) and where each one's settings come from (`git config --show-scope`).
+The PreCompact hook's `git status` would run a clean or process filter when a tracked file's timestamps changed. So it first lists the filters tracked files use (`git ls-files -z | git check-attr --stdin filter`) and where each one's settings come from (`git config --show-scope`). The list is taken only when it has one answer for each tracked path, in the order asked. If it does not, `git status` is skipped (`filter-check` in the table below).
 
-A filter with any setting in the repo's own config is switched off for the call (`-c filter.<name>.clean=` and the same for `smudge` and `process`, `required=false`). The snapshot says how many tracked files use one, since they can then show as modified when they aren't. A filter set only in the user's global or system config keeps running, and so does Git LFS set up in the repo's own config with exactly what `git lfs install --local` writes. One case overrides all of this, whichever config defines the filter, the repo's own included: a filter named `set`, `unset` or `unspecified`, or one with no name. When a tracked file shows that name, `git status` is skipped, as described below.
+A filter with any setting in the repo's own config is switched off for the call (`-c filter.<name>.clean=` and the same for `smudge` and `process`, `required=false`). The snapshot says how many tracked files use one, since they can then show as modified when they aren't. A filter set only in the user's global or system config, or in settings handed to git in the environment, keeps running, and so does Git LFS set up in the repo's own config with exactly what `git lfs install --local` writes. One case overrides all of this, whichever config defines the filter, the repo's own included: a filter named `set`, `unset` or `unspecified`, or one with no name. When a tracked file shows that name, `git status` is skipped, as described below.
 
 Git LFS also runs extension programs named in config (`lfs.extension.<name>.clean`), so while LFS runs, such a setting in the repo's own config skips `git status`.
 
@@ -264,7 +264,7 @@ git gives `unspecified`, `unset`, `set` or an empty text for a file with no filt
 | `lfs-extension` | The repo's own config names an LFS extension program while LFS runs |
 | `odd-filter-name` | A filter name isn't plain letters, digits, `.`, `_` and `-`; or a config git reads has a filter named `set`, `unset` or `unspecified`, or one with no name, and git gives that same text for a tracked file |
 | `many-filters` | More than 32 filters |
-| `filter-check` | Listing the filters failed, or looking for a filter with one of those names did |
+| `filter-check` | Listing the filters failed or did not give one answer for each tracked path, or looking for a filter with one of those names failed |
 | `git-error`, `git-timeout` | git failed or ran out of time |
 | `odd-path` | A tracked path is absolute, holds `..`, or isn't valid UTF-8 (git keeps such a path as raw bytes, which the checks can't name exactly) |
 | `many-folders` | The tracked files are in more than 20,000 folders, too many to check for links |
