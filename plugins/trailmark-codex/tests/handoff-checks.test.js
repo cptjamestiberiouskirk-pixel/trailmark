@@ -2721,8 +2721,11 @@ test('git status: a filter named as git names "no filter" is not left running, i
   }
   // Only that variable is taken out: the ones that name the user's own
   // config, or add settings (a count with its numbered keys and values, or
-  // the list git itself hands down), stay as the user set them.
-  const kept = { GIT_CONFIG_GLOBAL: 'c', GIT_CONFIG_SYSTEM: 'd', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'f.g', GIT_CONFIG_VALUE_0: 'h', GIT_CONFIG_PARAMETERS: 'e' };
+  // the list git itself hands down), stay as the user set them. The numbers
+  // tried are 0 to 100, each with its key and its value. Not told: a number
+  // above 100.
+  const kept = { GIT_CONFIG_GLOBAL: 'c', GIT_CONFIG_SYSTEM: 'd', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_COUNT: '101', GIT_CONFIG_PARAMETERS: 'e' };
+  for (let n = 0; n <= 100; n++) { kept[`GIT_CONFIG_KEY_${n}`] = `f.g${n}`; kept[`GIT_CONFIG_VALUE_${n}`] = `h${n}`; }
   assert.deepStrictEqual(gitEnv({ GIT_CONFIG: 'a', git_config: 'b', ...kept }), { ...gitEnv({}), ...kept }, 'what gitEnv keeps of the GIT_CONFIG variables');
   // Not told: what an answer of check-attr other than these four names
   // means, and attributes that come from another place than the top

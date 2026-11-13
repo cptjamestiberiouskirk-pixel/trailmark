@@ -14,6 +14,24 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: A check in the background ended with no result line
+- What went wrong: the quick check for RS-A-filtername round 4 was started in the background by one command that also started the load sampler with `&` and wrote the check's output to a file renamed at the end. The app reported the command done within minutes while the check still ran, and 17 minutes after its start the check was gone, with `SHA256SUMS` rewritten and no result line anywhere.
+- Why: not known. The check may have stopped with the shell that started it (HYPOTHESIZED). The run that passed the next morning was started as a command of its own, with the sampler as a second one.
+- Rule going forward: a check in the background is one command that starts nothing else, and its output goes straight to the file the wait reads. A run without its "exit" line is untested, whatever it rewrote before it ended.
+- Status: open
+
+## 2026-11-12: The numbered keys were held for the first number only
+- What went wrong: batch 3 answered "the assertion had two of the family's members" by adding `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0`, under a comment that says "a count with its numbered keys and values". Round 4 (Opus) widened `DROP_ENV` by the keys and values from 1 up and both tests passed. With that pattern git fails for a count of 2 ("missing config key GIT_CONFIG_KEY_1", exit 128, seen here with raw git).
+- Why: the family has a number in its names, so it has no last member, and one member was written where the rule asks for each. The mutation list had the pattern `\d+` only, which the one case catches.
+- Rule going forward: a family whose names carry a number is a loop over a stated range (here 0 to 100, so one, two and three digits). The comment gives the range and says that numbers above it are not told. The mutation list changes the pattern from the second member up and at each digit count. This is "A comment in a new assertion named a family, and the assertion had two of its members" again.
+- Status: promoted (PLAYBOOK "Testing" step 8, one sentence added)
+
+## 2026-11-12: A sentence added for clarity read as an exception to the wrong rule
+- What went wrong: round 3's docs review said "keeps running (unless ...)" could be read as "the filter stops". The answer in batch 3 was a new sentence, "The exception is a filter named ...", put right after the sentence on filters from the user's own config. Round 4's docs review marked it wrong: there it reads as an exception to that case only, and the code skips `git status` for such a filter whichever config defines it, the repo's own included.
+- Why: the sentence was written to fix the clause it replaced and was not read against the first sentence of its paragraph, which states the rule for the repo's own config.
+- Rule going forward: a sentence that states an exception names what it is an exception to, and is read against every rule in its paragraph before it goes in. A clarity fix gets the same check against the code as a new claim.
+- Status: open
+
 ## 2026-11-12: A class of variables was listed from git's pages, and the Windows build has three more
 - What went wrong: for RS-A-filtername round 2 the variables that could make the checks and `git status` see different things were listed from git's pages and from memory, ten were tried, and the notes said only `GIT_CONFIG` splits the two. Round 3 (Fable) found `GIT_REDIRECT_STDIN` and `GIT_REDIRECT_STDERR`, which Git for Windows adds: with either in the session's environment a repo's filter ran (reproduced here, deferred as RS-A-redirect).
 - Why: the list came from what is written about the program and not from the program. The three names are stored in `git.exe` as 16-bit text, so even a search of the file for plain text misses them.
