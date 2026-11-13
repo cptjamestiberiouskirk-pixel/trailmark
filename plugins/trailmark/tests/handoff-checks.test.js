@@ -2504,6 +2504,235 @@ test('git status: a filter setting git does not know is never taken as a standar
   }
 });
 
+test('git status: a filter named as git names "no filter" is not left running, the decision (RS-A-filtername)', () => {
+  const { filterOverrides } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  // `git check-attr` prints `set`, `unset`, `unspecified` or nothing for a
+  // file with no filter, and the same for a file whose filter has that word
+  // (or nothing) for its name, and git runs such a filter. So when a config
+  // git reads defines a filter under one of the four names and a tracked
+  // file shows that answer, status is not read.
+  const NAMES = ['set', 'unset', 'unspecified', ''];
+  // The decision, asked of filterOverrides with git stood in for:
+  // `answers` is what check-attr prints for each tracked file, `config` what
+  // the question for the four names gets (a text of settings, or an answer
+  // as the runner gives it). `asked` counts that question. The question
+  // brings a setting of its own (`-c trailmark.asked=1`) and asks for it
+  // too. Of a text of settings the stand-in gives what git would: the
+  // settings whose key the question's pattern matches, the question's own
+  // setting among them and last, and exit status 1 when nothing matches.
+  // With `whole` it gives the text as it is, more than git would, with the
+  // question's own setting after it, so that the code that reads the answer
+  // is held apart from the pattern. The question itself is held too: its
+  // own setting, then `config`, `-z`, `--get-regexp`, a pattern and nothing
+  // more, so no option that narrows which config files git reads. The
+  // stand-in matches the pattern as JavaScript does, which is how git
+  // matches this one (the test in real repos asks git itself).
+  const none = { ok: false, out: '', why: 'error', status: 1 };
+  const ask = (answers, config, whole) => {
+    let asked = 0;
+    const r = { run: (cwd, args) => {
+      if (args[0] === 'ls-files') return { ok: true, out: answers.map((_, i) => `f${i}\0`).join('') };
+      if (args[0] === 'check-attr') return { ok: true, out: answers.map((v, i) => `f${i}\0filter\0${v}\0`).join('') };
+      if (args[0] === 'config' && args.includes('--show-scope')) return none;
+      if (args.includes('config')) {
+        asked++;
+        assert.deepStrictEqual(args.slice(0, 5).concat(args.length), ['-c', 'trailmark.asked=1', 'config', '-z', '--get-regexp', 6], 'the question to git');
+        if (typeof config !== 'string') return config;
+        const own = `${args[1].replace('=', '\n')}\0`;
+        const pattern = new RegExp(args[5]);
+        const out = whole ? config + own : (config + own).split('\0').filter(e => e && pattern.test(e.split('\n')[0])).map(e => `${e}\0`).join('');
+        return out ? { ok: true, out } : none;
+      }
+      throw new Error(`not expected: ${args.join(' ')}`);
+    } };
+    const got = filterOverrides(r, 'x');
+    return { why: got.why, args: got.args, asked };
+  };
+  const setting = (name, word = 'clean', value = 'true') => `filter.${name}.${word}\n${value}\0`;
+  const read = { why: undefined, args: [], asked: 1 };
+  const skipped = { why: 'odd-filter-name', args: undefined, asked: 1 };
+  for (const shown of NAMES) {
+    const files = `files that show ${JSON.stringify(shown)}`;
+    // Skipped for the filter of the same name and for no other of the four.
+    for (const named of NAMES) assert.deepStrictEqual(ask([shown], setting(named)), shown === named ? skipped : read, `${files}, a filter named ${JSON.stringify(named)}`);
+    assert.deepStrictEqual(ask([shown], ''), read, `${files}, no such filter`);
+    // Any setting defines the filter, wherever it stands among the others,
+    // and whatever its value holds (dots, lines, a text like a setting).
+    for (const word of ['smudge', 'process', 'required']) assert.deepStrictEqual(ask([shown], setting(shown, word)), skipped, `${files}, its ${word}`);
+    assert.deepStrictEqual(ask([shown], setting('lfs') + setting(shown)), skipped, `${files}, its filter after another`);
+    assert.deepStrictEqual(ask([shown], setting(shown) + setting('lfs')), skipped, `${files}, its filter before another`);
+    assert.deepStrictEqual(ask([shown], setting(shown, 'clean', 'a.b\nc.d e')), skipped, `${files}, a value with dots and lines`);
+    // A name that is not the one shown: longer, shorter, in another case,
+    // with a dot, a setting's word, no name where there is one. Each as git
+    // would answer, and with the whole text handed over.
+    const near = ['lfs', `${shown}x`, `x${shown}`, `${shown}.x`, `x.${shown}`, shown.toUpperCase() || 'SET', shown.slice(1) || 's'];
+    for (const whole of [false, true]) {
+      const how = whole ? ', the whole text' : '';
+      assert.deepStrictEqual(ask([shown], setting('lfs', 'clean', `x\nfilter.${shown}.clean`), whole), read, `${files}, a value that reads like its setting${how}`);
+      for (const name of near) if (name !== shown) assert.deepStrictEqual(ask([shown], setting(name), whole), read, `${files}, a filter named ${JSON.stringify(name)}${how}`);
+      assert.deepStrictEqual(ask([shown], `filter.lfs.${shown || 'set'}\ntrue\0`, whole), read, `${files}, a setting whose last word is the name${how}`);
+      assert.deepStrictEqual(ask([shown], 'filter.clean\ntrue\0', whole), read, `${files}, a setting with no filter name at all${how}`);
+      // The filter itself is found both ways.
+      assert.deepStrictEqual(ask([shown], setting('lfs') + setting(shown, 'process'), whole), skipped, `${files}, its process after another filter${how}`);
+    }
+    // A setting of the repo's with the name of the question's own, before
+    // the filter or after it, hides nothing; alone it is no filter.
+    for (const whole of [false, true]) {
+      const how = whole ? ', the whole text' : '';
+      assert.deepStrictEqual(ask([shown], `trailmark.asked\nx\0${setting(shown)}`, whole), skipped, `${files}, its filter after the repo's own trailmark.asked${how}`);
+      assert.deepStrictEqual(ask([shown], `${setting(shown)}trailmark.asked\nx\0`, whole), skipped, `${files}, its filter before the repo's own trailmark.asked${how}`);
+      assert.deepStrictEqual(ask([shown], 'trailmark.asked\nx\0', whole), read, `${files}, the repo's own trailmark.asked and no such filter${how}`);
+    }
+    // Among other files, and with a real filter beside it.
+    assert.deepStrictEqual(ask(['other', shown, 'other'], setting(shown)), skipped, `${files}, among files with a filter`);
+    // The question fails: status is not read, and a timeout is said to be one.
+    assert.deepStrictEqual(ask([shown], { ok: false, out: '', why: 'timeout' }), { why: 'git-timeout', args: undefined, asked: 1 }, `${files}, the question timed out`);
+    assert.deepStrictEqual(ask([shown], { ok: false, out: '', why: 'error', status: 128 }), { why: 'filter-check', args: undefined, asked: 1 }, `${files}, the question failed`);
+    assert.deepStrictEqual(ask([shown], { ok: false, out: '', why: 'error', status: null }), { why: 'filter-check', args: undefined, asked: 1 }, `${files}, the question gave no status`);
+    // Exit status 1 is a failure too (git gives it for "nothing matched",
+    // which the question's own setting rules out, and Windows gives it for
+    // a git ended from outside), and so is an answer that lacks the
+    // question's own setting.
+    assert.deepStrictEqual(ask([shown], none), { why: 'filter-check', args: undefined, asked: 1 }, `${files}, the question ended with status 1`);
+    assert.deepStrictEqual(ask([shown], { ok: true, out: '' }), { why: 'filter-check', args: undefined, asked: 1 }, `${files}, an empty answer`);
+    assert.deepStrictEqual(ask([shown], { ok: true, out: setting('lfs') }), { why: 'filter-check', args: undefined, asked: 1 }, `${files}, an answer without the question's own setting`);
+  }
+  // No file shows one of the four answers: the question is not asked. A
+  // name every object has is a filter's name like any other, not a fifth
+  // answer for "no filter".
+  for (const name of ['other', 'constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+    assert.deepStrictEqual(ask([name], setting('set') + setting(name)), { why: undefined, args: [], asked: 0 }, `every file has the filter ${name}`);
+  }
+});
+
+test('git status: a filter named as git names "no filter" is not left running, in real repos (RS-A-filtername)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const NAMES = ['set', 'unset', 'unspecified', ''];
+  // The same decision by the way a hook takes, with git itself answering:
+  // one tracked file `x.bin` under the attributes given, changed and newer
+  // than the index so that status reads it again and runs its clean filter.
+  // The filter, when the repo's config has one, writes a marker. (The file
+  // `a` every repo has shows `unspecified`.)
+  const base = realTemp('jbmem-filtername-');
+  let made = 0;
+  const repo = (attributes, named, config) => {
+    const r = path.join(base, `r${made}`); const g = repoAt(r);
+    const marker = path.join(base, `ran${made++}`).replace(/\\/g, '/');
+    fs.writeFileSync(path.join(r, 'x.bin'), 'x');
+    fs.writeFileSync(path.join(r, '.gitattributes'), attributes);
+    g('add', '.'); g('commit', '-qm', 'one file');
+    const command = `"echo ran >> '${marker}'; cat"`;
+    const section = `[filter "${named}"]\n\tclean = ${command}\n`;
+    if (config) config(path.join(r, '.git'), section, command);
+    else if (named !== undefined) fs.appendFileSync(path.join(r, '.git', 'config'), section);
+    fs.writeFileSync(path.join(r, 'x.bin'), 'y');
+    const later = new Date(Date.now() + 5000);
+    fs.utimesSync(path.join(r, 'x.bin'), later, later);
+    return { g, dir: r, marker, facts: () => { const f = gitFacts(r, ['status']); return { skipped: f.statusSkipped, count: f.statusCount }; } };
+  };
+  for (const name of NAMES) {
+    const { g, marker, facts } = repo(`*.bin filter=${name}\n`, name);
+    assert.deepStrictEqual(facts(), { skipped: 'odd-filter-name', count: undefined }, `a filter named ${JSON.stringify(name)}`);
+    assert.strictEqual(fs.existsSync(marker), false, `the filter named ${JSON.stringify(name)} ran`);
+    // git itself runs this filter here: without that, the line above proves nothing.
+    g('status', '--porcelain');
+    assert.strictEqual(fs.existsSync(marker), true, `git did not run the filter named ${JSON.stringify(name)}`);
+  }
+  // `filter` with no value shows `set` too. Git runs no filter for it, and
+  // it cannot be told from `filter=set`: skipped as well.
+  assert.deepStrictEqual(repo('*.bin filter\n', 'set').facts(), { skipped: 'odd-filter-name', count: undefined }, 'filter with no value, and a filter named set');
+  // The filter as git itself has to find it: with `process` and no `clean`,
+  // under the older form of a section, in a file the repo's config
+  // includes, in the worktree's own config, and after a setting of the
+  // repo's that has the name of the question's own. Each of these has the
+  // marker's command, and git itself is run afterwards to show that it runs
+  // the command there: without that, the marker's absence proves nothing.
+  // (git's talk with a `process` command that is no filter program fails
+  // once the command has started, so that call's own result is not read.)
+  const others = {
+    'process only': (gd, section, command) => fs.appendFileSync(path.join(gd, 'config'), `[filter "set"]\n\tprocess = ${command}\n`),
+    'the older form of a section': (gd, section, command) => fs.appendFileSync(path.join(gd, 'config'), `[filter.set]\n\tclean = ${command}\n`),
+    'an included file': (gd, section) => { fs.writeFileSync(path.join(gd, 'more.cfg'), section); fs.appendFileSync(path.join(gd, 'config'), '[include]\n\tpath = more.cfg\n'); },
+    'the worktree\'s own config': (gd, section) => { fs.writeFileSync(path.join(gd, 'config.worktree'), section); fs.appendFileSync(path.join(gd, 'config'), '[extensions]\n\tworktreeConfig = true\n'); },
+    'after the repo\'s own trailmark.asked': (gd, section) => fs.appendFileSync(path.join(gd, 'config'), `[trailmark]\n\tasked = x\n${section}`),
+  };
+  for (const [what, config] of Object.entries(others)) {
+    const { dir, marker, facts } = repo('*.bin filter=set\n', 'set', config);
+    assert.deepStrictEqual(facts(), { skipped: 'odd-filter-name', count: undefined }, `a filter named set, ${what}`);
+    assert.strictEqual(fs.existsSync(marker), false, `the filter named set ran, ${what}`);
+    try { execFileSync('git', ['status', '--porcelain'], { cwd: dir, stdio: 'ignore' }); } catch { /* the marker tells */ }
+    assert.strictEqual(fs.existsSync(marker), true, `git did not run the filter named set, ${what}`);
+  }
+  // A filter with only `smudge` or only `required` has no command that
+  // status would run: these two say that git finds the filter, no more.
+  for (const word of ['smudge = cat', 'required = false']) {
+    const { facts } = repo('*.bin filter=set\n', 'set', (gd) => fs.appendFileSync(path.join(gd, 'config'), `[filter "set"]\n\t${word}\n`));
+    assert.deepStrictEqual(facts(), { skipped: 'odd-filter-name', count: undefined }, `a filter named set, only ${word}`);
+  }
+  // The repo's own `trailmark.asked` and no filter so named: read.
+  assert.deepStrictEqual(repo('*.bin filter=set\n', undefined, (gd) => fs.appendFileSync(path.join(gd, 'config'), '[trailmark]\n\tasked = x\n')).facts(), { skipped: undefined, count: 1 }, 'the repo\'s own trailmark.asked, no such filter');
+  // No filter under such a name: status is read as before, whatever the file shows.
+  for (const attributes of ['*.bin filter=set\n', '*.bin filter\n', '*.bin -filter\n', '*.bin filter=\n', '']) {
+    assert.deepStrictEqual(repo(attributes).facts(), { skipped: undefined, count: 1 }, `no such filter, attributes ${JSON.stringify(attributes)}`);
+  }
+  // A filter under one of the names that no file shows: read.
+  assert.deepStrictEqual(repo('*.bin -filter\n', 'set').facts(), { skipped: undefined, count: 1 }, 'a filter named set, and no file that shows set');
+  // A filter named `set` in the user's own config skips status as well.
+  // (GIT_CONFIG_GLOBAL names that file for git 2.32 and later.)
+  const withEnv = (name, value, f) => {
+    const before = process.env[name];
+    process.env[name] = value;
+    try { return f(); } finally { if (before === undefined) delete process.env[name]; else process.env[name] = before; }
+  };
+  const mine = path.join(base, 'user.cfg');
+  fs.writeFileSync(mine, '[filter "set"]\n\tclean = cat\n');
+  const user = repo('*.bin filter=set\n');
+  assert.deepStrictEqual(withEnv('GIT_CONFIG_GLOBAL', mine, user.facts), { skipped: 'odd-filter-name', count: undefined }, 'a filter named set in the user\'s own config');
+  // GIT_CONFIG in the session's environment makes `git config` read one
+  // file in place of the configs `git status` goes by. The questions here
+  // are asked without it: with that file empty, and with a
+  // `trailmark.asked` of its own in it, a filter named `set` is still
+  // found, an ordinary filter of the repo's is still switched off (the
+  // marker is absent, and the changed file is counted), and a repo with no
+  // filter is still read.
+  const { gitEnv } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const seen = {}; const meant = {}; const forced = [];
+  for (const [what, text] of [['an empty file', ''], ['a file with trailmark.asked', '[trailmark]\n\tasked = 1\n']]) {
+    const one = path.join(base, `one${made}.cfg`);
+    fs.writeFileSync(one, text);
+    const named = repo('*.bin filter=set\n', 'set');
+    const plain = repo('*.bin filter=evil\n', 'evil');
+    const none = repo('');
+    seen[what] = withEnv('GIT_CONFIG', one, () => ({ 'a filter named set': named.facts(), 'an ordinary filter': plain.facts(), 'no filter': none.facts() }));
+    seen[what].ran = { 'the filter named set': fs.existsSync(named.marker), 'the ordinary filter': fs.existsSync(plain.marker) };
+    meant[what] = {
+      'a filter named set': { skipped: 'odd-filter-name', count: undefined },
+      'an ordinary filter': { skipped: undefined, count: 1 },
+      'no filter': { skipped: undefined, count: 1 },
+      ran: { 'the filter named set': false, 'the ordinary filter': false },
+    };
+    forced.push([`the filter named set, ${what}`, named], [`the ordinary filter, ${what}`, plain]);
+  }
+  assert.deepStrictEqual(seen, meant, 'with GIT_CONFIG in the environment');
+  // git itself runs each of these filters here: without that, "ran: false" proves nothing.
+  for (const [which, { g, marker }] of forced) {
+    g('status', '--porcelain');
+    assert.strictEqual(fs.existsSync(marker), true, `git did not run ${which}`);
+  }
+  // Only that variable is taken out: the ones that name the user's own
+  // config, or add settings (a count with its numbered keys and values, or
+  // the list git itself hands down), stay as the user set them. The numbers
+  // tried are 0 to 100, each with its key and its value. Not told: a number
+  // above 100.
+  const kept = { GIT_CONFIG_GLOBAL: 'c', GIT_CONFIG_SYSTEM: 'd', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_COUNT: '101', GIT_CONFIG_PARAMETERS: 'e' };
+  for (let n = 0; n <= 100; n++) { kept[`GIT_CONFIG_KEY_${n}`] = `f.g${n}`; kept[`GIT_CONFIG_VALUE_${n}`] = `h${n}`; }
+  assert.deepStrictEqual(gitEnv({ GIT_CONFIG: 'a', git_config: 'b', ...kept }), { ...gitEnv({}), ...kept }, 'what gitEnv keeps of the GIT_CONFIG variables');
+  // Not told: what an answer of check-attr other than these four names
+  // means, and attributes that come from another place than the top
+  // `.gitattributes`. The cases that expect status read take it that the
+  // machine's own config has no filter under one of the four names.
+});
+
 test('git pointers: the caller\'s time is looked at before each config file is read (RS-A-nestedone)', () => {
   const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
   const { withTime, farGitConfig, farLfsFile } = require(lib);

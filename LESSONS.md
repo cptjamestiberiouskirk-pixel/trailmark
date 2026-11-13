@@ -14,6 +14,90 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: A check in the background ended with no result line
+- What went wrong: the quick check for RS-A-filtername round 4 was started in the background by one command that also started the load sampler with `&` and wrote the check's output to a file renamed at the end. The app reported the command done within minutes while the check still ran, and 17 minutes after its start the check was gone, with `SHA256SUMS` rewritten and no result line anywhere.
+- Why: not known. The check may have stopped with the shell that started it (HYPOTHESIZED). The run that passed the next morning was started as a command of its own, with the sampler as a second one.
+- Rule going forward: a check in the background is one command that starts nothing else, and its output goes straight to the file the wait reads. A run without its "exit" line is untested, whatever it rewrote before it ended.
+- Status: open
+
+## 2026-11-12: The numbered keys were held for the first number only
+- What went wrong: batch 3 answered "the assertion had two of the family's members" by adding `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0`, under a comment that says "a count with its numbered keys and values". Round 4 (Opus) widened `DROP_ENV` by the keys and values from 1 up and both tests passed. With that pattern git fails for a count of 2 ("missing config key GIT_CONFIG_KEY_1", exit 128, seen here with raw git).
+- Why: the family has a number in its names, so it has no last member, and one member was written where the rule asks for each. The mutation list had the pattern `\d+` only, which the one case catches.
+- Rule going forward: a family whose names carry a number is a loop over a stated range (here 0 to 100, so one, two and three digits). The comment gives the range and says that numbers above it are not told. The mutation list changes the pattern from the second member up and at each digit count. This is "A comment in a new assertion named a family, and the assertion had two of its members" again.
+- Status: promoted (PLAYBOOK "Testing" step 8, one sentence added)
+
+## 2026-11-12: A sentence added for clarity read as an exception to the wrong rule
+- What went wrong: round 3's docs review said "keeps running (unless ...)" could be read as "the filter stops". The answer in batch 3 was a new sentence, "The exception is a filter named ...", put right after the sentence on filters from the user's own config. Round 4's docs review marked it wrong: there it reads as an exception to that case only, and the code skips `git status` for such a filter whichever config defines it, the repo's own included.
+- Why: the sentence was written to fix the clause it replaced and was not read against the first sentence of its paragraph, which states the rule for the repo's own config.
+- Rule going forward: a sentence that states an exception names what it is an exception to, and is read against every rule in its paragraph before it goes in. A clarity fix gets the same check against the code as a new claim.
+- Status: open
+
+## 2026-11-12: A class of variables was listed from git's pages, and the Windows build has three more
+- What went wrong: for RS-A-filtername round 2 the variables that could make the checks and `git status` see different things were listed from git's pages and from memory, ten were tried, and the notes said only `GIT_CONFIG` splits the two. Round 3 (Fable) found `GIT_REDIRECT_STDIN` and `GIT_REDIRECT_STDERR`, which Git for Windows adds: with either in the session's environment a repo's filter ran (reproduced here, deferred as RS-A-redirect).
+- Why: the list came from what is written about the program and not from the program. The three names are stored in `git.exe` as 16-bit text, so even a search of the file for plain text misses them.
+- Rule going forward: a class of names a program reads (environment variables, config keys) is listed from the installed program itself, in plain and in 16-bit text, on each system it runs on, and the notes say which of the names were gone through and which were not.
+- Status: open
+
+## 2026-11-12: A comment in a new assertion named a family, and the assertion had two of its members
+- What went wrong: the assertion on what `gitEnv` keeps said in its comment that the variables that add settings stay, and tried `GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS`. The numbered `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` that go with the count were not in it, and a pattern that drops them passed both tests (Opus, round 3).
+- Why: the members were written from the names remembered, the same day a lesson was logged about a test's comment naming a class.
+- Rule going forward: this is "A test's comment named a class, and its cases tried one member" (2026-11-12) a second time. When a comment names a family, the members are taken from where the program lists them (its page, or the names found in the program), and the mutation list widens the pattern by each member left out.
+- Status: promoted (PLAYBOOK "Testing" step 8, one sentence added)
+
+## 2026-11-12: A commit script's expected line count was read while a mutation run had the file changed
+- What went wrong: the commit script for RS-A-filtername round 2 checks that `gitbin.js` differs from HEAD by a known number of lines. The number (5 and 1) was read with `git diff --numstat` while the mutation run was on its first probe, which puts the old pattern line back. The real diff is 6 and 2. The script stopped before the commit, and nothing was committed.
+- Why: the mutation run was in the background and the read looked harmless, since it changed nothing.
+- Rule going forward: while a mutation run is going, nothing is read from the files it changes, not only nothing written. A number a later check will hold is read after the run printed "restored: true".
+- Status: open
+
+## 2026-11-12: A check asked git one way and git acted another, because of a variable in the environment
+- What went wrong: round 2 of RS-A-filtername (Fable) found that with `GIT_CONFIG` set in the session's environment, `git config` reads that one file and nothing else, not the repo's config and not `-c`, while `git status` goes by the real configs. Reproduced here in real repos: with a file that holds `trailmark.asked`, the new call's answer counted as whole, a filter named `set` was not seen and ran; with either file an ordinary filter of the repo was not listed, so it was not switched off and ran (this part is older than the PR); with an empty file, 11391c1 read status in no repo at all (`filter-check`).
+- Why: `gitEnv` dropped the variables that point git at another repo, and nobody had listed the variables that change what one git command reads and not another. The call's own setting was taken to prove "git answered in full", and it proves that only while `git config` reads the configs `git status` reads.
+- Rule going forward: when one command is asked and another then acts on the answer, list what can make the two see different things, the environment first (read each command's page for variables that touch only that command), and drop or refuse each. A marker that proves an answer whole is tried against a source that can supply the marker without the tool having read what it should.
+- Status: open
+
+## 2026-11-12: Cases said a marker was absent that they could never have written
+- What went wrong: round 1's batch added six cases in real repos and the notes said of them "each `odd-filter-name` with the marker absent". Four could not write the marker whatever the code did (Opus, round 2, CONFIRMED by Opus and read here in the test): the case with only `process` and the one under `[filter.set]` had no marker command, and `smudge` and `required` settings never run during `git status`.
+- Why: the cases were made by a helper whose marker command sat in its `clean` form only, and the forced fault was run for the first case and taken to stand for the rest.
+- Rule going forward: PLAYBOOK "Testing" step 8 a second time, now per case: each case that says "did not happen" carries the thing that would make it happen, and one that cannot does not say it. The notes say of each case what it asserts, not what the group was meant to.
+- Status: promoted (PLAYBOOK "Testing" step 8, one clause added)
+
+## 2026-11-12: The notes said a repo's own copy of the code's marker "changes nothing", and no case tried it
+- What went wrong: 11391c1's notes say a repo that writes `trailmark.asked` in its own config "adds a line to the answer and changes nothing". That was read from the code. Round 2 (Fable) changed `continue` to `break` at the line that meets the marker, and both tests passed: with the repo's own `trailmark.asked` ahead of `[filter "set"]`, that change reads status and the filter runs.
+- Why: the marker was thought of as the code's own, so no case gave it to the repo.
+- Rule going forward: a sentence in the notes of the form "X changes nothing" gets a case that does X and a change in the mutation list at the line that makes it so. A name the code brings (a setting, a file name, a marker) is tried as the input's own, before and after the thing it guards.
+- Status: open
+
+## 2026-11-12: Two times in the notes were written from a guess
+- What went wrong: the notes of RS-A-filtername round 1 and a handoff gave clock times ("seen 15:10", "not committed at 15:25") that were reckoned from how long the steps had seemed to take. The clock, read later for another reason, said 15:27 where the reckoning had 15:40. The notes were corrected before the commit by reading CI again with the clock; the handoff's time was wrong for one version.
+- Why: the commands that read CI and the bot's state printed no time, and the note was written some steps later.
+- Rule going forward: a command whose result goes in the notes with a time prints the time itself (`date +%H:%M:%S` in front). A time that was not printed is not written.
+- Status: open
+
+## 2026-11-12: A stand-in for git answered whatever it was asked
+- What went wrong: the first test of RS-A-filtername asked `filterOverrides` with a stand-in for git that gave back the text of settings a case handed it, whatever the call's arguments were. Round 1 (Opus and Fable) found the test passing with the call narrowed to `clean` settings, with `--no-includes` and with `--local`: a filter named `set` with only a `process` setting, or one in an included file, would have run. The cases "its smudge", "its process" and "its required" held the code that reads the answer and nothing of the call. The real repos all defined the filter with `clean` in `.git/config`.
+- Why: the stand-in was written for the code after the call. What the call asks (its pattern, its options) was taken as given, and the real repos were written from the fault's one example.
+- Rule going forward: a stand-in for a program checks the question it gets (the arguments, all of them) and answers from the question as the program would. The cases with the real program have one for each way the thing asked about can come to be (here: each word that defines a filter, each place a config can come from). The mutation list changes the question too: its pattern narrowed, an option added.
+- Status: promoted (PLAYBOOK "Testing" step 10). Stand-ins that held less than the thing they stood for were logged three times on 2026-11-11 (a clock, a stub that matched other paths, a stand-in stopped at one time only).
+
+## 2026-11-12: A mutation list left out the swap a playbook step asks for
+- What went wrong: RS-A-filtername adds a Set of four texts that is asked with a text from a repo. Its first mutation list had the Set without each text and no change of its kind. Round 1 (Opus) passed the test with the Set asked as a plain object, which would take `constructor` for "no filter". PLAYBOOK "Writing code and docs" step 11 asks for that swap and for names every object has, since the morning of the same day.
+- Why: the lessons check before the list was run with the words for tests and mutations, and its lines were read for the layers (a change per key at each layer). The step on the kind of a table sits under "Writing code and docs" and was not read again when the list was written.
+- Rule going forward: none new. A mutation list for a fix that adds a Map, a Set or an object starts with the swap of its kind, before the changes of its members, and the test has a name every object has.
+- Status: open
+
+## 2026-11-12: An exit status that also means a failure was read as an answer
+- What went wrong: the new call of RS-A-filtername (`git config --get-regexp`) took exit status 1 for "no such setting". Round 1 (Fable) showed the same status for a git that gives up on the repo's config, and for a git ended from outside on Windows (reproduced here: `execFileSync` reports `status=1`, `signal=null`). Either was read as "no filter so named", the answer that lets status run.
+- Why: git's page gives 1 for "nothing matched", and the older call in the same function reads it so. What else ends with 1 was not listed.
+- Rule going forward: an answer that lets something run is never read from an exit status alone. The call brings something of its own that a whole answer must hold (here a setting given with `-c` that the pattern asks for), and its absence is a failure. Before an exit status is given a meaning, list what else ends with it (a signal, a kill from outside on Windows, the program giving up early).
+- Status: open
+
+## 2026-11-12: A commit went out in the same message as an edit it was meant to hold, and the edit failed
+- What went wrong: the notes-only commit of RS-A-filterkey round 4 (358d3c3) was sent in one message with an edit that added the quick check's reading to `dev/release-state.md`. The edit was refused, since the file had changed on disk after it was last read. The commit script ran all the same, and the push went out without that line. Nothing in the commit is untrue, and the reading is recorded with the next item.
+- Why: the two calls were sent together to save a step, the edit being one line. PLAYBOOK "Committing" step 1 says a commit goes in a later message than the edits it depends on. The commit script checks which files changed and not what a late edit was to add.
+- Rule going forward: PLAYBOOK "Committing" step 1 holds for a one-line edit too. A commit script that follows an edit of the notes also looks for a text only that edit adds.
+- Status: open
+
 ## 2026-11-12: Cases were taken out, and what two of them held at the place that asks went with them
 - What went wrong: batch 2 of RS-A-filterkey moved the check of a value into a function, asked it with a table, and took 14 cases with real repos out. The notes said "what each held is in the table". Two of them ("process with more after it", "required with another word for true") also held that `filterOverrides` asks the function for `process` and for `required`. Round 3 found the test passing with either word taken without asking. The mutation list had the four words taken at once, which another case caught, and no change for one word alone.
 - Why: each case was read for what it said of the value, and not for each layer it ran through (the place that asks, then the pattern). The change to the caller in the mutation list was made once for the whole table.
