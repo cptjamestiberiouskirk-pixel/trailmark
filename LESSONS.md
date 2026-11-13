@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: Wrong answers were tried at the first answer only, and no path was cut short
+- What went wrong: the decision test of RS-A-redirect listed 19 wrong answers by hand. Round 1 (Opus) had the word `filter` checked for the first answer only, and a path cut short taken, and every test passed. A wider mutation list here found 8 such changes that passed: a path the path sent starts or ends with, a word that starts or ends with `filter` or that `filter` starts or ends with, the word with spaces around it, the word checked for the first answer only.
+- Why: PLAYBOOK "Testing" step 10 (every text near each valid one) was read as a rule for a pattern. This check is a plain compare, made once for each item of a list, and the cases were written for the first item.
+- Rule going forward: step 10 holds for a compare too. Where a decision is made once for each item of a list, the near texts are a loop over the items (first, middle, last) and over each part compared. The mutation list has each compare loosened each way (starts with and ends with in both directions, other capitals, spaces around) and held for one item only.
+- Status: promoted to PLAYBOOK
+
+## 2026-11-13: A note said one part of a fix "does not cover" a case nobody had run with that part alone
+- What went wrong: 5eb9170's notes say the answer check in `filterOverrides` "does not cover the stderr case: there the paths sent are already wrong and the answer matches them". Round 1 (Opus) ran it: check-attr prints the warning too, in front of its answer, so the answer is not about the path sent and is refused. The same wrong sentence went to the user in the conversation.
+- Why: the sentence was reasoned from what one command prints. The mutation run with the variable let through did fail the test, and only the count of failures was read, not what the failing row answered.
+- Rule going forward: this is "The notes said a repo's own copy of the code's marker 'changes nothing', and no case tried it" (2026-11-12) again, from the other side. A note that says what a part of a fix does or does not cover comes from a run with the other parts taken out, and gives what that run answered. The limit that is left gets a case of its own (here: a warning only ls-files prints is taken).
+- Status: promoted to PLAYBOOK
+
 ## 2026-11-13: A script that reads a test run's lines got none
 - What went wrong: a scratch script for RS-A-redirect ran `node --test` on the parent's code and printed why each test fails, by reading lines that start with "not ok". It printed nothing: this Node (26) writes another report unless it is told to write TAP. The first run looked like "no test failed".
 - Why: the script took the report's form for granted, and an empty result read the same as a pass.
@@ -72,7 +84,7 @@ Format:
 - What went wrong: 11391c1's notes say a repo that writes `trailmark.asked` in its own config "adds a line to the answer and changes nothing". That was read from the code. Round 2 (Fable) changed `continue` to `break` at the line that meets the marker, and both tests passed: with the repo's own `trailmark.asked` ahead of `[filter "set"]`, that change reads status and the filter runs.
 - Why: the marker was thought of as the code's own, so no case gave it to the repo.
 - Rule going forward: a sentence in the notes of the form "X changes nothing" gets a case that does X and a change in the mutation list at the line that makes it so. A name the code brings (a setting, a file name, a marker) is tried as the input's own, before and after the thing it guards.
-- Status: open
+- Status: promoted to PLAYBOOK
 
 ## 2026-11-12: Two times in the notes were written from a guess
 - What went wrong: the notes of RS-A-filtername round 1 and a handoff gave clock times ("seen 15:10", "not committed at 15:25") that were reckoned from how long the steps had seemed to take. The clock, read later for another reason, said 15:27 where the reckoning had 15:40. The notes were corrected before the commit by reading CI again with the clock; the handoff's time was wrong for one version.

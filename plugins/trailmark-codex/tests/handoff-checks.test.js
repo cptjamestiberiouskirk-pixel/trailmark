@@ -2790,6 +2790,31 @@ test('git status: an answer of check-attr that is not one for each path sent is 
     'a line after the last end mark': `${a}${b}${c}warning: x\n`,
   };
   for (const [what, answer] of Object.entries(wrong)) assert.deepStrictEqual(ask(paths, answer), refused, what);
+  // Each of the three answers in turn, with its path and then its word
+  // changed to a text near the right one: a character less at either end, a
+  // space or a letter more at either end, `./` in front, the middle
+  // character changed, other capitals, and no text at all. That is 3
+  // answers, 2 parts and 10 texts each. Every one has the right number of
+  // entries, so only the compare of that entry refuses it.
+  const mid = (t) => `${t.slice(0, t.length >> 1)}#${t.slice((t.length >> 1) + 1)}`;
+  const near = (t) => [t.slice(1), t.slice(0, -1), ` ${t}`, `${t} `, `x${t}`, `${t}x`, `./${t}`, mid(t), t.toUpperCase(), ''];
+  paths.forEach((p, i) => {
+    const v = i === 1 ? 'evil' : 'unspecified';
+    const withMine = (mine) => [a, b, c].map((x, j) => (j === i ? mine : x)).join('');
+    assert.deepStrictEqual(ask(paths, withMine(one(p, v))), read, `answer ${i + 1} as it is`);
+    for (const t of near(p)) assert.deepStrictEqual(ask(paths, withMine(one(t, v))), refused, `answer ${i + 1} with the path ${JSON.stringify(t)}`);
+    for (const t of near('filter')) assert.deepStrictEqual(ask(paths, withMine(one(p, v, t))), refused, `answer ${i + 1} with the word ${JSON.stringify(t)}`);
+  });
+  // What git 2.56.1 on Windows printed with GIT_REDIRECT_STDERR=2>&1 and an
+  // index extension it skips: ls-files put the warning in front of its
+  // first path, and check-attr, sent that, put its own warning in front of
+  // its answer. That answer is not about the path sent, and is refused.
+  const warned = 'ignoring ABCD extension\n';
+  assert.deepStrictEqual(ask([`${warned}0.bin`, 'a.bin'], `${warned}${one(`${warned}0.bin`)}${one('a.bin', 'evil')}`), refused, 'a warning in front of the first path sent, and one more in front of the answer');
+  // A warning that only ls-files printed is not told from a path: the
+  // answer is about the path sent, and it is taken. The file behind it would
+  // keep its filter, so for that case it is the dropped variable that holds.
+  assert.deepStrictEqual(ask([`${warned}0.bin`, 'a.bin'], one(`${warned}0.bin`) + one('a.bin', 'evil')), read, 'a warning in front of the first path sent, and none in the answer');
   // Not told: an answer with the right paths in the right order and other
   // values than git would give. Nothing here can tell that from git's own.
 });
