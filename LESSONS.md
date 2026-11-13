@@ -14,6 +14,24 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: A new case went into the whole mutation list before it had run once alone
+- What went wrong: batch 1 of RS-A-dotpath added a sparse-index case whose expected lists left out the file `a` that the test's own `repoAt` helper commits. The 24-entry mutation list was started on it, and its last entry, the unchanged file, failed. That run was void and the list was run again (three minutes).
+- Why: the expected lists came from a probe that made its repo by hand, with no file `a`. The changed test was not run once on the unchanged code before the list.
+- Rule going forward: after a test edit, `--only` runs once on the unchanged code, and its PASS line is read, before the mutation list starts. An expected value taken from a probe is checked against the helper the test uses to make its repo.
+- Status: open
+
+## 2026-11-13: A sentence about "the index" was wider than the list the code reads
+- What went wrong: the two docs rows and the code comment of RS-A-dotpath said git's own commands don't put a path with an empty part "in the index". A sparse index that git writes has an entry for a folder, `out/`. Round 1 (Opus) found it. The code was right, since it asks for the list without `--sparse`.
+- Why: the sentence was written from four routes that were tried (`add`, `update-index`, `read-tree`, `checkout`), and about the store, not about the list the code reads. The notes of the same batch had the sparse index's listing in the same bullet, and the new sentence was not read against it.
+- Rule going forward: a sentence in a doc or a comment about what a program holds names the thing the code reads (here: a tracked file in the list `ls-files` gives), and it is read against every probe result of its batch, not only the probes it came from.
+- Status: open
+
+## 2026-11-13: The odd path was tried at each place of a list of three, and a check of the first three paths passed
+- What went wrong: the RS-A-dotpath decision test put the odd path first, in the middle and last of three tracked paths. Round 1 (Opus) made the check for the first three paths only, and every test passed.
+- Why: PLAYBOOK "Testing" step 10 asks for the first, a middle and the last item, and a list of three has nothing after the third.
+- Rule going forward: where a decision is made once for each item of a list, one case has a list longer than the other cases' lists, with the item at every place of it, and the mutation list has the decision made for the first N items only, with N the other cases' length and the long list's length less one.
+- Status: promoted to PLAYBOOK
+
 ## 2026-11-13: Six cases said a filter did not run, and git would not have run it for two of them
 - What went wrong: the first form of the RS-A-dotpath real-repos test said the filter's marker was absent for six tracked names. A probe of plain git, run before the test was written, had shown that git runs the filter for four of those names and not for `d/b.bin/` and `d/.`. It was caught before the commit, and the mutation list, the Linux runs and the quick check were run again.
 - Why: the names came from the list of shapes the new check refuses, and the "did not run" claim was put on the whole list. The probe's own list of where the filter ran was not used to pick them.

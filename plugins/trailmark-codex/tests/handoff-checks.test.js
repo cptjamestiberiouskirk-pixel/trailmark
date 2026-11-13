@@ -3767,8 +3767,11 @@ test('git status: a tracked path with an empty part or a part of one dot keeps s
   // An empty part and a part of one dot, at every one of those places, alone
   // and as the first, the middle and the last of three tracked paths. One
   // shape is left out: `a` with its only part replaced by nothing is no path
-  // (git 2.56.1 lists an entry with no name as `./`, which is below).
-  const odd = [...shapes(''), ...shapes('.')].filter(t => t !== '');
+  // (git 2.56.1 lists an entry with no name as `./`, which is below). A
+  // shape with the empty part in front (`/a`) starts with a slash, and so do
+  // `/` and `//` below: the older rule on absolute paths refuses those,
+  // before this one is asked.
+  const odd =[...shapes(''), ...shapes('.')].filter(t => t !== '');
   assert.strictEqual(odd.length, 29, 'the shapes: 15 for each of the two parts, less the one that is no path');
   for (const t of ['./', '/', '//', 'd///b', 'd/././b', 'd/.//b', './/.', 'a/./']) odd.push(t);
   for (const t of odd) {
@@ -3776,6 +3779,13 @@ test('git status: a tracked path with an empty part or a part of one dot keeps s
     assert.strictEqual(why([t, 'm', 'n/o']), 'odd-path', `tracked ${JSON.stringify(t)}, first of three`);
     assert.strictEqual(why(['m', t, 'n/o']), 'odd-path', `tracked ${JSON.stringify(t)}, the middle of three`);
     assert.strictEqual(why(['m', 'n/o', t]), 'odd-path', `tracked ${JSON.stringify(t)}, last of three`);
+  }
+  // And at every place of a longer list: twelve tracked paths, with the odd
+  // one put in before each of them and after the last.
+  const MANY = Array.from({ length: 12 }, (_, i) => `p${i}/q${i}`);
+  assert.strictEqual(why(MANY), '', 'the twelve paths alone');
+  for (const t of odd) {
+    for (let k = 0; k <= MANY.length; k++) assert.strictEqual(why([...MANY.slice(0, k), t, ...MANY.slice(k)]), 'odd-path', `tracked ${JSON.stringify(t)}, at place ${k} of thirteen`);
   }
   // A part of two dots is refused as before this rule.
   for (const t of shapes('..')) assert.strictEqual(why([t]), 'odd-path', `tracked ${JSON.stringify(t)}`);
@@ -3794,7 +3804,8 @@ test('git status: a tracked path with an empty part or a part of one dot keeps s
   // ends in a dot).
   for (const t of ['...', 'a/...', '.../b', 'a/..../b']) assert.strictEqual(why([t]), WIN ? 'odd-path' : '', `tracked ${JSON.stringify(t)}`);
   // Not told: two or more such parts in one path other than the eight
-  // shapes listed, and a path of more than four parts.
+  // shapes listed, a path of more than four parts, and a list of more than
+  // thirteen tracked paths.
 });
 
 test('git status: a path with an empty or a dot part in an index written by hand keeps status unread, and the repo\'s filter does not run, in real repos (RS-A-dotpath)', () => {
@@ -3867,6 +3878,18 @@ test('git status: a path with an empty or a dot part in an index written by hand
     spawnSync('git', ['status', '--porcelain'], { cwd: r.dir, stdio: 'ignore' });
     assert.ok(fs.existsSync(r.marker), `tracked ${name}: git itself runs the filter`);
   }
+  // A sparse index that git itself writes holds an entry for a folder, which
+  // ends in a slash (`out/`). `git ls-files` without `--sparse` lists that
+  // folder's files in its place, so the check does not meet the entry, and
+  // status is read.
+  const sp = path.join(base, 'sparse'); const gs = repoAt(sp);
+  for (const d of ['in', 'out']) { fs.mkdirSync(path.join(sp, d)); fs.writeFileSync(path.join(sp, d, 'f'), 'x'); }
+  gs('add', '.'); gs('commit', '-qm', 'two folders');
+  gs('sparse-checkout', 'init', '--cone', '--sparse-index'); gs('sparse-checkout', 'set', 'in');
+  const listed = (...more) => execFileSync('git', ['ls-files', '-z', ...more], { cwd: sp, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(NUL).filter(Boolean);
+  assert.deepStrictEqual(listed('--sparse'), ['a', 'in/f', 'out/'], 'the sparse index has an entry for the folder out');
+  assert.deepStrictEqual(listed(), ['a', 'in/f', 'out/f'], 'without --sparse git lists the file');
+  assert.strictEqual(gitFacts(sp, ['status']).statusSkipped, undefined, 'a sparse index is read');
   // Not told: an index entry with no name, which git 2.56.1 lists as `./`
   // (the decision test has that text), and what another git prints for it.
 });

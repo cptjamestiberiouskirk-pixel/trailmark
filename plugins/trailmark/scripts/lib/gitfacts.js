@@ -178,13 +178,15 @@ function farWorktree(r, cwd) {
     // looking at the time (RS-A-deepindex).
     const parts = rel.split('/');
     // A part that is empty or `.` (`d//f`, `d/./f`, `./f`, `d/`): git's own
-    // commands did not put such a path into an index when tried (`add` wrote
-    // `d/f`; `update-index`, `read-tree` and `checkout` refused), so one is
-    // there when another tool wrote the index. For the first three of these
-    // shapes `git check-attr` answered `unspecified` where an attributes line
-    // of the same text named a filter, and `git status` then ran that filter:
-    // the filter check that comes after this one would have left it on
-    // (RS-A-dotpath).
+    // commands did not give a tracked file such a path when tried (`add`
+    // wrote `d/f`; `update-index`, `read-tree` and `checkout` refused), so
+    // one is in this list when another tool wrote the index. (A sparse index
+    // has an entry for a folder that ends in a slash, `out/`; this list is
+    // asked for without `--sparse` and has that folder's files in its place.)
+    // For the first three of these shapes `git check-attr` answered
+    // `unspecified` where an attributes line of the same text named a filter,
+    // and `git status` then ran that filter: the filter check that comes
+    // after this one would have left it on (RS-A-dotpath).
     if (parts.includes('') || parts.includes('.')) return 'odd-path';
     let at = tree;
     for (let i = 0; i < parts.length - 1; i++) {
