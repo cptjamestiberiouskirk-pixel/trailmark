@@ -14,7 +14,7 @@ e901e3a96439c4b825456ee72b30d18025a84c58cdda7ec98421aa208e0479f8 *./.github/work
 1a271490d946a881020a7b7b893b1e7e7df32adb3d4bc7fd1582df9ed9b5458d *./MANUAL.md
 b3971172a84c2e25be74dfa4fa1319d3252192d93a7e2288bb74f0ce81dea87c *./README.md
 fbac90d3d1ef6cf3d4c38f0caaed911fc94399084d5b23c432683161f06c351b *./SECURITY.md
-efe425ae32379318a0c53b5feeb5809d3473c130cbe71a54e924644f5b230419 *./docs/how-it-works.md
+5af33455b1626d9a07b327c90726dbf4bc9ef30c4b28e1cead26eff42e23a317 *./docs/how-it-works.md
 53c222f6021e268dd2bf274fd79f4a96c008931b22977c0260ae7a52682bbe82 *./install.cmd
 06c1f76c849c59a57c19ba2d107ef119aea12d4013f32389e413b94da2dddcbe *./install.ps1
 3f806bcd82345561c3a48ede8a0d5d6c5df37740a058859e997404c9191d8a5b *./install.sh
@@ -51,7 +51,7 @@ e6d5404bfa18ed9b5e4ecede0a8975febca70fc5a463cd9c0201efa81a1a0831 *./plugins/trai
 d0006a14e452cf76841b6a9dd7237d2743b4d6216aebfda0ce71fe45cc7579bb *./plugins/trailmark-codex/tests/commit-folders.test.js
 c0704aea54e588b9f3bd3811d28ea26cb4292a7bca92fac4f961af3429670803 *./plugins/trailmark-codex/tests/commits.test.js
 3980d31cdf925449d865e2b465a1cc9e020d3cf40a2c7ea884e162abc7bf0010 *./plugins/trailmark-codex/tests/copies.test.js
-df9f4fca56dd578388e752325a6c1a0cdea57a633890e1ca6926440d6173cc39 *./plugins/trailmark-codex/tests/handoff-checks.test.js
+57872b2e2b67ae44691b13338e8573d3e80b117fd2b15ac68c4300c0b539230a *./plugins/trailmark-codex/tests/handoff-checks.test.js
 be1321d5ed7b188bf41a8ae474c420d15dfb6bdccbabda143d2d0b9839489781 *./plugins/trailmark-codex/tests/hardening.test.js
 209c46764fb859b7effb80d7fe5819882e07f1498b5fcfc389752b0841e995fb *./plugins/trailmark-codex/tests/helpers.js
 306cd8613dff1d608f7725f3c7f2417dcf3a8410765f300ef7bdca0de283b311 *./plugins/trailmark-codex/tests/security.test.js
@@ -91,7 +91,7 @@ a00a373a93f3ebbf81ab65d3704b1bc4df9d87063d6480d287e0d47148ec46f5 *./plugins/trai
 bf3221207f85b17983af4511f876c3c1045084985c3aef3ae250381ba69f27a4 *./plugins/trailmark/tests/commits.test.js
 923f613aaaf68f077e61a07931db87fa7cd0765d9aa15ce18e19c7cc1cb0e3d7 *./plugins/trailmark/tests/context-watch.test.js
 1ffafe00dd98f3b2c02242fff6455cd7ae14356ac393ee6ea49838f512603780 *./plugins/trailmark/tests/copies.test.js
-df9f4fca56dd578388e752325a6c1a0cdea57a633890e1ca6926440d6173cc39 *./plugins/trailmark/tests/handoff-checks.test.js
+57872b2e2b67ae44691b13338e8573d3e80b117fd2b15ac68c4300c0b539230a *./plugins/trailmark/tests/handoff-checks.test.js
 7f4479f7de48efe7f3112a3c27629653f11d767fe5d70bb85c4e2923c572b23a *./plugins/trailmark/tests/hardening.test.js
 fc776c992644088419b7c22a3aa9c591f04d9684d3c8740bea293bd26ec19981 *./plugins/trailmark/tests/helpers.js
 3b7b918029358d2e5df90d4628df74654da8c376644cc31f9b558ea04b0ecb5d *./plugins/trailmark/tests/security.test.js

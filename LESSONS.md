@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: Ten chosen texts stood for "near", and the next round found compares they let through
+- What went wrong: batch 2 of RS-A-redirect gave the decision test a loop over ten texts near the right path and word. Round 2 (Opus) passed every test with a compare that ignores the second character, one that ignores the last but one, other capitals after an exact first character, NFKC, a backslash read as a slash and a tab read as a space. Twelve such changes passed here.
+- Why: the texts were chosen, one for each loosening already thought of, so the next loosening had no text. This is "A second round found more loose patterns, because each value cost a real git call" (2026-11-12) again: its rule says the test changes shape when a second review beats the same list, and batch 2 added cases of the old kind.
+- Rule going forward: for a compare of two texts, the near texts are made by a loop and not chosen: every text one change away at every place (a character left out, put in or changed, two neighbors swapped) over a stated set of characters, with the wide forms, and a letter in its other Unicode form. The comment says what is not told (two or more changes away).
+- Status: promoted to PLAYBOOK
+
+## 2026-11-13: A docs sentence was reworded for style and still said the opposite of what one variable does
+- What went wrong: `docs/how-it-works.md` said the three `GIT_REDIRECT_` variables send git's output or its warnings "somewhere else than the hook reads". Round 1 called the wording odd, batch 2 reworded it, and round 2 (Sonnet) showed it untrue: with `GIT_REDIRECT_STDERR=2>&1` the warning lands in the output the hook reads, which is the case the fix is for.
+- Why: the sentence summed up three variables in one clause and was never held against a run of each. The reword was read against the code's comment, not against git.
+- Rule going forward: a sentence that says what several settings do names one effect for each, and each effect is one a run showed (here `probe-redirect-where.js`, a row for each variable). An effect that was not seen stays out (`GIT_REDIRECT_STDERR=<a file>` made an empty file here).
+- Status: open
+
 ## 2026-11-13: Wrong answers were tried at the first answer only, and no path was cut short
 - What went wrong: the decision test of RS-A-redirect listed 19 wrong answers by hand. Round 1 (Opus) had the word `filter` checked for the first answer only, and a path cut short taken, and every test passed. A wider mutation list here found 8 such changes that passed: a path the path sent starts or ends with, a word that starts or ends with `filter` or that `filter` starts or ends with, the word with spaces around it, the word checked for the first answer only.
 - Why: PLAYBOOK "Testing" step 10 (every text near each valid one) was read as a rule for a pattern. This check is a plain compare, made once for each item of a list, and the cases were written for the first item.

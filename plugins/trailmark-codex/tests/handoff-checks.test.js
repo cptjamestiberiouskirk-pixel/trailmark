@@ -2791,13 +2791,34 @@ test('git status: an answer of check-attr that is not one for each path sent is 
   };
   for (const [what, answer] of Object.entries(wrong)) assert.deepStrictEqual(ask(paths, answer), refused, what);
   // Each of the three answers in turn, with its path and then its word
-  // changed to a text near the right one: a character less at either end, a
-  // space or a letter more at either end, `./` in front, the middle
-  // character changed, other capitals, and no text at all. That is 3
-  // answers, 2 parts and 10 texts each. Every one has the right number of
-  // entries, so only the compare of that entry refuses it.
-  const mid = (t) => `${t.slice(0, t.length >> 1)}#${t.slice((t.length >> 1) + 1)}`;
-  const near = (t) => [t.slice(1), t.slice(0, -1), ` ${t}`, `${t} `, `x${t}`, `${t}x`, `./${t}`, mid(t), t.toUpperCase(), ''];
+  // changed to every text one change away from the right one: a character
+  // left out, at each place; a character put in, at each place and at the
+  // end; a character changed, at each place; two neighbors swapped. The
+  // characters put in are every ASCII character but NUL (which would end
+  // the entry) and six that programs fold onto ASCII ones (a no-break
+  // space, the letters U+0131, U+0130 and U+017F, the Kelvin sign, a
+  // combining accent); a changed character is also tried in its wide form
+  // (U+FF01 to U+FF5E, and U+3000 for a space). With them go five texts
+  // further away: `./` in front, the whole text in capitals, in wide forms,
+  // with a backslash for each slash, and no text at all. Every one has the
+  // right number of entries, so only the compare of that entry refuses it.
+  // Not told: a text two or more changes away, other than those five.
+  const CHARS = [...Array.from({ length: 126 }, (_, n) => String.fromCharCode(n + 1)), '\u00a0', '\u0131', '\u0130', '\u017f', '\u212a', '\u0301'];
+  const wide = (ch) => (ch === ' ' ? '\u3000' : ch > ' ' && ch <= '~' ? String.fromCharCode(ch.charCodeAt(0) + 0xfee0) : ch);
+  const near = (t) => {
+    const out = new Set([`./${t}`, t.toUpperCase(), [...t].map(wide).join(''), t.replace(/\//g, '\\'), '']);
+    for (let k = 0; k <= t.length; k++) {
+      for (const ch of CHARS) out.add(t.slice(0, k) + ch + t.slice(k));
+      if (k === t.length) break;
+      out.add(t.slice(0, k) + t.slice(k + 1));
+      for (const ch of [...CHARS, wide(t[k])]) out.add(t.slice(0, k) + ch + t.slice(k + 1));
+      if (k + 1 < t.length) out.add(t.slice(0, k) + t[k + 1] + t[k] + t.slice(k + 2));
+    }
+    out.delete(t);
+    return [...out];
+  };
+  // More than 250 texts for each character of the right one: the loops ran.
+  for (const t of [...paths, 'filter']) assert.ok(near(t).length > 250 * t.length, `the texts near ${t}: ${near(t).length}`);
   paths.forEach((p, i) => {
     const v = i === 1 ? 'evil' : 'unspecified';
     const withMine = (mine) => [a, b, c].map((x, j) => (j === i ? mine : x)).join('');
@@ -2805,6 +2826,10 @@ test('git status: an answer of check-attr that is not one for each path sent is 
     for (const t of near(p)) assert.deepStrictEqual(ask(paths, withMine(one(t, v))), refused, `answer ${i + 1} with the path ${JSON.stringify(t)}`);
     for (const t of near('filter')) assert.deepStrictEqual(ask(paths, withMine(one(p, v, t))), refused, `answer ${i + 1} with the word ${JSON.stringify(t)}`);
   });
+  // A name with a letter outside ASCII, answered in the other Unicode form
+  // (the letter and its accent as two characters), is another text.
+  assert.deepStrictEqual(ask(['\u00e9.bin', 'k'], one('\u00e9.bin', 'evil') + one('k')), read, 'a path with a letter outside ASCII, as it is');
+  assert.deepStrictEqual(ask(['\u00e9.bin', 'k'], one('e\u0301.bin', 'evil') + one('k')), refused, 'that path in the other Unicode form');
   // What git 2.56.1 on Windows printed with GIT_REDIRECT_STDERR=2>&1 and an
   // index extension it skips: ls-files put the warning in front of its
   // first path, and check-attr, sent that, put its own warning in front of
