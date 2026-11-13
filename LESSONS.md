@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: A comment named a range the code stopped one short of, and a count could not see it
+- What went wrong: the decision test of RS-A-redirect, 30656fc's commit message and the round 2 note said the characters tried are "every ASCII character but NUL". The code made the codes 1 to 126. Round 3 (Opus) passed every test with a compare that leaves DEL (127) out of the answer's path, and one that does so for the word.
+- Why: the sentence was written from what the loop was meant to make. The only check on the set was a floor on the number of texts (more than 250 for each character of the right one), and one character in 132 does not move a floor.
+- Rule going forward: this is the third sentence in this PR that said more than a run showed (after "does not cover" and "another place than the one the hook reads"). A set or a range that a comment or a note names is held by an assert that walks it (each member named is among those tried). A floor on a count shows that a loop ran, not what it ran over.
+- Status: promoted to PLAYBOOK
+
+## 2026-11-13: A part of a mutation list was started one entry late
+- What went wrong: three probes were added to the end of `mutate-redirect-2.js` and the run was started from the 55th entry. The first new probe was the 54th, so the run left out the probe for the finding being reproduced, and it was run again from 54.
+- Why: "54 changes" in the notes counts the unchanged files at the end as one entry, and the start number was worked out from that sentence and not from the script.
+- Rule going forward: a partial run of a list starts from a number the script printed (the "N probes" line of its last whole run), and its output is read for the names expected before anything is concluded from it.
+- Status: open
+
 ## 2026-11-13: Ten chosen texts stood for "near", and the next round found compares they let through
 - What went wrong: batch 2 of RS-A-redirect gave the decision test a loop over ten texts near the right path and word. Round 2 (Opus) passed every test with a compare that ignores the second character, one that ignores the last but one, other capitals after an exact first character, NFKC, a backslash read as a slash and a tab read as a space. Twelve such changes passed here.
 - Why: the texts were chosen, one for each loosening already thought of, so the next loosening had no text. This is "A second round found more loose patterns, because each value cost a real git call" (2026-11-12) again: its rule says the test changes shape when a second review beats the same list, and batch 2 added cases of the old kind.

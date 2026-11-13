@@ -2800,10 +2800,13 @@ test('git status: an answer of check-attr that is not one for each path sent is 
   // combining accent); a changed character is also tried in its wide form
   // (U+FF01 to U+FF5E, and U+3000 for a space). With them go five texts
   // further away: `./` in front, the whole text in capitals, in wide forms,
-  // with a backslash for each slash, and no text at all. Every one has the
-  // right number of entries, so only the compare of that entry refuses it.
+  // with a backslash for each slash (only `dir/b.bin` has one, so the other
+  // texts get four), and no text at all. Every one has the right number of
+  // entries, so only the compare of that entry refuses it.
   // Not told: a text two or more changes away, other than those five.
-  const CHARS = [...Array.from({ length: 126 }, (_, n) => String.fromCharCode(n + 1)), '\u00a0', '\u0131', '\u0130', '\u017f', '\u212a', '\u0301'];
+  const CHARS = [...Array.from({ length: 127 }, (_, n) => String.fromCharCode(n + 1)), '\u00a0', '\u0131', '\u0130', '\u017f', '\u212a', '\u0301'];
+  // The set is what the comment says: each code from 1 to 127 is in it.
+  for (let n = 1; n < 128; n++) assert.ok(CHARS.includes(String.fromCharCode(n)), `the character ${n} is among those tried`);
   const wide = (ch) => (ch === ' ' ? '\u3000' : ch > ' ' && ch <= '~' ? String.fromCharCode(ch.charCodeAt(0) + 0xfee0) : ch);
   const near = (t) => {
     const out = new Set([`./${t}`, t.toUpperCase(), [...t].map(wide).join(''), t.replace(/\//g, '\\'), '']);
@@ -2830,6 +2833,10 @@ test('git status: an answer of check-attr that is not one for each path sent is 
   // (the letter and its accent as two characters), is another text.
   assert.deepStrictEqual(ask(['\u00e9.bin', 'k'], one('\u00e9.bin', 'evil') + one('k')), read, 'a path with a letter outside ASCII, as it is');
   assert.deepStrictEqual(ask(['\u00e9.bin', 'k'], one('e\u0301.bin', 'evil') + one('k')), refused, 'that path in the other Unicode form');
+  // The other way round: the name sent as two characters is read as it is,
+  // and refused when the answer has it as one.
+  assert.deepStrictEqual(ask(['e\u0301.bin', 'k'], one('e\u0301.bin', 'evil') + one('k')), read, 'a path with a letter and its accent as two characters, as it is');
+  assert.deepStrictEqual(ask(['e\u0301.bin', 'k'], one('\u00e9.bin', 'evil') + one('k')), refused, 'that path answered as one character');
   // What git 2.56.1 on Windows printed with GIT_REDIRECT_STDERR=2>&1 and an
   // index extension it skips: ls-files put the warning in front of its
   // first path, and check-attr, sent that, put its own warning in front of
