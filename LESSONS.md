@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: Six cases said a filter did not run, and git would not have run it for two of them
+- What went wrong: the first form of the RS-A-dotpath real-repos test said the filter's marker was absent for six tracked names. A probe of plain git, run before the test was written, had shown that git runs the filter for four of those names and not for `d/b.bin/` and `d/.`. It was caught before the commit, and the mutation list, the Linux runs and the quick check were run again.
+- Why: the names came from the list of shapes the new check refuses, and the "did not run" claim was put on the whole list. The probe's own list of where the filter ran was not used to pick them.
+- Rule going forward: PLAYBOOK "Testing" step 8 once more. The names in a "did not run" case come from a run that shows where the thing does run, and the case then makes it run (here: plain `git status` afterwards, with the marker required). A name outside that list keeps only the claim it can fail.
+- Status: promoted to PLAYBOOK
+
+## 2026-11-13: A filter over a test run's output matched the names of other tests
+- What went wrong: the script that runs the two RS-A-dotpath tests on Linux kept the lines with the text `tracked `, to show which path an assert failed at. The names of an older test hold that text too, so its first use put 43 lines into the conversation where 7 were wanted.
+- Why: the pattern was written from the new tests' assert messages and was not tried against the other names in the test file.
+- Rule going forward: a filter over test output matches the shape of the line wanted from its start (`^# pass`, `^not ok`, `^  error:`), not a word from inside it, and the line count of its first run is read before the output is.
+- Status: open
+
 ## 2026-11-13: The batch that promoted "a sentence is held by a check" added two sentences nothing held
 - What went wrong: batch 4 of RS-A-redirect added an assert with the comment "The set is what the comment says", and the assert walked the codes 1 to 127 and not the six other members of the set. It also marked a round 2 note "untrue of DEL at be6a7d9 and 30656fc", and be6a7d9's test has no set of characters. Round 4 (Opus) found both.
 - Why: the rule was written into LESSONS.md and PLAYBOOK.md in that batch and applied to the finding it came from, not to the batch's own new sentences. The commit name in the mark came from the round 3 report's words about the gap, and that commit's file was not read.
