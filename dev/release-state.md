@@ -16,7 +16,7 @@ RS-A-dotpath merged in PR #57 as 318223d at 2026-11-14 00:15:00Z (19:15 local ti
 
 Version 0.6.3: fixes, no new feature. Bumped where 0.6.2 was: the three `plugin.json` files (both Codex manifest copies among them) and MANUAL.md's version line, by a script of exact pairs. `git grep 0.6.2` outside the CHANGELOG, `dev/`, `SHA256SUMS` and `LESSONS.md` finds nothing after it (CONFIRMED). trailmark-watchdog stays 1.7.0: `git diff v0.6.2..318223d -- tools/windows install.sh install.ps1` is empty (CONFIRMED).
 
-The CHANGELOG section was written from the descriptions of PR #28 to PR #57 (`gh pr list --state merged`, kept as `prs-063.txt`) and from the rows of MANUAL.md's section 16 that changed (`git diff v0.6.2..318223d -- MANUAL.md`). Its lines are checked against the merged code in the review round of this branch. It groups the 17 PRs about time, and the path trim of PR #29, into nine lines, and it names the one change in behavior a user may notice: about 2,000 worktrees now reach `many-worktrees`.
+The CHANGELOG section was written from the descriptions of PR #28 to PR #57 (`gh pr list --state merged`, kept as `prs-063.txt`) and from the rows of MANUAL.md's section 16 that changed (`git diff v0.6.2..318223d -- MANUAL.md`). Its lines are checked against the merged code in the review round of this branch. It groups the 17 PRs about time, and the path trim of PR #29, into nine lines, and it names the changes in behavior a user may notice: about 2,000 worktrees now reach `many-worktrees`, the new limits under `many-config-paths`, and `GIT_CONFIG` no longer handed to git (the last two since review round 1).
 
 ### 0.6.3 release checklist
 
@@ -27,6 +27,29 @@ The CHANGELOG section was written from the descriptions of PR #28 to PR #57 (`gh
 5. The draft's zip, which `release-draft.yml` makes from the merge commit: check that the draft targets the merge commit's full id and holds the zip and its `.sha256`, that the `.sha256` matches `sha256sum`, that the inner sums verify and the zip has no links. Then unzip it, look for strings only this release adds (`"version": "0.6.3"` in all three manifests; `GIT_REDIRECT_STDIN` in both copies of `scripts/lib/gitbin.js`; `parts.includes('.')` in both copies of `scripts/lib/gitfacts.js`), and check that `CLAUDE.md`, `PLAYBOOK.md`, `LESSONS.md` and `dev/` are absent. Record the commit and the zip's sha256 here. Getting the draft's zip is a download, which needs the user's word; a local `--zip <dir>` build from the merge commit shows the same for the tree, not for the draft's file.
 6. Publish: only when the user says so, by name. Before publishing, check that the merge commit's 9 `tests.yml` jobs passed. Publishing the draft makes the tag `v0.6.3` at that commit. Then download the assets back into an empty folder and run `sha256sum -c`.
 7. Still open, for the user: the three rows of the table in section "0.6.2: the release step" ("Still open, for the user"). The first, that the job replaces a draft, can be seen on this release if `main` gets a second push before the publish.
+
+### 0.6.3 review round 1 (docs, `git diff 318223d..ca03b1c`, 2026-11-13)
+
+Two Sonnet reviewers, fresh subagents, each in its own clone under `E:/DevTemp` (`rv-release063-docs-a`, `rv-release063-docs-b`), detached at ca03b1c, the CHANGELOG's subsections split between them. Each clone had an empty `git status --short` and an empty `tmp-review` afterwards (checked here) and was removed. ca03b1c was a local commit, not pushed. Each finding was read against the code here before the batch.
+
+WRONG, five, each CONFIRMED here by the code or the diff, and fixed in the batch:
+
+1. "a link's target (`odd-config-path`)". A link's target, and a pointer, with a name that ends in a dot or a space make `localPath` and `gitdirAt` answer null (`gitbin.js`), and the caller gives its own reason, `network-config` among them. Only a setting, an include and an alternates line answer `odd-config-path`. PR #39's description had "or the caller's reason", and the CHANGELOG line had dropped it.
+2. "missing or not a number above 0 never started over". In v0.6.2 `count(0)` is 0 and `pt > 0` is true, so a point of 0 did start over. Now "missing, negative or not a number".
+3. The docs line gave seven reasons to both MANUAL.md's section 16 and `docs/how-it-works.md`. The second has `odd-path`, `odd-filter-name` and `filter-check` only (`git diff v0.6.2..318223d -- docs/how-it-works.md`).
+4. "Windows commands are written for `pwsh`". MANUAL.md's section 10 says its commands use Windows PowerShell 5.1 on purpose, in a paragraph added since v0.6.2.
+5. "A hook has 5 to 15 seconds". The Codex copy's `hooks.json` has 5, 15 and 20; the Claude Code copy has 5, 10 and 15. Now "5 to 20 seconds, by host and event".
+
+Missing, two, CONFIRMED here, and added:
+
+- `GIT_CONFIG` is dropped from the environment of the git trailmark starts (`DROP_ENV` in `gitbin.js`; v0.6.2's file has no such name; `docs/how-it-works.md` says why). Both reviewers found it.
+- New limits under `many-config-paths`: more than 64 different `lfs.storage` folders, one more after earlier ones held 20,000 entries, more than 16 `core.worktree` values (`MAX_LFS_STORES`, `MAX_STORE_ENTRIES`, `MAX_WORKTREE_VALUES`; none of the three names is in v0.6.2's `gitbin.js`).
+
+COULD BE CLEARER, taken: the filter section's opening says what each of the three needs (a filter in the folder's own config; for the second a variable; for the third an index another program wrote and an attributes line); the redirect line says which two variables let a filter run and that the third left status unread (`outside-worktree`, in the notes of RS-A-filtername's round 3); a config setting "an alias or a `pretty` format aside"; "on Windows" for the 12 seconds; the time section's heading says "crafted input"; the cache search line says it is the `--copies` command that says when it stopped early. Left: the context watch line does not name the 75% trigger.
+
+Held (CONFIRMED by Sonnet, not re-run): every other line of the section against the code of 318223d, with the function or constant named for each; "versions 0.5.0 to 0.6.2" (also CONFIRMED here: the old line is in all five tags, both copies); each code PR has a test, the migration tool none; 0.6.3 is in every place 0.6.2 was; the checklist's strings are in both copies.
+
+Seen in passing, in older notes and not in this diff (INFERRED by Sonnet, not checked here): a bullet of section "RS-A-deepindex" says Claude Code stops a hook at 10 s, and `hooks.json` gives PreCompact 15.
 
 ### Deferred items carried forward into 0.6.3
 

@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: CHANGELOG lines written from PR descriptions lost the descriptions' limits
+- What went wrong: the 0.6.3 CHANGELOG section was written from the descriptions of 30 PRs. The docs review found five lines untrue or too wide: a reason given to a case that gets another one, "5 to 15 seconds" that holds for one copy's hooks, seven reasons given to two docs where one has three of them, "written for `pwsh`" where a section says otherwise, and "not a number above 0" where 0 was fine. Two changes in behavior had no line: `GIT_CONFIG` is no longer handed to git, and three new limits.
+- Why: each line shortened a description, and the shortening dropped a limit ("or the caller's reason") or joined two things (two docs, two hosts). A change made in a later round of a PR was not in the top of that PR's description.
+- Rule going forward: a CHANGELOG line that names a reason, a number, a file or a copy is read against the code or against `git diff <last tag>..HEAD` for that thing before the review. The list of changes in behavior is taken from that diff (new constants, the environment git gets, the rows of MANUAL.md's reason table), not from the PR descriptions alone.
+- Status: open
+
 ## 2026-11-13: The reworded sentence was again wider than what was tried
 - What went wrong: batch 1 of RS-A-dotpath changed "git's own commands don't put such a path in the index" to "don't give a tracked file such a path", in two docs rows and a code comment. Round 2 (Fable) made a sparse index and checked out a hand-made tree with an entry named `.` in a folder outside the cone: `git checkout` took it. No filter ran (git then fails to list the files, and status stays unread). It was the third wording of that sentence, counting one caught before the first commit.
 - Why: each wording said what git never does, from a few commands tried with a full index. Trying commands shows what those commands did, and no number of them shows a "never".
