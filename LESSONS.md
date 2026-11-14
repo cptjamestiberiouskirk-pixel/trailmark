@@ -14,6 +14,60 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: "The cap never changes the root" was tried only where nothing else kept git out
+- What went wrong: round 1's batch said, in SECURITY.md, three comments and the notes, that the cap never changes the repo's root. Round 2 found three kinds of case where it does: where the parent commit already kept git out for another reason (the root was the repo and is the session's folder now), where git fails for a reason of its own on Windows and the cap keeps it out (the reverse), and a session folder that is a junction into another repo.
+- Why: where git gives no answer the parent's root has two sources, the session's folder when git was let try and `localRepoRoot` when git was kept out. The comparison with the parent ran on plain repos at short paths, so it only ever saw the first source, and "never" was written from it.
+- Rule going forward: a comparison of the root with the parent commit runs each shape twice, once plain and once with an older reason to keep git out (a config that includes a share), and on Windows also from a session folder of 300 characters. A sentence with "never" or "always" about what a change does is replaced by the cases tried.
+- Status: open
+
+## 2026-11-14: A reviewer's shape was rebuilt with a shorter path and showed nothing
+- What went wrong: the regression reviewer's junction shape (a folder of repo A that is a junction into repo B) showed no difference in my first run, and I nearly noted the finding as not reproduced. Its junction led to a path of 500 characters, mine to one of 37.
+- Why: Git for Windows goes by where the links lead up to a real path of 250 characters and by the path as given from 256. The docs' sentence "on Windows git works from the path it was started with" came from one run at 4,097 characters and hid that.
+- Rule going forward: a reviewer's repro is rebuilt with the reviewer's own numbers first and varied after. A sentence about what git does with a link on Windows names the lengths it was tried at.
+- Status: open
+
+## 2026-11-13: A new refusal moved the repo's root, and the tests looked at the refusal alone
+- What went wrong: d61366c added the reason `long-path` to the check that `repoRoot` asks first. Review round 1 found that the root changed with it: for a session folder given through a junction (237 characters as written, 4,097 where it leads) git works on Windows, and the root went from the repo to the session folder, so another memory folder. My own runs then found the reverse where git fails: the root went from the session folder to a repo above it.
+- Why: a refusal switches where `repoRoot` takes the root from, git or `localRepoRoot`. The notes said "`localRepoRoot` answers as before", which was true of the function and said nothing about when it is called. The tests asserted the check's answer and, in one case, the function's.
+- Rule going forward: a new reason in `farGitConfig` gets the root compared with the parent commit's, in a fresh process with both sets of scripts, for shapes where git works and for shapes where git fails, before the first push. The tests assert `localRepoRoot` next to each new refusal.
+- Status: open
+
+## 2026-11-13: The root was compared on Windows, and the Linux run came after the mutation list
+- What went wrong: the fix for the entry above gave no root at a gitdir or commondir past the cap, on every system, from probes run on Windows. The Linux run of the tests, made after the whole mutation list, failed, and a probe then showed the batch had moved the root on Linux (a commondir at 4,095 characters or more: the repo above before, the session folder after). The check went to Windows only, a test case changed, and the whole list ran a third time.
+- Why: on Linux nothing at such a path could be read before the cap, so git was already kept out there (`unreadable-config`) and the root already came from `localRepoRoot`. The same line was a new refusal on one system and a renamed one on the other.
+- Rule going forward: a comparison with the parent commit runs on Windows and in WSL with the same probe script before the code is called done, and the other system's test run comes before the mutation list, since a test edit runs the whole list again.
+- Status: open
+
+## 2026-11-13: A time was given for the check, and the hook's first call does more
+- What went wrong: the notes and SECURITY.md said a session folder 15,000 folders down "is refused at once now", from the check called alone (0.00 to 0.15 s). `repoRoot`, which a hook calls first, then walked the same path in `localRepoRoot`: 7.4 to 7.5 s on d61366c against 14.6 to 15.4 s before, so still over a hook's time.
+- Why: the function measured was the one changed, not the one a hook calls. The sentence named what was measured, and the conclusion was read as the hook's.
+- Rule going forward: a time claimed for a refusal is measured through `repoRoot` as well as through the check, and the sentence names both.
+- Status: open
+
+## 2026-11-13: A probe met a depth limit before the line it was written for
+- What went wrong: the first run of the security reviewer's submodule-walk shape answered `deep-gitdir`, not the slow walk. The folder at 15,000 characters was built from 200-character names, 75 levels, and the walk stops at 64.
+- Why: the length was the thing wanted and the depth came with it unseen. A junction's target stops near 4,000 characters in the same way: a probe that needed one at 4,100 failed until it went through two links.
+- Rule going forward: a probe prints the reason it got and is read against the reason it was built for, before its time is used. Length is built from names of 250 characters where a limit on depth stands before the line under test.
+- Status: open
+
+## 2026-11-13: A "cap one higher" probe passed, since the test's folder was two past the cap
+- What went wrong: the new case for the submodule walk had a folder at exactly 4,096 characters and one inside it, at 4,098. The mutation list's probe with the cap at 4,097 passed.
+- Why: a folder inside another is at least two characters longer. The case looked like a boundary pair and was not one.
+- Rule going forward: a boundary case has one item at exactly the limit and one at exactly the limit plus one (here two folders side by side, named `a` and `bb`), and asserts the length of one of them.
+- Status: open
+
+## 2026-11-13: A test's files had names the code passes over, so one line was never reached
+- What went wrong: the RS-A-pathcap test put ten plain files in a submodule gitdir's `objects` to show that their paths are not built. The mutation list's probe that built them again passed. The files were named `e0` to `e9`.
+- Why: in `objects` a name of two hex digits is passed over as a folder of loose objects before the line under test, and `e0` to `e9` are such names. The count of joins was 0 with the line and without it. The helper that made the files was written for another folder, where any name does.
+- Rule going forward: a test's made-up names are read against every filter between the listing and the line under test (here the two-hex pattern), and a count that is expected to be 0 with the fix is shown above 0 with the old line back, for each place it covers, before the mutation list runs.
+- Status: open
+
+## 2026-11-13: A probe's cleanup failed on a chain 15,000 folders deep and printed nothing
+- What went wrong: `measure-members.js` made one folder inside another 15,000 times under `E:/DevTemp` and ended with `fs.rmSync(top, { recursive: true })`. The folder stayed, and the "removed" line the script prints after it never came, since the call threw. It was found only because the run's last line was looked for.
+- Why: the recursive remove goes down one call for each level and gave up on that depth. The script printed its "removed" line after the call, not in a way that an error leaves standing.
+- Rule going forward: a probe that makes a chain of folders removes it from the deepest up with `rmdir`, and a cleanup prints what is left (`removed false` with the path) from inside a `finally`, so that a failed cleanup is a line in the output and not a missing one. A folder left behind is removed by its literal path, by a script that refuses any other.
+- Status: open
+
 ## 2026-11-13: A zip built here had another checksum than the job's zip of the same commit
 - What went wrong: before the 0.6.3 publish, the zip built here from the merge commit had another sha256 than the draft's zip. The notes gave a guessed cause (the two systems pack differently) and left the inside of the draft's file INFERRED until a download.
 - Why: the bytes `git archive` writes for a zip depend on the time zone. The job runs in UTC and this PC does not. `TZ=UTC git archive` here gives the job's bytes. One command would have shown it before the publish.
@@ -180,7 +234,7 @@ Format:
 - What went wrong: the notes of RS-A-filtername round 1 and a handoff gave clock times ("seen 15:10", "not committed at 15:25") that were reckoned from how long the steps had seemed to take. The clock, read later for another reason, said 15:27 where the reckoning had 15:40. The notes were corrected before the commit by reading CI again with the clock; the handoff's time was wrong for one version.
 - Why: the commands that read CI and the bot's state printed no time, and the note was written some steps later.
 - Rule going forward: a command whose result goes in the notes with a time prints the time itself (`date +%H:%M:%S` in front). A time that was not printed is not written.
-- Status: open
+- Status: promoted (PLAYBOOK "At each milestone" step 7). Seen again on 2026-11-14: a heading in a session's notes said "about 00:24" for a report that arrived at 00:54, and one before it was written three minutes ahead of the clock.
 
 ## 2026-11-12: A stand-in for git answered whatever it was asked
 - What went wrong: the first test of RS-A-filtername asked `filterOverrides` with a stand-in for git that gave back the text of settings a case handed it, whatever the call's arguments were. Round 1 (Opus and Fable) found the test passing with the call narrowed to `clean` settings, with `--no-includes` and with `--local`: a filter named `set` with only a `process` setting, or one in an included file, would have run. The cases "its smudge", "its process" and "its required" held the code that reads the answer and nothing of the call. The real repos all defined the filter with `clean` in `.git/config`.

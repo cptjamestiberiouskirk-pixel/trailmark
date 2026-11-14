@@ -113,4 +113,5 @@ Follow the current version's "Release checklist" in `dev/release-state.md`. Olde
 4. Log any mistake, redo or surprise in `LESSONS.md` right away. A lesson seen twice, or clearly general, becomes a step here and is marked "promoted".
 5. A session that ends on an error (a request timeout, say) is resumed at once by the session that started it: check that its branch and worktree are intact, then send it the next step. A review whose report never arrived is run again. Sessions commit before starting a long review, so a stop can lose only that review.
 6. When one session changes another session's PR (auto-merge, a merge), it tells that session in the same step.
+7. A time written in the notes, a handoff or a report is one that a command printed (`date +%H:%M:%S` in front of the command it belongs to). A time that was not printed is not written.
 7. Nothing wakes a session when a PR merges, and sessions don't poll CI. A session never promises to report on something that can't wake it. Its closing line says who acts next and what triggers that.
