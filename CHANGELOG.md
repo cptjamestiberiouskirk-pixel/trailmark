@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.6.3 (Trailmark and trailmark-codex): 2026-11-13
+
+Fixes. Nothing new to set up, and no setting changed. Most are in the checks trailmark makes before it lets git run in a folder, which may be a repo you don't trust. Both copies unless a line says otherwise.
+
+### Filters that could run during the status check
+
+Before a hook reads `git status`, trailmark switches off the filters that the repo's own config defines, since a filter is a command. Three ways around that are closed. Each needs a folder that came with its own `.git/config` or index, such as an unpacked archive or a copied folder. `git clone` writes a new config and a new index and takes neither from the other side.
+
+- A filter named `set`, `unset` or `unspecified`, or one with no name (`*.bin filter=set`, `*.bin filter=`), was not switched off, and its command ran. git reports a file with such a filter in the same words as a file with no filter. It is in versions 0.5.0 to 0.6.2. Now, when a tracked file gets one of those answers, trailmark looks in every config git reads for a filter under those names, and if there is one, status is not read (`odd-filter-name`). A filter so named in your own config skips status too, and renaming it brings status back (MANUAL.md, section 16).
+- Git for Windows reads `GIT_REDIRECT_STDIN`, `GIT_REDIRECT_STDOUT` and `GIT_REDIRECT_STDERR` from its environment. With one of them set in the session's environment, a check trailmark makes before `git status` got no answer or a wrong one, and a filter of the repo's ran. trailmark now starts git without those three variables. It also takes the list only when it has one answer for each file asked about, in the order asked, and otherwise status is not read (`filter-check`).
+- An index written by a program other than git can name a tracked file with an empty part or a part that is a single dot (`d//f`, `d/./f`). For such a path git reported no filter where an attributes line of the same text named one, and `git status` then ran it. Such a path now keeps status unread (`odd-path`). `git add` doesn't write such a path.
+
+One more fix here ran nothing: a repo config with a setting `filter.lfs.constructor` stopped the status check with an error, and the PreCompact hook ended without its snapshot. Such a setting is now handled like any other setting a repo adds under `filter.lfs.`: the lfs filter is switched off for that call.
+
+### Windows: a name that is opened under another name
+
+- On Windows the checks kept track of the files and folders they had seen by lower-cased name. Two names that Windows keeps apart, such as `k` and the Kelvin sign, became one, and the second was passed over without a look. Seen files and folders are now told apart by their exact path.
+- Windows opens a name that ends in a dot or a space under the name without it, and the checks looked for the name as written. Such a name is now refused where a path comes from a repo: in a config setting, an include, an alternates line, a pointer and a link's target (`odd-config-path`), and in the session folder's or a nested repo's path (`odd-path`). A tracked file or folder with such a name keeps status unread (`odd-path`), so a repo on Windows whose index holds one gets no file list in its snapshot.
+
+### Time: crafted repos that kept a hook busy
+
+A hook has 5 to 15 seconds. Each of these let a crafted repo or state file use more than that before the check answered, so the hook was stopped or the session waited. None of them ran a command of the repo's.
+
+- A config value with a very long run of encoded line breaks, and a path value longer than any system opens (32,767 characters), are refused at once.
+- Many path values in a config file are checked once each, and past a limit on the work git is kept out (`many-config-paths`, a new reason in MANUAL.md, section 16).
+- A folder that `lfs.storage` names, and an LFS store next to an alternate, is walked once. Following links counts toward the limit.
+- A repo's settings, its alternates, its other worktrees and every `.git` found on the way up from the session's folder now share one limit on the work.
+- A change you may notice: about 2,000 worktrees made by `git worktree add` now reach that limit (`many-worktrees`), where up to 10,000 were let through before. `git worktree prune` removes the entries whose folders are gone (MANUAL.md, section 16).
+- The hook's time is now looked at before each config file is read, each folder with a `.git` is checked and each folder of tracked files is looked at, and while the repo for a hook is found. Out of time, git is not run and the snapshot says `git-timeout`.
+- Finding the folders of tracked files took time that grew with the square of their depth: 1,500 files in a folder 1,500 deep took 12 seconds. It now follows the size of git's list.
+- A crafted session state made a checkpoint read one of its maps again for every folder while holding the lock. It is read in one pass. A long run of slashes or backslashes at the end of a path is trimmed in one pass too, in the plugin and in `tools/migrate-from-jb-memory.js`.
+- The search for an old `jb-memory-codex` in Codex's plugin cache stops after 1,000 folders and says that it stopped early.
+
+### Context watch (Claude Code only)
+
+- Two context-watch hooks running at once no longer both ask for a checkpoint after a compaction, after the context shrinks, or when the transcript was not read that far. 0.6.2 covered the first request only.
+- A session whose auto-compact window flipped between 200k and a bigger one got the checkpoint request again on every flip back. A bigger window now starts the steps over only once the context reaches one of its steps.
+- A saved state whose compaction point is missing or not a number above 0 never started over when the window grew. It now starts over at the next step it reaches and asks once more. Only a state file edited by hand has this.
+
+### Codex skills (Codex copy only)
+
+- The six skills now say what to do when a session-start note has no path after "Launcher:", a note cut to fit included.
+
+### Docs
+
+- README.md: a "What you need" table for each host and system, install steps and a quick start for Codex, and pointers for updating and uninstalling.
+- MANUAL.md says where Codex differs from Claude Code, in sections 2 to 6, 8, 11, 13, 14 and 15. Windows commands are written for `pwsh`.
+- SECURITY.md has a new subsection, "What the sandbox is, and what it needs": the sandbox is Node's permission model (`node --permission`), not Windows Sandbox.
+- MANUAL.md section 16 and `docs/how-it-works.md` have the new and changed reasons: `many-config-paths`, `many-worktrees`, `many-entries`, `odd-path`, `odd-config-path`, `odd-filter-name` and `filter-check`.
+
+### Tests
+
+- Each fix in the plugin's code has a test that fails on the code before it. The migration tool has no test file, so its change was checked by comparing the old and the new trim on the same texts.
+
 ## 0.6.2 (Trailmark and trailmark-codex): 2026-11-09
 
 Fixes and wording. Nothing new to set up, and no setting changed.
