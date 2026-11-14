@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: A zip built here had another checksum than the job's zip of the same commit
+- What went wrong: before the 0.6.3 publish, the zip built here from the merge commit had another sha256 than the draft's zip. The notes gave a guessed cause (the two systems pack differently) and left the inside of the draft's file INFERRED until a download.
+- Why: the bytes `git archive` writes for a zip depend on the time zone. The job runs in UTC and this PC does not. `TZ=UTC git archive` here gives the job's bytes. One command would have shown it before the publish.
+- Rule going forward: build a zip that is to be compared with the job's with `TZ=UTC` in front. When two builds of one commit differ, test a cause with a command before writing it down.
+- Status: open
+
 ## 2026-11-13: CHANGELOG lines written from PR descriptions lost the descriptions' limits
 - What went wrong: the 0.6.3 CHANGELOG section was written from the descriptions of 30 PRs. The docs review found five lines untrue or too wide: a reason given to a case that gets another one, "5 to 15 seconds" that holds for one copy's hooks, seven reasons given to two docs where one has three of them, "written for `pwsh`" where a section says otherwise, and "not a number above 0" where 0 was fine. Two changes in behavior had no line: `GIT_CONFIG` is no longer handed to git, and three new limits.
 - Why: each line shortened a description, and the shortening dropped a limit ("or the caller's reason") or joined two things (two docs, two hosts). A change made in a later round of a PR was not in the top of that PR's description.
