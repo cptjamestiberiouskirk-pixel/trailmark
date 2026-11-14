@@ -14,6 +14,48 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: A rule was coded wider than the one reasoned in the notes, and refused a tracked `.gitkeep`
+- What went wrong: RS-A-linkgit's first push made every failed lookup by name that says "no access" keep git out. Review round 1 found it loses the file list for a tracked `.gitkeep` in a folder of mode 0000 (a docker volume folder), where the commit before answered `''` and `git status` works. The notes already held the narrower reasoning for listings: a folder this user may not enter holds nothing git can open. It was coded for listings only.
+- Why: the exception was written as "a listing in a folder nobody may enter", from the one probe that made it, and the lookups by name were not asked the same question. No test put a name, as opposed to a listing, in such a folder.
+- Rule going forward: when an exception to a new refusal is found for one kind of lookup, ask it of every other kind before coding, and write an on-disk case for each kind that can fail that way.
+- Status: open
+
+## 2026-11-14: A text case asserted a refusal for a shape git handles
+- What went wrong: the RS-A-relpath test asserted `unreadable-path` for a tracked path past the system's limit with nothing of it on disk. That is a deleted tree, which `git status` lists as deleted, and the commit before answered `''` (review round 1, F2). The test passed, so it locked the wrong answer in.
+- Why: the case was made cheap (no folders to build) and its expected answer came from the code, not from git run on the same shape.
+- Rule going forward: a case that asserts a refusal names what git itself does on that exact shape, from a run. Where the on-disk shape and the text shape differ in what is there, both are cases, each with its own expected answer.
+- Status: open
+
+## 2026-11-14: The class was listed by the names of calls in one file, and a caller in the other was missed
+- What went wrong: RS-A-linkgit's class list had every `lstat`, `stat`, `readdir` and `realpath` of the two library files. `localPath` hands back text where a part could not be looked at and sets a flag that only `allSeen` reads. `gitfacts.js` called `localPathFrom` for a tracked folder that is a link outside `allSeen`, so the flag was dropped and status was read (review round 1; older than the item, CONFIRMED here at 4,096 to 4,103 bytes).
+- Why: the list was made by searching for the system calls, and the new flag added a second way to be in the class: a caller of a function that reports through the flag.
+- Rule going forward: when a fix reports through a new channel (a flag, a return value, a thrown reason), list every caller of the functions that use it, in every file, and say for each how it reads the channel.
+- Status: open
+
+## 2026-11-14: A test assumed no repo above the temp folder
+- What went wrong: test 2 of RS-A-linkgit expected `''` from `localRepoRoot` for a folder whose `.git` can't be looked at. Two reviewers ran it with the temp folder inside their clone, as their brief said, and it failed there: the answer was the clone.
+- Why: the expected value was a constant where the code's answer depends on what is above the test's folder. `dev/release-check.sh` and CI keep the temp folder outside a repo, so it passed here.
+- Rule going forward: an expected value that depends on the folders above the test's own is asked of the code without the stub, not written as a constant. A review brief puts the temp folder outside the clone, or says that tests may see the clone above them.
+- Status: open
+
+## 2026-11-14: An older test measured what a fix added, and only the quick check showed it
+- What went wrong: F2's fix in RS-A-linkgit's round 1 batch skipped the tracked folders below one that is not on disk and kept their paths in a Set. The item's own tests and the mutation list passed on Linux and Windows. `dev/release-check.sh --sums --quick` then failed: the RS-A-deepindex test lists the folders looked at with nothing on disk and counts the characters put into Maps and Sets, and the fix changed both. The fix was reworked to keep "not there" on the tree's own entries, the test got its folders on disk, and every run made before had to be made again.
+- Why: the tests run by name were the item's. No search was made for the other tests that call the changed function with its lookups counted or stubbed.
+- Rule going forward: before coding a change inside a function, search the test file for the tests that call it or count its work, and put their names in the `--only` pattern from the first run on.
+- Status: open
+
+## 2026-11-14: The inline backslash rule was broken twice more in one hour
+- What went wrong: two rewrites of RS-A-linkgit's mutation script were sent as an inline `node -e` holding `\\\x27` and then `\\n`. The Bash tool collapsed both. The second left real line breaks inside string literals, and the script did not parse until it was repaired with the Edit tool.
+- Why: each was "one small rewrite" of a scratch file, so the promoted rule (PLAYBOOK "Writing code and docs" step 4, and the Windows notes) was not thought to apply.
+- Rule going forward: no new rule. A text with a backslash in it never goes in an inline command, a scratch file's rewrite included: the Edit tool does it.
+- Status: open
+
+## 2026-11-14: A probe that stopped on an error left its folder, and times in the notes were guessed
+- What went wrong: `probe-sf1.js` threw at a length `ln` could not make, before its own removal of the folder it made in WSL's /tmp, and the removal typed by hand afterwards was stopped by the harness's safety check (an `rm -rf` inside a `bash -lc` text). The folder `/tmp/probe-sf1-X43AWu` is left for the user. In the same hour the notes got "about 14:20" and "about 14:30" for things that happened before 14:10.
+- Why: the probe removed its folder on its last line, not in a `finally`. The times were written from a feeling for how long the work took.
+- Rule going forward: a probe removes what it made in a `finally`. A time in the notes is read from the clock in the same command that made the output.
+- Status: open
+
 ## 2026-11-14: A change was told on Linux by a test written for something else, and on Windows by none
 - What went wrong: in RS-A-linkgit's mutation list, "a part that was not seen replaces another reason" carried the label "no test has to tell it". Linux told it through the RS-A-pathcap test; on Windows it passed. The first two cases written for it failed on the fix itself: both put the other reason where the check finds it before it looks at the part.
 - Why: the label hid that the line holds a decision (a reason found wins over `unreadable-path`). The order of the steps inside the check was assumed for the two cases, not read.
