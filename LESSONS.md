@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: A stub row for a look nobody makes passed on every version
+- What went wrong: RS-A-linkgit's round 1 batch added the row "below a tracked folder that is not there: a submodule below it". It fails a look at the submodule's own folder and expects that the look is not made. No version makes that look (the first one is at the submodule's `.git`), so the row passed on the commit before the fix too. The Windows mutation run had shown it: the probe for that line passed. A second row was added for the `.git`, and the dead one stayed until two reviewers of round 2 named it.
+- Why: a probe that passes was read as "this system needs another row", not as "this row tells nothing".
+- Rule going forward: a row that expects a look is not made is first run on the code before the fix, where the stub must fire. When a mutation probe passes, the row that should have told it is removed or repaired before another is added.
+- Status: open
+
+## 2026-11-14: The notes deferred five looks as a known limit, and the shipped doc named three
+- What went wrong: RS-A-leftlooks and RS-A-unseencallers were deferred in dev/release-state.md with the words "what SECURITY.md calls a known limit". SECURITY.md's sentence named three of those looks. The docs reviewer of round 2 found the two that were missing and the callers outside `allSeen`.
+- Why: the deferred item was written after the doc's sentence, and the sentence was not read again.
+- Rule going forward: an item deferred as a known limit of shipped behavior gets its line in the shipped doc in the same step, and the notes quote that line.
+- Status: open
+
 ## 2026-11-14: A rule was coded wider than the one reasoned in the notes, and refused a tracked `.gitkeep`
 - What went wrong: RS-A-linkgit's first push made every failed lookup by name that says "no access" keep git out. Review round 1 found it loses the file list for a tracked `.gitkeep` in a folder of mode 0000 (a docker volume folder), where the commit before answered `''` and `git status` works. The notes already held the narrower reasoning for listings: a folder this user may not enter holds nothing git can open. It was coded for listings only.
 - Why: the exception was written as "a listing in a folder nobody may enter", from the one probe that made it, and the lookups by name were not asked the same question. No test put a name, as opposed to a listing, in such a folder.
