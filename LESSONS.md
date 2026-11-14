@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: A doc sentence was written for every shape from a run of one
+- What went wrong: batch 2 of RS-A-linkgit added to SECURITY.md that a submodule in a folder you may not enter still keeps status unread. The run behind it was a submodule made with `git submodule add`. Round 3's docs reviewer ran a gitlink with no gitdir in `.git/modules` and got `''`: the sentence was false for that shape. The same batch said a submodule below a missing folder still counts toward the limit, with no test behind it.
+- Why: the sentence was worded from the finding's title, not from the probe's shape, and no second shape was run.
+- Rule going forward: a sentence added to a shipped doc names the shape that was run, or the neighbour shapes are run first. A sentence that states a behavior gets a test or a probe named in the notes in the same batch.
+- Status: open
+
 ## 2026-11-14: A stub row for a look nobody makes passed on every version
 - What went wrong: RS-A-linkgit's round 1 batch added the row "below a tracked folder that is not there: a submodule below it". It fails a look at the submodule's own folder and expects that the look is not made. No version makes that look (the first one is at the submodule's `.git`), so the row passed on the commit before the fix too. The Windows mutation run had shown it: the probe for that line passed. A second row was added for the `.git`, and the dead one stayed until two reviewers of round 2 named it.
 - Why: a probe that passes was read as "this system needs another row", not as "this row tells nothing".
