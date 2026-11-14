@@ -350,23 +350,30 @@ const MAX_GIT_PATH = 4096;
 // name too long that was tried and never ENAMETOOLONG, so there it always
 // counts as not there.
 const MAX_SYS_PATH = WIN ? Infinity : (process.platform === 'linux' || process.platform === 'android') ? 4095 : 1022;
-function notThere(e, p) {
+function gone(e, p) {
   const code = e && e.code;
   return code === 'ENOENT' || code === 'ENOTDIR' || (code === 'ENAMETOOLONG' && Buffer.byteLength(String(p)) <= MAX_SYS_PATH);
 }
-// A folder d whose listing failed, and whether that says git finds nothing
-// in it: it is not there (notThere), or, outside Windows, this user may not
-// enter it (EACCES, and no search right on d: then no name in it opens, by
-// any path, and git passes it over as well). A folder that can be entered
-// and not listed (mode 0111) is not such a folder: its names open. On
-// Windows every folder can be passed through, so there a listing that fails
-// for any reason but "not there" is never taken as nothing. d must have been
-// found in a folder that was itself looked at by its whole path.
-function nothingIn(e, d) {
-  if (notThere(e, d)) return true;
+// Outside Windows: the failure was "no access" and this user may not enter
+// the folder d (no search right on it, or on one above it). Then no name in
+// d opens for this user by any path, and git, which runs as the same user,
+// opens nothing there either. A folder that can be entered and not listed
+// (mode 0111) is not such a folder: its names open. On Windows every folder
+// can be passed through, so this never holds there.
+function shut(e, d) {
   if (WIN || !e || e.code !== 'EACCES') return false;
   try { fs.accessSync(d, fs.constants.X_OK); return false; } catch (e2) { return !!e2 && e2.code === 'EACCES'; }
 }
+// A look at the name p that failed, and whether that says git finds nothing
+// there: the system says so (gone), or the folder that holds the name is
+// shut. A tracked `.gitkeep` in a folder of mode 0000 answered
+// unreadable-path without the second half, where `git status` reads its
+// list and warns (found in review round 1).
+function notThere(e, p) { return gone(e, p) || shut(e, path.dirname(String(p))); }
+// A folder d whose listing failed, and whether that says git finds nothing
+// in it: notThere, or d itself is shut. On Windows a listing that fails for
+// any reason but "not there" is never taken as nothing.
+function nothingIn(e, d) { return notThere(e, d) || shut(e, d); }
 // Set by localPath when it stopped at a part it could not look at (and not
 // because nothing is there). localPath still hands back the rest as text, as
 // for a part that isn't there, so its callers outside these checks get what
@@ -902,7 +909,7 @@ function onlyFiles(d) {
 // not a folder), 'odd-path' when it is still there. On a file system that
 // reports no entry types, Node lstat's each name it decoded, and a name that
 // isn't valid UTF-8 then fails as ENOENT: the folder would be passed over
-// unchecked though git can read it. A folder no one may enter is passed over
+// unchecked though git can read it. A folder this user may not enter is passed over
 // as before: git can't open a name in it either (nothingIn). One that can't
 // be listed for another reason (it can be entered but not listed, its path
 // is too long as a whole) is not: git may still open the names in it, so
@@ -1685,4 +1692,4 @@ function farLfsEntries(entries, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn };
+module.exports = { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };
