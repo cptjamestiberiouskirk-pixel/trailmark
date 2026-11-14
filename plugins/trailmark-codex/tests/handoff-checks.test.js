@@ -1397,12 +1397,15 @@ test('git pointers: nothing at a path longer than git opens is listed or walked 
   assert.deepStrictEqual(check(alternate(pathOf(path.join(base, 'a97'), CAP + 1))), { why: 'long-path', listed: 0, looked: 0 });
 
   // The repo's root, found without git when git is kept out (localRepoRoot,
-  // for the memory folder). The cases below, where nothing else keeps git
-  // out, keep it where it was before the cap. git can't be started in a
-  // folder at a path past the cap, and the root was that folder itself:
-  // none is found there, and nothing on the path is looked at (for a folder
-  // 15,000 levels down that took 7.5 s). A folder as a text, in a repo: at
-  // 4,096 characters the repo is found, at 4,097 none.
+  // for the memory folder). The cases below assert localRepoRoot's answer
+  // and the check's reason. The root a session gets (repoRoot) is not
+  // asserted here: where git is let try and fails with an error it is the
+  // session's folder, whatever localRepoRoot answers, and SECURITY.md lists
+  // where the cap moved it. git can't be started in a folder at a path past
+  // the cap, and the root was that folder itself: none is found there, and
+  // nothing on the path is looked at (for a folder 15,000 levels down that
+  // took 7.5 s). A folder as a text, in a repo: at 4,096 characters the repo
+  // is found, at 4,097 none.
   const rooted = repo();
   assert.strictEqual(check(pathOf(path.join(rooted, 'in'), CAP), localRepoRoot).why, rooted);
   assert.deepStrictEqual(check(pathOf(path.join(rooted, 'in'), CAP + 1), localRepoRoot), { why: '', listed: 0, looked: 0 });
@@ -1431,11 +1434,12 @@ test('git pointers: nothing at a path longer than git opens is listed or walked 
   // in QT is at 4,096 or 4,097 characters, and at a short path through L.
   // Outside Windows git works from where the link leads and fails to stat
   // past the cap: git is kept out and no root is found (the root was the
-  // folder as given). On Windows git works from the path as given, and in
-  // such a folder it found the repo above it and read status: where the link
-  // leads is not capped, and the root is found from there, as before. Not
-  // on macOS, where a path stops at 1,024 bytes (from its headers, not
-  // tried), so QT can't be made by its whole path.
+  // folder as given). On Windows git went by the path as given where the
+  // link led to 256 characters or more, as it does here, and in such a
+  // folder it found the repo above it and read status: where the link leads
+  // is not capped, and the root is found from there, as before. Not on
+  // macOS, where a path stops at 1,024 bytes (from its headers, not tried),
+  // so QT can't be made by its whole path.
   if (process.platform !== 'darwin') {
     const Q = repo();
     const QT = pathOf(path.join(Q, 't'), 3900);

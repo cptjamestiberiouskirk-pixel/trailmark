@@ -14,6 +14,24 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: A sentence about where the root comes from left out one of the function's exits
+- What went wrong: round 2's batch wrote in SECURITY.md "Where git fails the root is the session's folder, and where git is kept out the root is found without git". `repoRoot` also finds the root without git when git times out, or when too little time is left to start it. Two reviewers of round 3 found it.
+- Why: the sentence was written from the two kinds of case the probes ran. No probe had a git that timed out, and the function was not read against the sentence.
+- Rule going forward: a sentence that says where a function's answer comes from is read against each `return` of that function before it goes in, and it names each one or says which it leaves out.
+- Status: open
+
+## 2026-11-14: A step was added after the list's sixth step, and the list had a seventh
+- What went wrong: round 2's script added a step 7 to PLAYBOOK.md's "At each milestone" after step 6. An older step 7 followed, so the commit had two steps with that number. Two reviewers of round 3 found it.
+- Why: the script asserted that its anchor, step 6, occurred once. That says nothing about what follows the anchor, and I took step 6 for the list's last without reading on.
+- Rule going forward: a script that adds an item to a numbered list prints the lines before and after the new item, and the numbers are read in order before the commit.
+- Status: open
+
+## 2026-11-14: "Tried up to 300 characters" named no lengths, one commit after the rule that asks for them
+- What went wrong: the same commit that logged "a sentence about what git does with a link on Windows names the lengths it was tried at" wrote "tried up to 300 characters" in SECURITY.md. The probe ran nine lengths from 256 to 300, the notes named none of them, and the sentence did not say that 255 gave an error and 251 to 254 were not run.
+- Why: the doc sentence was written before the rule and not read again after it. The notes summed the probe's output up as "from 256".
+- Rule going forward: PLAYBOOK "Writing code and docs" step 13.
+- Status: promoted (PLAYBOOK "Writing code and docs" step 13). Seen first in the entry "A reviewer's shape was rebuilt with a shorter path and showed nothing" below.
+
 ## 2026-11-14: "The cap never changes the root" was tried only where nothing else kept git out
 - What went wrong: round 1's batch said, in SECURITY.md, three comments and the notes, that the cap never changes the repo's root. Round 2 found three kinds of case where it does: where the parent commit already kept git out for another reason (the root was the repo and is the session's folder now), where git fails for a reason of its own on Windows and the cap keeps it out (the reverse), and a session folder that is a junction into another repo.
 - Why: where git gives no answer the parent's root has two sources, the session's folder when git was let try and `localRepoRoot` when git was kept out. The comparison with the parent ran on plain repos at short paths, so it only ever saw the first source, and "never" was written from it.
