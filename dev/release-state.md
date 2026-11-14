@@ -51,6 +51,22 @@ Held (CONFIRMED by Sonnet, not re-run): every other line of the section against 
 
 Seen in passing, in older notes and not in this diff (INFERRED by Sonnet, not checked here): a bullet of section "RS-A-deepindex" says Claude Code stops a hook at 10 s, and `hooks.json` gives PreCompact 15.
 
+### 0.6.3 review round 2 (docs, `git diff ca03b1c..c7de57c`, 2026-11-13)
+
+One Sonnet reviewer, a fresh subagent, in its own clone `E:/DevTemp/rv-release063-docs-r2`, detached at c7de57c, on the 11 changed CHANGELOG lines and the subsection "0.6.3 review round 1" above. The clone had an empty `git status --short` and an empty `tmp-review` afterwards (checked here) and was removed. c7de57c was a local commit, not pushed.
+
+WRONG: none. That meets the stop rule for this branch: nothing CONFIRMED wrong in the text changed since round 1.
+
+COULD BE CLEARER, three, left as they are (a change to the CHANGELOG would need the checksums and a review again, and none of the three leads a user to a wrong action):
+
+1. The filter section's opening says "Each needs a filter that the folder's own `.git/config` defines". With `GIT_REDIRECT_STDOUT` alone no filter is needed: status was left unread. The redirect line under it says so.
+2. The cache search line names the stop after 1,000 folders. `oldCodexCopies` in `lib/health.js` also stops at 200 entries a folder and at 10 copies (`maxEntries = 200`, `maxCopies = 10`, `maxFolders = 1000`, read here), and the Codex copy's session-start warning says "or more" after an early stop too (`oldMore` in `hook-session-start.js`, read here). The CHANGELOG's 0.6.1 section names the stop at 10 folders and the "or more"; no section names the 200 entries.
+3. The docs line gives `docs/how-it-works.md` three reasons. The same diff also adds that file's sentence about `GIT_CONFIG`, which the CHANGELOG names in the filter section only.
+
+Held (CONFIRMED by Sonnet, not re-run, except where round 1 says CONFIRMED here): each of the 11 lines, with the function or constant named; the subsection "0.6.3 review round 1". Not checked by the reviewer: the wording of PR #39's description, and "all five tags" (its clone had no remote; the tags were read here in round 1).
+
+`dev/release-check.sh --sums --quick` on c7de57c's files: every line PASS, exit 0, 19:32:29 to 19:39:08 local time, handoff-checks 229 of 318 pass with 89 skipped (393 s), the two long suites skipped by `--quick`. It changed five lines of `SHA256SUMS`: CHANGELOG.md, MANUAL.md and the three `plugin.json` files (`git diff --numstat -- SHA256SUMS` gives 5 and 5). This subsection was written after that run, and `dev/` is not in `SHA256SUMS`.
+
 ### Deferred items carried forward into 0.6.3
 
 The user still sees every one. Each keeps its label, commit and repro where it is written. None is pulled into 0.6.3. None of the items in the first three bullets is flagged as serious; the last bullet names an older one that is.
