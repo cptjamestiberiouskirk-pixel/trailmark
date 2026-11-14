@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: A scan that could not run printed the all-clear
+- What went wrong: after PR 63's text was rebuilt, one command scanned it for dashes with `grep -nP '...' file || echo "no dashes"` and then sent it with `gh pr edit`. This grep refused the pattern (exit 2), so `||` printed "no dashes" and the text went out unscanned. A second scan, with node, found none. Minutes before, the handoff was read from the scratch folder and answered "version: none", since the command takes the repo from its working folder.
+- Why: `||` takes every exit but 0 as "nothing found", and the send was chained after the scan in the same command.
+- Rule going forward: a scan prints its own count from what it read ("N lines, 0 to look at"), never an all-clear from `||`. What it guards (a send, a push, a commit) goes in a later step, after the count is read. A trailmark command runs from the worktree root.
+- Status: open
+
 ## 2026-11-14: A doc sentence was written for every shape from a run of one
 - What went wrong: batch 2 of RS-A-linkgit added to SECURITY.md that a submodule in a folder you may not enter still keeps status unread. The run behind it was a submodule made with `git submodule add`. Round 3's docs reviewer ran a gitlink with no gitdir in `.git/modules` and got `''`: the sentence was false for that shape. The same batch said a submodule below a missing folder still counts toward the limit, with no test behind it.
 - Why: the sentence was worded from the finding's title, not from the probe's shape, and no second shape was run.
