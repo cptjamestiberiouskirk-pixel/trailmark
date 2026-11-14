@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: A test's files had names the code passes over, so one line was never reached
+- What went wrong: the RS-A-pathcap test put ten plain files in a submodule gitdir's `objects` to show that their paths are not built. The mutation list's probe that built them again passed. The files were named `e0` to `e9`.
+- Why: in `objects` a name of two hex digits is passed over as a folder of loose objects before the line under test, and `e0` to `e9` are such names. The count of joins was 0 with the line and without it. The helper that made the files was written for another folder, where any name does.
+- Rule going forward: a test's made-up names are read against every filter between the listing and the line under test (here the two-hex pattern), and a count that is expected to be 0 with the fix is shown above 0 with the old line back, for each place it covers, before the mutation list runs.
+- Status: open
+
+## 2026-11-13: A probe's cleanup failed on a chain 15,000 folders deep and printed nothing
+- What went wrong: `measure-members.js` made one folder inside another 15,000 times under `E:/DevTemp` and ended with `fs.rmSync(top, { recursive: true })`. The folder stayed, and the "removed" line the script prints after it never came, since the call threw. It was found only because the run's last line was looked for.
+- Why: the recursive remove goes down one call for each level and gave up on that depth. The script printed its "removed" line after the call, not in a way that an error leaves standing.
+- Rule going forward: a probe that makes a chain of folders removes it from the deepest up with `rmdir`, and a cleanup prints what is left (`removed false` with the path) from inside a `finally`, so that a failed cleanup is a line in the output and not a missing one. A folder left behind is removed by its literal path, by a script that refuses any other.
+- Status: open
+
 ## 2026-11-13: A zip built here had another checksum than the job's zip of the same commit
 - What went wrong: before the 0.6.3 publish, the zip built here from the merge commit had another sha256 than the draft's zip. The notes gave a guessed cause (the two systems pack differently) and left the inside of the draft's file INFERRED until a download.
 - Why: the bytes `git archive` writes for a zip depend on the time zone. The job runs in UTC and this PC does not. `TZ=UTC git archive` here gives the job's bytes. One command would have shown it before the publish.

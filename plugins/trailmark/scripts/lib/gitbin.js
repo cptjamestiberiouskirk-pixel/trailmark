@@ -313,6 +313,21 @@ const UNSAFE = Symbol('unsafe');
 // and a value of 130,000 parts overflowed the stack (RS-A-longpath,
 // RS-A-spread).
 const MAX_PATH_TEXT = 32767;
+// The longest path a system takes is far shorter: 4,096 bytes on Linux and
+// 1,024 on macOS (from its headers, not tried), and git 2.56.1 opened no
+// repo past it when tried (on Linux
+// `git rev-parse --git-dir` in a repo at 4,254 bytes failed to stat; on
+// Windows a .git past about 260 characters was refused by each way tried,
+// with core.longpaths on too). Node on Windows opens such a path, and what
+// the checks do there takes longer the longer the path is: a join works
+// through the whole text for each entry, and a look at the disk takes
+// longer. Limits that count entries let seconds through: 30,000 files in a
+// gitdir at a path of 16,100 characters took 4.3 s, an alternate at 30,000
+// with as many 9.6 s, and a session folder 15,000 levels down 8.3 s. So no
+// folder at a longer path is listed or walked: git is kept out, long-path
+// (RS-A-pathcap). Counted in characters, which are never more than the
+// bytes.
+const MAX_GIT_PATH = 4096;
 // p with every link on the way read and replaced by its target, one part at
 // a time from the root; null when a link leads to a network path or the
 // links loop. Parts that don't exist are kept as they are.
@@ -864,6 +879,10 @@ function linkedEntriesIn(gitdir, { objectsRoot = false, lfsStore = false, tally 
   // or a submodule's under modules/, so a submodule's own refs aren't taken
   // for one.
   const walk = (d, rel, depth, budget, top = '') => {
+    // No folder at a path longer than git opens is listed (MAX_GIT_PATH):
+    // the gitdir itself, a folder in it, where a link led, an lfs.storage
+    // folder or an alternate.
+    if (d.length > MAX_GIT_PATH) return 'long-path';
     const below = top ? rel.slice(top.length + 1) : rel;
     let list;
     try { list = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return unlisted(d, e); }
@@ -886,6 +905,11 @@ function linkedEntriesIn(gitdir, { objectsRoot = false, lfsStore = false, tally 
         if (why) return why;
         continue;
       }
+      // A plain file is never followed, so it is passed over before its
+      // path is built: the join works through the folder's whole path, and
+      // 99,000 files in a gitdir at a path of 3,850 characters took 3.4 s
+      // (RS-A-pathcap).
+      if (!x.isDirectory() && !x.isSymbolicLink()) continue;
       let sub = path.join(d, x.name);
       let key = sub;
       let isDir = x.isDirectory();
@@ -1013,6 +1037,9 @@ function otherWorktrees(wt) {
   const top = realFolder(wt);
   if (top.why) return top.why;
   if (!top.dir) return '';
+  // Where the folder leads, at a path longer than git opens (MAX_GIT_PATH):
+  // not listed. A link can lead there from a short path.
+  if (top.dir.length > MAX_GIT_PATH) return 'long-path';
   let names;
   try { names = fs.readdirSync(top.dir); } catch { return ''; }
   if (names.length > MAX_WORKTREES) return 'many-worktrees';
@@ -1028,6 +1055,8 @@ function otherWorktrees(wt) {
     const r = realFolder(path.join(top.dir, n));
     if (r.why) return r.why;
     if (!r.dir) continue;
+    // The same for where an entry leads: its pointers are not read there.
+    if (r.dir.length > MAX_GIT_PATH) return 'long-path';
     const bases = [...new Set([d, path.join(top.dir, n), r.dir])];
     // A pointer's text is worked on before it is walked (checked, then
     // joined to each folder it is tried from), and the walk counts only what
@@ -1147,12 +1176,18 @@ function farGit(gitEntry, out = {}, { light = false, locate = false, work = null
     gitdir = gitdirAt(path.dirname(gitdir), t.slice(8));
     if (!gitdir) return 'network-gitdir';
   } else if (!st.isDirectory()) return '';
+  // A gitdir, or the folder its commondir names, at a path longer than git
+  // opens (MAX_GIT_PATH): nothing is read, listed or counted there. Not
+  // where the repo's root is only being found (locate): that answer is the
+  // same as before.
+  if (!locate && gitdir.length > MAX_GIT_PATH) return 'long-path';
   const dirs = [gitdir];
   const common = readSmall(path.join(gitdir, 'commondir'), 4096);
   if (common === UNSAFE) return 'unreadable-config';
   if (common !== null && common.replace(/[\r\n]+$/, '')) {
     const c = gitdirAt(gitdir, common);
     if (!c) return 'network-gitdir';
+    if (!locate && c.length > MAX_GIT_PATH) return 'long-path';
     dirs.push(c);
   }
   out.gitdir = gitdir;
@@ -1309,6 +1344,7 @@ function moduleGitdirs(root) {
     for (const x of list) {
       if (/^[0-9a-f]{2}$/i.test(x.name)) continue;
       if (x.name.includes('\uFFFD')) { if (x.isFile()) continue; why = 'odd-path'; return; }
+      if (!x.isDirectory() && !x.isSymbolicLink()) continue;
       const f = follow(od, x);
       if (!f) return;
       if (f.dir) walk(f.p, depth + 1, f.key);
@@ -1338,6 +1374,10 @@ function moduleGitdirs(root) {
       // A gitdir's own refs (refs/remotes/origin holds a HEAD too), logs, lfs
       // and hooks hold no submodule gitdir; its objects/ may (objectsIn).
       if (isGitdir && /^(refs|lfs|logs|hooks)$/.test(x.name)) continue;
+      // A plain file is passed over before its path is built, as in
+      // linkedEntries: 99,000 files under modules/ at a path of 3,800
+      // characters took 3.4 s here too (RS-A-pathcap).
+      if (!x.isDirectory() && !x.isSymbolicLink()) continue;
       const f = follow(d, x);
       if (!f) return;
       if (f.dir && isGitdir && x.name === 'objects') {
@@ -1380,8 +1420,13 @@ function farGitConfigIn(cwd) {
   else if (key.slice(root.length).split(/[\\/]+/).some(isGitPart)) why = 'inside-gitdir';
   // Windows runs git in `k` when the folder is given as `k.` (see dotEnd).
   else if (dotEnd(key)) why = 'odd-path';
+  // A folder at a path longer than git opens (MAX_GIT_PATH): git can't run
+  // there, and following the path and going up from it looks at the disk for
+  // every part. The same for where its links lead, before the way up.
+  else if (key.length > MAX_GIT_PATH) why = 'long-path';
   const real = why ? '' : localPath(key);
   if (!why && !real) why = 'network-folder';
+  if (!why && real.length > MAX_GIT_PATH) why = 'long-path';
   if (!why && real.slice(path.parse(real).root.length).split(/[\\/]+/).some(isGitPart)) why = 'inside-gitdir';
   // The folders above both the path as given and its real path: git may
   // search either (on Windows it may keep the path as given).
@@ -1517,4 +1562,4 @@ function farLfsEntries(entries, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL };
+module.exports = { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH };
