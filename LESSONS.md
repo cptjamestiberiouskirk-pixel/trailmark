@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: A fault fixed in SECURITY.md was written again in a test comment of the same batch
+- What went wrong: round 3's batch fixed "where git fails the root is the session's folder" in SECURITY.md by naming the timeout, and added to the test's comment "where git is let try and fails with an error it is the session's folder", which leaves the timeout out again. The bullet it moved kept two ranges ("4,000 to 4,200") of which five values were run, in the commit that added the step against such ranges. Round 4's regression reviewer found both.
+- Why: each fix was made at the place a reviewer named. The other sentences the batch added or moved were not read against the fault, nor against the rule the batch itself logged.
+- Rule going forward: PLAYBOOK "Writing code and docs" step 14.
+- Status: promoted (PLAYBOOK "Writing code and docs" step 14). Seen first in the entry ""Tried up to 300 characters" named no lengths, one commit after the rule that asks for them" below.
+
+## 2026-11-14: The notes said what two tests assert, and one of them had not been read
+- What went wrong: the round 3 section of `dev/release-state.md` said two tests assert the repo as the root "from a subfolder". One of them starts from a linked worktree. Round 4's regression reviewer found it.
+- Why: the first test's cases were read. The second was taken from its name and from a passing run.
+- Rule going forward: a sentence in the notes about what a test asserts is written after that test's assertions were read, for each test it names.
+- Status: open
+
 ## 2026-11-14: A sentence about where the root comes from left out one of the function's exits
 - What went wrong: round 2's batch wrote in SECURITY.md "Where git fails the root is the session's folder, and where git is kept out the root is found without git". `repoRoot` also finds the root without git when git times out, or when too little time is left to start it. Two reviewers of round 3 found it.
 - Why: the sentence was written from the two kinds of case the probes ran. No probe had a git that timed out, and the function was not read against the sentence.
