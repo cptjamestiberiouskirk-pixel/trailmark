@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: A promoted step was skipped: the log call went out without its flag again
+- What went wrong: after a macOS job stalled on PR 63, `gh api .../jobs/<id>/logs` answered 404 for it, and I was about to write "no log exists". The same call for a job of the same run that had finished failed too: this `gh` refuses output with escape sequences without `--allow-escape-sequences`, as PLAYBOOK's Testing step 9 says. `gh run view --job <id> --log` gave 198 lines for the finished job and "log not found" for the stalled one.
+- Why: the call was typed from CLAUDE.md's line, which has no flag, and not from the PLAYBOOK step. The control was run only after the answer looked like the one expected.
+- Rule going forward: "no log" is written only with a control beside it, the same call on a job of the same run that has a log. A job's log is read with `gh run view --job <id> --log`.
+- Status: open
+
 ## 2026-11-14: A scan that could not run printed the all-clear
 - What went wrong: after PR 63's text was rebuilt, one command scanned it for dashes with `grep -nP '...' file || echo "no dashes"` and then sent it with `gh pr edit`. This grep refused the pattern (exit 2), so `||` printed "no dashes" and the text went out unscanned. A second scan, with node, found none. Minutes before, the handoff was read from the scratch folder and answered "version: none", since the command takes the repo from its working folder.
 - Why: `||` takes every exit but 0 as "nothing found", and the send was chained after the scan in the same command.
