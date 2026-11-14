@@ -3735,6 +3735,165 @@ test('git status: a tracked name that ends in a dot or a space, or a path with a
   }
 });
 
+test('git status: a tracked path with an empty part or a part of one dot keeps status unread (RS-A-dotpath)', () => {
+  const { farWorktree } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  // The decision, asked of farWorktree with git stood in for: the top level
+  // is an empty folder, and the list of tracked files is made up.
+  const top = realTemp('jbmem-dotpath-');
+  const sha = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
+  const NUL = String.fromCharCode(0);
+  const why = (rels) => {
+    const list = rels.map(p => `100644 ${sha} 0\t${p}${NUL}`).join('');
+    const r = {
+      run: (cwd, args) => (args[0] === 'rev-parse' ? { ok: true, out: `${top}\n` } : args[0] === 'ls-files' ? { ok: true, out: list } : { ok: false, out: '', why: 'error' }),
+      left: () => 5000,
+    };
+    return farWorktree(r, top);
+  };
+  // Three paths as git writes them, of one, two and three parts. From each,
+  // every path with the part `p` put in at one place (in front, between two
+  // parts, at the end) and every path with one of its parts replaced by `p`.
+  const BASES = [['a'], ['dd', 'bb'], ['xx', 'yy', 'zz']];
+  const shapes = (p) => {
+    const out = [];
+    for (const parts of BASES) {
+      for (let k = 0; k <= parts.length; k++) out.push([...parts.slice(0, k), p, ...parts.slice(k)].join('/'));
+      for (let k = 0; k < parts.length; k++) out.push([...parts.slice(0, k), p, ...parts.slice(k + 1)].join('/'));
+    }
+    return out;
+  };
+  for (const parts of BASES) assert.strictEqual(why([parts.join('/')]), '', `as git writes it: ${parts.join('/')}`);
+  assert.strictEqual(why(['a', 'dd/bb', 'xx/yy/zz']), '', 'the three together');
+  // An empty part and a part of one dot, at every one of those places, alone
+  // and as the first, the middle and the last of three tracked paths. One
+  // shape is left out: `a` with its only part replaced by nothing is no path
+  // (git 2.56.1 lists an entry with no name as `./`, which is below). A
+  // shape with the empty part in front (`/a`) starts with a slash, and so do
+  // `/` and `//` below: the older rule on absolute paths refuses those,
+  // before this one is asked.
+  const odd = [...shapes(''), ...shapes('.')].filter(t => t !== '');
+  assert.strictEqual(odd.length, 29, 'the shapes: 15 for each of the two parts, less the one that is no path');
+  for (const t of ['./', '/', '//', 'd///b', 'd/././b', 'd/.//b', './/.', 'a/./']) odd.push(t);
+  for (const t of odd) {
+    assert.strictEqual(why([t]), 'odd-path', `tracked ${JSON.stringify(t)}`);
+    assert.strictEqual(why([t, 'm', 'n/o']), 'odd-path', `tracked ${JSON.stringify(t)}, first of three`);
+    assert.strictEqual(why(['m', t, 'n/o']), 'odd-path', `tracked ${JSON.stringify(t)}, the middle of three`);
+    assert.strictEqual(why(['m', 'n/o', t]), 'odd-path', `tracked ${JSON.stringify(t)}, last of three`);
+  }
+  // And at every place of a longer list: twelve tracked paths, with the odd
+  // one put in before each of them and after the last.
+  const MANY = Array.from({ length: 12 }, (_, i) => `p${i}/q${i}`);
+  assert.strictEqual(why(MANY), '', 'the twelve paths alone');
+  for (const t of odd) {
+    for (let k = 0; k <= MANY.length; k++) assert.strictEqual(why([...MANY.slice(0, k), t, ...MANY.slice(k)]), 'odd-path', `tracked ${JSON.stringify(t)}, at place ${k} of thirteen`);
+  }
+  // A part of two dots is refused as before this rule.
+  for (const t of shapes('..')) assert.strictEqual(why([t]), 'odd-path', `tracked ${JSON.stringify(t)}`);
+  // A part that has dots and is more than one dot is a name like any other,
+  // at the same places. None of these ends in a dot or a space, which
+  // Windows refuses by another rule (RS-A-dottracked).
+  for (const p of ['.x', '..x', '...x', 'x.y', 'x..y', '. x', '.-']) {
+    for (const t of shapes(p)) assert.strictEqual(why([t]), '', `tracked ${JSON.stringify(t)}`);
+  }
+  // A backslash is a character of a name on Linux and macOS, so `d\\b` and
+  // `d\.\b` are one name each there. On Windows any backslash is refused by
+  // the older rule.
+  const BS = String.fromCharCode(92);
+  for (const t of [`d${BS}${BS}b`, `d${BS}.${BS}b`, `.${BS}b`, `d${BS}x`]) assert.strictEqual(why([t]), WIN ? 'odd-path' : '', `tracked ${JSON.stringify(t)}`);
+  // So is a part of three or more dots there (Windows refuses a part that
+  // ends in a dot).
+  for (const t of ['...', 'a/...', '.../b', 'a/..../b']) assert.strictEqual(why([t]), WIN ? 'odd-path' : '', `tracked ${JSON.stringify(t)}`);
+  // Not told: two or more such parts in one path other than the eight
+  // shapes listed, a path of more than four parts, and a list of more than
+  // thirteen tracked paths.
+});
+
+test('git status: a path with an empty or a dot part in an index written by hand keeps status unread, and the repo\'s filter does not run, in real repos (RS-A-dotpath)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  // `git update-index --cacheinfo` refuses a path with an empty part or a
+  // part of one dot ("Invalid path"), so the index is written as a file
+  // (version 2), the way a repo made elsewhere brings one. Each repo has `a`
+  // and `d/b.bin` committed, a line in `.git/info/attributes` that gives the
+  // tracked name a filter, and that filter in the repo's own config, where it
+  // writes a marker. With git 2.56.1 on Windows, asked about `d//b.bin`,
+  // `d/./b.bin` or `./d/b.bin`, check-attr answered `unspecified`, so the
+  // filter stayed on, and `git status` ran it.
+  const base = realTemp('jbmem-dotpath-real-');
+  const NUL = String.fromCharCode(0);
+  let made = 0;
+  const repo = (name) => {
+    const r = path.join(base, `r${made}`); const g = repoAt(r);
+    const marker = path.join(base, `ran${made++}`).split(path.sep).join('/');
+    fs.mkdirSync(path.join(r, 'd')); fs.writeFileSync(path.join(r, 'd', 'b.bin'), 'x');
+    g('add', '.'); g('commit', '-qm', 'one file');
+    fs.mkdirSync(path.join(r, '.git', 'info'), { recursive: true });
+    fs.writeFileSync(path.join(r, '.git', 'info', 'attributes'), `${name} filter=evil\n`);
+    fs.appendFileSync(path.join(r, '.git', 'config'), `[filter "evil"]\n\tclean = "echo ran >> '${marker}'; cat"\n`);
+    if (name === 'd/b.bin') {
+      // The name as git wrote it: the file is changed and newer than the
+      // index, so status reads it again.
+      fs.writeFileSync(path.join(r, 'd', 'b.bin'), 'y');
+      const later = new Date(Date.now() + 5000);
+      fs.utimesSync(path.join(r, 'd', 'b.bin'), later, later);
+    } else {
+      // `a` and the name, both with the blob of d/b.bin, every stat field
+      // zero but the mode, in the order of their bytes.
+      const blob = g('rev-parse', 'HEAD:d/b.bin');
+      const names = ['a', name].sort((x, y) => Buffer.compare(Buffer.from(x), Buffer.from(y)));
+      const header = Buffer.alloc(12); header.write('DIRC'); header.writeUInt32BE(2, 4); header.writeUInt32BE(names.length, 8);
+      const parts = [header];
+      for (const nm of names) {
+        const n = Buffer.from(nm);
+        const head = Buffer.alloc(62);
+        head.writeUInt32BE(0o100644, 24);
+        Buffer.from(blob, 'hex').copy(head, 40);
+        head.writeUInt16BE(n.length, 60);
+        parts.push(head, n, Buffer.alloc(8 - ((62 + n.length) % 8)));
+      }
+      const body = Buffer.concat(parts);
+      fs.writeFileSync(path.join(r, '.git', 'index'), Buffer.concat([body, require('crypto').createHash('sha1').update(body).digest()]));
+    }
+    return { dir: r, marker };
+  };
+  const facts = (r) => { const f = gitFacts(r.dir, ['status']); return { skipped: f.statusSkipped, off: f.statusFiltersOff, ran: fs.existsSync(r.marker) }; };
+  // The control, under the name git writes: the filter is switched off and
+  // status is read. The filter is a real one: git itself then runs it there.
+  const c = repo('d/b.bin');
+  assert.deepStrictEqual(facts(c), { skipped: undefined, off: 1, ran: false }, 'the control, d/b.bin');
+  execFileSync('git', ['status', '--porcelain'], { cwd: c.dir, stdio: 'ignore' });
+  assert.ok(fs.existsSync(c.marker), 'the control: git itself runs the filter');
+  // Asked for status afterwards, git itself runs the filter for the first
+  // four names (seen with git 2.56.1 on Windows and on Linux), so the marker
+  // missing before that is this check's doing. For the last two it did not
+  // (seen on Windows), so those two cases say only that status is not read.
+  const RUNS = ['d//b.bin', 'd/./b.bin', 'd///b.bin', './d/b.bin'];
+  for (const name of [...RUNS, 'd/b.bin/', 'd/.']) {
+    const r = repo(name);
+    // The written index is one git reads, with the name in it as written.
+    assert.ok(execFileSync('git', ['ls-files', '-z'], { cwd: r.dir, encoding: 'utf8' }).split(NUL).includes(name), `git lists ${name}`);
+    const f = facts(r);
+    assert.deepStrictEqual({ skipped: f.skipped, off: f.off }, { skipped: 'odd-path', off: undefined }, `tracked ${name}`);
+    if (!RUNS.includes(name)) continue;
+    assert.strictEqual(f.ran, false, `tracked ${name}: the filter did not run`);
+    spawnSync('git', ['status', '--porcelain'], { cwd: r.dir, stdio: 'ignore' });
+    assert.ok(fs.existsSync(r.marker), `tracked ${name}: git itself runs the filter`);
+  }
+  // A sparse index that git itself writes holds an entry for a folder, which
+  // ends in a slash (`out/`). `git ls-files` without `--sparse` lists that
+  // folder's files in its place, so the check does not meet the entry, and
+  // status is read.
+  const sp = path.join(base, 'sparse'); const gs = repoAt(sp);
+  for (const d of ['in', 'out']) { fs.mkdirSync(path.join(sp, d)); fs.writeFileSync(path.join(sp, d, 'f'), 'x'); }
+  gs('add', '.'); gs('commit', '-qm', 'two folders');
+  gs('sparse-checkout', 'init', '--cone', '--sparse-index'); gs('sparse-checkout', 'set', 'in');
+  const listed = (...more) => execFileSync('git', ['ls-files', '-z', ...more], { cwd: sp, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(NUL).filter(Boolean);
+  assert.deepStrictEqual(listed('--sparse'), ['a', 'in/f', 'out/'], 'the sparse index has an entry for the folder out');
+  assert.deepStrictEqual(listed(), ['a', 'in/f', 'out/f'], 'without --sparse git lists the file');
+  assert.strictEqual(gitFacts(sp, ['status']).statusSkipped, undefined, 'a sparse index is read');
+  // Not told: an index entry with no name, which git 2.56.1 lists as `./`
+  // (the decision test has that text), and what another git prints for it.
+});
+
 test('links: the launcher and hooks never read through a link in the memory folder', { skip: NO_LINKS }, () => {
   const s = sandbox();
   s.write('# H\n- real state\n');
