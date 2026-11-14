@@ -1939,6 +1939,14 @@ test('git pointers: a lookup that fails for another reason than "not there" keep
     const t = fresh('t');
     assert.deepStrictEqual(failing({ fn, at: path.join(t, ...at), nth: 0 }, 'EACCES', () => tracked(t, rels, mode)), { why: '', failed: 0 }, `below a tracked folder that is not there: ${what}`);
   }
+  // A submodule below such a folder still counts toward the limit on
+  // submodules (review round 3): the limit, and one more, none on disk.
+  {
+    const t = fresh('t');
+    const subs = (n) => Array.from({ length: n }, (_, k) => `gone/s${k}`);
+    assert.strictEqual(tracked(t, subs(2000), '160000'), '', 'as many submodules as the limit, below a tracked folder that is not there');
+    assert.strictEqual(tracked(t, subs(2001), '160000'), 'many-submodules', 'one submodule more than the limit, below a tracked folder that is not there');
+  }
   // A commondir that is there and is no plain file (a folder here): the
   // check of the submodule gitdirs passed it over, and the folder it stands
   // for went unchecked. The check before git already refused it.
