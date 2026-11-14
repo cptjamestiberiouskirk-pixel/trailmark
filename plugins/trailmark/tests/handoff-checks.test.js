@@ -1933,8 +1933,7 @@ test('git pointers: a lookup that fails for another reason than "not there" keep
     ['a folder two below it', ['gone/sub/deep/f'], '100644', 'lstatSync', ['gone', 'sub', 'deep']],
     ['a name in it', ['gone/f'], '100644', 'lstatSync', ['gone', 'f']],
     ['its listing', ['gone/a', 'gone/b', 'gone/c'], '100644', 'readdirSync', ['gone']],
-    ['a submodule below it', ['gone/sub'], '160000', 'lstatSync', ['gone', 'sub']],
-    // Windows does not look at the submodule's own folder first, so its .git too.
+    // The first look at a submodule is at its .git, not at its own folder.
     ['the .git of a submodule below it', ['gone/sub'], '160000', 'lstatSync', ['gone', 'sub', '.git']],
   ]) {
     const t = fresh('t');
