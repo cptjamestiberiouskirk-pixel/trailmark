@@ -1308,7 +1308,7 @@ test('git pointers: the check of other worktrees counts against the repo\'s limi
 // listed or walked now, and git is kept out.
 test('git pointers: nothing at a path longer than git opens is listed or walked (RS-A-pathcap)', () => {
   const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
-  const { farGitConfig, farModules, MAX_GIT_PATH } = require(lib);
+  const { farGitConfig, farModules, localRepoRoot, MAX_GIT_PATH } = require(lib);
   // Written out, not taken from the code: the lengths below sit on either
   // side of this number.
   const CAP = 4096;
@@ -1370,6 +1370,11 @@ test('git pointers: nothing at a path longer than git opens is listed or walked 
   assert.deepStrictEqual(check(pointed(600)), { why: '', listed: 0, looked: 0 });
   if (WIN) assert.strictEqual(check(pointed(CAP)).why, '');
   assert.deepStrictEqual(check(pointed(CAP + 1)), { why: 'long-path', listed: 0, looked: 0 });
+  // The check of the submodule gitdirs (farModules, before git status) says
+  // the same for that .git file. It answered '' once the gitdir past the cap
+  // was no longer handed back to it, with the modules in it unchecked.
+  const mods = (d) => farModules(d, () => 5000);
+  assert.deepStrictEqual(check(pointed(CAP + 1), mods), { why: 'long-path', listed: 0, looked: 0 });
   // A gitdir whose commondir names the folder, the same way.
   const common = (n) => {
     const r = repo();
@@ -1390,6 +1395,64 @@ test('git pointers: nothing at a path longer than git opens is listed or walked 
   assert.deepStrictEqual(check(alternate(pathOf(path.join(base, 'a6'), 600))), { why: '', listed: 0, looked: 0 });
   if (WIN) assert.strictEqual(check(alternate(pathOf(path.join(base, 'a96'), CAP))).why, '');
   assert.deepStrictEqual(check(alternate(pathOf(path.join(base, 'a97'), CAP + 1))), { why: 'long-path', listed: 0, looked: 0 });
+
+  // The repo's root, found without git when git is kept out (localRepoRoot,
+  // for the memory folder). The cap never changes it. git can't be started
+  // in a folder at a path past the cap, and the root was that folder itself:
+  // none is found there, and nothing on the path is looked at (for a folder
+  // 15,000 levels down that took 7.5 s). A folder as a text, in a repo: at
+  // 4,096 characters the repo is found, at 4,097 none.
+  const rooted = repo();
+  assert.strictEqual(check(pathOf(path.join(rooted, 'in'), CAP), localRepoRoot).why, rooted);
+  assert.deepStrictEqual(check(pathOf(path.join(rooted, 'in'), CAP + 1), localRepoRoot), { why: '', listed: 0, looked: 0 });
+  // A .git file naming a gitdir past the cap, in a folder of another repo.
+  // git stops at such a .git file with an error (as it did at one whose
+  // gitdir was on disk). On Windows no check kept git out there before the
+  // cap, and the root was the session's folder: no root is found. Outside
+  // Windows the gitdir could not be read at that length, git was kept out
+  // for that, and the root was the repo above: it still is.
+  const above = repo();
+  const under = path.join(above, 'w');
+  fs.mkdirSync(under);
+  fs.writeFileSync(path.join(under, '.git'), `gitdir: ${slash(path.relative(under, pathOf(path.join(under, 'g'), CAP + 1)))}\n`);
+  assert.strictEqual(localRepoRoot(under), WIN ? '' : above);
+  // The same for a short gitdir whose commondir names a folder past the cap
+  // (git: "fatal: Invalid path").
+  const upper = repo();
+  const below = path.join(upper, 'c');
+  fs.mkdirSync(path.join(below, 'g'), { recursive: true });
+  fs.writeFileSync(path.join(below, 'g', 'HEAD'), 'ref: refs/heads/main\n');
+  fs.writeFileSync(path.join(below, 'g', 'commondir'), `${slash(path.relative(path.join(below, 'g'), pathOf(path.join(below, 'k'), CAP + 1)))}\n`);
+  fs.writeFileSync(path.join(below, '.git'), 'gitdir: g\n');
+  assert.strictEqual(localRepoRoot(below), WIN ? '' : upper);
+  // The session's folder through a link. Q is a repo, QT a folder in it at a
+  // path of 3,900 characters and L a link to QT from outside Q, so a folder
+  // in QT is at 4,096 or 4,097 characters, and at a short path through L.
+  // Outside Windows git works from where the link leads and fails to stat
+  // past the cap: git is kept out and no root is found (the root was the
+  // folder as given). On Windows git works from the path as given, and in
+  // such a folder it found the repo above it and read status: where the link
+  // leads is not capped, and the root is found from there, as before. Not
+  // on macOS, where a path stops at 1,024 bytes (from its headers, not
+  // tried), so QT can't be made by its whole path.
+  if (process.platform !== 'darwin') {
+    const Q = repo();
+    const QT = pathOf(path.join(Q, 't'), 3900);
+    fs.mkdirSync(QT, { recursive: true });
+    const L = path.join(base, 'L');
+    fs.symlinkSync(QT, L, WIN ? 'junction' : 'dir');
+    for (const n of [CAP, CAP + 1]) {
+      // Made and removed through the link: outside Windows the folder can't
+      // be named by its own path.
+      const s = path.join(L, 's'.repeat(n - QT.length - 1));
+      fs.mkdirSync(s);
+      const kept = n > CAP && !WIN;
+      try {
+        assert.strictEqual(farGitConfig(s), kept ? 'long-path' : '', `the session's folder leads to ${n} characters`);
+        assert.strictEqual(localRepoRoot(s), kept ? '' : Q, `the root where the session's folder leads to ${n} characters`);
+      } finally { fs.rmdirSync(s); }
+    }
+  }
 
   // A plain file is never followed, so its path is not built: the join works
   // through the folder's whole path, and 99,000 files in a gitdir at a path
@@ -1455,11 +1518,11 @@ test('git pointers: nothing at a path longer than git opens is listed or walked 
   assert.deepStrictEqual(check(path.join(inside, 'at')), { why: '', listed: 0, looked: 0 });
   fs.mkdirSync(path.join(at, 'y'));
   assert.deepStrictEqual(check(path.join(inside, 'past')), { why: 'long-path', listed: 0, looked: 0 });
-  // Where the repo's root is only being found (for the memory folder, when
-  // git is kept out), the answer is as it was. A worktree whose gitdir is at
-  // 4,097 characters, with a commondir that names the main repo's .git
-  // below it: git is kept out, and the root is still the main repo's.
-  const { localRepoRoot } = require(lib);
+  // A repo git can't open is no root. A worktree whose gitdir is at 4,097
+  // characters, with a commondir that names the main repo's .git below it:
+  // git says the .git file does not point to a valid repository, and the
+  // root was the worktree's own folder. Git is kept out, and no root is
+  // found.
   const tree = path.join(base, 'tree');
   const far = pathOf(path.join(tree, 'g'), CAP + 1);
   for (const d of ['objects', 'refs']) fs.mkdirSync(path.join(far, 'main', '.git', d), { recursive: true });
@@ -1467,12 +1530,41 @@ test('git pointers: nothing at a path longer than git opens is listed or walked 
   fs.writeFileSync(path.join(far, 'commondir'), 'main/.git\n');
   fs.writeFileSync(path.join(tree, '.git'), `gitdir: ${slash(path.relative(tree, far))}\n`);
   assert.strictEqual(check(tree).why, 'long-path');
-  assert.strictEqual(localRepoRoot(tree), path.join(far, 'main'));
+  assert.strictEqual(localRepoRoot(tree), '');
+  // The same with the main repo at a short path, and the worktree in a
+  // folder of another repo: with the gitdir at 4,096 characters the root is
+  // the main repo's, at 4,097 there is none. The repo above the worktree is
+  // not taken for it: git stops at the .git file.
+  for (const n of [CAP, CAP + 1]) {
+    const main = repo();
+    const wt = path.join(repo(), `wt${n}`);
+    const gd = pathOf(path.join(wt, 'g'), n);
+    fs.mkdirSync(gd, { recursive: true });
+    fs.writeFileSync(path.join(gd, 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(gd, 'commondir'), `${slash(path.join(main, '.git'))}\n`);
+    fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${slash(path.relative(wt, gd))}\n`);
+    assert.strictEqual(check(wt).why, n > CAP ? 'long-path' : '', `a gitdir at ${n} characters`);
+    assert.strictEqual(localRepoRoot(wt), n > CAP ? '' : main, `the root with a gitdir at ${n} characters`);
+  }
+  // A repo whose .git is within the cap and whose objects folder is not: git
+  // stopped with an error in a repo whose .git was at 4,096 characters
+  // (behind a link). From a folder in the repo: with the objects folder at
+  // 4,096 characters the root is the repo, at 4,097 there is none.
+  for (const n of [CAP, CAP + 1]) {
+    const d = pathOf(path.join(base, `b${n}`), n - 13);
+    for (const x of ['objects', 'refs']) fs.mkdirSync(path.join(d, '.git', x), { recursive: true });
+    fs.writeFileSync(path.join(d, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(d, '.git', 'config'), '[core]\n\trepositoryformatversion = 0\n');
+    fs.mkdirSync(path.join(d, 's'));
+    assert.strictEqual(path.join(d, '.git', 'objects').length, n);
+    assert.strictEqual(check(path.join(d, 's')).why, n > CAP ? 'long-path' : '', `an objects folder at ${n} characters`);
+    assert.strictEqual(localRepoRoot(path.join(d, 's')), n > CAP ? '' : d, `the root with an objects folder at ${n} characters`);
+  }
   // Where a link leads. T is a folder at a path of 3,900 characters and A a
   // link to it at a short one (a link's own target stops near 4,000), so a
   // folder in T is at 4,096 or 4,097 characters, and at a short path through
-  // A. For each place: at 4,096 it is let through, at 4,097 it is long-path,
-  // and nothing past the cap is listed either time.
+  // A. For each place but the first: at 4,096 it is let through, at 4,097 it
+  // is long-path, and nothing past the cap is listed either time.
   const T = pathOf(path.join(base, 'T'), 3900);
   fs.mkdirSync(T, { recursive: true });
   const A = path.join(base, 'A');
@@ -1487,8 +1579,10 @@ test('git pointers: nothing at a path longer than git opens is listed or walked 
   for (const n of [CAP, CAP + 1]) {
     const want = { why: n > CAP ? 'long-path' : '', listed: 0 };
     const got = (dir, what) => { const c = check(dir); assert.deepStrictEqual({ why: c.why, listed: c.listed }, want, `${what} leads to ${n} characters`); };
-    // The session's folder.
-    got(leaf('cw', n).linked, 'the session\'s folder');
+    // The session's folder, here with no repo above it: where its link
+    // leads is not capped on Windows (see above), and nothing past the cap
+    // is listed.
+    { const c = check(leaf('cw', n).linked); assert.deepStrictEqual({ why: c.why, listed: c.listed }, { why: '', listed: 0 }, `the session's folder leads to ${n} characters`); }
     // The worktrees folder. Past the cap it holds an entry recorded on a
     // share, which is never read.
     const wt = leaf('wt', n);
@@ -1512,6 +1606,30 @@ test('git pointers: nothing at a path longer than git opens is listed or walked 
     fs.appendFileSync(path.join(r, '.git', 'config'), `[lfs]\n\tstorage = ${slash(leaf('ls', n).real)}\n`);
     got(r, 'lfs.storage');
     got(alternate(leaf('al', n).real), 'an alternate');
+  }
+  // The walk for submodule gitdirs stops at the cap too. The repo's own walk
+  // leaves a submodule gitdir's annex folder once 10,000 entries are
+  // counted, and this one went on in it (30,000 empty folders at 15,000
+  // characters there: 7.6 s). A folder in annex at exactly 4,096 characters
+  // is listed, and one next to it at 4,097 is not.
+  const withModule = repo();
+  const m = path.join(withModule, '.git', 'modules', 'm');
+  const inAnnex = pathOf(path.join(m, 'annex', 'z'), CAP - 2);
+  fs.mkdirSync(path.join(inAnnex, 'a'), { recursive: true });
+  fs.writeFileSync(path.join(m, 'HEAD'), 'ref: refs/heads/main\n');
+  assert.strictEqual(path.join(inAnnex, 'a').length, CAP);
+  assert.deepStrictEqual(check(withModule, mods), { why: '', listed: 0, looked: 0 });
+  fs.mkdirSync(path.join(inAnnex, 'bb'));
+  assert.deepStrictEqual(check(withModule, mods), { why: 'long-path', listed: 0, looked: 0 });
+  // A submodule gitdir's objects folder, which has a walk of its own.
+  for (const n of [CAP, CAP + 1]) {
+    const r = repo();
+    const g = pathOf(path.join(r, '.git', 'modules', 'p'), n - 8);
+    fs.mkdirSync(path.join(g, 'objects'), { recursive: true });
+    fs.writeFileSync(path.join(g, 'HEAD'), 'ref: refs/heads/main\n');
+    assert.strictEqual(path.join(g, 'objects').length, n);
+    const c = check(r, mods);
+    assert.deepStrictEqual({ why: c.why, listed: c.listed }, { why: n > CAP ? 'long-path' : '', listed: 0 }, `a submodule gitdir's objects folder at ${n} characters`);
   }
 });
 

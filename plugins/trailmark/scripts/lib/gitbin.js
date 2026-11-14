@@ -1177,9 +1177,10 @@ function farGit(gitEntry, out = {}, { light = false, locate = false, work = null
     if (!gitdir) return 'network-gitdir';
   } else if (!st.isDirectory()) return '';
   // A gitdir, or the folder its commondir names, at a path longer than git
-  // opens (MAX_GIT_PATH): nothing is read, listed or counted there. Not
-  // where the repo's root is only being found (locate): that answer is the
-  // same as before.
+  // opens (MAX_GIT_PATH): nothing is read, listed or counted there. Where
+  // the repo's root is only being found (locate) both are still handed back:
+  // localRepoRoot decides from them what a repo past the cap means for the
+  // root.
   if (!locate && gitdir.length > MAX_GIT_PATH) return 'long-path';
   const dirs = [gitdir];
   const common = readSmall(path.join(gitdir, 'commondir'), 4096);
@@ -1287,7 +1288,10 @@ function farModulesIn(top, left) {
     const g = path.join(top, '.git');
     let st;
     try { st = fs.lstatSync(g); } catch { return ''; }
-    if (st.isDirectory()) { at.gitdir = g; } else { farGit(g, at, { light: true }); }
+    // A .git file whose gitdir, or the folder its commondir names, is at a
+    // path longer than git opens: that answer is passed on. The gitdir is
+    // not handed back then, and the modules in it would go unchecked.
+    if (st.isDirectory()) { at.gitdir = g; } else if (farGit(g, at, { light: true }) === 'long-path') return 'long-path';
     if (!at.gitdir) return '';
     const dirs = [at.gitdir];
     const common = readSmall(path.join(at.gitdir, 'commondir'), 4096);
@@ -1339,6 +1343,7 @@ function moduleGitdirs(root) {
   // two-hex ones, passed over unlisted as in linkedEntries (see there for
   // the cost).
   const objectsIn = (od, depth) => {
+    if (od.length > MAX_GIT_PATH) { why = 'long-path'; return; }
     let list;
     try { list = fs.readdirSync(od, { withFileTypes: true }); } catch (e) { why = unlisted(od, e); return; }
     for (const x of list) {
@@ -1353,6 +1358,11 @@ function moduleGitdirs(root) {
   };
   const walk = (d, depth, key = d) => {
     if (why) return;
+    // No folder at a path longer than git opens is listed here either
+    // (MAX_GIT_PATH). The repo's own walk leaves a submodule gitdir's annex
+    // folder once 10,000 entries are counted, and this one went on in it:
+    // 30,000 empty folders at 15,000 characters there took 7.6 s.
+    if (d.length > MAX_GIT_PATH) { why = 'long-path'; return; }
     if (out.length >= MAX_MODULE_GITDIRS) { why = 'many-submodules'; return; }
     if (depth > MAX_GITDIR_DEPTH) { why = 'deep-gitdir'; return; }
     // By its exact text (see farConfig's seenKey), or the disk's own name
@@ -1422,11 +1432,15 @@ function farGitConfigIn(cwd) {
   else if (dotEnd(key)) why = 'odd-path';
   // A folder at a path longer than git opens (MAX_GIT_PATH): git can't run
   // there, and following the path and going up from it looks at the disk for
-  // every part. The same for where its links lead, before the way up.
+  // every part. Outside Windows the same for where its links lead, before
+  // the way up: git works from that path there, and in a folder whose link
+  // led to 4,097 bytes it failed to stat. On Windows git works from the path
+  // as given: in a folder given at 237 characters whose link led to 4,097 it
+  // found the repo above the folder and read status, so no cap there.
   else if (key.length > MAX_GIT_PATH) why = 'long-path';
   const real = why ? '' : localPath(key);
   if (!why && !real) why = 'network-folder';
-  if (!why && real.length > MAX_GIT_PATH) why = 'long-path';
+  if (!why && !WIN && real.length > MAX_GIT_PATH) why = 'long-path';
   if (!why && real.slice(path.parse(real).root.length).split(/[\\/]+/).some(isGitPart)) why = 'inside-gitdir';
   // The folders above both the path as given and its real path: git may
   // search either (on Windows it may keep the path as given).
@@ -1503,10 +1517,21 @@ function farNestedIn(dir) {
 // the shared .git. '' when there is none. Used when git is kept out or timed
 // out, so the memory folder is still the one every worktree shares. It reads
 // only the .git entries and pointer files (farGit locate), never a config
-// file, so it starts no git and keeps within the caller's time.
+// file, so it starts no git. It looks at each part of the folder's path and
+// at up to 512 folders above it, with no look at the time: at most 4,096
+// characters of the path as given, and outside Windows of where its links
+// lead (RS-A-pathcap).
 function localRepoRoot(cwd) {
   return withShare(cwd, () => {
-    let d = localPath(path.resolve(String(cwd || '.')));
+    // The cap (MAX_GIT_PATH) never changes the root. In a folder at a path
+    // longer than git opens, git can't be started, and outside Windows it
+    // fails in one whose links lead to such a path: the root was the folder
+    // itself then, and still is. Nothing on the path is looked at (for a
+    // folder 15,000 levels down that took 7.5 s, with no look at the time).
+    const given = path.resolve(String(cwd || '.'));
+    if (given.length > MAX_GIT_PATH) return '';
+    let d = localPath(given);
+    if (d && !WIN && d.length > MAX_GIT_PATH) return '';
     for (let i = 0; d && i < 512; i++) {
       const g = path.join(d, '.git');
       let found = false;
@@ -1514,6 +1539,14 @@ function localRepoRoot(cwd) {
       if (found) {
         const at = {};
         farGit(g, at, { locate: true });
+        // On Windows a repo git can't open is no root either. git stopped
+        // with an error at a gitdir past the cap (a .git file naming one at
+        // 4,097 characters) and at one whose objects folder was (a .git at
+        // 4,096), and the root was the session's folder. Outside Windows
+        // nothing at such a path could be read before the cap either: git
+        // was kept out for that, the search went on to the next repo up, and
+        // it still does.
+        if (WIN && at.gitdir && (at.gitdir.length > MAX_GIT_PATH || path.join(at.common || at.gitdir, 'objects').length > MAX_GIT_PATH)) return '';
         if (at.gitdir && validGitdir(at.gitdir, at.common)) {
           if (at.common && path.basename(at.common) === '.git') return path.dirname(at.common);
           return d;

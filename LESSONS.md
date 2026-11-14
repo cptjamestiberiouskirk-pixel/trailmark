@@ -14,6 +14,36 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-13: A new refusal moved the repo's root, and the tests looked at the refusal alone
+- What went wrong: d61366c added the reason `long-path` to the check that `repoRoot` asks first. Review round 1 found that the root changed with it: for a session folder given through a junction (237 characters as written, 4,097 where it leads) git works on Windows, and the root went from the repo to the session folder, so another memory folder. My own runs then found the reverse where git fails: the root went from the session folder to a repo above it.
+- Why: a refusal switches where `repoRoot` takes the root from, git or `localRepoRoot`. The notes said "`localRepoRoot` answers as before", which was true of the function and said nothing about when it is called. The tests asserted the check's answer and, in one case, the function's.
+- Rule going forward: a new reason in `farGitConfig` gets the root compared with the parent commit's, in a fresh process with both sets of scripts, for shapes where git works and for shapes where git fails, before the first push. The tests assert `localRepoRoot` next to each new refusal.
+- Status: open
+
+## 2026-11-13: The root was compared on Windows, and the Linux run came after the mutation list
+- What went wrong: the fix for the entry above gave no root at a gitdir or commondir past the cap, on every system, from probes run on Windows. The Linux run of the tests, made after the whole mutation list, failed, and a probe then showed the batch had moved the root on Linux (a commondir at 4,095 characters or more: the repo above before, the session folder after). The check went to Windows only, a test case changed, and the whole list ran a third time.
+- Why: on Linux nothing at such a path could be read before the cap, so git was already kept out there (`unreadable-config`) and the root already came from `localRepoRoot`. The same line was a new refusal on one system and a renamed one on the other.
+- Rule going forward: a comparison with the parent commit runs on Windows and in WSL with the same probe script before the code is called done, and the other system's test run comes before the mutation list, since a test edit runs the whole list again.
+- Status: open
+
+## 2026-11-13: A time was given for the check, and the hook's first call does more
+- What went wrong: the notes and SECURITY.md said a session folder 15,000 folders down "is refused at once now", from the check called alone (0.00 to 0.15 s). `repoRoot`, which a hook calls first, then walked the same path in `localRepoRoot`: 7.4 to 7.5 s on d61366c against 14.6 to 15.4 s before, so still over a hook's time.
+- Why: the function measured was the one changed, not the one a hook calls. The sentence named what was measured, and the conclusion was read as the hook's.
+- Rule going forward: a time claimed for a refusal is measured through `repoRoot` as well as through the check, and the sentence names both.
+- Status: open
+
+## 2026-11-13: A probe met a depth limit before the line it was written for
+- What went wrong: the first run of the security reviewer's submodule-walk shape answered `deep-gitdir`, not the slow walk. The folder at 15,000 characters was built from 200-character names, 75 levels, and the walk stops at 64.
+- Why: the length was the thing wanted and the depth came with it unseen. A junction's target stops near 4,000 characters in the same way: a probe that needed one at 4,100 failed until it went through two links.
+- Rule going forward: a probe prints the reason it got and is read against the reason it was built for, before its time is used. Length is built from names of 250 characters where a limit on depth stands before the line under test.
+- Status: open
+
+## 2026-11-13: A "cap one higher" probe passed, since the test's folder was two past the cap
+- What went wrong: the new case for the submodule walk had a folder at exactly 4,096 characters and one inside it, at 4,098. The mutation list's probe with the cap at 4,097 passed.
+- Why: a folder inside another is at least two characters longer. The case looked like a boundary pair and was not one.
+- Rule going forward: a boundary case has one item at exactly the limit and one at exactly the limit plus one (here two folders side by side, named `a` and `bb`), and asserts the length of one of them.
+- Status: open
+
 ## 2026-11-13: A test's files had names the code passes over, so one line was never reached
 - What went wrong: the RS-A-pathcap test put ten plain files in a submodule gitdir's `objects` to show that their paths are not built. The mutation list's probe that built them again passed. The files were named `e0` to `e9`.
 - Why: in `objects` a name of two hex digits is passed over as a folder of loose objects before the line under test, and `e0` to `e9` are such names. The count of joins was 0 with the line and without it. The helper that made the files was written for another folder, where any name does.
