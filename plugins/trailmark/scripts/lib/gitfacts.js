@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { oneLine, displayPath, inside } = require('./store');
-const { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH } = require('./gitbin');
+const { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, notThere, nothingIn, allSeen } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
 // and Linux caps a variable at 128 KiB (the comment on PAYLOAD_MAX in
@@ -149,7 +149,7 @@ function farWorktree(r, cwd) {
   let anyFolder = false;
   // The folders, as a tree of names (to tell a new one with one short lookup
   // for each level) and as a list of paths, parents before their subfolders.
-  const tree = { path: '', kids: new Map() };
+  const tree = { path: '', kids: new Map(), up: null, gone: false };
   const folders = [];
   const entries = [];
   let read = 0;
@@ -203,36 +203,51 @@ function farWorktree(r, cwd) {
       let next = at.kids.get(parts[i]);
       if (!next) {
         if (folders.length >= MAX_TREE_FOLDERS) return 'many-folders';
-        next = { path: i ? `${at.path}/${parts[i]}` : parts[i], kids: new Map() };
+        next = { path: i ? `${at.path}/${parts[i]}` : parts[i], kids: new Map(), up: at, gone: false };
         at.kids.set(parts[i], next);
-        folders.push(next.path);
+        folders.push(next);
       }
       at = next;
     }
-    entries.push({ rel, link: e.startsWith('160000 ') });
+    entries.push({ rel, link: e.startsWith('160000 '), in: at });
   }
   // The folders first, parents before their subfolders: nothing below looks
   // into one until it is known not to be a link to a network path.
   // The time is looked at before each one: a folder that is a link has where
   // it leads walked, and 500 links to a long path took 5.2 s with nothing
   // looking at the time; 20,000 folders are allowed.
-  for (const rel of folders) {
+  // Nothing is below a folder that is not there, so the folders and names
+  // below one are not looked up: a tracked tree that was deleted, at a path
+  // past the system's limit, answered unreadable-path where `git status`
+  // lists it as deleted (found in review round 1). Kept on the folder's own
+  // entry in the tree, so no path is looked up again for it.
+  for (const node of folders) {
     if (r.left() < 800) return 'git-timeout'; // RS-A-linkfolders
+    if (node.up.gone) { node.gone = true; continue; }
+    const rel = node.path;
     let st;
-    try { st = fs.lstatSync(path.join(top.top, rel)); } catch { continue; }
+    // A folder that is there and can't be looked at by its whole path (too
+    // long joined to the top, no access): git status goes into it by a short
+    // path from the top, so the file list isn't read (gitbin's notThere;
+    // RS-A-relpath). The same for each lookup below.
+    const whole = path.join(top.top, rel);
+    try { st = fs.lstatSync(whole); } catch (e) { if (!notThere(e, whole)) return 'unreadable-path'; node.gone = true; continue; }
     if (!st.isSymbolicLink()) continue;
     let t = '';
     try { t = fs.readlinkSync(path.join(top.top, rel)); } catch { return 'linked-folder'; }
     if (/^[\\/]{2}|^[\\/]\?\?[\\/]|^%\(prefix\)/i.test(t.replace(/"/g, '').trim())) return 'linked-folder';
-    if (!localPathFrom(top.top, path.join(top.top, rel))) return 'linked-folder';
+    // Through allSeen: where the link leads may hold a part that could not
+    // be looked at, and git goes through it all the same (round 1).
+    const led = allSeen(() => (localPathFrom(top.top, path.join(top.top, rel)) ? '' : 'linked-folder'));
+    if (led) return led;
   }
   // A tracked file whose path is now a folder: git status looks for a repo
   // there (as for a submodule), so one there is checked the same way. Found
   // with one listing per folder of tracked files rather than a lookup per
   // file.
   const byFolder = new Map();
-  for (const { rel, link } of entries) {
-    if (link) continue;
+  for (const { rel, link, in: at } of entries) {
+    if (link || at.gone) continue;
     const i = rel.lastIndexOf('/');
     const dir = i < 0 ? '' : rel.slice(0, i);
     if (!byFolder.has(dir)) byFolder.set(dir, []);
@@ -247,10 +262,12 @@ function farWorktree(r, cwd) {
       // as git's own lookup will), not the whole folder listed.
       list = [];
       for (const nm of names) {
-        try { if (fs.lstatSync(path.join(top.top, dir, nm)).isDirectory()) list.push({ name: nm, isDirectory: () => true }); } catch { /* not there */ }
+        const whole = path.join(top.top, dir, nm);
+        try { if (fs.lstatSync(whole).isDirectory()) list.push({ name: nm, isDirectory: () => true }); } catch (e) { if (!notThere(e, whole)) return 'unreadable-path'; }
       }
     } else {
-      try { list = fs.readdirSync(path.join(top.top, dir), { withFileTypes: true }); } catch { continue; }
+      const whole = path.join(top.top, dir);
+      try { list = fs.readdirSync(whole, { withFileTypes: true }); } catch (e) { if (!nothingIn(e, whole)) return 'unreadable-path'; continue; }
     }
     const subdirs = list.filter(x => x.isDirectory()).map(x => x.name);
     if (!subdirs.length) continue;
@@ -263,33 +280,36 @@ function farWorktree(r, cwd) {
       if (nm.includes('\uFFFD')) return 'odd-path';
       const at = path.join(top.top, dir, nm);
       let g = false;
-      try { fs.lstatSync(path.join(at, '.git')); g = true; } catch { g = false; }
+      try { fs.lstatSync(path.join(at, '.git')); g = true; } catch (e) { if (!notThere(e, path.join(at, '.git'))) return 'unreadable-path'; }
       // The time is looked at before each one, as for the submodules below:
       // a check can take a second, and one folder can hold any number of
       // these. 12 slow ones took 12.4 s where 5 s were given, since the look
       // above comes once in 500 folders of tracked files (RS-A-nestedtime).
       if (g && r.left() < 800) return 'git-timeout';
       const nested = g ? withTime(r.left, () => farNested(at, top.top)) : '';
-      if (nested) return nested === 'git-timeout' ? nested : 'submodule-pointer';
+      if (nested) return nested === 'git-timeout' || nested === 'unreadable-path' ? nested : 'submodule-pointer';
       if (g || want.has(fold(nm))) anyFolder = true;
     }
   }
-  for (const { rel, link } of entries) {
+  for (const { rel, link, in: at } of entries) {
     if (!link) continue;
     if (++n > MAX_SUBMODULES) return 'many-submodules';
     if (r.left() < 800) return 'git-timeout';
+    // One below a folder that is not there is still counted, so .gitmodules
+    // and .git/modules are looked at as before.
+    if (at.gone) continue;
     const sub = withTime(r.left, () => farNested(path.join(top.top, rel), top.top));
-    if (sub) return sub === 'git-timeout' ? sub : 'submodule-pointer';
+    if (sub) return sub === 'git-timeout' || sub === 'unreadable-path' ? sub : 'submodule-pointer';
   }
   // With submodules (or a tracked file that is now a folder), git status
   // may read .gitmodules for names (it must be a plain file or missing) and
   // open a submodule's gitdir in .git/modules by that name.
   if (n || anyFolder) {
     let gm = null;
-    try { gm = fs.lstatSync(path.join(top.top, '.gitmodules')); } catch { gm = null; }
+    try { gm = fs.lstatSync(path.join(top.top, '.gitmodules')); } catch (e) { if (!notThere(e, path.join(top.top, '.gitmodules'))) return 'unreadable-path'; }
     if (gm && !gm.isFile()) return 'submodule-pointer';
     const why = withTime(r.left, () => farModules(top.top, () => r.left()));
-    if (why) return why === 'git-timeout' || why === 'many-submodules' ? why : 'submodule-pointer';
+    if (why) return why === 'git-timeout' || why === 'many-submodules' || why === 'unreadable-path' ? why : 'submodule-pointer';
   }
   return '';
 }
@@ -338,7 +358,8 @@ const USER_SCOPES = /^(?:global|system|command)$/i;
 function farLfsConfig(r, top) {
   const f = path.join(top, '.lfsconfig');
   let there = false;
-  try { fs.lstatSync(f); there = true; } catch { there = false; }
+  // There and not to be looked at: git-lfs may still read it.
+  try { fs.lstatSync(f); there = true; } catch (e) { if (!notThere(e, f)) return 'lfs-config'; }
   if (there) return farLfsFile(f, top);
   // Not in the worktree: git-lfs reads the index's copy, else HEAD's, and
   // the same rules apply to it (read by git config --blob, includes off).

@@ -14,6 +14,132 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: A promoted step was skipped: the log call went out without its flag again
+- What went wrong: after a macOS job stalled on PR 63, `gh api .../jobs/<id>/logs` answered 404 for it, and I was about to write "no log exists". The same call for a job of the same run that had finished failed too: this `gh` refuses output with escape sequences without `--allow-escape-sequences`, as PLAYBOOK's Testing step 9 says. `gh run view --job <id> --log` gave 198 lines for the finished job and "log not found" for the stalled one.
+- Why: the call was typed from CLAUDE.md's line, which has no flag, and not from the PLAYBOOK step. The control was run only after the answer looked like the one expected.
+- Rule going forward: "no log" is written only with a control beside it, the same call on a job of the same run that has a log. A job's log is read with `gh run view --job <id> --log`.
+- Status: open
+
+## 2026-11-14: A scan that could not run printed the all-clear
+- What went wrong: after PR 63's text was rebuilt, one command scanned it for dashes with `grep -nP '...' file || echo "no dashes"` and then sent it with `gh pr edit`. This grep refused the pattern (exit 2), so `||` printed "no dashes" and the text went out unscanned. A second scan, with node, found none. Minutes before, the handoff was read from the scratch folder and answered "version: none", since the command takes the repo from its working folder.
+- Why: `||` takes every exit but 0 as "nothing found", and the send was chained after the scan in the same command.
+- Rule going forward: a scan prints its own count from what it read ("N lines, 0 to look at"), never an all-clear from `||`. What it guards (a send, a push, a commit) goes in a later step, after the count is read. A trailmark command runs from the worktree root.
+- Status: open
+
+## 2026-11-14: A doc sentence was written for every shape from a run of one
+- What went wrong: batch 2 of RS-A-linkgit added to SECURITY.md that a submodule in a folder you may not enter still keeps status unread. The run behind it was a submodule made with `git submodule add`. Round 3's docs reviewer ran a gitlink with no gitdir in `.git/modules` and got `''`: the sentence was false for that shape. The same batch said a submodule below a missing folder still counts toward the limit, with no test behind it.
+- Why: the sentence was worded from the finding's title, not from the probe's shape, and no second shape was run.
+- Rule going forward: a sentence added to a shipped doc names the shape that was run, or the neighbour shapes are run first. A sentence that states a behavior gets a test or a probe named in the notes in the same batch.
+- Status: open
+
+## 2026-11-14: A stub row for a look nobody makes passed on every version
+- What went wrong: RS-A-linkgit's round 1 batch added the row "below a tracked folder that is not there: a submodule below it". It fails a look at the submodule's own folder and expects that the look is not made. No version makes that look (the first one is at the submodule's `.git`), so the row passed on the commit before the fix too. The Windows mutation run had shown it: the probe for that line passed. A second row was added for the `.git`, and the dead one stayed until two reviewers of round 2 named it.
+- Why: a probe that passes was read as "this system needs another row", not as "this row tells nothing".
+- Rule going forward: a row that expects a look is not made is first run on the code before the fix, where the stub must fire. When a mutation probe passes, the row that should have told it is removed or repaired before another is added.
+- Status: open
+
+## 2026-11-14: The notes deferred five looks as a known limit, and the shipped doc named three
+- What went wrong: RS-A-leftlooks and RS-A-unseencallers were deferred in dev/release-state.md with the words "what SECURITY.md calls a known limit". SECURITY.md's sentence named three of those looks. The docs reviewer of round 2 found the two that were missing and the callers outside `allSeen`.
+- Why: the deferred item was written after the doc's sentence, and the sentence was not read again.
+- Rule going forward: an item deferred as a known limit of shipped behavior gets its line in the shipped doc in the same step, and the notes quote that line.
+- Status: open
+
+## 2026-11-14: A rule was coded wider than the one reasoned in the notes, and refused a tracked `.gitkeep`
+- What went wrong: RS-A-linkgit's first push made every failed lookup by name that says "no access" keep git out. Review round 1 found it loses the file list for a tracked `.gitkeep` in a folder of mode 0000 (a docker volume folder), where the commit before answered `''` and `git status` works. The notes already held the narrower reasoning for listings: a folder this user may not enter holds nothing git can open. It was coded for listings only.
+- Why: the exception was written as "a listing in a folder nobody may enter", from the one probe that made it, and the lookups by name were not asked the same question. No test put a name, as opposed to a listing, in such a folder.
+- Rule going forward: when an exception to a new refusal is found for one kind of lookup, ask it of every other kind before coding, and write an on-disk case for each kind that can fail that way.
+- Status: open
+
+## 2026-11-14: A text case asserted a refusal for a shape git handles
+- What went wrong: the RS-A-relpath test asserted `unreadable-path` for a tracked path past the system's limit with nothing of it on disk. That is a deleted tree, which `git status` lists as deleted, and the commit before answered `''` (review round 1, F2). The test passed, so it locked the wrong answer in.
+- Why: the case was made cheap (no folders to build) and its expected answer came from the code, not from git run on the same shape.
+- Rule going forward: a case that asserts a refusal names what git itself does on that exact shape, from a run. Where the on-disk shape and the text shape differ in what is there, both are cases, each with its own expected answer.
+- Status: open
+
+## 2026-11-14: The class was listed by the names of calls in one file, and a caller in the other was missed
+- What went wrong: RS-A-linkgit's class list had every `lstat`, `stat`, `readdir` and `realpath` of the two library files. `localPath` hands back text where a part could not be looked at and sets a flag that only `allSeen` reads. `gitfacts.js` called `localPathFrom` for a tracked folder that is a link outside `allSeen`, so the flag was dropped and status was read (review round 1; older than the item, CONFIRMED here at 4,096 to 4,103 bytes).
+- Why: the list was made by searching for the system calls, and the new flag added a second way to be in the class: a caller of a function that reports through the flag.
+- Rule going forward: when a fix reports through a new channel (a flag, a return value, a thrown reason), list every caller of the functions that use it, in every file, and say for each how it reads the channel.
+- Status: open
+
+## 2026-11-14: A test assumed no repo above the temp folder
+- What went wrong: test 2 of RS-A-linkgit expected `''` from `localRepoRoot` for a folder whose `.git` can't be looked at. Two reviewers ran it with the temp folder inside their clone, as their brief said, and it failed there: the answer was the clone.
+- Why: the expected value was a constant where the code's answer depends on what is above the test's folder. `dev/release-check.sh` and CI keep the temp folder outside a repo, so it passed here.
+- Rule going forward: an expected value that depends on the folders above the test's own is asked of the code without the stub, not written as a constant. A review brief puts the temp folder outside the clone, or says that tests may see the clone above them.
+- Status: open
+
+## 2026-11-14: An older test measured what a fix added, and only the quick check showed it
+- What went wrong: F2's fix in RS-A-linkgit's round 1 batch skipped the tracked folders below one that is not on disk and kept their paths in a Set. The item's own tests and the mutation list passed on Linux and Windows. `dev/release-check.sh --sums --quick` then failed: the RS-A-deepindex test lists the folders looked at with nothing on disk and counts the characters put into Maps and Sets, and the fix changed both. The fix was reworked to keep "not there" on the tree's own entries, the test got its folders on disk, and every run made before had to be made again.
+- Why: the tests run by name were the item's. No search was made for the other tests that call the changed function with its lookups counted or stubbed.
+- Rule going forward: before coding a change inside a function, search the test file for the tests that call it or count its work, and put their names in the `--only` pattern from the first run on.
+- Status: open
+
+## 2026-11-14: The inline backslash rule was broken twice more in one hour
+- What went wrong: two rewrites of RS-A-linkgit's mutation script were sent as an inline `node -e` holding `\\\x27` and then `\\n`. The Bash tool collapsed both. The second left real line breaks inside string literals, and the script did not parse until it was repaired with the Edit tool.
+- Why: each was "one small rewrite" of a scratch file, so the promoted rule (PLAYBOOK "Writing code and docs" step 4, and the Windows notes) was not thought to apply.
+- Rule going forward: no new rule. A text with a backslash in it never goes in an inline command, a scratch file's rewrite included: the Edit tool does it.
+- Status: open
+
+## 2026-11-14: A probe that stopped on an error left its folder, and times in the notes were guessed
+- What went wrong: `probe-sf1.js` threw at a length `ln` could not make, before its own removal of the folder it made in WSL's /tmp, and the removal typed by hand afterwards was stopped by the harness's safety check (an `rm -rf` inside a `bash -lc` text). The folder `/tmp/probe-sf1-X43AWu` is left for the user. In the same hour the notes got "about 14:20" and "about 14:30" for things that happened before 14:10.
+- Why: the probe removed its folder on its last line, not in a `finally`. The times were written from a feeling for how long the work took.
+- Rule going forward: a probe removes what it made in a `finally`. A time in the notes is read from the clock in the same command that made the output.
+- Status: open
+
+## 2026-11-14: A change was told on Linux by a test written for something else, and on Windows by none
+- What went wrong: in RS-A-linkgit's mutation list, "a part that was not seen replaces another reason" carried the label "no test has to tell it". Linux told it through the RS-A-pathcap test; on Windows it passed. The first two cases written for it failed on the fix itself: both put the other reason where the check finds it before it looks at the part.
+- Why: the label hid that the line holds a decision (a reason found wins over `unreadable-path`). The order of the steps inside the check was assumed for the two cases, not read.
+- Rule going forward: a probe told only by a test of another item, or on one system only without a reason in the code, gets a case of its own. A case that needs two things found in order is written after reading that order in the code.
+- Status: open
+
+## 2026-11-14: A probe's label was set for a whole line, and one of its two changes is told on Windows
+- What went wrong: before the Windows rerun of RS-A-linkgit's mutation list, three lines got the label "told on Linux only" for both changes made at each. One of the six ("no failure is "not there"" at the second line of `unlisted`) fails a test on Windows too, so the run ended with 1 of 87 not as expected and that probe was run again.
+- Why: the label came from a count in a stopped run ("5 passed") and was written by line, not by probe.
+- Rule going forward: a mutation probe's label comes from that probe's own result in a run, not from the other change at the same line.
+- Status: open
+
+## 2026-11-14: What git does with a `.git` it can't read was reasoned from the check's code
+- What went wrong: RS-A-linkgit's notes flagged a Windows shape as a way past the check (a `.git` whose lstat is EPERM while its files open by name), and a paragraph on Linux said git takes a `.git` lookup that fails for its length as "not there". Run with git 2.56.1, both were wrong: git stops with "fatal: error reading '<folder>/.git'" (exit 128).
+- Why: both sentences came from what Node's calls return at those paths. Git was not run there.
+- Rule going forward: a sentence about what git does at a path is written from a run of git at that path, with its version. Until then it is HYPOTHESIZED, in the notes too.
+- Status: open
+
+## 2026-11-14: A heredoc wrote a scratch script again, and the commands after it ran on
+- What went wrong: an edit to RS-A-linkgit's mutation script went through a heredoc. A backslash was lost, the edit failed ("not once"), and the commands chained after it ran with variables that were never set. They changed nothing.
+- Why: the rule of 2026-11-07 was skipped for a script that looked small, and the chain used `;` where a later step needed the earlier one's result.
+- Rule going forward: PLAYBOOK "Writing code and docs" step 4 (the Edit or Write tool, never a heredoc), for scratch scripts too. Steps that need an earlier step's result are chained with `&&`.
+- Status: promoted (PLAYBOOK "Writing code and docs" step 4). Seen first in the entry "A quoted heredoc in the Bash tool still lost a backslash" of 2026-11-07.
+
+## 2026-11-14: One test for three items showed only its first failure on the parent
+- What went wrong: the on-disk test of RS-A-linkgit, RS-A-bytepath and RS-A-relpath was one `test()`. On a1c7269 it stopped at its first assertion, so the parent run showed nothing for the other two items, and it was split into four tests. Its builder had failed before that: a loop of `mkdir` and `cd` fails in dash past the system's limit, since dash's `cd` builds the whole path.
+- Why: "each fix gets a test that fails on the parent" was read as one failing test for the change.
+- Rule going forward: one test for each item, so the parent run shows a failure for each. A deep tree is made by `mkdir -p` of a relative path from a folder made by its whole path, not by `cd` in a loop.
+- Status: open
+
+## 2026-11-14: The first cut of a rule broke a decision an older test holds, and only the other system's suite showed it
+- What went wrong: RS-A-linkgit's first cut ("every failure but "not there" keeps git out") made the test "a decoy .git git can't search is passed over, as git does (loop round 4)" fail on Linux. Windows skips that test, so the run here had passed. `nothingIn` was added after the code was in both copies.
+- Why: the rule was checked against the three items and the call sites, not against the tests that hold earlier decisions about the same calls.
+- Rule going forward: before changing what a failed lookup means, grep the tests for the calls and file modes involved, and run the whole test file on the system the change is for (WSL for Linux) before writing new tests.
+- Status: open
+
+## 2026-11-14: One push may update at most 5 branches or tags
+- What went wrong: reported by an earlier session, not re-run here: a push that deleted 57 merged branches was refused whole (GH013). With 5 branches to a push it went through.
+- Why: the repo has a rule that limits one push to 5 branch or tag updates, and nothing in the notes said so.
+- Rule going forward: a push that updates more than 5 branches or tags is split into pushes of at most 5.
+- Status: open
+
+## 2026-11-14: A second push left the PR's head with no jobs for five minutes
+- What went wrong: from RS-A-pathcap's notes of 09:43, not re-run here: after a second push to PR 62 at 09:38:15, `gh pr view` showed the new head with 0 checks until 09:43:28.
+- Why: `tests.yml` puts a PR's runs in one group with `cancel-in-progress`. The new run stays pending with no jobs until the older run has finished cancelling.
+- Rule going forward: with 0 checks on a pushed head, read the runs list (`gh api repos/<repo>/actions/runs?per_page=3`) and look again after other work, not in a loop.
+- Status: open
+
+## 2026-11-14: A count of a diff's removed lines missed a removed bullet line
+- What went wrong: from RS-A-pathcap's notes of 09:43, not re-run here: a diff's changed lines were counted with a pattern over each line's first characters (`grep -c '^-[^-]'`). A removed bullet line starts with "--" in the diff and was not counted.
+- Why: the pattern was written to skip the diff's `---` header line.
+- Rule going forward: count a diff's changed lines with `git diff --numstat`.
+- Status: open
+
 ## 2026-11-14: A fault fixed in SECURITY.md was written again in a test comment of the same batch
 - What went wrong: round 3's batch fixed "where git fails the root is the session's folder" in SECURITY.md by naming the timeout, and added to the test's comment "where git is let try and fails with an error it is the session's folder", which leaves the timeout out again. The bullet it moved kept two ranges ("4,000 to 4,200") of which five values were run, in the commit that added the step against such ranges. Round 4's regression reviewer found both.
 - Why: each fix was made at the place a reviewer named. The other sentences the batch added or moved were not read against the fault, nor against the rule the batch itself logged.

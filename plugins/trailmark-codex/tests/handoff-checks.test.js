@@ -1352,9 +1352,11 @@ test('git pointers: nothing at a path longer than git opens is listed or walked 
   // The session's folder, as a text (nothing is on disk there). At 4,096
   // characters the folders above it are still tried, and the .git looked
   // for in the folder itself is at a path past the cap; at 4,097 nothing is
-  // looked at.
+  // looked at. Outside Windows that .git is at a path the system does not
+  // take, so the look fails as "too long" and not as "not there", which
+  // keeps git out since RS-A-linkgit.
   assert.deepStrictEqual(check(pathOf(path.join(base, 't6'), 600)), { why: '', listed: 0, looked: 0 });
-  assert.strictEqual(check(pathOf(path.join(base, 't96'), CAP)).why, '');
+  assert.strictEqual(check(pathOf(path.join(base, 't96'), CAP)).why, WIN ? '' : 'unreadable-path');
   assert.deepStrictEqual(check(text97), { why: 'long-path', listed: 0, looked: 0 });
   // A .git file that names its gitdir. A pointer file holds 4,096 bytes at
   // most, so the long path is named from the folder the file is in. Outside
@@ -1394,7 +1396,11 @@ test('git pointers: nothing at a path longer than git opens is listed or walked 
   };
   assert.deepStrictEqual(check(alternate(pathOf(path.join(base, 'a6'), 600))), { why: '', listed: 0, looked: 0 });
   if (WIN) assert.strictEqual(check(alternate(pathOf(path.join(base, 'a96'), CAP))).why, '');
-  assert.deepStrictEqual(check(alternate(pathOf(path.join(base, 'a97'), CAP + 1))), { why: 'long-path', listed: 0, looked: 0 });
+  // On macOS the look for an LFS store next to the alternate comes first, at
+  // a path past that system's limit of 1,024 bytes, and gives its own reason
+  // (RS-A-linkgit). That is from a run on Linux with the limit set to
+  // macOS's; the macOS job in CI is the proof.
+  assert.deepStrictEqual(check(alternate(pathOf(path.join(base, 'a97'), CAP + 1))), { why: process.platform === 'darwin' ? 'unreadable-path' : 'long-path', listed: 0, looked: 0 });
 
   // The repo's root, found without git when git is kept out (localRepoRoot,
   // for the memory folder). The cases below assert localRepoRoot's answer
@@ -1456,8 +1462,13 @@ test('git pointers: nothing at a path longer than git opens is listed or walked 
       const s = path.join(L, 's'.repeat(n - QT.length - 1));
       fs.mkdirSync(s);
       const kept = n > CAP && !WIN;
+      // At 4,096 characters outside Windows the .git looked for in that
+      // folder is at a path the system does not take: "too long" is not
+      // "not there", so git is kept out (RS-A-linkgit). The root is found
+      // as before.
+      const seen = WIN ? '' : 'unreadable-path';
       try {
-        assert.strictEqual(farGitConfig(s), kept ? 'long-path' : '', `the session's folder leads to ${n} characters`);
+        assert.strictEqual(farGitConfig(s), kept ? 'long-path' : seen, `the session's folder leads to ${n} characters`);
         assert.strictEqual(localRepoRoot(s), kept ? '' : Q, `the root where the session's folder leads to ${n} characters`);
       } finally { fs.rmdirSync(s); }
     }
@@ -1640,6 +1651,521 @@ test('git pointers: nothing at a path longer than git opens is listed or walked 
     const c = check(r, mods);
     assert.deepStrictEqual({ why: c.why, listed: c.listed }, { why: n > CAP ? 'long-path' : '', listed: 0 }, `a submodule gitdir's objects folder at ${n} characters`);
   }
+});
+
+// RS-A-linkgit, RS-A-relpath, RS-A-bytepath: a lookup that failed was taken
+// as "nothing is there", whatever the failure was. The checks name a file by
+// its whole path, while git reaches it by a short path from the folder it
+// runs in, or through a link. On Linux git read status in a repo whose .git
+// is a link to a gitdir at 4,096 bytes, and listed a ref through a link in a
+// folder of .git at 4,217 bytes, where the checks had answered ''. A failure
+// says "not there" now only when it is ENOENT, ENOTDIR, or ENAMETOOLONG at a
+// path the system takes at that length; any other keeps git out
+// (unreadable-path), or keeps the file list unread.
+// The system's limit as the tests write it (not taken from the code), and
+// the shortest path that is past it for certain: 4,096 bytes fail on Linux;
+// elsewhere 1,024, the size in macOS's headers, which no machine here tried.
+const SYS_LIMIT = WIN ? Infinity : (process.platform === 'linux' || process.platform === 'android') ? 4095 : 1022;
+const SYS_OVER = (process.platform === 'linux' || process.platform === 'android') ? 4096 : 1024;
+// Folder names that take `from` to a path of exactly n bytes: names of 200
+// bytes in the letter given (of one or two bytes), and a last one of 'd'
+// that takes what is left (1 to 201 bytes).
+const namesToBytes = (from, n, ch = 'd') => {
+  let left = n - Buffer.byteLength(from);
+  assert.ok(left >= 2, `no room below ${from} for ${n} bytes`);
+  const names = [];
+  while (left > 202) { names.push(ch.repeat(200 / Buffer.byteLength(ch))); left -= 201; }
+  names.push('d'.repeat(left - 1));
+  assert.strictEqual(Buffer.byteLength(path.join(from, ...names)), n);
+  return names;
+};
+const lookCode = (fn) => { try { fn(); return 'there'; } catch (e) { return e.code; } };
+
+test('git pointers: which failed lookups say "not there" (RS-A-linkgit)', () => {
+  const { notThere, MAX_SYS_PATH } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  assert.strictEqual(MAX_SYS_PATH, SYS_LIMIT);
+  const err = (code) => Object.assign(new Error(String(code)), { code });
+  const short = path.join(os.tmpdir(), 'x');
+  const long = (WIN ? 'C:\\' : '/') + 'a'.repeat(9000);
+  for (const code of ['ENOENT', 'ENOTDIR']) {
+    assert.strictEqual(notThere(err(code), short), true, code);
+    assert.strictEqual(notThere(err(code), long), true, `${code}, a path of 9,000 characters`);
+  }
+  for (const code of ['EACCES', 'EPERM', 'EBUSY', 'EIO', 'ELOOP', 'EMFILE', 'EINVAL', 'UNKNOWN', undefined]) {
+    assert.strictEqual(notThere(err(code), short), false, String(code));
+  }
+  for (const e of [null, undefined, {}, 'ENOENT']) assert.strictEqual(notThere(e, short), false, `not an error with a code: ${JSON.stringify(e)}`);
+  // ENAMETOOLONG is about one name where the path as a whole fits, and the
+  // path is counted in bytes.
+  assert.strictEqual(notThere(err('ENAMETOOLONG'), short), true);
+  if (WIN) {
+    assert.strictEqual(notThere(err('ENAMETOOLONG'), long), true, 'on Windows, at any length');
+    return;
+  }
+  assert.strictEqual(notThere(err('ENAMETOOLONG'), '/' + 'a'.repeat(SYS_LIMIT - 1)), true, 'a path of exactly the limit');
+  assert.strictEqual(notThere(err('ENAMETOOLONG'), '/' + 'a'.repeat(SYS_LIMIT)), false, 'one byte more');
+  const E = String.fromCharCode(0xe9);
+  const fits = '/' + E.repeat(Math.floor((SYS_LIMIT - 1) / 2));
+  const over = fits + E;
+  assert.ok(Buffer.byteLength(fits) <= SYS_LIMIT && Buffer.byteLength(over) > SYS_LIMIT && over.length < SYS_LIMIT / 2 + 3, 'two-byte letters on either side of the limit');
+  assert.strictEqual(notThere(err('ENAMETOOLONG'), fits), true, 'two-byte letters, within the limit in bytes');
+  assert.strictEqual(notThere(err('ENAMETOOLONG'), over), false, 'two-byte letters, past the limit in bytes and far below it in characters');
+  // What this system says, which is what the rule rests on: nothing is at
+  // these paths, and the answer is "not there" up to the limit and "too
+  // long" past it; a name of 256 bytes is too long at any length.
+  const base = realTemp('jbmem-notthere-');
+  const at = (n) => path.join(base, ...namesToBytes(base, n));
+  assert.strictEqual(lookCode(() => fs.lstatSync(at(SYS_LIMIT))), 'ENOENT', `a path of ${SYS_LIMIT} bytes`);
+  assert.strictEqual(lookCode(() => fs.lstatSync(at(SYS_OVER))), 'ENAMETOOLONG', `a path of ${SYS_OVER} bytes`);
+  assert.strictEqual(lookCode(() => fs.lstatSync(path.join(base, 'n'.repeat(256)))), 'ENAMETOOLONG', 'a name of 256 bytes');
+});
+
+// One row for each lookup in the two library files that was changed. A row
+// makes what it needs in a folder of its own, and names one call (fs[fn] at
+// one path, the nth time it is asked there; 0 for every time) that the test
+// makes fail. With a failure that is not "not there" the answer is
+// unreadable-path (lfs-config for a .lfsconfig); with one that is, the
+// answer is what it was before, as it is with no failure at all.
+test('git pointers: a lookup that fails for another reason than "not there" keeps git out (RS-A-linkgit)', () => {
+  const { farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localRepoRoot } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const { farWorktree, filterOverrides } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-unreadable-');
+  const slash = (p) => p.replace(/\\/g, '/');
+  let made = 0;
+  const name = (kind) => path.join(base, `${kind}${made++}`);
+  const fresh = (kind) => { const d = name(kind); fs.mkdirSync(d); return d; };
+  // What git asks of a gitdir, made by hand. The checks start no git for it.
+  const gitdirIn = (g) => {
+    for (const d of ['objects', 'refs']) fs.mkdirSync(path.join(g, d), { recursive: true });
+    fs.writeFileSync(path.join(g, 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(g, 'config'), '[core]\n\trepositoryformatversion = 0\n');
+    return g;
+  };
+  const repo = (config = '') => {
+    const r = fresh('r');
+    gitdirIn(path.join(r, '.git'));
+    if (config) fs.appendFileSync(path.join(r, '.git', 'config'), config);
+    return r;
+  };
+  const bare = () => { const d = fresh('d'); fs.writeFileSync(path.join(d, 'HEAD'), 'ref: refs/heads/main\n'); return d; };
+  // A link to a folder: a junction on Windows, which needs no extra right.
+  const link = (target, at) => fs.symlinkSync(target, at, 'junction');
+  const same = (a, b) => (WIN ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : a === b);
+  // run() with fs[fn] failing at the path `at` of this test's folder, and
+  // how often it failed (for nth 0: whether it did).
+  const failing = ({ fn, at, nth = 1 }, code, run) => {
+    const real = fs[fn];
+    let calls = 0; let failed = 0;
+    fs[fn] = function (p, ...a) {
+      if (typeof p === 'string' && same(p, at) && (++calls === nth || !nth)) {
+        failed++;
+        throw Object.assign(new Error(`${code}: made up by the test, ${fn} '${p}'`), { code });
+      }
+      return real.call(this, p, ...a);
+    };
+    try { return { why: run(), failed: nth ? failed : Math.min(failed, 1) }; } finally { fs[fn] = real; }
+  };
+  // The stand-in works: the second look at one path fails, no other does.
+  const probe = name('probe');
+  const looks = () => [probe, probe, probe, base].map(p => lookCode(() => fs.lstatSync(p))).join(' ');
+  assert.deepStrictEqual(failing({ fn: 'lstatSync', at: probe, nth: 2 }, 'EACCES', looks), { why: 'ENOENT EACCES ENOENT there', failed: 1 });
+  assert.deepStrictEqual(failing({ fn: 'lstatSync', at: probe, nth: 0 }, 'EPERM', looks), { why: 'EPERM EPERM EPERM there', failed: 1 });
+
+  // git's two answers for a repo's folder, made up: the tracked paths.
+  const sha = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
+  const tracked = (top, rels, mode = '100644') => {
+    const list = rels.map(p => `${mode} ${sha} 0\t${p}\0`).join('');
+    const r = {
+      run: (cwd, args) => (args[0] === 'rev-parse' ? { ok: true, out: `${top}\n` } : args[0] === 'ls-files' ? { ok: true, out: list } : { ok: false, out: '', why: 'error' }),
+      left: () => 5000,
+    };
+    return farWorktree(r, top);
+  };
+  // And for the filter check: one tracked file with the lfs filter, no
+  // filter setting in the repo, no .lfsconfig in the index or in HEAD.
+  const lfsFilter = (top) => {
+    const r = { run: (cwd, args) => {
+      if (args[0] === 'ls-files' && args.includes('--')) return { ok: true, out: '' };
+      if (args[0] === 'ls-files') return { ok: true, out: 'f\0' };
+      if (args[0] === 'check-attr') return { ok: true, out: 'f\0filter\0lfs\0' };
+      return { ok: false, out: '', why: 'error', status: 1 };
+    } };
+    return filterOverrides(r, top).why || '';
+  };
+
+  // root: the repo's root found without git while that lookup fails each
+  // time it is asked: 'self' for the row's folder, '' for none there (the
+  // answer is then the repo above this test's folder, where the temp folder
+  // is inside a checkout, and none otherwise).
+  const rows = [
+    ['the .git of the session folder', () => { const r = repo(); return { fn: 'lstatSync', at: path.join(r, '.git'), run: () => farGitConfig(r), dir: r, root: '' }; }],
+    ['that .git, asked a second time (by the check of the gitdir)', () => { const r = repo(); return { fn: 'lstatSync', at: path.join(r, '.git'), nth: 2, run: () => farGitConfig(r) }; }],
+    ['a HEAD in a folder with no .git', () => { const d = bare(); return { fn: 'lstatSync', at: path.join(d, 'HEAD'), run: () => farGitConfig(d), dir: d, root: '' }; }],
+    ['that HEAD, asked a second time (by the check of a bare repo)', () => { const d = bare(); return { fn: 'lstatSync', at: path.join(d, 'HEAD'), nth: 2, run: () => farGitConfig(d) }; }],
+    ['that HEAD, opened', () => { const d = bare(); return { fn: 'openSync', at: path.join(d, 'HEAD'), run: () => farGitConfig(d) }; }],
+    ['a folder in .git, listed', () => { const r = repo(); return { fn: 'readdirSync', at: path.join(r, '.git', 'refs'), run: () => farGitConfig(r), gone: 'odd-path', dir: r, root: 'self' }; }],
+    ['where a link in .git leads', () => { const r = repo(); const t = fresh('t'); link(t, path.join(r, '.git', 'lk')); return { fn: 'statSync', at: t, run: () => farGitConfig(r), dir: r, root: 'self' }; }],
+    ['the lfs folder of .git', () => { const r = repo(); fs.mkdirSync(path.join(r, '.git', 'lfs')); return { fn: 'statSync', at: path.join(r, '.git', 'lfs'), run: () => farGitConfig(r), dir: r, root: 'self' }; }],
+    ['the worktrees folder of .git', () => { const r = repo(); return { fn: 'lstatSync', at: path.join(r, '.git', 'worktrees'), run: () => farGitConfig(r), dir: r, root: 'self' }; }],
+    ['where a worktrees folder that is a link leads', () => { const r = repo(); const t = fresh('t'); link(t, path.join(r, '.git', 'worktrees')); return { fn: 'statSync', at: t, run: () => farGitConfig(r) }; }],
+    ['the worktrees folder, listed', () => { const r = repo(); fs.mkdirSync(path.join(r, '.git', 'worktrees')); return { fn: 'readdirSync', at: path.join(r, '.git', 'worktrees'), run: () => farGitConfig(r) }; }],
+    ['an entry of the worktrees folder', () => { const r = repo(); fs.mkdirSync(path.join(r, '.git', 'worktrees', 'w'), { recursive: true }); return { fn: 'lstatSync', at: path.join(r, '.git', 'worktrees', 'w'), run: () => farGitConfig(r) }; }],
+    ['an lfs.storage folder', () => { const t = fresh('t'); const r = repo(`[lfs]\n\tstorage = ${slash(t)}\n`); return { fn: 'statSync', at: t, run: () => farGitConfig(r), dir: r, root: 'self' }; }],
+    ['a part of a path that a setting names', () => { const t = name('locked'); const r = repo(`[core]\n\texcludesFile = ${slash(path.join(t, 'x'))}\n`); return { fn: 'lstatSync', at: t, nth: 0, run: () => farGitConfig(r), dir: r, root: 'self' }; }],
+    ['the session folder itself', () => { const r = repo(); return { fn: 'lstatSync', at: r, nth: 0, run: () => farGitConfig(r), dir: r, root: 'self' }; }],
+    ['an lfs store next to an alternate', () => {
+      const alt = fresh('alt'); fs.mkdirSync(path.join(alt, 'objects')); fs.mkdirSync(path.join(alt, 'lfs'));
+      const r = repo(); fs.mkdirSync(path.join(r, '.git', 'objects', 'info'));
+      fs.writeFileSync(path.join(r, '.git', 'objects', 'info', 'alternates'), `${slash(path.join(alt, 'objects'))}\n`);
+      return { fn: 'lstatSync', at: path.join(alt, 'lfs'), nth: 2, run: () => farGitConfig(r) };
+    }],
+    ['the .git of a nested repo', () => { const d = fresh('n'); return { fn: 'lstatSync', at: path.join(d, '.git'), run: () => farNested(d, base) }; }],
+    ['the folder asked about a nested repo', () => { const d = fresh('n'); return { fn: 'lstatSync', at: d, nth: 0, run: () => farNested(d, base) }; }],
+    ['where a link under modules leads, as a part of its path', () => { const r = repo(); const t = fresh('t'); fs.mkdirSync(path.join(r, '.git', 'modules')); link(t, path.join(r, '.git', 'modules', 'lk')); return { fn: 'lstatSync', at: t, nth: 0, run: () => farModules(r) }; }],
+    ['the .git of the top, before the submodule gitdirs', () => { const r = repo(); return { fn: 'lstatSync', at: path.join(r, '.git'), run: () => farModules(r) }; }],
+    ['a .git file, asked a second time (by the check of the gitdir)', () => { const w = fresh('w'); gitdirIn(path.join(w, 'g')); fs.writeFileSync(path.join(w, '.git'), 'gitdir: g\n'); return { fn: 'lstatSync', at: path.join(w, '.git'), nth: 2, run: () => farModules(w) }; }],
+    ['the modules folder, listed', () => { const r = repo(); fs.mkdirSync(path.join(r, '.git', 'modules', 'm'), { recursive: true }); return { fn: 'readdirSync', at: path.join(r, '.git', 'modules'), run: () => farModules(r), gone: 'odd-path' }; }],
+    ['where a link under modules leads', () => { const r = repo(); const t = fresh('t'); fs.mkdirSync(path.join(r, '.git', 'modules')); link(t, path.join(r, '.git', 'modules', 'lk')); return { fn: 'statSync', at: t, run: () => farModules(r) }; }],
+    ['the objects of a submodule gitdir, listed', () => { const r = repo(); const m = gitdirIn(path.join(r, '.git', 'modules', 'm')); return { fn: 'readdirSync', at: path.join(m, 'objects'), run: () => farModules(r), gone: 'odd-path' }; }],
+    ['a .lfsconfig', () => { const t = fresh('t'); return { fn: 'lstatSync', at: path.join(t, '.lfsconfig'), run: () => farLfsFile(path.join(t, '.lfsconfig'), t), kept: 'lfs-config' }; }],
+    ['a .lfsconfig, with the lfs filter left running', () => { const t = fresh('t'); return { fn: 'lstatSync', at: path.join(t, '.lfsconfig'), run: () => lfsFilter(t), kept: 'lfs-config' }; }],
+    ['a part of a path that .lfsconfig names', () => { const t = fresh('t'); const locked = name('locked'); return { fn: 'lstatSync', at: locked, nth: 0, run: () => farLfsEntries([['lfs.x.file', slash(path.join(locked, 'x'))]], t) }; }],
+    ['a folder of tracked files', () => { const t = fresh('t'); fs.mkdirSync(path.join(t, 'd')); return { fn: 'lstatSync', at: path.join(t, 'd'), run: () => tracked(t, ['d/f']) }; }],
+    ['a tracked name', () => { const t = fresh('t'); return { fn: 'lstatSync', at: path.join(t, 'f'), run: () => tracked(t, ['f']) }; }],
+    ['a folder of three tracked files, listed', () => { const t = fresh('t'); fs.mkdirSync(path.join(t, 'd')); return { fn: 'readdirSync', at: path.join(t, 'd'), run: () => tracked(t, ['d/a', 'd/b', 'd/c']) }; }],
+    ['the .git in a folder where a tracked file was', () => { const t = fresh('t'); fs.mkdirSync(path.join(t, 's')); return { fn: 'lstatSync', at: path.join(t, 's', '.git'), run: () => tracked(t, ['s']) }; }],
+    ['that .git, asked a second time (by the check of a nested repo)', () => { const t = fresh('t'); fs.mkdirSync(path.join(t, 's', '.git'), { recursive: true }); return { fn: 'lstatSync', at: path.join(t, 's', '.git'), nth: 2, run: () => tracked(t, ['s']) }; }],
+    ['the .git of a submodule', () => { const t = fresh('t'); return { fn: 'lstatSync', at: path.join(t, 'sub', '.git'), run: () => tracked(t, ['sub'], '160000') }; }],
+    ['.gitmodules', () => { const t = fresh('t'); return { fn: 'lstatSync', at: path.join(t, '.gitmodules'), run: () => tracked(t, ['sub'], '160000') }; }],
+    ['the .git of the top, asked for the submodule gitdirs', () => { const t = fresh('t'); return { fn: 'lstatSync', at: path.join(t, '.git'), run: () => tracked(t, ['sub'], '160000') }; }],
+    // Found in review round 1: the look at where a tracked folder that is a
+    // link leads did not ask whether every part of that path was looked at.
+    ['where a tracked folder that is a link leads, as a part of its path', () => { const t = fresh('t'); const to = fresh('x'); link(to, path.join(t, 'd')); return { fn: 'lstatSync', at: to, nth: 0, run: () => tracked(t, ['d/f']) }; }],
+    // A submodule below a folder that is not there is not looked at, and is
+    // still counted: .gitmodules is looked at for it.
+    ['.gitmodules, for a submodule below a folder that is not there', () => { const t = fresh('t'); return { fn: 'lstatSync', at: path.join(t, '.gitmodules'), run: () => tracked(t, ['gone/sub'], '160000') }; }],
+  ];
+  // A HEAD that is a link to a file: making one needs a right on Windows.
+  if (!NO_LINKS) {
+    rows.push(['where a HEAD that is a link leads', () => {
+      const d = fresh('d'); const t = path.join(fresh('t'), 'head');
+      fs.writeFileSync(t, 'ref: refs/heads/main\n'); fs.symlinkSync(t, path.join(d, 'HEAD'));
+      return { fn: 'statSync', at: t, run: () => farGitConfig(d) };
+    }]);
+  }
+  // A .git that is a link to a gitdir: on Windows that alone keeps git out
+  // (linked-gitdir), so the look at where it leads is not reached there.
+  if (!WIN) {
+    rows.push(['where a .git that is a link leads', () => {
+      const w = fresh('w'); const g = gitdirIn(fresh('g'));
+      fs.symlinkSync(g, path.join(w, '.git'));
+      return { fn: 'statSync', at: g, run: () => farGitConfig(w) };
+    }]);
+  }
+  const KEPT = ['EACCES', 'EPERM', 'EBUSY', 'ELOOP'];
+  const GONE = ['ENOENT', 'ENOTDIR', 'ENAMETOOLONG'];
+  for (const [what, make] of rows) {
+    for (const code of KEPT) {
+      const c = make();
+      assert.deepStrictEqual(failing(c, code, c.run), { why: c.kept || 'unreadable-path', failed: 1 }, `${what}: ${code}`);
+    }
+    for (const code of GONE) {
+      const c = make();
+      assert.deepStrictEqual(failing(c, code, c.run), { why: c.gone || '', failed: 1 }, `${what}: ${code}`);
+    }
+    const plain = make();
+    assert.strictEqual(plain.run(), '', `${what}: nothing fails`);
+    if (plain.root !== undefined) {
+      const c = make();
+      assert.strictEqual(failing({ ...c, nth: 0 }, 'EACCES', () => localRepoRoot(c.dir)).why, c.root === 'self' ? c.dir : localRepoRoot(base), `${what}: the root found without git`);
+    }
+  }
+  // Another reason found later by the same check is the one given: a part
+  // that could not be looked at names the reason only where there is no
+  // other. Here the session folder itself can't be looked at, and a folder
+  // of its .git is then listed as "not there" while it is there (odd-path).
+  {
+    const r = repo();
+    const x = path.join(r, '.git', 'x');
+    fs.mkdirSync(x);
+    const got = failing({ fn: 'lstatSync', at: r, nth: 0 }, 'EACCES', () => failing({ fn: 'readdirSync', at: x }, 'ENOENT', () => farGitConfig(r)));
+    assert.deepStrictEqual(got, { why: { why: 'odd-path', failed: 1 }, failed: 1 }, 'a part that could not be looked at, then another reason');
+  }
+  // Two failures at one folder of .git: its listing says "not there", and
+  // the look at it that follows (is it a folder after all?) fails for
+  // another reason, or says "not there" as well.
+  for (const [code, why] of [['EACCES', 'unreadable-path'], ['EPERM', 'unreadable-path'], ['ENOENT', ''], ['ENOTDIR', '']]) {
+    const r = repo();
+    const x = path.join(r, '.git', 'x');
+    fs.mkdirSync(x);
+    const got = failing({ fn: 'readdirSync', at: x }, 'ENOENT', () => failing({ fn: 'lstatSync', at: x }, code, () => farGitConfig(r)));
+    assert.deepStrictEqual(got, { why: { why, failed: 1 }, failed: 1 }, `a folder in .git, listed (ENOENT) and then looked at: ${code}`);
+  }
+  // A folder of .git whose listing fails as "no access". Outside Windows it
+  // is passed over when nobody may enter it either: git opens nothing in
+  // it. The answer to that second question is made up here (the system
+  // gives it in the test of modes 0111 and 0000 below). Only EACCES on both
+  // counts: another failure of the listing is not asked about, and another
+  // answer about entering does not pass the folder over.
+  if (!WIN) {
+    for (const [listing, entering, asked, why] of [['EACCES', 'EACCES', 1, ''], ['EACCES', 'EPERM', 1, 'unreadable-path'], ['EACCES', 'ENOENT', 1, 'unreadable-path'], ['EPERM', 'EACCES', 0, 'unreadable-path']]) {
+      const r = repo();
+      const x = path.join(r, '.git', 'x');
+      fs.mkdirSync(x);
+      const got = failing({ fn: 'readdirSync', at: x }, listing, () => failing({ fn: 'accessSync', at: x }, entering, () => farGitConfig(r)));
+      assert.deepStrictEqual(got, { why: { why, failed: asked }, failed: 1 }, `a folder in .git: listing ${listing}, entering ${entering}`);
+    }
+    // The same question for a name that is looked up (review round 1): "no
+    // access" where the folder that holds the name can't be entered says
+    // "not there", as it does for git, which goes the same way. With the
+    // system's own answer about entering (the rows above), it keeps git out.
+    for (const [entering, why] of [['EACCES', ''], ['EPERM', 'unreadable-path'], ['ENOENT', 'unreadable-path']]) {
+      const r = repo();
+      const got = failing({ fn: 'lstatSync', at: path.join(r, '.git', 'worktrees') }, 'EACCES', () => failing({ fn: 'accessSync', at: path.join(r, '.git') }, entering, () => farGitConfig(r)));
+      assert.deepStrictEqual(got, { why: { why, failed: 1 }, failed: 1 }, `a name in .git: looked up EACCES, entering its folder ${entering}`);
+    }
+  }
+  // Nothing is looked up below a tracked folder that is not there (review
+  // round 1): a look there would fail here, and is not made. `git status`
+  // lists such files as deleted.
+  for (const [what, rels, mode, fn, at] of [
+    ['a folder below it', ['gone/sub/f'], '100644', 'lstatSync', ['gone', 'sub']],
+    ['a folder two below it', ['gone/sub/deep/f'], '100644', 'lstatSync', ['gone', 'sub', 'deep']],
+    ['a name in it', ['gone/f'], '100644', 'lstatSync', ['gone', 'f']],
+    ['its listing', ['gone/a', 'gone/b', 'gone/c'], '100644', 'readdirSync', ['gone']],
+    // The first look at a submodule is at its .git, not at its own folder.
+    ['the .git of a submodule below it', ['gone/sub'], '160000', 'lstatSync', ['gone', 'sub', '.git']],
+  ]) {
+    const t = fresh('t');
+    assert.deepStrictEqual(failing({ fn, at: path.join(t, ...at), nth: 0 }, 'EACCES', () => tracked(t, rels, mode)), { why: '', failed: 0 }, `below a tracked folder that is not there: ${what}`);
+  }
+  // A submodule below such a folder still counts toward the limit on
+  // submodules (review round 3): the limit, and one more, none on disk.
+  {
+    const t = fresh('t');
+    const subs = (n) => Array.from({ length: n }, (_, k) => `gone/s${k}`);
+    assert.strictEqual(tracked(t, subs(2000), '160000'), '', 'as many submodules as the limit, below a tracked folder that is not there');
+    assert.strictEqual(tracked(t, subs(2001), '160000'), 'many-submodules', 'one submodule more than the limit, below a tracked folder that is not there');
+  }
+  // A commondir that is there and is no plain file (a folder here): the
+  // check of the submodule gitdirs passed it over, and the folder it stands
+  // for went unchecked. The check before git already refused it.
+  const odd = repo();
+  fs.mkdirSync(path.join(odd, '.git', 'commondir'));
+  assert.strictEqual(farModules(odd), 'unreadable-config');
+  assert.strictEqual(farGitConfig(odd), 'unreadable-config');
+});
+
+// The same on disk, where the system makes the failures itself. Windows has
+// no such paths: Node there opens a path of any length up to 32,767
+// characters by its whole text, and a folder's access list is not something
+// a test may change, so the cases above are what runs there.
+const OFF_WIN = { skip: WIN && 'the system makes these failures outside Windows only' };
+const SHARE = '//evil.invalid/share/x';
+const BLOB = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
+// git's two answers for the folder `top`, made up: the tracked paths.
+const trackedIn = (top, rels, mode = '100644') => ({
+  run: (cwd, args) => (args[0] === 'rev-parse' ? { ok: true, out: `${top}\n` } : args[0] === 'ls-files' ? { ok: true, out: rels.map(p => `${mode} ${BLOB} 0\t${p}\0`).join('') } : { ok: false, out: '', why: 'error' }),
+  left: () => 5000,
+});
+// A folder for one of these tests, with what makes repos and long paths in it.
+const sysPaths = (prefix) => {
+  const base = realTemp(prefix);
+  let made = 0;
+  const next = (kind) => path.join(base, `${kind}${made++}`);
+  const repo = () => {
+    const r = next('r');
+    for (const d of ['objects', 'refs']) fs.mkdirSync(path.join(r, '.git', d), { recursive: true });
+    fs.writeFileSync(path.join(r, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(r, '.git', 'config'), '[core]\n\trepositoryformatversion = 0\n');
+    return r;
+  };
+  // Folders made one inside the other below `from`: the first ones by their
+  // whole path, up to half the limit, and the rest from there by a path
+  // shorter than the limit, the way git reaches them. `script` runs in that
+  // folder halfway, with the path of the last folder from there as $1.
+  const deep = (from, names, script, env = {}) => {
+    let mid = from; let i = 0;
+    while (i < names.length - 1 && Buffer.byteLength(path.join(mid, names[i])) < SYS_LIMIT / 2) mid = path.join(mid, names[i++]);
+    fs.mkdirSync(mid, { recursive: true });
+    const rest = names.slice(i).join('/');
+    assert.ok(Buffer.byteLength(rest) + 16 < SYS_LIMIT, 'the rest is a path the system takes');
+    const r = spawnSync('sh', ['-c', `mkdir -p "$1" && ${script}`, 'sh', rest], { cwd: mid, encoding: 'utf8', env: { ...process.env, ...env } });
+    assert.strictEqual(r.status, 0, `sh: ${r.stderr}`);
+  };
+  // Node can't remove what it can't name by its whole path.
+  const done = () => assert.strictEqual(spawnSync('rm', ['-rf', base]).status, 0);
+  return { base, next, repo, deep, done };
+};
+
+// RS-A-linkgit. A .git that is a link to a gitdir whose config includes a
+// share (the text the tests use for one; nothing asks for it).
+test('git pointers: a gitdir behind a link, at a path the system does not take whole (RS-A-linkgit)', OFF_WIN, () => {
+  const { farGitConfig, farModules, localRepoRoot } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const { base, next, deep, done } = sysPaths('jbmem-syspath-link-');
+  const linked = (n) => {
+    const w = next('w');
+    fs.mkdirSync(w);
+    const g = path.basename(next('g'));
+    const names = [g, ...namesToBytes(path.join(base, g), n)];
+    deep(base, names, "mkdir \"$1/objects\" \"$1/refs\" && printf 'ref: refs/heads/main\\n' > \"$1/HEAD\" && printf '%s' \"$CONFIG\" > \"$1/config\"", { CONFIG: `[core]\n\trepositoryformatversion = 0\n[include]\n\tpath = ${SHARE}\n` });
+    // The link's text is the way from w, shorter than the gitdir's path.
+    fs.symlinkSync(path.relative(w, path.join(base, ...names)), path.join(w, '.git'));
+    return { w, gitdir: path.join(base, ...names) };
+  };
+  // At a short path the check reads that config through the link.
+  assert.strictEqual(farGitConfig(linked(300).w), 'network-config');
+  // Past the limit the gitdir can't be looked at by its whole path, and
+  // opens through the link all the same, as it does for git.
+  const far = linked(SYS_OVER);
+  assert.strictEqual(lookCode(() => fs.statSync(far.gitdir)), 'ENAMETOOLONG');
+  assert.strictEqual(fs.readFileSync(path.join(far.w, '.git', 'HEAD'), 'utf8'), 'ref: refs/heads/main\n', 'the gitdir opens through the link');
+  assert.strictEqual(farGitConfig(far.w), 'unreadable-path');
+  assert.strictEqual(farModules(far.w), 'unreadable-path');
+  // No root is found at that folder without git. The answer is the repo
+  // above, where there is one (the temp folder inside a checkout), and none
+  // otherwise: the caller then takes the folder itself, which is what git
+  // answered for it.
+  assert.strictEqual(localRepoRoot(far.w), localRepoRoot(base));
+  done();
+});
+
+// RS-A-bytepath. A folder in .git/x at a path of n bytes (0: a short one),
+// holding a link with a share's text.
+test('git pointers: a folder in .git at a path the system does not take whole, counted in bytes (RS-A-bytepath)', OFF_WIN, () => {
+  const { farGitConfig, localRepoRoot } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const { repo, deep, done } = sysPaths('jbmem-syspath-bytes-');
+  const E = String.fromCharCode(0xe9);
+  const inGit = (n, ch) => {
+    const r = repo();
+    const from = path.join(r, '.git', 'x');
+    const names = n ? namesToBytes(from, n, ch) : ['d'];
+    deep(path.join(r, '.git'), ['x', ...names], `ln -s ${SHARE} "$1/l"`);
+    return { r, folder: path.join(from, ...names) };
+  };
+  assert.strictEqual(farGitConfig(inGit(0).r), 'linked-gitdir');
+  const refused = (c, what) => {
+    assert.strictEqual(farGitConfig(c.r), 'unreadable-path', what);
+    assert.strictEqual(localRepoRoot(c.r), c.r, `${what}: the root`);
+  };
+  // Two-byte letters: past the limit in bytes, within the cap of 4,096
+  // characters, which is what let it through.
+  const two = inGit(SYS_OVER + 100, E);
+  assert.ok(two.folder.length <= 4096 && Buffer.byteLength(two.folder) === SYS_OVER + 100);
+  assert.strictEqual(lookCode(() => fs.readdirSync(two.folder)), 'ENAMETOOLONG');
+  refused(two, 'two-byte letters');
+  // The first length that is too long (4,096 on Linux, which is the cap
+  // itself and so not past it).
+  const first = inGit(SYS_OVER);
+  assert.strictEqual(lookCode(() => fs.readdirSync(first.folder)), 'ENAMETOOLONG');
+  refused(first, `a folder at ${SYS_OVER} bytes`);
+  // At the limit the folder lists, and the link in it is past the limit.
+  const edge = inGit(SYS_LIMIT);
+  assert.deepStrictEqual(fs.readdirSync(edge.folder), ['l']);
+  assert.strictEqual(lookCode(() => fs.lstatSync(path.join(edge.folder, 'l'))), 'ENAMETOOLONG');
+  refused(edge, `a folder at ${SYS_LIMIT} bytes`);
+  // Five bytes shorter, the link is looked at and its text refused.
+  assert.strictEqual(farGitConfig(inGit(SYS_LIMIT - 5).r), 'linked-gitdir');
+  done();
+});
+
+// RS-A-relpath. A submodule's .git, and a tracked file, at a path that is
+// past the limit once joined to the top: git status goes there by the
+// tracked path alone. With the folders on the way there on disk, what is at
+// the end can't be told from "not there", so status is not read. With
+// nothing of the path on disk, the first folder is not there and nothing
+// below it is looked up: git lists those files as deleted (review round 1).
+test('git status: a tracked path that is past what the system takes once joined to the top keeps status unread (RS-A-relpath)', OFF_WIN, () => {
+  const { farWorktree } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const { next, deep, done } = sysPaths('jbmem-syspath-rel-');
+  for (const [what, tail, mode] of [['the .git of a submodule', '.git', '160000'], ['a tracked file', 'f', '100644']]) {
+    for (const [n, onDisk, why] of [[SYS_LIMIT, true, ''], [SYS_OVER, true, 'unreadable-path'], [SYS_LIMIT, false, ''], [SYS_OVER, false, '']]) {
+      const top = next('t');
+      fs.mkdirSync(top);
+      // The tracked folders whose `tail` below them ends at exactly n bytes.
+      const names = namesToBytes(top, n - Buffer.byteLength(tail) - 1);
+      const whole = path.join(top, ...names, tail);
+      assert.strictEqual(Buffer.byteLength(whole), n);
+      if (onDisk) deep(top, names, 'true');
+      const label = `${what} at ${n} bytes, the folders ${onDisk ? 'on disk' : 'not there'}`;
+      assert.strictEqual(lookCode(() => fs.lstatSync(whole)), n > SYS_LIMIT ? 'ENAMETOOLONG' : 'ENOENT', label);
+      const rel = names.join('/');
+      assert.strictEqual(farWorktree(trackedIn(top, [mode === '160000' ? rel : `${rel}/${tail}`], mode), top), why, label);
+    }
+  }
+  done();
+});
+
+// Found in review round 1, in a line older than this item: a tracked folder
+// `d` that is a link leading, by a path the system does not take whole, to a
+// link with a share's text. git goes through `d` (it read a filter from
+// behind it when tried), and the look at where `d` leads stopped at the part
+// it could not look at and took the rest as text.
+test('git status: a tracked folder that is a link leading past what the system takes keeps status unread (RS-A-linkgit)', OFF_WIN, () => {
+  const { farWorktree } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const { next, deep, done } = sysPaths('jbmem-syspath-led-');
+  // `lk` at a whole path of n bytes below the top (0: a short one), and `d`
+  // in the top, a link with the way to `lk` from there as its text.
+  const led = (n) => {
+    const top = next('t');
+    fs.mkdirSync(top);
+    const names = n ? namesToBytes(path.join(top, 'x'), n - 3) : [];
+    deep(top, ['x', ...names], `ln -s ${SHARE} "$1/lk"`);
+    fs.symlinkSync(path.join('x', ...names, 'lk'), path.join(top, 'd'));
+    return { top, lk: path.join(top, 'x', ...names, 'lk'), why: farWorktree(trackedIn(top, ['d/f']), top) };
+  };
+  assert.strictEqual(led(0).why, 'linked-folder');
+  // At the limit `lk` is looked at, and its text refused.
+  const edge = led(SYS_LIMIT);
+  assert.strictEqual(Buffer.byteLength(edge.lk), SYS_LIMIT);
+  assert.strictEqual(lookCode(() => fs.lstatSync(edge.lk)), 'there');
+  assert.strictEqual(edge.why, 'linked-folder', `lk at ${SYS_LIMIT} bytes`);
+  for (const n of [SYS_OVER, SYS_OVER + 1, SYS_OVER + 7]) {
+    const far = led(n);
+    assert.strictEqual(lookCode(() => fs.lstatSync(far.lk)), 'ENAMETOOLONG');
+    assert.strictEqual(far.why, 'unreadable-path', `lk at ${n} bytes`);
+  }
+  done();
+});
+
+// A folder that can be entered and not listed (mode 0111): its names open,
+// so it is not passed over. One that can't be entered either (0000) is, as
+// before: git opens nothing in it. Root reads through both, so there is
+// nothing to see as root.
+test('git pointers: a folder that can be entered and not listed keeps git out, one that can not be entered is passed over (RS-A-linkgit)', { skip: WIN ? OFF_WIN.skip : (process.getuid() === 0 && 'root lists every folder') }, () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const { farWorktree } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const { next, repo, done } = sysPaths('jbmem-syspath-mode-');
+  for (const [mode, why] of [[0o111, 'unreadable-path'], [0o000, '']]) {
+    const r = repo();
+    const shut = path.join(r, '.git', 'shut');
+    fs.mkdirSync(path.join(shut, 'in'), { recursive: true });
+    fs.writeFileSync(path.join(shut, 'in', 'f'), 'x');
+    const t = next('t');
+    fs.mkdirSync(path.join(t, 'd', 'in'), { recursive: true });
+    for (const n of ['a', 'b', 'c']) fs.writeFileSync(path.join(t, 'd', n), 'x');
+    fs.chmodSync(shut, mode); fs.chmodSync(path.join(t, 'd'), mode);
+    try {
+      const label = `mode 0${mode.toString(8).padStart(3, '0')}`;
+      assert.strictEqual(lookCode(() => fs.readdirSync(shut)), 'EACCES', label);
+      assert.strictEqual(lookCode(() => fs.lstatSync(path.join(shut, 'in'))), mode === 0o111 ? 'there' : 'EACCES', label);
+      assert.strictEqual(farGitConfig(r), why, `${label}, a folder in .git`);
+      assert.strictEqual(farWorktree(trackedIn(t, ['d/a', 'd/b', 'd/c']), t), why, `${label}, a folder of tracked files`);
+      // Names looked up one by one in such a folder, and a folder below it
+      // (review round 1: a tracked `.gitkeep` in a folder of mode 0000 lost
+      // the file list). At 0000 each look fails as "no access" with the
+      // folder shut, which says "not there"; at 0111 the names open.
+      for (const rels of [['d/a'], ['d/a', 'd/b'], ['d/in/f']]) {
+        assert.strictEqual(lookCode(() => fs.lstatSync(path.join(t, rels[0]))), mode === 0o111 ? (rels[0] === 'd/a' ? 'there' : 'ENOENT') : 'EACCES', `${label}, ${rels[0]}`);
+        assert.strictEqual(farWorktree(trackedIn(t, rels), t), '', `${label}, tracked ${rels.join(' ')}`);
+      }
+      // A file that a setting names below such a folder, the same way.
+      const named = repo();
+      fs.appendFileSync(path.join(named, '.git', 'config'), `[core]\n\texcludesFile = ${path.join(t, 'd', 'x')}\n`);
+      assert.strictEqual(farGitConfig(named), '', `${label}, a file a setting names below it`);
+    } finally { fs.chmodSync(shut, 0o755); fs.chmodSync(path.join(t, 'd'), 0o755); }
+  }
+  done();
 });
 
 test('git pointers: every .git found on one way up from the session\'s folder shares one limit on the work (RS-A-abovegit)', () => {
@@ -2657,8 +3183,14 @@ test('git status: finding the folders of tracked files takes work that follows t
   // the order the list first names them. A name that is a folder at one
   // level is a folder of its own at another: `b` after `a/b`, `a/b/a` and
   // `a/b/a/b` after `a` and `a/b`.
-  const few = check(['a/b/c/f1', 'a/b/f2', 'a/x/f3', 'z/f4', 'a/b/c/f5', 'top', 'b/f6', 'a/b/a/b/f7']);
+  // The folders are made on disk for these looks: nothing is looked up
+  // below a tracked folder that is not there (RS-A-linkgit, review round 1).
+  const onDisk = (rels) => { for (const p of rels) fs.mkdirSync(path.join(top, path.dirname(p)), { recursive: true }); return rels; };
+  const few = check(onDisk(['a/b/c/f1', 'a/b/f2', 'a/x/f3', 'z/f4', 'a/b/c/f5', 'top', 'b/f6', 'a/b/a/b/f7']));
   assert.strictEqual(few.why, '');
+  // With none of them on disk, only the first folder of each tree is looked at.
+  const none = check(['q/b/c/f1', 'q/b/f2', 'q/x/f3', 'r/f4', 'top', 'q/b/a/b/f7']);
+  assert.deepStrictEqual({ why: none.why, seen: none.seen }, { why: '', seen: ['q', 'r', 'top'] });
   assert.deepStrictEqual(few.seen.filter(p => !/f\d$|^top$/.test(p)), ['a', 'a/b', 'a/b/c', 'a/x', 'z', 'b', 'a/b/a', 'a/b/a/b']);
   // Each folder has names of its own, told apart as git tells them. What
   // this holds apart from a folder already seen: the same name under
@@ -2666,8 +3198,8 @@ test('git status: finding the folders of tracked files takes work that follows t
   // space before it, in another Unicode form, a number written two ways,
   // and a name every object has, at the top, below a folder and above one.
   // Another way of making two names one is not told here.
-  const apart = check(['a/x/f1', 'z/x/f2', 'A/f3', ' a/f4', 'e\u0301/f5', '\u00e9/f6', '1/f7', '01/f8',
-    '__proto__/f1', 'constructor/f2', 'hasOwnProperty/f3', 'toString/f4', 'a/__proto__/f5', '__proto__/x/f6', 'constructor/x/f7']);
+  const apart = check(onDisk(['a/x/f1', 'z/x/f2', 'A/f3', ' a/f4', 'e\u0301/f5', '\u00e9/f6', '1/f7', '01/f8',
+    '__proto__/f1', 'constructor/f2', 'hasOwnProperty/f3', 'toString/f4', 'a/__proto__/f5', '__proto__/x/f6', 'constructor/x/f7']));
   assert.strictEqual(apart.why, '');
   assert.deepStrictEqual(apart.seen.filter(p => !/f\d$/.test(p)), ['a', 'a/x', 'z', 'z/x', 'A', ' a', 'e\u0301', '\u00e9', '1', '01',
     '__proto__', 'constructor', 'hasOwnProperty', 'toString', 'a/__proto__', '__proto__/x', 'constructor/x']);
@@ -2675,7 +3207,7 @@ test('git status: finding the folders of tracked files takes work that follows t
   // each file, and each file's folder twice more to group the files: 2.3
   // times the list's characters here. Joining each level's whole path and
   // looking that up, as before, is 190 times the list.
-  const deep = check(Array.from({ length: 200 }, (_, k) => `${Array(400).fill('d').join('/')}/f${k}`));
+  const deep = check(onDisk(Array.from({ length: 200 }, (_, k) => `${Array(400).fill('d').join('/')}/f${k}`)));
   assert.strictEqual(deep.why, '');
   assert.ok(deep.looked < 8 * deep.size, `looked up ${deep.looked} characters for a list of ${deep.size}`);
   assert.ok(deep.looked > deep.size, `the count works: ${deep.looked} characters for a list of ${deep.size}`);
@@ -2753,11 +3285,20 @@ test('git status: a tracked path of more than 4,096 characters keeps status unre
     ['one character at each level', n % 2 ? `${'d/'.repeat((n - 1) / 2)}f` : `dd/${'d/'.repeat((n - 4) / 2)}f`],
     ['a name outside Latin-1', String.fromCharCode(0x4e2d).repeat(n)],
   ];
-  // 4,096 characters: let through, as a file and as a submodule.
+  // 4,096 characters: let through by this rule, as a file and as a
+  // submodule. Nothing of these paths is on disk. One with a folder in front
+  // is not looked at past that folder, which is not there, so nothing is
+  // found on any system (review round 1 of RS-A-linkgit). One that is a
+  // single name is looked at whole: on Windows nothing is there and that is
+  // the answer; outside Windows such a path, joined to the repo's folder, is
+  // longer than the system takes: the look at it fails as "too long", which
+  // is not "not there", and the file list is not read for that
+  // (RS-A-relpath).
   for (const [what, p] of shapes(4096)) {
+    const through = WIN || p.includes('/') ? '' : 'unreadable-path';
     assert.strictEqual(p.length, 4096, what);
-    assert.strictEqual(check([p]).why, '', `${what}, 4,096 characters`);
-    assert.strictEqual(check([p], '160000').why, '', `${what}, 4,096 characters, a submodule`);
+    assert.strictEqual(check([p]).why, through, `${what}, 4,096 characters`);
+    assert.strictEqual(check([p], '160000').why, through, `${what}, 4,096 characters, a submodule`);
   }
   // 4,097 characters: refused inside the list. The time is not looked at,
   // nothing in the repo is, and the path is not split.

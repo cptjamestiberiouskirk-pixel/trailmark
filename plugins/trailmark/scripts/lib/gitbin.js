@@ -328,6 +328,66 @@ const MAX_PATH_TEXT = 32767;
 // (RS-A-pathcap). Counted in characters, which are never more than the
 // bytes.
 const MAX_GIT_PATH = 4096;
+// A lookup that failed, and whether that says nothing is there. The checks
+// name a file by its whole path; git reaches the same file by a short path
+// from the folder it runs in, or through a link, and the system counts
+// neither against its limit. So a failure says "not there" only when it
+// holds whichever way the file is reached: ENOENT, ENOTDIR, and ENAMETOOLONG
+// for a path the system takes at that length (one name in it is too long
+// then, 255 bytes on Linux, and no folder holds such a name). Any other
+// failure (a path too long as a whole, no access, a busy file) leaves what
+// git would find there unknown, and git is kept out: unreadable-path
+// (RS-A-linkgit, RS-A-relpath, RS-A-bytepath). Tried on Linux: git read
+// status in a repo whose `.git` is a link to a gitdir at 4,096 bytes;
+// `git for-each-ref` listed a ref through a link in a folder of .git at
+// 4,217 bytes; and a folder of mode 0111 can't be listed while a name in it
+// opens. On Windows a folder this user may not list (EPERM) had its files
+// read by name.
+// MAX_SYS_PATH: the longest path, in bytes, at which ENAMETOOLONG is taken
+// to be about one name. Linux takes 4,095 (seen: 4,096 fails, a name of 256
+// fails at any length). 1,022 elsewhere, two below the 1,024 of macOS's
+// headers, which was not tried. On Windows Node answered ENOENT for every
+// name too long that was tried and never ENAMETOOLONG, so there it always
+// counts as not there.
+const MAX_SYS_PATH = WIN ? Infinity : (process.platform === 'linux' || process.platform === 'android') ? 4095 : 1022;
+function gone(e, p) {
+  const code = e && e.code;
+  return code === 'ENOENT' || code === 'ENOTDIR' || (code === 'ENAMETOOLONG' && Buffer.byteLength(String(p)) <= MAX_SYS_PATH);
+}
+// Outside Windows: the failure was "no access" and this user may not enter
+// the folder d (no search right on it, or on one above it). Then no name in
+// d opens for this user by any path, and git, which runs as the same user,
+// opens nothing there either. A folder that can be entered and not listed
+// (mode 0111) is not such a folder: its names open. On Windows every folder
+// can be passed through, so this never holds there.
+function shut(e, d) {
+  if (WIN || !e || e.code !== 'EACCES') return false;
+  try { fs.accessSync(d, fs.constants.X_OK); return false; } catch (e2) { return !!e2 && e2.code === 'EACCES'; }
+}
+// A look at the name p that failed, and whether that says git finds nothing
+// there: the system says so (gone), or the folder that holds the name is
+// shut. A tracked `.gitkeep` in a folder of mode 0000 answered
+// unreadable-path without the second half, where `git status` reads its
+// list and warns (found in review round 1).
+function notThere(e, p) { return gone(e, p) || shut(e, path.dirname(String(p))); }
+// A folder d whose listing failed, and whether that says git finds nothing
+// in it: notThere, or d itself is shut. On Windows a listing that fails for
+// any reason but "not there" is never taken as nothing.
+function nothingIn(e, d) { return notThere(e, d) || shut(e, d); }
+// Set by localPath when it stopped at a part it could not look at (and not
+// because nothing is there). localPath still hands back the rest as text, as
+// for a part that isn't there, so its callers outside these checks get what
+// they got before; the checks that decide whether git runs ask through
+// allSeen, which answers unreadable-path where fn found nothing else.
+let UNSEEN = false;
+function allSeen(fn) {
+  const prev = UNSEEN;
+  UNSEEN = false;
+  try {
+    const why = fn();
+    return !why && UNSEEN ? 'unreadable-path' : why;
+  } finally { UNSEEN = prev; }
+}
 // p with every link on the way read and replaced by its target, one part at
 // a time from the root; null when a link leads to a network path or the
 // links loop. Parts that don't exist are kept as they are.
@@ -395,7 +455,11 @@ function localPath(p, words = false) {
       // A part that isn't there: the rest can't be looked through. A '..'
       // after it would climb back by text into folders never checked (the
       // kernel would stop at the missing part), so that is refused.
-      try { st = lstatPart(next); } catch { return parts.slice(i + 1).includes('..') ? null : path.resolve(at, ...parts.slice(i)); }
+      // A part that is there but can't be looked at (see notThere) is noted.
+      try { st = lstatPart(next); } catch (e) {
+        if (!notThere(e, next)) UNSEEN = true;
+        return parts.slice(i + 1).includes('..') ? null : path.resolve(at, ...parts.slice(i));
+      }
       if (st.isSymbolicLink()) {
         let t;
         try { t = fs.readlinkSync(next); } catch { return null; }
@@ -556,7 +620,7 @@ function farPathValue(value, bases, key = '') {
       if (stores.seen.has(real)) continue;
       stores.seen.add(real);
       let isDir = false;
-      try { isDir = fs.statSync(real).isDirectory(); } catch { isDir = false; }
+      try { isDir = fs.statSync(real).isDirectory(); } catch (e) { if (!notThere(e, real)) return 'unreadable-path'; }
       if (!isDir) continue;
       if (++stores.dirs > MAX_LFS_STORES || stores.entries >= MAX_STORE_ENTRIES) { WALK_LEFT = -1; return 'network-config'; }
       const why = linkedEntries(real, { lfsStore: true, tally: stores });
@@ -790,7 +854,7 @@ function farAlternates(objects, depth, seen, tops = [], stores = { seen: new Set
         if (stores.seen.has(r)) continue;
         stores.seen.add(r);
         let isDir = false;
-        try { isDir = fs.lstatSync(r).isDirectory(); } catch { isDir = false; }
+        try { isDir = fs.lstatSync(r).isDirectory(); } catch (e) { if (!notThere(e, r)) return 'unreadable-path'; }
         if (!isDir) continue;
         if (++stores.dirs > MAX_LFS_STORES || stores.entries >= MAX_STORE_ENTRIES) return 'many-config-paths';
         const linked = linkedEntries(r, { lfsStore: true, tally: stores });
@@ -845,12 +909,15 @@ function onlyFiles(d) {
 // not a folder), 'odd-path' when it is still there. On a file system that
 // reports no entry types, Node lstat's each name it decoded, and a name that
 // isn't valid UTF-8 then fails as ENOENT: the folder would be passed over
-// unchecked though git can read it. A folder no one may read (EACCES) is
-// passed over as before: git can't read it either.
+// unchecked though git can read it. A folder this user may not enter is passed over
+// as before: git can't open a name in it either (nothingIn). One that can't
+// be listed for another reason (it can be entered but not listed, its path
+// is too long as a whole) is not: git may still open the names in it, so
+// that is 'unreadable-path'.
 function unlisted(d, e) {
-  const code = e && e.code;
-  if (code !== 'ENOENT' && code !== 'ENOTDIR') return '';
-  try { return fs.lstatSync(d).isDirectory() ? 'odd-path' : ''; } catch { return ''; }
+  if (!nothingIn(e, d)) return 'unreadable-path';
+  if (!notThere(e, d)) return '';
+  try { return fs.lstatSync(d).isDirectory() ? 'odd-path' : ''; } catch (e2) { return notThere(e2, d) ? '' : 'unreadable-path'; }
 }
 // What following the links in one walk may cost, counted as localPath counts
 // its work (see WALK_LEFT). The budgets above count entries, and an entry
@@ -916,7 +983,7 @@ function linkedEntriesIn(gitdir, { objectsRoot = false, lfsStore = false, tally 
       if (x.isSymbolicLink()) {
         const real = localPath(sub);
         if (!real) return WALK_LEFT < 0 ? 'many-entries' : 'linked-gitdir';
-        try { isDir = fs.statSync(real).isDirectory(); } catch { isDir = false; }
+        try { isDir = fs.statSync(real).isDirectory(); } catch (e) { if (!notThere(e, real)) return 'unreadable-path'; isDir = false; }
         // Named as the disk has it, so `seen` below knows a folder that
         // many links name in many ways (240 such links: 605 listings and
         // 4.8 s where 5 listings do).
@@ -985,7 +1052,7 @@ function linkedEntriesIn(gitdir, { objectsRoot = false, lfsStore = false, tally 
   let sub = path.join(gitdir, 'lfs');
   if (lfsLater.isSymbolicLink()) { const real = localPath(sub); if (!real) return WALK_LEFT < 0 ? 'many-entries' : 'linked-gitdir'; sub = real; }
   let isDir = false;
-  try { isDir = fs.statSync(sub).isDirectory(); } catch { isDir = false; }
+  try { isDir = fs.statSync(sub).isDirectory(); } catch (e) { if (!notThere(e, sub)) return 'unreadable-path'; }
   return isDir ? walk(sub, 'lfs', 1, { n: LFS_BUDGET, lfs: true }) : '';
 }
 // Is this a gitdir git would accept: HEAD there, objects and refs in it or
@@ -1026,12 +1093,12 @@ const MAX_WORKTREES = 10000;
 const WORKTREE_COST = 12 * DISK_COST;
 function realFolder(p) {
   let st;
-  try { st = fs.lstatSync(p); } catch { return { dir: '' }; }
+  try { st = fs.lstatSync(p); } catch (e) { return notThere(e, p) ? { dir: '' } : { why: 'unreadable-path' }; }
   if (st.isDirectory()) return { dir: p };
   if (!st.isSymbolicLink()) return { dir: '' };
   const real = localPath(p);
   if (!real) return { why: 'linked-gitdir' };
-  try { return { dir: fs.statSync(real).isDirectory() ? real : '' }; } catch { return { dir: '' }; }
+  try { return { dir: fs.statSync(real).isDirectory() ? real : '' }; } catch (e) { return notThere(e, real) ? { dir: '' } : { why: 'unreadable-path' }; }
 }
 function otherWorktrees(wt) {
   const top = realFolder(wt);
@@ -1041,7 +1108,7 @@ function otherWorktrees(wt) {
   // not listed. A link can lead there from a short path.
   if (top.dir.length > MAX_GIT_PATH) return 'long-path';
   let names;
-  try { names = fs.readdirSync(top.dir); } catch { return ''; }
+  try { names = fs.readdirSync(top.dir); } catch (e) { return nothingIn(e, top.dir) ? '' : 'unreadable-path'; }
   if (names.length > MAX_WORKTREES) return 'many-worktrees';
   for (const n of names) {
     if (n.includes('\uFFFD')) return 'odd-path';
@@ -1106,7 +1173,7 @@ function bareRefused() {
 function farBareProbe(d, work = null) {
   const h = path.join(d, 'HEAD');
   let st;
-  try { st = fs.lstatSync(h); } catch { return ''; }
+  try { st = fs.lstatSync(h); } catch (e) { return notThere(e, h) ? '' : 'unreadable-path'; }
   let file = h;
   let valid = false;
   if (st.isSymbolicLink()) {
@@ -1117,7 +1184,7 @@ function farBareProbe(d, work = null) {
     if (!file) return 'network-gitdir';
     if (/^refs\//.test(t)) valid = true;
     else {
-      try { st = fs.statSync(file); } catch { return ''; }
+      try { st = fs.statSync(file); } catch (e) { return notThere(e, file) ? '' : 'unreadable-path'; }
     }
   }
   if (!valid) {
@@ -1128,7 +1195,7 @@ function farBareProbe(d, work = null) {
       fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
       const buf = Buffer.alloc(256);
       text = buf.subarray(0, fs.readSync(fd, buf, 0, 256, 0)).toString('latin1');
-    } catch { return ''; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } } // git can't read it either
+    } catch (e) { return notThere(e, file) ? '' : 'unreadable-path'; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } }
     if (!/^ref:\s*refs\/|^[0-9a-f]{40}/i.test(text)) return '';
   }
   let base = d;
@@ -1156,7 +1223,7 @@ function farBareProbe(d, work = null) {
 // has a limit of its own.
 function farGit(gitEntry, out = {}, { light = false, locate = false, work = null } = {}) {
   let st;
-  try { st = fs.lstatSync(gitEntry); } catch { return ''; }
+  try { st = fs.lstatSync(gitEntry); } catch (e) { return notThere(e, gitEntry) ? '' : 'unreadable-path'; }
   let gitdir = gitEntry;
   if (st.isSymbolicLink()) {
     // On Windows git takes '..' in a relative pointer or include as text from
@@ -1165,7 +1232,9 @@ function farGit(gitEntry, out = {}, { light = false, locate = false, work = null
     if (WIN) return 'linked-gitdir';
     gitdir = localPath(gitEntry);
     if (!gitdir) return 'network-gitdir';
-    try { st = fs.statSync(gitdir); } catch { return ''; }
+    // A link to a gitdir at a path the system won't take as a whole: git
+    // opens it through the link (RS-A-linkgit).
+    try { st = fs.statSync(gitdir); } catch (e) { return notThere(e, gitdir) ? '' : 'unreadable-path'; }
   }
   if (st.isFile()) {
     const t = readSmall(gitEntry, 4096);
@@ -1280,21 +1349,28 @@ function farModules(top, left = () => Infinity) {
   // one the last check in this process happened to look at.
   const prev = CHECK_CWD;
   CHECK_CWD = path.resolve(String(top || '.'));
-  try { return farModulesIn(top, left); } finally { CHECK_CWD = prev; }
+  try { return allSeen(() => farModulesIn(top, left)); } finally { CHECK_CWD = prev; }
 }
 function farModulesIn(top, left) {
   return withShare(top, () => {
     const at = {};
     const g = path.join(top, '.git');
     let st;
-    try { st = fs.lstatSync(g); } catch { return ''; }
+    try { st = fs.lstatSync(g); } catch (e) { return notThere(e, g) ? '' : 'unreadable-path'; }
     // A .git file whose gitdir, or the folder its commondir names, is at a
-    // path longer than git opens: that answer is passed on. The gitdir is
-    // not handed back then, and the modules in it would go unchecked.
-    if (st.isDirectory()) { at.gitdir = g; } else if (farGit(g, at, { light: true }) === 'long-path') return 'long-path';
+    // path longer than git opens, or one that can't be looked at: that
+    // answer is passed on. The gitdir is not handed back then, and the
+    // modules in it would go unchecked.
+    if (st.isDirectory()) { at.gitdir = g; } else {
+      const w = farGit(g, at, { light: true });
+      if (w === 'long-path' || w === 'unreadable-path') return w;
+    }
     if (!at.gitdir) return '';
     const dirs = [at.gitdir];
     const common = readSmall(path.join(at.gitdir, 'commondir'), 4096);
+    // There, and not a plain small file: the folder it names, and the
+    // modules in it, would go unchecked (as in farGit).
+    if (common === UNSAFE) return 'unreadable-config';
     if (typeof common === 'string' && common.replace(/[\r\n]+$/, '')) { const c2 = gitdirAt(at.gitdir, common); if (!c2) return 'network-gitdir'; dirs.push(c2); }
     for (const d of dirs) {
       const mods = moduleGitdirs(path.join(d, 'modules'));
@@ -1330,7 +1406,7 @@ function moduleGitdirs(root) {
     const real = localPath(p);
     if (!real) { why = 'linked-gitdir'; return null; }
     let dir;
-    try { dir = fs.statSync(real).isDirectory(); } catch { dir = false; }
+    try { dir = fs.statSync(real).isDirectory(); } catch (e) { if (!notThere(e, real)) { why = 'unreadable-path'; return null; } dir = false; }
     if (!dir) return { p: real, key: real, dir };
     // Named as the disk has it, for `seen` (see linkedEntries).
     const { key, at } = onDisk(real);
@@ -1424,6 +1500,16 @@ function farGitConfigIn(cwd) {
   const key = path.resolve(String(cwd || '.'));
   CHECK_CWD = key;
   if (farCache.has(key)) return farCache.get(key);
+  // A part of a path that could not be looked at on the way keeps git out
+  // where nothing else did (allSeen).
+  const why = allSeen(() => gitConfigWhy(cwd, key));
+  if (farCache.size > 64) farCache.clear();
+  // An answer that only says the time ran out isn't kept: the next check
+  // starts over.
+  if (why !== 'git-timeout') farCache.set(key, why);
+  return why;
+}
+function gitConfigWhy(cwd, key) {
   let why = '';
   const root = path.parse(key).root;
   if ((NET_START.test(String(cwd || '')) || NET_START.test(key)) && !ALLOW_SHARE) why = 'network-folder';
@@ -1469,7 +1555,9 @@ function farGitConfigIn(cwd) {
         seenDirs.set(k, false);
         const g = path.join(d, '.git');
         let found = false;
-        try { fs.lstatSync(g); found = true; } catch { found = false; }
+        // A .git that is there and can't be looked at: git may still open
+        // what is in it by name (see notThere).
+        try { fs.lstatSync(g); found = true; } catch (e) { if (!notThere(e, g)) { why = 'unreadable-path'; break; } }
         let accepted = false;
         if (found) {
           const at = {};
@@ -1486,7 +1574,8 @@ function farGitConfigIn(cwd) {
         // (farBareProbe).
         if (!accepted) {
           let head = false;
-          try { fs.lstatSync(path.join(d, 'HEAD')); head = true; } catch { head = false; }
+          const h = path.join(d, 'HEAD');
+          try { fs.lstatSync(h); head = true; } catch (e) { if (!notThere(e, h)) { why = 'unreadable-path'; break; } }
           if (head) why = farBareProbe(d, above);
           if (why) break;
         }
@@ -1497,15 +1586,11 @@ function farGitConfigIn(cwd) {
       d = up;
     }
   }
-  if (farCache.size > 64) farCache.clear();
-  // An answer that only says the time ran out isn't kept: the next check
-  // starts over.
-  if (why !== 'git-timeout') farCache.set(key, why);
   return why;
 }
 // For a submodule's or nested repo's folder (git status looks into them).
 function farNested(dir, base) {
-  return withShare(base || dir, () => farNestedIn(dir));
+  return withShare(base || dir, () => allSeen(() => farNestedIn(dir)));
 }
 function farNestedIn(dir) {
   if (dotEnd(dir)) return 'odd-path';
@@ -1577,7 +1662,7 @@ function localRepoRoot(cwd) {
 // link, and it may not include another file (git-lfs follows those).
 function farLfsFile(file, top) {
   let st;
-  try { st = fs.lstatSync(file); } catch { return ''; }
+  try { st = fs.lstatSync(file); } catch (e) { return notThere(e, file) ? '' : 'lfs-config'; }
   if (!st.isFile()) return 'lfs-config';
   const entries = configEntries(file);
   if (entries === null) return '';
@@ -1596,15 +1681,15 @@ function farLfsEntries(entries, top) {
     if (PATH_KEY.test(key)) named.push({ key, value, file: '' });
   }
   // Walked once the whole file is read, each different value once.
-  return limitedWalk(() => {
+  return allSeen(() => limitedWalk(() => {
     for (const e of distinctPaths(named)) {
       const why = farPathValue(e.value, [top], e.key);
       if (why) return why;
     }
     return '';
-  });
+  }));
 }
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH };
+module.exports = { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };
