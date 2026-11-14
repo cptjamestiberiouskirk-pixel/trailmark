@@ -63,6 +63,8 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 10. In `dev/release-state.md`, point at another section by its name ("section RS-A-foldkeys"), never by its place ("top section", "second section", "above"): each new section moves every place.
 11. Before fixing a reviewer's example, write down its class and say for each member whether the fix and the test cover it. For a table keyed by text from a repo (a Map, a Set, a tree) the members are: the same name under another parent and at another depth, in another case, with spaces at its ends (each on a system where such a name reaches the table), in another Unicode form, a number written two ways, and a name every object has (`__proto__`, `constructor`). Its mutation list swaps the table for a plain object, for one shared by all and for one shared by each depth. The test's comment says which members it holds; a change outside them is its stated margin.
 12. A sentence in a doc or a comment about what another program does not do names the command that was run and what it did ("`git add` doesn't write such a path"), not the program as a whole ("git's own commands don't"). A comment that lists several commands says with which setup they were tried (a full index, a sparse one).
+13. A "tried" in a doc or a comment names each value it was tried at, or a range of which every value was run. The notes name the probe output that holds them. Where the result changes between two values that were run, the sentence says what the values between them did, or that they were not tried.
+14. When a batch fixes a wording fault or logs a rule about wording, every sentence the batch adds or moves, in docs, comments and notes, is read against that fault and that rule before the commit, not only the place a reviewer named.
 
 ## Testing
 
@@ -113,4 +115,5 @@ Follow the current version's "Release checklist" in `dev/release-state.md`. Olde
 4. Log any mistake, redo or surprise in `LESSONS.md` right away. A lesson seen twice, or clearly general, becomes a step here and is marked "promoted".
 5. A session that ends on an error (a request timeout, say) is resumed at once by the session that started it: check that its branch and worktree are intact, then send it the next step. A review whose report never arrived is run again. Sessions commit before starting a long review, so a stop can lose only that review.
 6. When one session changes another session's PR (auto-merge, a merge), it tells that session in the same step.
-7. Nothing wakes a session when a PR merges, and sessions don't poll CI. A session never promises to report on something that can't wake it. Its closing line says who acts next and what triggers that.
+7. A time written in the notes, a handoff or a report is one that a command printed (`date +%H:%M:%S` in front of the command it belongs to). A time that was not printed is not written.
+8. Nothing wakes a session when a PR merges, and sessions don't poll CI. A session never promises to report on something that can't wake it. Its closing line says who acts next and what triggers that.

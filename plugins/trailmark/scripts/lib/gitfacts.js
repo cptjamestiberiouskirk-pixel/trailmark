@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { oneLine, displayPath, inside } = require('./store');
-const { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, gitPath, gitEnv, GIT_GLOBAL } = require('./gitbin');
+const { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
 // and Linux caps a variable at 128 KiB (the comment on PAYLOAD_MAX in
@@ -159,6 +159,13 @@ function farWorktree(r, cwd) {
     if ((read += e.length + 1) >= LIST_STEP) { read -= LIST_STEP; if (r.left() < 800) return 'git-timeout'; }
     const rel = e.slice(e.indexOf('\t') + 1);
     if (!rel || e.indexOf('\t') < 0) continue;
+    // A tracked path of more than MAX_GIT_PATH characters is longer than a
+    // path Linux opens (4,096 bytes), and every step below works through a
+    // path's whole length, some of them after the last
+    // look at the time: one tracked folder name of 30 MB kept this check busy
+    // for 3 s, with 2 GB in use. Refused before anything else is done with it
+    // (RS-A-longname).
+    if (rel.length > MAX_GIT_PATH) return 'odd-path';
     if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes('..')) return 'odd-path';
     // On Windows git opens `d/f` for a tracked `d./f` or `d /f`, and with
     // core.fscache off (a repo can set it) `u` for a tracked `u.`, while the
