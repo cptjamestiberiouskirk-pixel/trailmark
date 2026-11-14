@@ -14,6 +14,60 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: A change was told on Linux by a test written for something else, and on Windows by none
+- What went wrong: in RS-A-linkgit's mutation list, "a part that was not seen replaces another reason" carried the label "no test has to tell it". Linux told it through the RS-A-pathcap test; on Windows it passed. The first two cases written for it failed on the fix itself: both put the other reason where the check finds it before it looks at the part.
+- Why: the label hid that the line holds a decision (a reason found wins over `unreadable-path`). The order of the steps inside the check was assumed for the two cases, not read.
+- Rule going forward: a probe told only by a test of another item, or on one system only without a reason in the code, gets a case of its own. A case that needs two things found in order is written after reading that order in the code.
+- Status: open
+
+## 2026-11-14: A probe's label was set for a whole line, and one of its two changes is told on Windows
+- What went wrong: before the Windows rerun of RS-A-linkgit's mutation list, three lines got the label "told on Linux only" for both changes made at each. One of the six ("no failure is "not there"" at the second line of `unlisted`) fails a test on Windows too, so the run ended with 1 of 87 not as expected and that probe was run again.
+- Why: the label came from a count in a stopped run ("5 passed") and was written by line, not by probe.
+- Rule going forward: a mutation probe's label comes from that probe's own result in a run, not from the other change at the same line.
+- Status: open
+
+## 2026-11-14: What git does with a `.git` it can't read was reasoned from the check's code
+- What went wrong: RS-A-linkgit's notes flagged a Windows shape as a way past the check (a `.git` whose lstat is EPERM while its files open by name), and a paragraph on Linux said git takes a `.git` lookup that fails for its length as "not there". Run with git 2.56.1, both were wrong: git stops with "fatal: error reading '<folder>/.git'" (exit 128).
+- Why: both sentences came from what Node's calls return at those paths. Git was not run there.
+- Rule going forward: a sentence about what git does at a path is written from a run of git at that path, with its version. Until then it is HYPOTHESIZED, in the notes too.
+- Status: open
+
+## 2026-11-14: A heredoc wrote a scratch script again, and the commands after it ran on
+- What went wrong: an edit to RS-A-linkgit's mutation script went through a heredoc. A backslash was lost, the edit failed ("not once"), and the commands chained after it ran with variables that were never set. They changed nothing.
+- Why: the rule of 2026-11-07 was skipped for a script that looked small, and the chain used `;` where a later step needed the earlier one's result.
+- Rule going forward: PLAYBOOK "Writing code and docs" step 4 (the Edit or Write tool, never a heredoc), for scratch scripts too. Steps that need an earlier step's result are chained with `&&`.
+- Status: promoted (PLAYBOOK "Writing code and docs" step 4). Seen first in the entry "A quoted heredoc in the Bash tool still lost a backslash" of 2026-11-07.
+
+## 2026-11-14: One test for three items showed only its first failure on the parent
+- What went wrong: the on-disk test of RS-A-linkgit, RS-A-bytepath and RS-A-relpath was one `test()`. On a1c7269 it stopped at its first assertion, so the parent run showed nothing for the other two items, and it was split into four tests. Its builder had failed before that: a loop of `mkdir` and `cd` fails in dash past the system's limit, since dash's `cd` builds the whole path.
+- Why: "each fix gets a test that fails on the parent" was read as one failing test for the change.
+- Rule going forward: one test for each item, so the parent run shows a failure for each. A deep tree is made by `mkdir -p` of a relative path from a folder made by its whole path, not by `cd` in a loop.
+- Status: open
+
+## 2026-11-14: The first cut of a rule broke a decision an older test holds, and only the other system's suite showed it
+- What went wrong: RS-A-linkgit's first cut ("every failure but "not there" keeps git out") made the test "a decoy .git git can't search is passed over, as git does (loop round 4)" fail on Linux. Windows skips that test, so the run here had passed. `nothingIn` was added after the code was in both copies.
+- Why: the rule was checked against the three items and the call sites, not against the tests that hold earlier decisions about the same calls.
+- Rule going forward: before changing what a failed lookup means, grep the tests for the calls and file modes involved, and run the whole test file on the system the change is for (WSL for Linux) before writing new tests.
+- Status: open
+
+## 2026-11-14: One push may update at most 5 branches or tags
+- What went wrong: reported by an earlier session, not re-run here: a push that deleted 57 merged branches was refused whole (GH013). With 5 branches to a push it went through.
+- Why: the repo has a rule that limits one push to 5 branch or tag updates, and nothing in the notes said so.
+- Rule going forward: a push that updates more than 5 branches or tags is split into pushes of at most 5.
+- Status: open
+
+## 2026-11-14: A second push left the PR's head with no jobs for five minutes
+- What went wrong: from RS-A-pathcap's notes of 09:43, not re-run here: after a second push to PR 62 at 09:38:15, `gh pr view` showed the new head with 0 checks until 09:43:28.
+- Why: `tests.yml` puts a PR's runs in one group with `cancel-in-progress`. The new run stays pending with no jobs until the older run has finished cancelling.
+- Rule going forward: with 0 checks on a pushed head, read the runs list (`gh api repos/<repo>/actions/runs?per_page=3`) and look again after other work, not in a loop.
+- Status: open
+
+## 2026-11-14: A count of a diff's removed lines missed a removed bullet line
+- What went wrong: from RS-A-pathcap's notes of 09:43, not re-run here: a diff's changed lines were counted with a pattern over each line's first characters (`grep -c '^-[^-]'`). A removed bullet line starts with "--" in the diff and was not counted.
+- Why: the pattern was written to skip the diff's `---` header line.
+- Rule going forward: count a diff's changed lines with `git diff --numstat`.
+- Status: open
+
 ## 2026-11-14: A fault fixed in SECURITY.md was written again in a test comment of the same batch
 - What went wrong: round 3's batch fixed "where git fails the root is the session's folder" in SECURITY.md by naming the timeout, and added to the test's comment "where git is let try and fails with an error it is the session's folder", which leaves the timeout out again. The bullet it moved kept two ranges ("4,000 to 4,200") of which five values were run, in the commit that added the step against such ranges. Round 4's regression reviewer found both.
 - Why: each fix was made at the place a reviewer named. The other sentences the batch added or moved were not read against the fault, nor against the rule the batch itself logged.
