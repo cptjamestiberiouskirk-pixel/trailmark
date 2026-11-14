@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: "The cap never changes the root" was tried only where nothing else kept git out
+- What went wrong: round 1's batch said, in SECURITY.md, three comments and the notes, that the cap never changes the repo's root. Round 2 found three kinds of case where it does: where the parent commit already kept git out for another reason (the root was the repo and is the session's folder now), where git fails for a reason of its own on Windows and the cap keeps it out (the reverse), and a session folder that is a junction into another repo.
+- Why: where git gives no answer the parent's root has two sources, the session's folder when git was let try and `localRepoRoot` when git was kept out. The comparison with the parent ran on plain repos at short paths, so it only ever saw the first source, and "never" was written from it.
+- Rule going forward: a comparison of the root with the parent commit runs each shape twice, once plain and once with an older reason to keep git out (a config that includes a share), and on Windows also from a session folder of 300 characters. A sentence with "never" or "always" about what a change does is replaced by the cases tried.
+- Status: open
+
+## 2026-11-14: A reviewer's shape was rebuilt with a shorter path and showed nothing
+- What went wrong: the regression reviewer's junction shape (a folder of repo A that is a junction into repo B) showed no difference in my first run, and I nearly noted the finding as not reproduced. Its junction led to a path of 500 characters, mine to one of 37.
+- Why: Git for Windows goes by where the links lead up to a real path of 250 characters and by the path as given from 256. The docs' sentence "on Windows git works from the path it was started with" came from one run at 4,097 characters and hid that.
+- Rule going forward: a reviewer's repro is rebuilt with the reviewer's own numbers first and varied after. A sentence about what git does with a link on Windows names the lengths it was tried at.
+- Status: open
+
 ## 2026-11-13: A new refusal moved the repo's root, and the tests looked at the refusal alone
 - What went wrong: d61366c added the reason `long-path` to the check that `repoRoot` asks first. Review round 1 found that the root changed with it: for a session folder given through a junction (237 characters as written, 4,097 where it leads) git works on Windows, and the root went from the repo to the session folder, so another memory folder. My own runs then found the reverse where git fails: the root went from the session folder to a repo above it.
 - Why: a refusal switches where `repoRoot` takes the root from, git or `localRepoRoot`. The notes said "`localRepoRoot` answers as before", which was true of the function and said nothing about when it is called. The tests asserted the check's answer and, in one case, the function's.
@@ -222,7 +234,7 @@ Format:
 - What went wrong: the notes of RS-A-filtername round 1 and a handoff gave clock times ("seen 15:10", "not committed at 15:25") that were reckoned from how long the steps had seemed to take. The clock, read later for another reason, said 15:27 where the reckoning had 15:40. The notes were corrected before the commit by reading CI again with the clock; the handoff's time was wrong for one version.
 - Why: the commands that read CI and the bot's state printed no time, and the note was written some steps later.
 - Rule going forward: a command whose result goes in the notes with a time prints the time itself (`date +%H:%M:%S` in front). A time that was not printed is not written.
-- Status: open
+- Status: promoted (PLAYBOOK "At each milestone" step 7). Seen again on 2026-11-14: a heading in a session's notes said "about 00:24" for a report that arrived at 00:54, and one before it was written three minutes ahead of the clock.
 
 ## 2026-11-12: A stand-in for git answered whatever it was asked
 - What went wrong: the first test of RS-A-filtername asked `filterOverrides` with a stand-in for git that gave back the text of settings a case handed it, whatever the call's arguments were. Round 1 (Opus and Fable) found the test passing with the call narrowed to `clean` settings, with `--no-includes` and with `--local`: a filter named `set` with only a `process` setting, or one in an included file, would have run. The cases "its smudge", "its process" and "its required" held the code that reads the answer and nothing of the call. The real repos all defined the filter with `clean` in `.git/config`.

@@ -1397,8 +1397,9 @@ test('git pointers: nothing at a path longer than git opens is listed or walked 
   assert.deepStrictEqual(check(alternate(pathOf(path.join(base, 'a97'), CAP + 1))), { why: 'long-path', listed: 0, looked: 0 });
 
   // The repo's root, found without git when git is kept out (localRepoRoot,
-  // for the memory folder). The cap never changes it. git can't be started
-  // in a folder at a path past the cap, and the root was that folder itself:
+  // for the memory folder). The cases below, where nothing else keeps git
+  // out, keep it where it was before the cap. git can't be started in a
+  // folder at a path past the cap, and the root was that folder itself:
   // none is found there, and nothing on the path is looked at (for a folder
   // 15,000 levels down that took 7.5 s). A folder as a text, in a repo: at
   // 4,096 characters the repo is found, at 4,097 none.

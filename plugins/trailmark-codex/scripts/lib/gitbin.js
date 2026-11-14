@@ -1434,9 +1434,11 @@ function farGitConfigIn(cwd) {
   // there, and following the path and going up from it looks at the disk for
   // every part. Outside Windows the same for where its links lead, before
   // the way up: git works from that path there, and in a folder whose link
-  // led to 4,097 bytes it failed to stat. On Windows git works from the path
-  // as given: in a folder given at 237 characters whose link led to 4,097 it
-  // found the repo above the folder and read status, so no cap there.
+  // led to 4,097 bytes it failed to stat. No cap there on Windows: git went
+  // by the path as given where the link led to 256 characters or more (in a
+  // folder given at 237 characters whose link led to 4,097 it found the repo
+  // above the folder and read status), and by where it leads up to 250, far
+  // below the cap.
   else if (key.length > MAX_GIT_PATH) why = 'long-path';
   const real = why ? '' : localPath(key);
   if (!why && !real) why = 'network-folder';
@@ -1520,14 +1522,22 @@ function farNestedIn(dir) {
 // file, so it starts no git. It looks at each part of the folder's path and
 // at up to 512 folders above it, with no look at the time: at most 4,096
 // characters of the path as given, and outside Windows of where its links
-// lead (RS-A-pathcap).
+// lead (RS-A-pathcap). That is no bound on its time: each .git file on the
+// way up is followed part by part, with no limit on that work
+// (RS-A-linkedcwd). Its root can differ from git's (on Windows git goes by
+// the path as given where the links lead to 256 characters or more) and
+// from the root where git is let run and fails, which is the session's
+// folder: SECURITY.md has the cases.
 function localRepoRoot(cwd) {
   return withShare(cwd, () => {
-    // The cap (MAX_GIT_PATH) never changes the root. In a folder at a path
-    // longer than git opens, git can't be started, and outside Windows it
-    // fails in one whose links lead to such a path: the root was the folder
-    // itself then, and still is. Nothing on the path is looked at (for a
-    // folder 15,000 levels down that took 7.5 s, with no look at the time).
+    // A folder past the cap (MAX_GIT_PATH) is its own root, found at once.
+    // In such a folder git can't be started, and outside Windows it fails
+    // in one whose links lead to such a path: the root was the folder itself
+    // then, and still is. Nothing on the path is looked at (for a folder
+    // 15,000 levels down that took 7.5 s, with no look at the time). Where
+    // git was kept out of that folder for another reason before the cap (a
+    // folder inside a .git, a config that includes a share), the root was
+    // the repo above it, found by the search below, and is the folder now.
     const given = path.resolve(String(cwd || '.'));
     if (given.length > MAX_GIT_PATH) return '';
     let d = localPath(given);
@@ -1542,10 +1552,12 @@ function localRepoRoot(cwd) {
         // On Windows a repo git can't open is no root either. git stopped
         // with an error at a gitdir past the cap (a .git file naming one at
         // 4,097 characters) and at one whose objects folder was (a .git at
-        // 4,096), and the root was the session's folder. Outside Windows
-        // nothing at such a path could be read before the cap either: git
-        // was kept out for that, the search went on to the next repo up, and
-        // it still does.
+        // 4,096), and the root was the session's folder. (Where git was kept
+        // out there for another reason before the cap, a config in that
+        // gitdir that includes a share, the root was this folder and is the
+        // session's now.) Outside Windows nothing at such a path could be
+        // read before the cap either: git was kept out for that, the search
+        // went on to the next repo up, and it still does.
         if (WIN && at.gitdir && (at.gitdir.length > MAX_GIT_PATH || path.join(at.common || at.gitdir, 'objects').length > MAX_GIT_PATH)) return '';
         if (at.gitdir && validGitdir(at.gitdir, at.common)) {
           if (at.common && path.basename(at.common) === '.git') return path.dirname(at.common);
