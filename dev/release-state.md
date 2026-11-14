@@ -214,6 +214,20 @@ Two reviewers in detached clones under `E:/DevTemp`, on `git diff ff855a1..ad9f5
 - Quick check, round 4 batch: `dev/release-check.sh --sums --quick` passes, 09:03:10 to 09:10:22 (handoff-checks in both copies 233 of 322 pass, 89 skipped, 425 s; every other line PASS), and `sha256sum -c SHA256SUMS` exits 0 after it (09:10). This file was edited after the check; it is not in `SHA256SUMS`.
 - Not shown: what round 3 lists; the reviewer's run of the test's junction shape (L outside Q) was not repeated here.
 
+## RS-A-pathcap round 5 (2026-11-14, reviewed on 625b410; clean)
+
+Two reviewers in detached clones under `E:/DevTemp`, on `git diff ad9f5f2..625b410`: regression (Opus) and docs (Sonnet). No security row: `gitbin.js` and `gitfacts.js` did not change. Both: nothing CONFIRMED wrong in what the commit changed, nothing that runs or leaks. No batch.
+
+- CONFIRMED by the regression reviewer, not re-run: only comment lines changed in `plugins`, the two test copies are equal, `--only 'RS-A-pathcap'` passes 2 of 2 (09:12); the test's first comment block matches each `return` of `repoRoot` (`paths.js` 112, 128, 135, 130 and 137 through `slow()`, `late()` at 85, 140); the junction block is true of the test's shape; "as before" run on Windows with cf2c007's and 625b410's `gitbin.js` on the test's shape (QT at 3,900, a junction L, s at 4,096 and 4,097): `localRepoRoot(s)` Q and `farGitConfig(s)` `''` on both at both lengths; the changed round 3 sentence matches both tests; `dev/lessons.sh --check` 153 entries, 0 bad; "Writing code and docs" runs 1 to 14; the commit follows its own step 14.
+- CONFIRMED by the docs reviewer, not re-run: the lengths in SECURITY.md match the round 4 section value for value; the nested bullet still renders; no other shipped file repeats the old ranges; no dashes.
+- HYPOTHESIZED by the regression reviewer, older code, not probed: if `localRepoRoot` throws, the comment's split does not cover it (at `paths.js` 112 the throw goes up, in `slow()` it gives the session's folder). Not settled here: no input that makes it throw is known.
+- Cosmetic, older: the LESSONS.md heading "\"Tried up to 300 characters\" named no lengths..." is quoted inside double quotes in one later entry's status line (LESSONS.md line 21 at 625b410).
+- Wording notes for the next change to `gitbin.js` or that SECURITY.md bullet (from round 4, left on purpose): "up to 250 (tried at 200, 240 and 250)", also in `gitbin.js` line 1440; "about 500", "about 4,100".
+- Auto-merge set at 09:13:37 on 625b410 (merge commit), after `gh pr view` at 09:13:21 showed that head with 9 jobs, all in progress. PR 61 merged as 3da95bd (GitHub's time 2026-11-14T14:28:59Z, read with `gh pr view` at 09:34), with its 9 jobs passed.
+- Quick-check times of the handoff-checks suite across this PR: 411 s (d61366c), 570 s (round 1 batch), 454 s (round 2), 485 s (round 3), 425 s (round 4). The last three batches changed no line of code. INFERRED: the spread is the machine, so round 1's 570 s was load. CI's step times for the same suite would confirm it.
+- Not shown, for the whole item: macOS in a probe (CI's three macOS jobs passed the tests at 625b410, seen in the job list at 09:20 and 09:34; the probes were Windows and WSL only); a hook started as a process; a git other than 2.56.1; a junction to a real path of 251 to 254 characters; RS-A-linkgit at its exact boundary a second time; the roots of SECURITY.md's nested bullets asserted in a test.
+- Open for the user: the decision to change no code for the root differences (RS-A-failroot, RS-A-givenroot) was made in the session, judged "would not hold the merge" by round 3's regression reviewer, and not confirmed by the user.
+
 ## Next version: RS-A-dotpath (2026-11-13, branch `claude/rs-a-dotpath` off 6cfb0e0, merged in PR #57 as 318223d)
 
 The user pulled it in ("Yes, fix next", 2026-11-13). Fable found it in round 1 of RS-A-redirect; it is older than that PR.
