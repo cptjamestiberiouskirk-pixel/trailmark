@@ -3552,7 +3552,7 @@ test('git status: finding the folders of tracked files takes work that follows t
   const big = Array.from({ length: 10400 }, (_, k) => `a/${'x'.repeat(200)}${k}`);
   const plenty = check(big);
   assert.ok(plenty.size > 2.5 * 1048576 && plenty.size < 3 * 1048576, `the list has ${plenty.size} characters`);
-  assert.deepStrictEqual({ why: plenty.why, asks: plenty.asks }, { why: '', asks: EVERY_SUBFOLDER ? 3 : 10403 });
+  assert.deepStrictEqual({ why: plenty.why, asks: plenty.asks }, { why: '', asks: EVERY_SUBFOLDER ? 3 : 3 + big.length });
   // Out of time at the second look: the answer comes from inside the list,
   // with no folder looked at.
   const late = check(big, (n) => (n === 2 ? 500 : 5000));
@@ -3562,7 +3562,8 @@ test('git status: finding the folders of tracked files takes work that follows t
   // A short list is gone through without a look: the one look is the
   // folder's. Outside Windows and macOS three more come before the lookups
   // of the three names, as above.
-  assert.strictEqual(check(['a/f1', 'a/f2', 'a/f3']).asks, EVERY_SUBFOLDER ? 1 : 4);
+  const shortList = ['a/f1', 'a/f2', 'a/f3'];
+  assert.strictEqual(check(shortList).asks, EVERY_SUBFOLDER ? 1 : 1 + shortList.length);
   // One folder more than can be looked at: the answer comes from the list,
   // before any folder is looked at.
   const many = check(Array.from({ length: 20001 }, (_, k) => `d${k}/f`));
