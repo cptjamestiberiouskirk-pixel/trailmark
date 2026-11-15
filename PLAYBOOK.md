@@ -89,6 +89,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 1. A commit goes in a later message than the edits it depends on, after they succeeded.
 2. Never chain a commit after a check piped into `tail` or `head`: read the check's summary, then commit.
 3. Before a batch's commit, each sentence it adds (a comment, a note, the commit message) is read once against the line or the run that makes it true. One that names a commit is read at that commit (`git show <commit>:<file>`).
+4. A scan that guards a commit, a push or a send prints a count from what it read, and is run once on a text known to hold what it looks for. An exit code that is neither "found" nor "not found" stops the step: `grep -P '[\x{2013}\x{2014}]'` in Git Bash on this machine exits 2 ("character value in \x{} or \o{} is too large"), and `||` or `if` reads that as nothing found.
 
 ## Reviewing
 
