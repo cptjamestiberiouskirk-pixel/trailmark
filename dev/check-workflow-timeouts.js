@@ -15,12 +15,21 @@
 // shape: `matrix.os == '<label>' && <n> || ... || <n>`, every <n> a whole
 // number in that range. The last part is a number, so no matrix row falls
 // through to `false`; any other shape (a hex or negative number, a function, a
-// bare context) is refused. The line rules fail closed: a limit is accepted
-// only as a plain `timeout-minutes: <value>` line, and any other line that
-// holds `timeout` or `minutes` in any case is a fault, as is any line with a
-// character outside ASCII, a double-quoted key that holds an escape, an
-// explicit `? ` key, or a flow mapping as a step or a key's value. A `#`
-// with no space before it is part of the value, as in YAML. It prints the
+// bare context) is refused.
+//
+// What it guards against: a limit that is missing or malformed in the plain
+// YAML these workflows use. It does not guard against a limit hidden on
+// purpose (the workflows are written in this repo, so that takes a commit
+// that review sees); a real YAML parser would be needed for that. So it reads
+// only that plain YAML and refuses the rest: a limit is accepted only as a
+// plain `timeout-minutes: <value>` line; any other line that holds `timeout`
+// or `minutes` in any case is a fault, except a full-line comment; so is any
+// line with a character outside ASCII. Outside a block scalar (`run: |`), so
+// is an anchor or an alias, a flow mapping, a flow sequence other than a
+// one-line list of plain words, an explicit `? ` key, a double-quoted key
+// that holds an escape, and a line that is neither a key with its colon nor
+// a `- ` list item. A `#` with no space or tab before it is part of the
+// value, as in YAML. It prints the
 // self-test's line, then one line per file and one `FAULT <file>: ...` line
 // for each fault, and exits 1 on any fault. It only reads files. Shapes it
 // does not read as YAML (a flow-style or quoted job key, an anchor, a quoted
@@ -57,24 +66,37 @@ function badValue(v) {
 function check(text) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   const faults = [];
-  // The line rules fail closed: a limit is accepted in one plain shape only,
-  // and every line that could spell the key some other way is a fault, so a
-  // new YAML form needs no new rule. The shape: `timeout-minutes: <value>`,
+  // The line rules read the plain YAML these workflows use and refuse the
+  // rest (see the header for what that guards against and what it does not).
+  // A limit is accepted in one shape only: `timeout-minutes: <value>`,
   // indented with spaces, optionally a step's first key after `- `, with
   // only spaces or tabs before an end-of-line comment.
+  let blockCol = -1; // inside a block scalar (`run: |`): lines deeper than this
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
     const at = `line ${i + 1}`;
     // Non-ASCII anywhere, comments too: a no-break space, a look-alike letter.
     if (/[^\x00-\x7f]/.test(l)) { faults.push(`${at}: holds a character outside ASCII, which this check does not read: ${l.trim()}`); continue; }
-    if (/^[ \t]*#/.test(l)) continue;
-    // Ways YAML can write a key without its letters, on any line: a
-    // double-quoted key that holds an escape ("timeout\x2dminutes" is
-    // timeout-minutes), an explicit `? ` key, or a flow mapping as a step or
-    // as a key's value (`- {...}`, `env: {...}`, but not `${{ }}`).
-    if (/"(?:[^"\\]|\\.)*\\(?:[^"\\]|\\.)*"[ \t]*:/.test(l)) { faults.push(`${at}: a double-quoted key with an escape, which this check does not read: ${l.trim()}`); continue; }
-    if (/^[ \t]*(?:-[ \t]+)?\?(?:[ \t]|$)/.test(l)) { faults.push(`${at}: an explicit ? key, which this check does not read: ${l.trim()}`); continue; }
-    if (/^[ \t]*-[ \t]*\{|^[ \t]*(?:-[ \t]+)?[^ \t#][^:#]*:[ \t]+\{(?!\{)/.test(l)) { faults.push(`${at}: a flow mapping, which this check does not read: ${l.trim()}`); continue; }
+    const inBlock = blockCol >= 0 && (isBlank(l) || indentOf(l) > blockCol);
+    if (!inBlock) blockCol = -1;
+    if (!inBlock && /^[ \t]*#/.test(l)) continue; // a full-line comment
+    if (!inBlock && !isBlank(l)) {
+      // The YAML the workflows use, and nothing else: no anchor or alias, no
+      // flow mapping, no flow sequence but a one-line list of plain words, no
+      // explicit `? ` key, no double-quoted key with an escape, and every
+      // line a key (with its colon on that line) or a `- ` list item.
+      const bare = l.replace(/\$\{\{.*?\}\}/g, 'E').replace(/"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'/g, 'Q');
+      const why =
+        /"(?:[^"\\]|\\.)*\\(?:[^"\\]|\\.)*"[ \t]*:/.test(l) ? 'a double-quoted key with an escape' :
+        /^[ \t]*(?:-[ \t]+)?\?(?:[ \t]|$)/.test(l) ? 'an explicit ? key' :
+        /(?:^|[ \t:,[{-])[&*][^ \t&]/.test(bare.replace(/[ \t]#.*$/, '')) ? 'an anchor or an alias' :
+        /\{/.test(bare.replace(/[ \t]#.*$/, '')) ? 'a flow mapping' :
+        /\[/.test(bare.replace(/[ \t]#.*$/, '')) && !/^[ \t]*(?:-[ \t]+)?[A-Za-z0-9_-]+:[ \t]+\[[ A-Za-z0-9._,Q-]*\][ \t]*(?:[ \t]#.*)?$/.test(bare) ? 'a flow sequence that is not a one-line list of plain words' :
+        !/^[ \t]*-(?:[ \t]|$)/.test(bare) && !/:(?:[ \t]|$)/.test(bare) ? 'a line that is not a key or a list item (a key whose colon is on another line, or a value that runs on)' : '';
+      if (why) { faults.push(`${at}: ${why}, which this check does not read: ${l.trim()}`); continue; }
+      const bm = bare.match(/^([ \t]*(?:-[ \t]+)?)[A-Za-z0-9_-]+:[ \t]*[|>][-+0-9]*[ \t]*(?:#.*)?$/);
+      if (bm) blockCol = bm[1].length;
+    }
     // Any line that holds `timeout` or `minutes`, in any case, is the plain
     // shape or a fault: a quoted or capitalised key, a space before the colon,
     // none after it, or a `run:` or `name:` line that holds the word.
@@ -155,11 +177,11 @@ function selfTest() {
     ['an explicit ? key', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: true\n        ? timeout-minutes\n        : 0\n'), 'explicit'],
     ['a job limit with a no-break space before #c', job('    timeout-minutes: 30 #c\n'), 'outside ASCII'],
     ['a step limit with a no-break space after it', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: true\n        timeout-minutes: 30 \n'), 'outside ASCII'],
-    ['a job limit with no space after the colon', job('    timeout-minutes:30\n'), 'outside the one shape'],
+    ['a job limit with no space after the colon', job('    timeout-minutes:30\n'), 'not a key or a list item'],
     ['no space after the colon is not the job limit', job('    timeout-minutes:30\n'), 'no timeout-minutes'],
     ['a job limit with a tab before its comment', job('    timeout-minutes: 30\t# why\n'), ''],
     ['a capitalised step key', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: true\n        Timeout-Minutes: 0\n'), 'outside the one shape'],
-    ['an anchor on a step key', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: true\n        &t timeout-minutes: 0\n'), 'outside the one shape'],
+    ['an anchor on a step key', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: true\n        &t timeout-minutes: 0\n'), 'an anchor or an alias'],
     ['a name line holding the word', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - name: wait five minutes\n        run: true\n'), 'outside the one shape'],
     ['a key with only escapes for its letters', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: true\n        "\\x74imeout-minute\\x73": 0\n'), 'with an escape'],
     ['a flow mapping as a key value', job('    timeout-minutes: 30\n    env: {A: 1}\n'), 'flow mapping'],
@@ -167,6 +189,21 @@ function selfTest() {
     ['a non-ASCII character in a comment', job('    timeout-minutes: 30\n    # café\n'), 'outside ASCII'],
     ['a no-break space inside an expression', job("    timeout-minutes: ${{ matrix.os == 'x' && 8 || 20 }}\n"), 'outside ASCII'],
     ['an if line with an expression', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: true\n        if: ${{ always() }}\n'), ''],
+    // Round 5's forms (r5-probes/probe-r5.js, probe-r5b.js): an alias as a
+    // key after an anchor on an escaped value, and a flow key whose colon is
+    // on the next line. Each passed d685662's checker.
+    ['J10 an alias key 400 after the job limit', job('    timeout-minutes: 30\n    env:\n      K: &k "\\x74imeout-\\x6dinutes"\n    *k : 400\n'), 'an anchor or an alias'],
+    ['J11 an alias key with a fall-through', job("    timeout-minutes: 30\n    env:\n      K: &k \"\\x74imeout-\\x6dinutes\"\n    *k : ${{ matrix.os == 'x' && 8 }}\n"), 'an anchor or an alias'],
+    ['B3 an alias key as a step first key', job('    timeout-minutes: 30\n    env:\n      K: &k "\\x74imeout-\\x6dinutes"\n').replace('      - run: true\n', '      - *k : 0\n        run: true\n'), 'an anchor or an alias'],
+    ['B4 a flow step after a bare dash, colon next line', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      -\n        {run: true, "\\x74imeout-\\x6dinutes"\n          : 0}\n'), 'flow mapping'],
+    ['B6 a flow sequence of steps', job('    timeout-minutes: 30\n').replace('    steps:\n      - run: true\n', '    steps: [{run: true,\n      "\\x74imeout-\\x6dinutes"\n      : 0}]\n'), 'flow'],
+    ['B12 a tag before a flow step', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - !!map {run: true, "\\x74imeout-\\x6dinutes"\n          : 0}\n'), 'flow mapping'],
+    ['B13 an anchor before a flow step', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - &s {run: true, "\\x74imeout-\\x6dinutes"\n          : 0}\n'), 'an anchor or an alias'],
+    ['B8 a limit line with a deeper continuation line', job('    timeout-minutes: 30\n      0\n'), 'not a key or a list item'],
+    ['a one-line list of plain words (passes)', job('    timeout-minutes: 30\n    strategy:\n      matrix:\n        os: [ubuntu-latest, macos-latest]\n        node: [\'22\', \'24\']\n'), ''],
+    ['a run block with braces, brackets, & and * (passes)', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: |\n          [ -z "$x" ] && ls *.js | ForEach-Object { $_ }\n          & pwsh -File $p\n        shell: bash\n'), ''],
+    ['a key after a run block is read again', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: |\n          true\n        timeout-minutes: 0\n'), 'not from 1 to 360'],
+    ['a full-line comment with the words (passes)', job('    timeout-minutes: 30\n    # minutes of timeout\n'), ''],
     ['a run line with a quoted path holding backslashes', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: |\n          & "$env:windir\\System32\\x.exe" -a 2>&1\n'), ''],
     ['an expression with no last number', job("    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 }}\n"), 'fall through'],
     ['an expression whose last part is a test', job("    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || matrix.os == 'macos-latest' && 25 }}\n"), 'fall through'],
