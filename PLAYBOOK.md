@@ -39,7 +39,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 
 - A plain `node --test`: it leaves `jbmem-*` folders in the system temp folder. Use `dev/release-check.sh --only`.
 - Calling a failure "flaky", or adding a test to the load-sensitive list, without a reproduced cause.
-- Pushing, opening a PR, merging, tagging, publishing or downloading anything without the user's word. A merge, tag or publish is asked for by name, as its own question, and run as its own command.
+- Tagging, publishing, force pushing, deleting branches or data, changing the PC or its settings, or downloading anything without the user's word. The same holds for a push, a PR or a merge, except for a deferred item under `CLAUDE.md` "Conventions". A merge, tag or publish that needs the user's word is asked for by name, as its own question. Each one is run as its own command.
 - Attribution lines (`Co-Authored-By`, "Generated with") in commits, PRs, code or docs.
 
 ## Planning a change

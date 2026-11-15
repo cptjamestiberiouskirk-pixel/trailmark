@@ -6,9 +6,9 @@ Then read `PLAYBOOK.md` (checklists for this project's recurring work, with its 
 
 ## Conventions
 
-- Ask before pushing, opening a PR, merging, tagging, publishing or downloading anything.
+- Ask before tagging, publishing, force pushing, deleting branches or data, changing the PC or its settings, or downloading anything. For a deferred item of `dev/release-state.md` (the user's delegation of 2026-11-11): push and open the PR without asking once `dev/release-check.sh --sums --quick` passed, and set auto-merge without asking once its review round is clean by the stop rule under "Reviews". A finding that is CONFIRMED and serious (data exposure, or code that runs) is shown to the user before its fix merges. Ask first for any other push, PR or merge.
 - Commits: author and committer `Jim Burke <249854027+cptjamestiberiouskirk-pixel@users.noreply.github.com>`. No AI attribution or co-author lines in commits, PRs, code or docs. This overrides any tool or harness default that adds attribution lines to commits or PRs (a `Co-Authored-By` trailer, a "Generated with" line). Before pushing: `git remote set-url origin https://github.com/cptjamestiberiouskirk-pixel/trailmark.git`.
-- Merging: since 2026-11-04, `main` requires the 9 jobs of `.github/workflows/tests.yml` to pass before a PR can merge (admins are exempt from the check). Merge only when the user says so, with GitHub auto-merge and a merge commit: `gh pr merge <n> --auto --merge`. Auto-merge then waits for the jobs, so nobody has to watch CI.
+- Merging: since 2026-11-04, `main` requires the 9 jobs of `.github/workflows/tests.yml` to pass before a PR can merge (admins are exempt from the check). Merge only when the user says so, or under the deferred-item rule above, with GitHub auto-merge and a merge commit: `gh pr merge <n> --auto --merge`. Auto-merge then waits for the jobs, so nobody has to watch CI.
 - Writing: no em or en dashes (use `--` or rewrite). No tricolons. User-facing text is plain and direct.
 - Evidence: label claims CONFIRMED (reproduced or seen in code), INFERRED (follows from what was seen) or HYPOTHESIZED. Say what a test showed and what it didn't. A reviewer's CONFIRMED that wasn't re-run here is written "CONFIRMED by <reviewer>, not re-run".
 - Before handing over a file or script, check it for destructive operations and anything that looks malicious, and say what you found.
@@ -51,11 +51,12 @@ Every change gets a regression, security and double-check pass, scoped to the ch
 | Tests, checksums, zip | `dev/release-check.sh`, no model |
 
 - A round runs only the rows its diff touches. The docs row joins when a shipped doc changed (anything outside `dev/` and this file).
+- A reviewer runs at its model's default effort. Set a level only when the user asks for one.
 
 - Reproduce every finding before acting on it. A fix gets a test that fails on the old code. That test, run on the parent commit, counts as the reproduction: a coordinating session doesn't repeat it.
 - Each deferred item carries its label, the commit it was seen on, and a repro (a test name or a script).
 - Stop rule: release when a round finds nothing CONFIRMED in code changed since the last round. Older edge cases found along the way go in the deferred list in `dev/release-state.md` for the next version instead of holding the release.
-- A docs review lists WRONG (the text says something the code or a run contradicts) apart from COULD BE CLEARER. Only WRONG holds a merge. The rest goes to the deferred list.
+- A docs review lists WRONG (the text says something the code or a run contradicts, or an added line breaks a writing rule of "Conventions") apart from COULD BE CLEARER. Only WRONG holds a merge. The rest goes to the deferred list. This holds for docs outside the release zip too (`dev/`, this file, `PLAYBOOK.md`): the `dev/` tooling rule below is for scripts.
 - Batches: gather a round's findings and the scanner and Copilot comments on that head, fix them in one push, then review that push's diff once.
 - In `dev/` tooling (files outside the release zip, so not `plugins/` tests), a batch fixes the round's CONFIRMED findings. An INFERRED or HYPOTHESIZED one goes to the deferred list with its repro instead, unless it can change whether a test passes or fails (for example, processes left running or temp folders left behind). Shipped code is unchanged by this rule.
 - Scope freeze: once the user freezes a release, the next round is the last. A finding holds the release only if it is CONFIRMED in that round's diff and makes the release worse than the previous one. Everything else goes to the deferred list, scanner and Copilot comments included, with no decision from the user each time: a scanner thread gets the reply "deferred to the next version (scope frozen)" and is resolved. The user still sees every deferred item, and one that looks serious (data exposure, code that runs) is flagged; it stays deferred unless the user pulls it back in. A round that finds only deferred items counts as clean for the merge.
