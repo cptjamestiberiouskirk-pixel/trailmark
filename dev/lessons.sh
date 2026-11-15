@@ -9,7 +9,8 @@
 #                               missing a field or is out of date order
 #
 # A superseded lesson (its rule no longer holds) is counted and never printed.
-# Its Status reads "superseded (by what)": the word alone is refused.
+# Its Status reads "superseded (by what)": the word alone is refused, and so
+# is a bracket with nothing in it.
 
 set -u
 FILE="$(dirname "$0")/../LESSONS.md"
@@ -34,13 +35,13 @@ function flush(   miss, i, hit, text) {
   if (!why) miss = miss " Why"
   if (rule == "") miss = miss " Rule-going-forward"
   if (status == "") miss = miss " Status"
-  else if (status !~ /^(open|promoted|superseded [(])/) miss = miss " Status-not-open-promoted-or-superseded"
+  else if (status !~ /^(open|promoted|superseded [(][^ )])/) miss = miss " Status-not-open-promoted-or-superseded"
   if (miss != "") { printf "BAD   line %d: %s: missing%s\n", at, title, miss; bad++ }
   entries++
   if (status ~ /^open/) opened++
-  if (status ~ /^superseded [(]/) gone++
+  if (status ~ /^superseded [(][^ )]/) gone++
   if (mode == "open" && status ~ /^open/) { printf "%s\n    %s\n", title, rule; shown++ }
-  if (mode == "words" && status !~ /^superseded [(]/) {
+  if (mode == "words" && status !~ /^superseded [(][^ )]/) {
     text = tolower(body); hit = 0
     for (i = 1; i <= nw; i++) if (index(text, w[i])) hit = 1
     if (hit) { printf "[%s] %s\n    %s\n", (status ~ /^open/ ? "open" : "promoted"), title, rule; shown++ }
