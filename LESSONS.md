@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: A step cut down to a pointer said more than the text it points to
+- What went wrong: PLAYBOOK "Testing" step 10 was cut to a short step of three sentences and its case list moved to `dev/testing-cases.md`. The first sentence said the negative cases of every validator come from a loop. The list asks for a loop only where a decision is made once for each item of a list. The last sentence sent a reader to the file only before "writing or changing such a test", and the file holds the rules for stand-ins and for a test's comment too. The docs reviewer of PR 64's round 1 found both.
+- Why: the first sentence was written from the list's longest clause. The check before the commit compared the moved text with the old line, and nothing compared the new step with the list.
+- Rule going forward: a text that replaces a longer one with a pointer is read against each sentence of the longer one before the commit. It claims nothing the longer text limits to one case, and it names every kind of work the longer text covers.
+- Status: open
+
 ## 2026-11-14: A promoted step was skipped: the log call went out without its flag again
 - What went wrong: after a macOS job stalled on PR 63, `gh api .../jobs/<id>/logs` answered 404 for it, and I was about to write "no log exists". The same call for a job of the same run that had finished failed too: this `gh` refuses output with escape sequences without `--allow-escape-sequences`, as PLAYBOOK's Testing step 9 says. `gh run view --job <id> --log` gave 198 lines for the finished job and "log not found" for the stalled one.
 - Why: the call was typed from CLAUDE.md's line, which has no flag, and not from the PLAYBOOK step. The control was run only after the answer looked like the one expected.
@@ -21,10 +27,10 @@ Format:
 - Status: open
 
 ## 2026-11-14: A scan that could not run printed the all-clear
-- What went wrong: after PR 63's text was rebuilt, one command scanned it for dashes with `grep -nP '...' file || echo "no dashes"` and then sent it with `gh pr edit`. This grep refused the pattern (exit 2), so `||` printed "no dashes" and the text went out unscanned. A second scan, with node, found none. Minutes before, the handoff was read from the scratch folder and answered "version: none", since the command takes the repo from its working folder.
+- What went wrong: after PR 63's text was rebuilt, one command scanned it for dashes with `grep -nP '...' file || echo "no dashes"` and then sent it with `gh pr edit`. This grep refused the pattern (exit 2), so `||` printed "no dashes" and the text went out unscanned. A second scan, with node, found none. Minutes before, the handoff was read from the scratch folder and answered "version: none", since the command takes the repo from its working folder. Seen again the same day in another session: a commit script's `if ... | grep -n -P '[\x{2013}\x{2014}]'; then` got exit 2 ("character value in \x{} or \o{} is too large"), took it as no dash and printed the all-clear. That run was a check without a commit, and the scan was redone in Node before the commit.
 - Why: `||` takes every exit but 0 as "nothing found", and the send was chained after the scan in the same command.
 - Rule going forward: a scan prints its own count from what it read ("N lines, 0 to look at"), never an all-clear from `||`. What it guards (a send, a push, a commit) goes in a later step, after the count is read. A trailmark command runs from the worktree root.
-- Status: open
+- Status: promoted (PLAYBOOK "Committing" step 4, second sighting)
 
 ## 2026-11-14: A doc sentence was written for every shape from a run of one
 - What went wrong: batch 2 of RS-A-linkgit added to SECURITY.md that a submodule in a folder you may not enter still keeps status unread. The run behind it was a submodule made with `git submodule add`. Round 3's docs reviewer ran a gitlink with no gitdir in `.git/modules` and got `''`: the sentence was false for that shape. The same batch said a submodule below a missing folder still counts toward the limit, with no test behind it.
