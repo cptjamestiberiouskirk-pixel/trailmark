@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-15: A time limit sized from a guess, then from a short window, was too tight
+- What went wrong: RS-D-jobtimeout's fix idea of 2026-11-11 was about 20 minutes per job. The Actions API showed healthy Windows jobs taking up to 21.5 minutes, so that limit would have cancelled passing jobs. Then the first step limit for "trailmark tests", 10 minutes, was sized from the last 20 + 20 runs (slowest 4.2 minutes); the last 100 + 100 runs had one of 7.28 minutes, and it went to 15 before any commit.
+- Why: the idea was written from the macOS step's usual time, with no reading of the other systems' jobs, and the first data window held only the newest runs, which were not the slowest.
+- Rule going forward: a time limit is sized from the slowest passing time over the widest window the data gives (every run that is still listed, not the newest 20), for each system on its own, and the notes give the ratio of each limit to that time with the run it came from.
+- Status: open
+
 ## 2026-11-15: The record merged with "not pushed" in two places
 - What went wrong: the first line of `dev/release-state.md` said the branch of the open-lessons pass was "committed there and not pushed", and the bullet of the pass said "not pushed". The push and PR 67 came after the commit that wrote them, and both places merged to `main` as they were. A notes change after the merge had to correct them.
 - Why: each sentence was true when it was written and named no moment. Four older places of the same file say "when this was written" for a state that changes, one of them for a push, and these two did not. A fix on the branch would have been a new push, which had to be asked first.
@@ -600,7 +606,7 @@ Format:
 - What went wrong: on PR #50's last head the job "macos-latest, Node 22" sat in the step "trailmark tests" for 44 minutes, where that step takes 1 to 3. `tests.yml` sets no `timeout-minutes`, so GitHub's 6 hours applied and auto-merge waited on the job. A watcher here ran into its own time limit first, which says nothing about the job. A job that never answered leaves no log, so the cause could not be read afterwards: three reruns passed and it stays unproven.
 - Why: nothing in the workflow bounds a job, and the step's usual time was written down nowhere to compare with.
 - Rule going forward: a job that runs past three times its step's usual time is treated as hung. Take auto-merge off, cancel, ask for the log, compare the step's time on other heads, and rerun that job alone three times before anything merges. A watcher's own limit running out reads "still running", never "failed". A hang with no log and passing reruns is recorded as unexplained with its evidence, and the user decides the merge.
-- Status: open (pass of 2026-11-15: seen a second time on PR 63, where auto-merge was set again on a fresh head and no job was rerun three times; which way holds is asked of the user)
+- Status: open (pass of 2026-11-15: seen a second time on PR 63, where auto-merge was set again on a fresh head and no job was rerun three times; which way holds is asked of the user. Also 2026-11-15: `tests.yml` has job and step limits now, section "Next version: RS-D-jobtimeout" of `dev/release-state.md`, which says what they change for that question; the question is still the user's)
 
 ## 2026-11-11: A case with real git was loosened, and its strict twin left out one value
 - What went wrong: round 2 let the two cases "real git is stopped at 1 ms" accept either answer and moved the strict check to a stand-in, but the stand-in was stopped at 2000 ms only. A change that reads git stopped at 1 ms as an empty file then passed the test, where the test before it failed (round 3's reviewer). A second gap had been there from the start: nothing showed that the time is asked again when git starts.

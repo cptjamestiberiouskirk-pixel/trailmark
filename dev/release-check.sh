@@ -281,6 +281,10 @@ for f in $SHARED; do cmp -s "plugins/trailmark/$f" "plugins/trailmark-codex/$f" 
 [ -z "$SHARED" ] && record FAIL 'shared-file list not found in tests.yml' \
   || { [ -z "$bad" ] && record PASS "shared files identical ($(echo $SHARED | wc -w))" || record FAIL "shared files differ:$bad"; }
 
+# Each workflow job has its own time limit (RS-D-jobtimeout).
+if out="$(node dev/check-workflow-timeouts.js)"; then record PASS "workflow jobs have timeout-minutes ($(grep -c ' jobs (' <<<"$out") files)"
+else record FAIL "workflow timeouts: $(grep -m1 -E 'FAIL|has no|not from|neither|holds no|no top-level|no workflow' <<<"$out" | cut -c1-90)"; fi
+
 for c in trailmark trailmark-codex; do
   out="$(node plugins/$c/scripts/trailmark.js --sandbox-check 2>&1)"; rc=$?
   if [ $rc -ne 0 ]; then record FAIL "$c sandbox check"
