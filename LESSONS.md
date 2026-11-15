@@ -2,7 +2,7 @@
 
 A dated log, newest first. For development only: `export-ignore` in `.gitattributes` keeps it out of the release zip and out of `SHA256SUMS`.
 
-Add an entry each time something breaks, needs a redo or retry, surprises you, or the user corrects you. A lesson seen a second time, or clearly general, moves into `PLAYBOOK.md` as a checklist step and is marked "promoted to PLAYBOOK".
+Add an entry each time something breaks, needs a redo or retry, surprises you, or the user corrects you. A lesson seen a second time, or clearly general, moves into `PLAYBOOK.md` as a checklist step and is marked "promoted to PLAYBOOK". A lesson whose rule no longer holds, because what it speaks of was changed or removed, is marked "superseded" with what took its place: `dev/lessons.sh` counts it and no longer prints it. No entry is deleted.
 
 Format:
 
@@ -11,20 +11,26 @@ Format:
 - What went wrong:
 - Why:
 - Rule going forward:
-- Status: open | promoted to PLAYBOOK
+- Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
+
+## 2026-11-15: The pass over the open lessons marked entries without reading the text they name
+- What went wrong: review round 1 of the pass found marks and steps that the files contradict. An entry was marked superseded because "a shipped text gives no 'slowest found' any more", and SECURITY.md and a comment in `gitbin.js` still say it. An entry was marked as held by two older steps, and neither says its rule. A new step got a clause ("or in a check before `git status`") that no lesson has and that the code contradicts: `repoRoot` asks `farGitConfig` alone. Another step took one lesson's whole-file run from "a change to what a failed lookup means" to every change inside a function.
+- Why: the marks on older steps and on shipped text were made from what the session remembered of them, while each new step was read against its lessons as it was written. The clause and the wider scope came from making one step out of several lessons: words went in so that the sentence read as one rule.
+- Rule going forward: a lesson is marked superseded only after a search, run beside a control, of the files it speaks of (a shipped text, a script, a brief) for the words or the practice it names, and is marked as held by an older step only with that step's sentence read beside each sentence of the rule. A step made from several lessons keeps each lesson's scope: a condition that one lesson has is not dropped to shorten the sentence, and no place or case goes in that none of them names.
+- Status: open
 
 ## 2026-11-14: The probe that found a cause held the process's working folder fixed
 - What went wrong: after round 2 a probe changed one thing at a time, found that a lookup's time on a Windows drive in WSL follows the depth of the folder, and SECURITY.md gave times by depth. The round 3 reviewer measured half those times at the same depth. The time follows the folder the process works in: that folder and the ones above it cost nothing. Every run here had started in the worktree, so that never varied, and the round 2 reviewer's other times were put down to depth with no look at where its process ran.
 - Why: the probe varied the folders (size, names, depth) and nothing about the process that asked. An explanation that fit the numbers at hand was written as the cause, while the reviewer's own shape was INFERRED and not run.
 - Rule going forward: when a reviewer's number differs, run the reviewer's own shape first, in the same process and minute as one's own. The cause is named only once one run shows both numbers. A probe of a time lists what it held fixed (the working folder, the process, the machine), and the doc sentence names the shape. This is the second time for "A time measured in one folder was written as the drive's time": a `PLAYBOOK.md` step for the pass over the open lessons.
-- Status: open
+- Status: promoted (PLAYBOOK "Reviewing" step 4 and "Testing" steps 14 and 15, pass of 2026-11-15: second sighting of "A time measured in one folder was written as the drive's time")
 
 ## 2026-11-14: A time measured in one folder was written as the drive's time
 - What went wrong: SECURITY.md, a comment in `gitfacts.js`, a test comment and the notes gave 1.7 ms for a lookup of a name that is not there on a Windows drive in WSL. The round 2 reviewer measured 0.9 to 1.2 ms in another folder of the same drive, and a limit near 4,400 names where the doc had one between 2,000 and 3,000. A probe that changed one thing at a time showed that the time follows the depth of the folder: 1.3 ms three folders down, 3.6 ms nine down. The doc also gave 0.03 s for ext4 from the third run in one process, where a process of its own takes 0.05 s.
 - Why: every run here used one probe folder, four folders down, and two reviewers' runs in folders of like depth gave the same number. Agreement between runs of one shape was taken for the drive's number.
 - Rule going forward: a time that goes into a shipped doc is measured in at least two shapes that differ in what could set it (depth, size, name length, a fresh process), and the doc names the shape. When a reviewer's number differs from the notes, the cause is found by a probe that changes one thing at a time before the sentence is changed.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" steps 14 and 15 and "Reviewing" step 4, pass of 2026-11-15: seen again in "The probe that found a cause held the process's working folder fixed")
 
 ## 2026-11-14: A doc sentence gave the largest size that was run, and the limit was 40 times lower
 - What went wrong: SECURITY.md said that with 100,000 tracked names not on disk the check ran out of time on a Windows drive in WSL. The regression reviewer of round 1 measured the limit near 2,300 names, and a run here gave 2,000 read and 3,000 not. The sentence also left out the subfolder that the shape needs.
@@ -36,25 +42,25 @@ Format:
 - What went wrong: `const few` was added to the RS-A-deepindex test, which declares `few` 44 lines up. The file did not parse, and the three WSL runs each showed "tests 1, fail 1".
 - Why: the test was read around the edited line only, and no parse came between the edit and the run.
 - Rule going forward: before a `const` is added inside an existing test, the test is searched for the name, and `node --check <file>` runs after an edit to a test file, before any test run.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 16, pass of 2026-11-15: seen first in "A new awk variable overwrote a counter" of 2026-11-09)
 
 ## 2026-11-14: A look at the time once in 500 steps was copied onto steps that ask the disk
 - What went wrong: the first form of the RS-A-casefoldfs fix looked at the time once in 500 lookups of a tracked name, the way the line above it does once in 500 folders. On a Windows drive in WSL a lookup takes 1.7 ms, and 100,000 names with 5 s given answered `git-timeout` after 4,969 ms: the 0.8 s kept for what comes after was used up. The timing probe found it after the tests were written, and the time test was written again.
 - Why: the idiom was taken from its neighbour without asking what one step costs here. The neighbour's step is a name in a list, and this one is a call to the disk.
 - Rule going forward: a look at the time once in N steps is written only after one step was timed on the slowest disk here (a Windows drive in WSL). A step that asks the disk gets a look each time.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 11, pass of 2026-11-15: the step's rule, for a look at the time)
 
 ## 2026-11-14: "A fold such as NFKC" was tried as NFKC alone, and a compare after NFC passed
 - What went wrong: the mutation list for RS-A-casefoldfs loosened the compare of a tracked name with the listed names by NFKC, and the wide forms among the near names told it. A compare after NFC passed every test on Linux (`wsl-mutate-1.out`). A name in the other Unicode form is a real member of this fault's class: a file system can find the one for the other.
 - Why: the near names put a combining accent in, which makes another letter, and had no letter with its accent in both forms. One fold was taken to stand for all.
 - Rule going forward: where a compare of names is loosened in a mutation list, NFC and NFKC are two probes, and the test has a name with an accent in both forms, each way round.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 10, in `dev/testing-cases.md`, pass of 2026-11-15)
 
 ## 2026-11-14: A test helper's count was called "lookups" and counted every look at the path
 - What went wrong: `askFolded` counts the looks at a tracked name's own path. A new case expected one for `d/Fab` and got two: the lookup, and the look `farNested` makes when it checks the repo found there. The case failed on its first run on both systems.
 - Why: the helper's comment said "the tracked names it looked up", and the earlier cases all used a plain folder, where nothing looks a second time.
 - Rule going forward: a helper that counts calls says in its comment which callers' calls it counts, and an expected count is written for a shape only after the callers that look at that shape were read.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 15, pass of 2026-11-15)
 
 ## 2026-11-14: A test added an index entry with the id of a blob the repo did not have
 - What went wrong: the `gitFacts` test for RS-A-casefoldfs added `d/F` with `update-index --cacheinfo` and the id of the empty blob, and `git commit` failed with "invalid object". The stand-ins for git use that id as plain text, where no object is asked for.
@@ -72,13 +78,13 @@ Format:
 - What went wrong: (1) The RS-A-deepindex test counts the looks at the time in `farWorktree`, and it was not in the `--only` pattern from the first run: a whole-file run in WSL showed it, and it was changed twice. (2) A mutation probe's label was changed from "noted" to "Linux only" from the Linux run and a guess about Windows, and Windows tells it too. (3) The handoff's text went to the checkpoint through a heredoc, and an apostrophe in it ended the shell's parsing; nothing was written. (4) An Edit took the space out of `const askFolded = (` in the test file. The line-by-line read of the diff before the commit found it, while the quick check was running, and the tests and the quick check were run again.
 - Why: (1) the search for tests that count a function's work was made for the new lines and not for the function. (2) one system's result was taken for the label. (3) the heredoc is the skill's first way, and the text was not looked at for quotes. (4) INFERRED from the result, the edit was not looked up: its new text ended on that space.
 - Rule going forward: none new. (1), (2) and (4) are open rules seen a second time, for the pass over the open lessons to promote: search the tests for the function's name before coding in it; a probe's label stays "noted" until a run on each system printed its result; an edit's old and new text end on a visible character, and the diff is read line by line before the check that guards the commit starts, not during it. (3) A text for a command goes through the Write tool and a file.
-- Status: open
+- Status: promoted (PLAYBOOK "Planning a change" step 5, "Testing" step 16, "Constraints" first bullet and "Committing" step 5, pass of 2026-11-15)
 
 ## 2026-11-14: A permission rule grew a clause for each review finding, and the next rounds found 8 and 9 more
 - What went wrong: the delegation for deferred items was written into `CLAUDE.md` "Conventions" as a list of what a session may do. Review round 1 found 12 points, and each was answered with a clause. Round 2 found 8 in the new clauses, and round 3 found 9. Several let a session act without asking in a case no clause named.
 - Why: the rule listed the allowed cases and said nothing about the rest, so every case it did not name was open to a reader that follows the letter. Each fix named one more case.
 - Rule going forward: a rule that lets a session act without asking gives the scope, the one condition that must hold, and a default for everything else (it is asked). When a later review round finds about as many points as the one before, stop adding clauses and cut the rule back to that form.
-- Status: open
+- Status: promoted (PLAYBOOK "Reviewing" step 6, pass of 2026-11-15)
 
 ## 2026-11-14: A step cut down to a pointer said more than the text it points to
 - What went wrong: PLAYBOOK "Testing" step 10 was cut to a short step of three sentences and its case list moved to `dev/testing-cases.md`. The first sentence said the negative cases of every validator come from a loop. The list asks for a loop only where a decision is made once for each item of a list. The last sentence sent a reader to the file only before "writing or changing such a test", and the file holds the rules for stand-ins and for a test's comment too. The docs reviewer of PR 64's round 1 found both.
@@ -90,7 +96,7 @@ Format:
 - What went wrong: after a macOS job stalled on PR 63, `gh api .../jobs/<id>/logs` answered 404 for it, and I was about to write "no log exists". The same call for a job of the same run that had finished failed too: this `gh` refuses output with escape sequences without `--allow-escape-sequences`, as PLAYBOOK's Testing step 9 says. `gh run view --job <id> --log` gave 198 lines for the finished job and "log not found" for the stalled one.
 - Why: the call was typed from CLAUDE.md's line, which has no flag, and not from the PLAYBOOK step. The control was run only after the answer looked like the one expected.
 - Rule going forward: "no log" is written only with a control beside it, the same call on a job of the same run that has a log. A job's log is read with `gh run view --job <id> --log`.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 9 and the `gh` bullet of "Constraints", pass of 2026-11-15: until then no step named the flag)
 
 ## 2026-11-14: A scan that could not run printed the all-clear
 - What went wrong: after PR 63's text was rebuilt, one command scanned it for dashes with `grep -nP '...' file || echo "no dashes"` and then sent it with `gh pr edit`. This grep refused the pattern (exit 2), so `||` printed "no dashes" and the text went out unscanned. A second scan, with node, found none. Minutes before, the handoff was read from the scratch folder and answered "version: none", since the command takes the repo from its working folder. Seen again the same day in another session: a commit script's `if ... | grep -n -P '[\x{2013}\x{2014}]'; then` got exit 2 ("character value in \x{} or \o{} is too large"), took it as no dash and printed the all-clear. That run was a check without a commit, and the scan was redone in Node before the commit.
@@ -102,13 +108,13 @@ Format:
 - What went wrong: batch 2 of RS-A-linkgit added to SECURITY.md that a submodule in a folder you may not enter still keeps status unread. The run behind it was a submodule made with `git submodule add`. Round 3's docs reviewer ran a gitlink with no gitdir in `.git/modules` and got `''`: the sentence was false for that shape. The same batch said a submodule below a missing folder still counts toward the limit, with no test behind it.
 - Why: the sentence was worded from the finding's title, not from the probe's shape, and no second shape was run.
 - Rule going forward: a sentence added to a shipped doc names the shape that was run, or the neighbour shapes are run first. A sentence that states a behavior gets a test or a probe named in the notes in the same batch.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 12, pass of 2026-11-15)
 
 ## 2026-11-14: A stub row for a look nobody makes passed on every version
 - What went wrong: RS-A-linkgit's round 1 batch added the row "below a tracked folder that is not there: a submodule below it". It fails a look at the submodule's own folder and expects that the look is not made. No version makes that look (the first one is at the submodule's `.git`), so the row passed on the commit before the fix too. The Windows mutation run had shown it: the probe for that line passed. A second row was added for the `.git`, and the dead one stayed until two reviewers of round 2 named it.
 - Why: a probe that passes was read as "this system needs another row", not as "this row tells nothing".
 - Rule going forward: a row that expects a look is not made is first run on the code before the fix, where the stub must fire. When a mutation probe passes, the row that should have told it is removed or repaired before another is added.
-- Status: open
+- Status: open (pass of 2026-11-15: its first sentence is PLAYBOOK "Testing" step 8; the second is not a step)
 
 ## 2026-11-14: The notes deferred five looks as a known limit, and the shipped doc named three
 - What went wrong: RS-A-leftlooks and RS-A-unseencallers were deferred in dev/release-state.md with the words "what SECURITY.md calls a known limit". SECURITY.md's sentence named three of those looks. The docs reviewer of round 2 found the two that were missing and the callers outside `allSeen`.
@@ -126,37 +132,37 @@ Format:
 - What went wrong: the RS-A-relpath test asserted `unreadable-path` for a tracked path past the system's limit with nothing of it on disk. That is a deleted tree, which `git status` lists as deleted, and the commit before answered `''` (review round 1, F2). The test passed, so it locked the wrong answer in.
 - Why: the case was made cheap (no folders to build) and its expected answer came from the code, not from git run on the same shape.
 - Rule going forward: a case that asserts a refusal names what git itself does on that exact shape, from a run. Where the on-disk shape and the text shape differ in what is there, both are cases, each with its own expected answer.
-- Status: open
+- Status: open (pass of 2026-11-15: its first sentence is PLAYBOOK "Writing code and docs" step 12; the second is not a step)
 
 ## 2026-11-14: The class was listed by the names of calls in one file, and a caller in the other was missed
 - What went wrong: RS-A-linkgit's class list had every `lstat`, `stat`, `readdir` and `realpath` of the two library files. `localPath` hands back text where a part could not be looked at and sets a flag that only `allSeen` reads. `gitfacts.js` called `localPathFrom` for a tracked folder that is a link outside `allSeen`, so the flag was dropped and status was read (review round 1; older than the item, CONFIRMED here at 4,096 to 4,103 bytes).
 - Why: the list was made by searching for the system calls, and the new flag added a second way to be in the class: a caller of a function that reports through the flag.
 - Rule going forward: when a fix reports through a new channel (a flag, a return value, a thrown reason), list every caller of the functions that use it, in every file, and say for each how it reads the channel.
-- Status: open
+- Status: promoted (PLAYBOOK "Planning a change" step 5, pass of 2026-11-15)
 
 ## 2026-11-14: A test assumed no repo above the temp folder
 - What went wrong: test 2 of RS-A-linkgit expected `''` from `localRepoRoot` for a folder whose `.git` can't be looked at. Two reviewers ran it with the temp folder inside their clone, as their brief said, and it failed there: the answer was the clone.
 - Why: the expected value was a constant where the code's answer depends on what is above the test's folder. `dev/release-check.sh` and CI keep the temp folder outside a repo, so it passed here.
 - Rule going forward: an expected value that depends on the folders above the test's own is asked of the code without the stub, not written as a constant. A review brief puts the temp folder outside the clone, or says that tests may see the clone above them.
-- Status: open
+- Status: open (pass of 2026-11-15: its second sentence is PLAYBOOK "Reviewing" step 2; the first is not a step)
 
 ## 2026-11-14: An older test measured what a fix added, and only the quick check showed it
 - What went wrong: F2's fix in RS-A-linkgit's round 1 batch skipped the tracked folders below one that is not on disk and kept their paths in a Set. The item's own tests and the mutation list passed on Linux and Windows. `dev/release-check.sh --sums --quick` then failed: the RS-A-deepindex test lists the folders looked at with nothing on disk and counts the characters put into Maps and Sets, and the fix changed both. The fix was reworked to keep "not there" on the tree's own entries, the test got its folders on disk, and every run made before had to be made again.
 - Why: the tests run by name were the item's. No search was made for the other tests that call the changed function with its lookups counted or stubbed.
 - Rule going forward: before coding a change inside a function, search the test file for the tests that call it or count its work, and put their names in the `--only` pattern from the first run on.
-- Status: open
+- Status: promoted (PLAYBOOK "Planning a change" step 5, pass of 2026-11-15)
 
 ## 2026-11-14: The inline backslash rule was broken twice more in one hour
 - What went wrong: two rewrites of RS-A-linkgit's mutation script were sent as an inline `node -e` holding `\\\x27` and then `\\n`. The Bash tool collapsed both. The second left real line breaks inside string literals, and the script did not parse until it was repaired with the Edit tool.
 - Why: each was "one small rewrite" of a scratch file, so the promoted rule (PLAYBOOK "Writing code and docs" step 4, and the Windows notes) was not thought to apply.
 - Rule going forward: no new rule. A text with a backslash in it never goes in an inline command, a scratch file's rewrite included: the Edit tool does it.
-- Status: open
+- Status: promoted (PLAYBOOK "Constraints" first bullet and "Writing code and docs" step 4, pass of 2026-11-15: seen after promotion)
 
 ## 2026-11-14: A probe that stopped on an error left its folder, and times in the notes were guessed
 - What went wrong: `probe-sf1.js` threw at a length `ln` could not make, before its own removal of the folder it made in WSL's /tmp, and the removal typed by hand afterwards was stopped by the harness's safety check (an `rm -rf` inside a `bash -lc` text). The folder `/tmp/probe-sf1-X43AWu` is left for the user. In the same hour the notes got "about 14:20" and "about 14:30" for things that happened before 14:10.
 - Why: the probe removed its folder on its last line, not in a `finally`. The times were written from a feeling for how long the work took.
 - Rule going forward: a probe removes what it made in a `finally`. A time in the notes is read from the clock in the same command that made the output.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 17 and "At each milestone" step 7, pass of 2026-11-15)
 
 ## 2026-11-14: A change was told on Linux by a test written for something else, and on Windows by none
 - What went wrong: in RS-A-linkgit's mutation list, "a part that was not seen replaces another reason" carried the label "no test has to tell it". Linux told it through the RS-A-pathcap test; on Windows it passed. The first two cases written for it failed on the fix itself: both put the other reason where the check finds it before it looks at the part.
@@ -168,13 +174,13 @@ Format:
 - What went wrong: before the Windows rerun of RS-A-linkgit's mutation list, three lines got the label "told on Linux only" for both changes made at each. One of the six ("no failure is "not there"" at the second line of `unlisted`) fails a test on Windows too, so the run ended with 1 of 87 not as expected and that probe was run again.
 - Why: the label came from a count in a stopped run ("5 passed") and was written by line, not by probe.
 - Rule going forward: a mutation probe's label comes from that probe's own result in a run, not from the other change at the same line.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 16, pass of 2026-11-15)
 
 ## 2026-11-14: What git does with a `.git` it can't read was reasoned from the check's code
 - What went wrong: RS-A-linkgit's notes flagged a Windows shape as a way past the check (a `.git` whose lstat is EPERM while its files open by name), and a paragraph on Linux said git takes a `.git` lookup that fails for its length as "not there". Run with git 2.56.1, both were wrong: git stops with "fatal: error reading '<folder>/.git'" (exit 128).
 - Why: both sentences came from what Node's calls return at those paths. Git was not run there.
 - Rule going forward: a sentence about what git does at a path is written from a run of git at that path, with its version. Until then it is HYPOTHESIZED, in the notes too.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 12, pass of 2026-11-15)
 
 ## 2026-11-14: A heredoc wrote a scratch script again, and the commands after it ran on
 - What went wrong: an edit to RS-A-linkgit's mutation script went through a heredoc. A backslash was lost, the edit failed ("not once"), and the commands chained after it ran with variables that were never set. They changed nothing.
@@ -192,7 +198,7 @@ Format:
 - What went wrong: RS-A-linkgit's first cut ("every failure but "not there" keeps git out") made the test "a decoy .git git can't search is passed over, as git does (loop round 4)" fail on Linux. Windows skips that test, so the run here had passed. `nothingIn` was added after the code was in both copies.
 - Why: the rule was checked against the three items and the call sites, not against the tests that hold earlier decisions about the same calls.
 - Rule going forward: before changing what a failed lookup means, grep the tests for the calls and file modes involved, and run the whole test file on the system the change is for (WSL for Linux) before writing new tests.
-- Status: open
+- Status: promoted (PLAYBOOK "Planning a change" step 5, pass of 2026-11-15)
 
 ## 2026-11-14: One push may update at most 5 branches or tags
 - What went wrong: reported by an earlier session, not re-run here: a push that deleted 57 merged branches was refused whole (GH013). With 5 branches to a push it went through.
@@ -204,13 +210,13 @@ Format:
 - What went wrong: from RS-A-pathcap's notes of 09:43, not re-run here: after a second push to PR 62 at 09:38:15, `gh pr view` showed the new head with 0 checks until 09:43:28.
 - Why: `tests.yml` puts a PR's runs in one group with `cancel-in-progress`. The new run stays pending with no jobs until the older run has finished cancelling.
 - Rule going forward: with 0 checks on a pushed head, read the runs list (`gh api repos/<repo>/actions/runs?per_page=3`) and look again after other work, not in a loop.
-- Status: open
+- Status: promoted (PLAYBOOK "Pushing and CI" step 1, pass of 2026-11-15)
 
 ## 2026-11-14: A count of a diff's removed lines missed a removed bullet line
 - What went wrong: from RS-A-pathcap's notes of 09:43, not re-run here: a diff's changed lines were counted with a pattern over each line's first characters (`grep -c '^-[^-]'`). A removed bullet line starts with "--" in the diff and was not counted.
 - Why: the pattern was written to skip the diff's `---` header line.
 - Rule going forward: count a diff's changed lines with `git diff --numstat`.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 15, pass of 2026-11-15)
 
 ## 2026-11-14: A fault fixed in SECURITY.md was written again in a test comment of the same batch
 - What went wrong: round 3's batch fixed "where git fails the root is the session's folder" in SECURITY.md by naming the timeout, and added to the test's comment "where git is let try and fails with an error it is the session's folder", which leaves the timeout out again. The bullet it moved kept two ranges ("4,000 to 4,200") of which five values were run, in the commit that added the step against such ranges. Round 4's regression reviewer found both.
@@ -222,7 +228,7 @@ Format:
 - What went wrong: the round 3 section of `dev/release-state.md` said two tests assert the repo as the root "from a subfolder". One of them starts from a linked worktree. Round 4's regression reviewer found it.
 - Why: the first test's cases were read. The second was taken from its name and from a passing run.
 - Rule going forward: a sentence in the notes about what a test asserts is written after that test's assertions were read, for each test it names.
-- Status: open
+- Status: promoted (PLAYBOOK "Committing" step 3, which is older than the entry: seen after promotion; pass of 2026-11-15)
 
 ## 2026-11-14: A sentence about where the root comes from left out one of the function's exits
 - What went wrong: round 2's batch wrote in SECURITY.md "Where git fails the root is the session's folder, and where git is kept out the root is found without git". `repoRoot` also finds the root without git when git times out, or when too little time is left to start it. Two reviewers of round 3 found it.
@@ -246,43 +252,43 @@ Format:
 - What went wrong: round 1's batch said, in SECURITY.md, three comments and the notes, that the cap never changes the repo's root. Round 2 found three kinds of case where it does: where the parent commit already kept git out for another reason (the root was the repo and is the session's folder now), where git fails for a reason of its own on Windows and the cap keeps it out (the reverse), and a session folder that is a junction into another repo.
 - Why: where git gives no answer the parent's root has two sources, the session's folder when git was let try and `localRepoRoot` when git was kept out. The comparison with the parent ran on plain repos at short paths, so it only ever saw the first source, and "never" was written from it.
 - Rule going forward: a comparison of the root with the parent commit runs each shape twice, once plain and once with an older reason to keep git out (a config that includes a share), and on Windows also from a session folder of 300 characters. A sentence with "never" or "always" about what a change does is replaced by the cases tried.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" steps 18 and 12, pass of 2026-11-15)
 
 ## 2026-11-14: A reviewer's shape was rebuilt with a shorter path and showed nothing
 - What went wrong: the regression reviewer's junction shape (a folder of repo A that is a junction into repo B) showed no difference in my first run, and I nearly noted the finding as not reproduced. Its junction led to a path of 500 characters, mine to one of 37.
 - Why: Git for Windows goes by where the links lead up to a real path of 250 characters and by the path as given from 256. The docs' sentence "on Windows git works from the path it was started with" came from one run at 4,097 characters and hid that.
 - Rule going forward: a reviewer's repro is rebuilt with the reviewer's own numbers first and varied after. A sentence about what git does with a link on Windows names the lengths it was tried at.
-- Status: open
+- Status: promoted (PLAYBOOK "Reviewing" step 4 and "Writing code and docs" step 13, pass of 2026-11-15)
 
 ## 2026-11-13: A new refusal moved the repo's root, and the tests looked at the refusal alone
 - What went wrong: d61366c added the reason `long-path` to the check that `repoRoot` asks first. Review round 1 found that the root changed with it: for a session folder given through a junction (237 characters as written, 4,097 where it leads) git works on Windows, and the root went from the repo to the session folder, so another memory folder. My own runs then found the reverse where git fails: the root went from the session folder to a repo above it.
 - Why: a refusal switches where `repoRoot` takes the root from, git or `localRepoRoot`. The notes said "`localRepoRoot` answers as before", which was true of the function and said nothing about when it is called. The tests asserted the check's answer and, in one case, the function's.
 - Rule going forward: a new reason in `farGitConfig` gets the root compared with the parent commit's, in a fresh process with both sets of scripts, for shapes where git works and for shapes where git fails, before the first push. The tests assert `localRepoRoot` next to each new refusal.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 18, pass of 2026-11-15)
 
 ## 2026-11-13: The root was compared on Windows, and the Linux run came after the mutation list
 - What went wrong: the fix for the entry above gave no root at a gitdir or commondir past the cap, on every system, from probes run on Windows. The Linux run of the tests, made after the whole mutation list, failed, and a probe then showed the batch had moved the root on Linux (a commondir at 4,095 characters or more: the repo above before, the session folder after). The check went to Windows only, a test case changed, and the whole list ran a third time.
 - Why: on Linux nothing at such a path could be read before the cap, so git was already kept out there (`unreadable-config`) and the root already came from `localRepoRoot`. The same line was a new refusal on one system and a renamed one on the other.
 - Rule going forward: a comparison with the parent commit runs on Windows and in WSL with the same probe script before the code is called done, and the other system's test run comes before the mutation list, since a test edit runs the whole list again.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 18 and "Testing" step 16, pass of 2026-11-15)
 
 ## 2026-11-13: A time was given for the check, and the hook's first call does more
 - What went wrong: the notes and SECURITY.md said a session folder 15,000 folders down "is refused at once now", from the check called alone (0.00 to 0.15 s). `repoRoot`, which a hook calls first, then walked the same path in `localRepoRoot`: 7.4 to 7.5 s on d61366c against 14.6 to 15.4 s before, so still over a hook's time.
 - Why: the function measured was the one changed, not the one a hook calls. The sentence named what was measured, and the conclusion was read as the hook's.
 - Rule going forward: a time claimed for a refusal is measured through `repoRoot` as well as through the check, and the sentence names both.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 14, pass of 2026-11-15)
 
 ## 2026-11-13: A probe met a depth limit before the line it was written for
 - What went wrong: the first run of the security reviewer's submodule-walk shape answered `deep-gitdir`, not the slow walk. The folder at 15,000 characters was built from 200-character names, 75 levels, and the walk stops at 64.
 - Why: the length was the thing wanted and the depth came with it unseen. A junction's target stops near 4,000 characters in the same way: a probe that needed one at 4,100 failed until it went through two links.
 - Rule going forward: a probe prints the reason it got and is read against the reason it was built for, before its time is used. Length is built from names of 250 characters where a limit on depth stands before the line under test.
-- Status: open
+- Status: open (pass of 2026-11-15: its first sentence is PLAYBOOK "Testing" step 9; the second is not a step)
 
 ## 2026-11-13: A "cap one higher" probe passed, since the test's folder was two past the cap
 - What went wrong: the new case for the submodule walk had a folder at exactly 4,096 characters and one inside it, at 4,098. The mutation list's probe with the cap at 4,097 passed.
 - Why: a folder inside another is at least two characters longer. The case looked like a boundary pair and was not one.
 - Rule going forward: a boundary case has one item at exactly the limit and one at exactly the limit plus one (here two folders side by side, named `a` and `bb`), and asserts the length of one of them.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 10, in `dev/testing-cases.md`, pass of 2026-11-15)
 
 ## 2026-11-13: A test's files had names the code passes over, so one line was never reached
 - What went wrong: the RS-A-pathcap test put ten plain files in a submodule gitdir's `objects` to show that their paths are not built. The mutation list's probe that built them again passed. The files were named `e0` to `e9`.
@@ -294,7 +300,7 @@ Format:
 - What went wrong: `measure-members.js` made one folder inside another 15,000 times under `E:/DevTemp` and ended with `fs.rmSync(top, { recursive: true })`. The folder stayed, and the "removed" line the script prints after it never came, since the call threw. It was found only because the run's last line was looked for.
 - Why: the recursive remove goes down one call for each level and gave up on that depth. The script printed its "removed" line after the call, not in a way that an error leaves standing.
 - Rule going forward: a probe that makes a chain of folders removes it from the deepest up with `rmdir`, and a cleanup prints what is left (`removed false` with the path) from inside a `finally`, so that a failed cleanup is a line in the output and not a missing one. A folder left behind is removed by its literal path, by a script that refuses any other.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 17, pass of 2026-11-15)
 
 ## 2026-11-13: A zip built here had another checksum than the job's zip of the same commit
 - What went wrong: before the 0.6.3 publish, the zip built here from the merge commit had another sha256 than the draft's zip. The notes gave a guessed cause (the two systems pack differently) and left the inside of the draft's file INFERRED until a download.
@@ -306,7 +312,7 @@ Format:
 - What went wrong: the 0.6.3 CHANGELOG section was written from the descriptions of 30 PRs. The docs review found five lines untrue or too wide: a reason given to a case that gets another one, "5 to 15 seconds" that holds for one copy's hooks, seven reasons given to two docs where one has three of them, "written for `pwsh`" where a section says otherwise, and "not a number above 0" where 0 was fine. Two changes in behavior had no line: `GIT_CONFIG` is no longer handed to git, and three new limits.
 - Why: each line shortened a description, and the shortening dropped a limit ("or the caller's reason") or joined two things (two docs, two hosts). A change made in a later round of a PR was not in the top of that PR's description.
 - Rule going forward: a CHANGELOG line that names a reason, a number, a file or a copy is read against the code or against `git diff <last tag>..HEAD` for that thing before the review. The list of changes in behavior is taken from that diff (new constants, the environment git gets, the rows of MANUAL.md's reason table), not from the PR descriptions alone.
-- Status: open
+- Status: promoted (PLAYBOOK "Releasing" step 5, pass of 2026-11-15: seen first in "A batch's changelog notes said more than the code does" of 2026-11-08)
 
 ## 2026-11-13: The reworded sentence was again wider than what was tried
 - What went wrong: batch 1 of RS-A-dotpath changed "git's own commands don't put such a path in the index" to "don't give a tracked file such a path", in two docs rows and a code comment. Round 2 (Fable) made a sparse index and checked out a hand-made tree with an entry named `.` in a folder outside the cone: `git checkout` took it. No filter ran (git then fails to list the files, and status stays unread). It was the third wording of that sentence, counting one caught before the first commit.
@@ -318,19 +324,19 @@ Format:
 - What went wrong: the notes of RS-A-dotpath round 1 listed five shapes of the decision test that start with a slash. The test has seven: `/bb` and `/yy/zz` come from a part replaced by nothing. Round 2 (Opus) found it.
 - Why: the list was written from reading the test, and the count was not taken from a run.
 - Rule going forward: a count or a list in the notes that describes a test's data is printed by a script that runs the test's own lines (here `count-dotpath-shapes.js`), and the notes name the script.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 15, pass of 2026-11-15)
 
 ## 2026-11-13: An edit took a space out of a line it was not meant to change
 - What went wrong: after batch 1 of RS-A-dotpath a line of the decision test read `const odd =[`. An edit of the comment over it had ended in the middle of that line. The tests passed, since the line still runs. Round 2 (Opus) found it.
 - Why: the edit's old and new text stopped inside a line. The commit script counts changed lines for each file, and that line was one of several the batch changed in the test.
 - Rule going forward: the old and the new text of an edit end at the end of a line. Before a commit, the diff of code and tests is read line by line, not only counted.
-- Status: open
+- Status: promoted (PLAYBOOK "Committing" step 5, pass of 2026-11-15: seen first in "An edit's trailing space was lost, twice" of 2026-11-08)
 
 ## 2026-11-13: A new case went into the whole mutation list before it had run once alone
 - What went wrong: batch 1 of RS-A-dotpath added a sparse-index case whose expected lists left out the file `a` that the test's own `repoAt` helper commits. The 24-entry mutation list was started on it, and its last entry, the unchanged file, failed. That run was void and the list was run again (three minutes).
 - Why: the expected lists came from a probe that made its repo by hand, with no file `a`. The changed test was not run once on the unchanged code before the list.
 - Rule going forward: after a test edit, `--only` runs once on the unchanged code, and its PASS line is read, before the mutation list starts. An expected value taken from a probe is checked against the helper the test uses to make its repo.
-- Status: open
+- Status: open (pass of 2026-11-15: its first sentence is PLAYBOOK "Testing" step 16; the second is not a step)
 
 ## 2026-11-13: A sentence about "the index" was wider than the list the code reads
 - What went wrong: the two docs rows and the code comment of RS-A-dotpath said git's own commands don't put a path with an empty part "in the index". A sparse index that git writes has an entry for a folder, `out/`. Round 1 (Opus) found it. The code was right, since it asks for the list without `--sparse`.
@@ -372,7 +378,7 @@ Format:
 - What went wrong: three probes were added to the end of `mutate-redirect-2.js` and the run was started from the 55th entry. The first new probe was the 54th, so the run left out the probe for the finding being reproduced, and it was run again from 54.
 - Why: "54 changes" in the notes counts the unchanged files at the end as one entry, and the start number was worked out from that sentence and not from the script.
 - Rule going forward: a partial run of a list starts from a number the script printed (the "N probes" line of its last whole run), and its output is read for the names expected before anything is concluded from it.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 15 and "Testing" step 9, pass of 2026-11-15)
 
 ## 2026-11-13: Ten chosen texts stood for "near", and the next round found compares they let through
 - What went wrong: batch 2 of RS-A-redirect gave the decision test a loop over ten texts near the right path and word. Round 2 (Opus) passed every test with a compare that ignores the second character, one that ignores the last but one, other capitals after an exact first character, NFKC, a backslash read as a slash and a tab read as a space. Twelve such changes passed here.
@@ -402,7 +408,7 @@ Format:
 - What went wrong: a scratch script for RS-A-redirect ran `node --test` on the parent's code and printed why each test fails, by reading lines that start with "not ok". It printed nothing: this Node (26) writes another report unless it is told to write TAP. The first run looked like "no test failed".
 - Why: the script took the report's form for granted, and an empty result read the same as a pass.
 - Rule going forward: a script that reads a test run passes `--test-reporter=tap`, and prints the run's pass and fail counts whatever else it finds, so that nothing found is told apart from nothing run.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 9, pass of 2026-11-15)
 
 ## 2026-11-13: A check in the background ended with no result line
 - What went wrong: the quick check for RS-A-filtername round 4 was started in the background by one command that also started the load sampler with `&` and wrote the check's output to a file renamed at the end. The app reported the command done within minutes while the check still ran, and 17 minutes after its start the check was gone, with `SHA256SUMS` rewritten and no result line anywhere.
@@ -420,7 +426,7 @@ Format:
 - What went wrong: round 3's docs review said "keeps running (unless ...)" could be read as "the filter stops". The answer in batch 3 was a new sentence, "The exception is a filter named ...", put right after the sentence on filters from the user's own config. Round 4's docs review marked it wrong: there it reads as an exception to that case only, and the code skips `git status` for such a filter whichever config defines it, the repo's own included.
 - Why: the sentence was written to fix the clause it replaced and was not read against the first sentence of its paragraph, which states the rule for the repo's own config.
 - Rule going forward: a sentence that states an exception names what it is an exception to, and is read against every rule in its paragraph before it goes in. A clarity fix gets the same check against the code as a new claim.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 17 and "Committing" step 3, pass of 2026-11-15)
 
 ## 2026-11-12: A class of variables was listed from git's pages, and the Windows build has three more
 - What went wrong: for RS-A-filtername round 2 the variables that could make the checks and `git status` see different things were listed from git's pages and from memory, ten were tried, and the notes said only `GIT_CONFIG` splits the two. Round 3 (Fable) found `GIT_REDIRECT_STDIN` and `GIT_REDIRECT_STDERR`, which Git for Windows adds: with either in the session's environment a repo's filter ran (reproduced here, deferred as RS-A-redirect).
@@ -438,7 +444,7 @@ Format:
 - What went wrong: the commit script for RS-A-filtername round 2 checks that `gitbin.js` differs from HEAD by a known number of lines. The number (5 and 1) was read with `git diff --numstat` while the mutation run was on its first probe, which puts the old pattern line back. The real diff is 6 and 2. The script stopped before the commit, and nothing was committed.
 - Why: the mutation run was in the background and the read looked harmless, since it changed nothing.
 - Rule going forward: while a mutation run is going, nothing is read from the files it changes, not only nothing written. A number a later check will hold is read after the run printed "restored: true".
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 16, pass of 2026-11-15)
 
 ## 2026-11-12: A check asked git one way and git acted another, because of a variable in the environment
 - What went wrong: round 2 of RS-A-filtername (Fable) found that with `GIT_CONFIG` set in the session's environment, `git config` reads that one file and nothing else, not the repo's config and not `-c`, while `git status` goes by the real configs. Reproduced here in real repos: with a file that holds `trailmark.asked`, the new call's answer counted as whole, a filter named `set` was not seen and ran; with either file an ordinary filter of the repo was not listed, so it was not switched off and ran (this part is older than the PR); with an empty file, 11391c1 read status in no repo at all (`filter-check`).
@@ -474,7 +480,7 @@ Format:
 - What went wrong: RS-A-filtername adds a Set of four texts that is asked with a text from a repo. Its first mutation list had the Set without each text and no change of its kind. Round 1 (Opus) passed the test with the Set asked as a plain object, which would take `constructor` for "no filter". PLAYBOOK "Writing code and docs" step 11 asks for that swap and for names every object has, since the morning of the same day.
 - Why: the lessons check before the list was run with the words for tests and mutations, and its lines were read for the layers (a change per key at each layer). The step on the kind of a table sits under "Writing code and docs" and was not read again when the list was written.
 - Rule going forward: none new. A mutation list for a fix that adds a Map, a Set or an object starts with the swap of its kind, before the changes of its members, and the test has a name every object has.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 11, which is older than the entry: seen after promotion; pass of 2026-11-15)
 
 ## 2026-11-12: An exit status that also means a failure was read as an answer
 - What went wrong: the new call of RS-A-filtername (`git config --get-regexp`) took exit status 1 for "no such setting". Round 1 (Fable) showed the same status for a git that gives up on the repo's config, and for a git ended from outside on Windows (reproduced here: `execFileSync` reports `status=1`, `signal=null`). Either was read as "no filter so named", the answer that lets status run.
@@ -486,7 +492,7 @@ Format:
 - What went wrong: the notes-only commit of RS-A-filterkey round 4 (358d3c3) was sent in one message with an edit that added the quick check's reading to `dev/release-state.md`. The edit was refused, since the file had changed on disk after it was last read. The commit script ran all the same, and the push went out without that line. Nothing in the commit is untrue, and the reading is recorded with the next item.
 - Why: the two calls were sent together to save a step, the edit being one line. PLAYBOOK "Committing" step 1 says a commit goes in a later message than the edits it depends on. The commit script checks which files changed and not what a late edit was to add.
 - Rule going forward: PLAYBOOK "Committing" step 1 holds for a one-line edit too. A commit script that follows an edit of the notes also looks for a text only that edit adds.
-- Status: open
+- Status: promoted (PLAYBOOK "Committing" step 1, pass of 2026-11-15)
 
 ## 2026-11-12: Cases were taken out, and what two of them held at the place that asks went with them
 - What went wrong: batch 2 of RS-A-filterkey moved the check of a value into a function, asked it with a table, and took 14 cases with real repos out. The notes said "what each held is in the table". Two of them ("process with more after it", "required with another word for true") also held that `filterOverrides` asks the function for `process` and for `required`. Round 3 found the test passing with either word taken without asking. The mutation list had the four words taken at once, which another case caught, and no change for one word alone.
@@ -522,7 +528,7 @@ Format:
 - What went wrong: the first timing of RS-A-deepindex through the PreCompact hook gave 0.17 s for the parent and for the fix. The hook leaves at once in a repo not set up for Trailmark, so neither run reached the code being timed. The same day the new test failed on the parent commit only because the function it calls was not exported there, which proves nothing about the fix.
 - Why: the harness had no sign that the timed code ran, and "fails on the parent" was taken as a property of the test without reading why it fails.
 - Rule going forward: a timing harness shows something only the timed code can make (the hook's answer, or a time that differs between parent and fix), and equal times for both are read as "did not run" until shown otherwise. A test that cannot run on the parent (a new export, a new option) gets its proof from a mutation that puts the old code back in the new file, and the review brief says so.
-- Status: open
+- Status: open (pass of 2026-11-15: its first sentence is PLAYBOOK "Testing" step 9; the second is not a step)
 
 ## 2026-11-12: Three rounds each found a slower shape for the same bound
 - What went wrong: RS-A-worktreeslinks put a time in SECURITY.md for what its limit lets through, and each of three review rounds beat it with a more unusual tree (4 KB pointers, a path of 16,130 characters, a path with characters outside Latin-1). Two rounds added a term to the count and each new term drew the next round. The new test also could not see a path longer than a link's target allows, so a count cut off at 4,096 passed it.
@@ -570,19 +576,19 @@ Format:
 - What went wrong: the sweep's lookup clock (`left: () => deadline - Date.now() - 800`) could be swapped for one that stands still and all three RS-A-firstcheck tests passed. The security review found it (round 1, F1) and measured session start at 20.2 s with the clock frozen (CONFIRMED by Fable, not re-run). The three survivors were reproduced here.
 - Why: the test's stand-in clock moved once, at the first file, before the sweep made its own clock. The mutation list had "a clock that does not run" for the hook's clock and only "no clock" and "keeps nothing back" for the sweep's.
 - Rule going forward: every clock handed down gets a case where time passes after that clock was made and before its last read. The mutation list has "does not run" for each clock, not only the first.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 10, in `dev/testing-cases.md`, pass of 2026-11-15)
 
 ## 2026-11-11: "Every command is unchanged" was written without listing the callers
 - What went wrong: the notes, the PR text and the review brief said a caller with no clock, every command, was unchanged. `write-handoff` with `--session` runs the same sweep as session start, so its lookups got a clock too (round 1, the security review's note; CONFIRMED here: `sweepFacts` has two callers).
 - Why: the claim was written from `repoRoot`'s side (no `left`, no change), not from a list of who calls each changed function.
 - Rule going forward: before "callers of this kind are unchanged" is written, grep the callers of every function the change touched and name each one that changes.
-- Status: open
+- Status: promoted (PLAYBOOK "Planning a change" step 5, pass of 2026-11-15)
 
 ## 2026-11-11: A job that hung had no time limit and left no log
 - What went wrong: on PR #50's last head the job "macos-latest, Node 22" sat in the step "trailmark tests" for 44 minutes, where that step takes 1 to 3. `tests.yml` sets no `timeout-minutes`, so GitHub's 6 hours applied and auto-merge waited on the job. A watcher here ran into its own time limit first, which says nothing about the job. A job that never answered leaves no log, so the cause could not be read afterwards: three reruns passed and it stays unproven.
 - Why: nothing in the workflow bounds a job, and the step's usual time was written down nowhere to compare with.
 - Rule going forward: a job that runs past three times its step's usual time is treated as hung. Take auto-merge off, cancel, ask for the log, compare the step's time on other heads, and rerun that job alone three times before anything merges. A watcher's own limit running out reads "still running", never "failed". A hang with no log and passing reruns is recorded as unexplained with its evidence, and the user decides the merge.
-- Status: open
+- Status: open (pass of 2026-11-15: seen a second time on PR 63, where auto-merge was set again on a fresh head and no job was rerun three times; which way holds is asked of the user)
 
 ## 2026-11-11: A case with real git was loosened, and its strict twin left out one value
 - What went wrong: round 2 let the two cases "real git is stopped at 1 ms" accept either answer and moved the strict check to a stand-in, but the stand-in was stopped at 2000 ms only. A change that reads git stopped at 1 ms as an empty file then passed the test, where the test before it failed (round 3's reviewer). A second gap had been there from the start: nothing showed that the time is asked again when git starts.
@@ -594,7 +600,7 @@ Format:
 - What went wrong: during a mutation run winget updated Node on the PC (26.13.0 to 26.13.1, 16:17 to 16:19 in the Windows event log). Five probes found no `node` for some seconds. `release-check.sh` printed "FAIL ? failed of ?" in 0 s, and the probe script passed that on as FAIL, which in a mutation list reads as "caught". The 0 s and the "?" gave it away. In the same run a loosened assertion let one probe pass (git's timeout of at least 1 ms), which only showed because the whole list was run again after a change to the test alone.
 - Why: the script took any FAIL line as the test failing, without asking whether the test had run.
 - Rule going forward: a mutation script counts a probe as caught only when the result line has a count for the tests it ran ("N failed of 2"). Any other line is "no result": it is run again, and it holds the batch if it stays. Read the times too: a probe that ends in 0 s did not run. After a change that loosens an assertion, the whole mutation list runs again, not only the new probes.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 16, pass of 2026-11-15)
 
 ## 2026-11-11: One call in a test had the clock stood still, and the next one ran on real time
 - What went wrong: the RS-A-nestedone test stood the clock still for its 700 ms run and left it running for the call after it, which counts the checks that name no line. A check with under 800 ms left stops, so on a slow or busy machine the count came out short and the test failed with correct code (a reviewer: 3 of 3 with 24 busy processes). Two more cases expected real git to be stopped by a timeout of 1 ms. The mutation runs, all passing, showed none of it. While fixing it, a generator script went through an inline `node -e` and lost its line-break escapes, which the Constraints in `PLAYBOOK.md` already rule out.
@@ -606,31 +612,31 @@ Format:
 - What went wrong: RS-A-nestedone's fix stopped every config check at 800 ms left, the line the status check's loops use with their 5 s. The same check also runs before each git call of a runner that has a second in all (the look into another session's folder), so that runner lost its calls after 200 ms and another command's commits were logged as this one's. A second fault in the same fix: git stopped by the shortened timeout was read as an unreadable file and kept, where the parent said the time ran out. A reviewer found both; the first test passed with them.
 - Why: the line was taken from the nearest code that had one, without listing who else reaches the changed function and with what budget. The shortened timeout was added without asking what its own failure looks like to the code after it.
 - Rule going forward: a limit handed down a call chain is named by each caller, and before it is written every runner that reaches the function is listed with its budget (`grep 'runner('`), smallest first. A timeout that is made shorter gets a case for the call being stopped by it: which word comes out, and whether it is kept.
-- Status: open
+- Status: open (pass of 2026-11-15: its first sentence is PLAYBOOK "Planning a change" step 5; the second is not a step)
 
 ## 2026-11-11: A fix was timed through the library, and the real hook paid the cost somewhere else
 - What went wrong: RS-A-nestedone's fix was first timed only by calling `gitFacts` from a script: 8 folders above the session's folder with slow configs went from 10.0 s to 4.2 s. Started as a real PreCompact hook, the same shape took 10.2 s before and after. The launcher's own first check (`hookMemory`, to find the memory folder) reads the same config files with no time, before `gitFacts` starts, and keeps the answer. The docs sentence in draft would have claimed the 4.2 s for a hook.
 - Why: the repro started at the function that was changed, not at what a user runs. The call that pays first in a hook is in another file.
 - Rule going forward: a time claimed for a hook is measured by starting the hook as a process (`trailmark.js --hook <name>` with a payload on stdin), on the parent and on the fix. A library timing is written down as a library timing. Before a fix that hands a limit down a call chain, `grep` every caller of the changed function and say for each whether it has the limit.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 14 and "Planning a change" step 5, pass of 2026-11-15)
 
 ## 2026-11-11: A test told a timeout by its word, and a later look gave the same word
 - What went wrong: in RS-A-nestedone's test the mutation "the look only before the first file" passed. `config.worktree` is looked for after the included files, noticed the low clock there, and gave the same `git-timeout`. Later, when a first check out of time was made to read like any git timeout, the cases could no longer tell "stopped at the second file" from "read all six and ran out afterwards".
 - Why: the cases asserted the answer, and several places give that answer once the clock is low.
 - Rule going forward: a test of where a limit is looked at pins the place: a clock that is short at one ask only, or a count of what was touched after the limit was hit, asserted in each case. When the count surprises, trace the callers before changing the expectation (here each file is looked at twice for one read).
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 8 and "Writing code and docs" step 15, pass of 2026-11-15)
 
 ## 2026-11-11: A test's stub matched paths outside the test, and one of its branches never ran
 - What went wrong: the RS-A-linkfolders test stubbed `fs.lstatSync` and told its four folders by the last part of the path (`d0` to `d3`). The walk of a link looks at every part of the temp folder's own path, so under a temp folder named `d7` the test counted 5 and failed. The same stub was to set its clock back at the look at `.gitmodules`, which never comes in that repo: the git calls after the loop ran with a real 900 ms timeout. Both found by the reviewer of PR #49 and reproduced here; the test had passed here and on the mutations.
 - Why: the stub was copied from the RS-A-nestedtime test, where `.gitmodules` is looked at (a tracked file turned folder) and the names matched are two parts long. Nothing in the test showed whether the branch ran.
 - Rule going forward: a stub on a shared function matches on the path from the test's own folder, not on a name alone. A stub branch that changes what the rest of the test sees (a clock, a counter) sets a flag, and the test asserts the flag in each case.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 10, in `dev/testing-cases.md`, pass of 2026-11-15)
 
 ## 2026-11-11: A merge chained after a push went in before CI saw the push
 - What went wrong: PR #47's round 1 batch (cb14d67: a test's stub clock, a SECURITY.md wording, the notes) was pushed and `gh pr merge 47 --auto --merge` ran in the same script. The PR merged at once as 8fd6b84 with all 9 jobs of cb14d67 still pending, so CI did not gate that commit. Its parent b82ab59 had passed CI, and `--sums --quick` had passed here on cb14d67.
 - Why: right after a push the new head's jobs aren't registered yet, and `--auto` merges straight away when nothing is seen pending (admins are also exempt from the required jobs). PLAYBOOK.md already said a merge is run as its own command; the script chained it after the push.
 - Rule going forward: after a push, the merge command goes in a later step, and only once `gh pr view <n> --json headRefOid,statusCheckRollup` shows the pushed head with its 9 jobs listed (pending or passed). If a merge does go in ungated, say so at once, watch the run on main for that merge commit, and fix forward on a failure.
-- Status: open
+- Status: promoted (PLAYBOOK "Pushing and CI" step 2, pass of 2026-11-15)
 
 ## 2026-11-10: A test that made 33,600 folders stalled the drive
 - What went wrong: the first RS-A-manylinks test made 840 folders 40 levels down for its links' targets. It passed, in 12 to 24 s, but in three runs it took 481, 961 and 1,308 s, and `rm` calls of the check script hung for minutes.
@@ -648,7 +654,7 @@ Format:
 - What went wrong: a script of old/new pairs for the RS-A-altstores test was written with a heredoc. One old text held `\'`, the heredoc lost the backslash, and the script stopped with "not once" before writing anything. Redone with the Write tool.
 - Why: the rule is in PLAYBOOK ("Writing code and docs", step 4) and was promoted twice. The script looked like plain wording, and the one escaped quote in it went unnoticed.
 - Rule going forward: no new rule. Every script goes through the Write tool, whether or not a backslash is expected in it: checking for one is the step that fails.
-- Status: open
+- Status: promoted (PLAYBOOK "Constraints" first bullet, pass of 2026-11-15: seen after promotion)
 
 ## 2026-11-10: Section references by place went stale with each new section
 
@@ -662,14 +668,14 @@ Format:
 - What went wrong: RS-A-dottracked was written down as "git on Windows opens `d` for a tracked `d.`". Probing git itself showed it depends: a folder on the way (`d./f`) is opened under the plain name with every setting tried, a file (`u.`) only with `core.fscache=false`, and a name with a stream's name after it never. I also wrote an edit script through a heredoc again, which collapsed its backslashes; its "occurs once" check stopped it before it wrote.
 - Why: the item's text came from a reviewer's report and had not been run here. The heredoc was habit, against a Windows note in CLAUDE.md.
 - Rule going forward: before designing a fix for a deferred item, run the other program (git here) on the item's shapes, with a control that has a known answer and with the settings a repo can change. The rule then covers what was seen and no more. Scripts with a backslash in them are written with the Write tool, never a heredoc.
-- Status: open
+- Status: promoted (PLAYBOOK "Planning a change" step 1 and "Constraints" first bullet, pass of 2026-11-15)
 
 ## 2026-11-10: A better key widened an older gap
 
 - What went wrong: round 2 gave a folder a link led to the system's own path as its key, so the walks knew it under any spelling. A folder walked where part of it is passed over (a gitdir's `objects`) was then taken as seen where it is walked in full (`refs/x`, a junction to `objects` by its stream name). f97553a and edd988d refused that input; 734f14f answered `''`. Round 3 found it. With a plain target the gap was there on f97553a too, and I had deferred it one round earlier as older behavior.
 - Why: I asked what the key stands for and not what "seen" is taken to mean where the set is read. The set was shared by places that walk by different rules, and only the keys' mismatches had kept them apart. I also deferred a gap in the very set I was changing.
 - Rule going forward: before a set's key gets better at matching, list every place the set is read and what "seen" lets that place skip. If two places skip different things, they don't share entries. An older gap in code the change touches is fixed with the change or shown not to widen, not deferred on its age.
-- Status: open
+- Status: open (pass of 2026-11-15: PLAYBOOK "Writing code and docs" step 9 holds a part of it, the test for two things under one key; the list of every place the set is read, and that an older gap is fixed with the change, are not a step)
 
 ## 2026-11-10: A fix covered the reviewer's example, not its class
 
@@ -725,21 +731,21 @@ Format:
 - What went wrong: the first work limit of RS-A-manyvalues (b665d71) counted mostly the length of each value's text. Round 3 showed both errors of that: 2,000 submodule gitdirs in a repo at a path of 160 characters were refused (a long repo path made every walk count more, though it adds little time), and 5,000 `.lfsconfig` values 50 existing folders down were accepted in 4.8 s (each look at the disk counted almost nothing, and `.lfsconfig` had no lookup cache).
 - Why: the weights were chosen from the code's shape and checked against total time on a few inputs, not measured one cost at a time. The honest input was sized at one repo path only.
 - Rule going forward: before setting the weights of a counted limit, measure units per second on the cheapest and the dearest kind of step (text only, parts, disk lookups that miss the cache) with an unlimited copy, and set the weights so the two rates are within a small factor. Size the honest inputs at the longest path and depth a real repo can have, and state the margin.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 11, pass of 2026-11-15: "A limit on a count of folders passed its probe and let 45 seconds through" and "A per-entry weight was guessed at 3 disk lookups and real entries cost four times that" count it as the step's first sighting)
 
 ## 2026-11-10: "The slowest found" was written before anyone searched
 
 - What went wrong: SECURITY.md, a code comment and the PR text gave one number for the slowest input (2.1 s, then 0.8 s, then 1.1 s) and one for the largest real repo (36% of the limit). Rounds 3, 4 and 5 each found a slower or larger one (1.5 s; 77%).
 - Why: the numbers came from the probes written for the last fix, which hold the shapes already thought of, and were stated as a point.
 - Rule going forward: a shipped text gives a limit's cost as a range with room ("1 to 2 seconds"), and only after a reviewer was asked to beat it. The exact numbers and who measured them go in `dev/release-state.md`.
-- Status: open
+- Status: open (pass of 2026-11-15: PLAYBOOK "Testing" steps 13 to 15 hold the search for the slowest input and the named shape. The range with room, given only after a reviewer was asked to beat it, and the exact numbers in `dev/release-state.md` are not a step, and SECURITY.md gave "the slowest inputs found" as such a range on that day)
 
 ## 2026-11-10: The time was in a call nobody profiled (`os.userInfo` per value)
 
 - What went wrong: four batches of RS-A-manyvalues bounded the walking of path values, and each "slowest input" was timed end to end. Most of that time (5.4 s of 6.6 s for 40,000 values) was `os.userInfo`, called once for every value outside the walk. It was found by chance, from a probe written for a CI failure.
 - Why: the cost was assumed to be where the code looked expensive (disk lookups, long texts), and total time agreed well enough. No profile was taken before the limit was designed.
 - Rule going forward: before bounding slow code, profile the slow input (`node --cpu-prof`, top functions by self time) and account for most of the time by name. After the fix, profile the slowest accepted input again: what is left must be what the limit counts.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 13, pass of 2026-11-15: "A reviewer beat "the slowest found" with work the search never tried" counts it as the step's first sighting)
 
 ## 2026-11-10: A test bound moved with the temp folder's length
 
@@ -753,7 +759,7 @@ Format:
 - What went wrong: a third pair script for test text with `\n` in it failed with "occurs 0 times", after the rule against it was already step 4 of PLAYBOOK's wording checklist.
 - Why: the lessons check was run for the step "change a test", and the edit's tool was chosen after it, out of habit.
 - Rule going forward: none new. The step stands; the lessons check names the tool for an edit before the edit is written.
-- Status: open (seen after promotion)
+- Status: promoted (PLAYBOOK "Writing code and docs" step 4, pass of 2026-11-15: seen after promotion)
 
 ## 2026-11-09: Limits on three counts missed their product
 
@@ -774,7 +780,7 @@ Format:
 - What went wrong: in the mutation run for RS-A-manyvalues, two of ten changes to the fix left the test passing. The assertions that cover them make symlinks, and the test returns before them on a Windows machine that can't.
 - Why: the run was read as "the test passes" without asking which part of the test ran. The first run of the test also hid a mistake in that part (a name that wasn't defined), for the same reason.
 - Rule going forward: when a test or a part of one is skipped on this machine, run it where it isn't (WSL for links) before its result or its mutations count, and say in the record which system each result came from.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 16, pass of 2026-11-15)
 
 ## 2026-11-09: A line no test needed was removed, and it was holding time
 
@@ -787,7 +793,7 @@ Format:
 - What went wrong: the RS-F-codexwalk test expected the search to look in 45 folders. It looks in 44, so the "one fewer" case passed where it should have been cut short, and the test failed with the fix in place.
 - Why: the count was added up from the folder layout, and the folder that holds the old copy was counted although the search never walks into a marketplace's `jb-memory-codex` folder.
 - Rule going forward: take a boundary number in a test from a run of the code (a counter, or the two sides of the boundary tried), not from adding it up, and say in the test's comment what is counted.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 15, pass of 2026-11-15)
 
 ## 2026-11-09: An edit script's old text didn't match because of its own escapes
 
@@ -807,28 +813,28 @@ Format:
 - What went wrong: PR 31's run ended "failure" with 7 jobs listed, all passing. macOS Node 22 and Windows Node 26 had no job record and no log, so the required checks stayed missing and the merge was blocked. The `main` run for b970008 did the same with 6 of 9. Both ran inside GitHub's Actions incident of 18:12 to 18:59Z.
 - Why: `gh pr checks` lists only the jobs that exist, so a short list reads as all green unless the jobs are counted.
 - Rule going forward: read a run's result as a count, 9 jobs against the 9 required names. A red run with no failed job means reading GitHub's incident feed before suspecting the code.
-- Status: open
+- Status: promoted (PLAYBOOK "Pushing and CI" step 1, pass of 2026-11-15)
 
 ## 2026-11-09: A deferred note named one route to a function that had others
 
 - What went wrong: RS-A-newlines was deferred on the belief that its input was git's own small pointer files. `exactPointer` also takes config values, which reach it decoded from an 8 MB file, and that route stalls for tens of seconds.
 - Why: the note looked at the six lines holding the regex and not at who calls the function around them.
 - Rule going forward: before labeling how far an input can reach, list every caller of the function that holds the code, and find each one's size limit.
-- Status: open
+- Status: promoted (PLAYBOOK "Planning a change" step 5, pass of 2026-11-15)
 
 ## 2026-11-09: A test input used an escape git does not have
 
 - What went wrong: the new test's `attrs\n\r\n` made an invalid config, since git's parser has no `\r` escape, and it failed with the fix in place. The mutation runs built on it all reported failures that proved nothing.
 - Why: the input was written from the regex's character class and not from what the format allows, and the first run's summary was read only after the mutations had run.
 - Rule going forward: run a new test with the fix in place and see it pass before running any mutation against it.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 16, pass of 2026-11-15)
 
 ## 2026-11-09: A new awk variable overwrote a counter
 
 - What went wrong: the fence fix stored a line number in `opened`, already the count of open lessons. The summary printed "31 open" and "-15 promoted", and the format check still passed because counts don't affect it.
 - Why: every awk variable is global unless it is a function parameter, and the name wasn't searched first.
 - Rule going forward: search a script for a new variable's name before using it, and read the whole output of a check, not just its pass or fail.
-- Status: open
+- Status: open (pass of 2026-11-15: its first clause is PLAYBOOK "Writing code and docs" step 16; the second, on reading the whole output of a check, is not a step, since "Committing" step 2 asks for the check's summary)
 
 ## 2026-11-09: A new format check passed the shapes just outside the format
 
@@ -842,7 +848,7 @@ Format:
 - What went wrong: a new assertion that a bigger point starts over kept passing with that check removed. Its reading was low enough that the shrink rule cleared the state instead.
 - Why: the assertion looked only at the result, and two rules give the same result.
 - Rule going forward: when several rules give the same result, pick inputs where only the rule under test can give it. Removing the part alone is what found this.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 8, pass of 2026-11-15)
 
 ## 2026-11-09: Moving a reset out of a guard let a hook with nothing to ask wipe a sibling
 
@@ -856,7 +862,7 @@ Format:
 - What went wrong: to prove `dev/lessons.sh --check` catches a missing "Why", a `sed` removed the first such line in `LESSONS.md`. That line is in the format template at the top, so the check rightly passed and the probe looked like a bug in the script.
 - Why: the probe checked that its edit applied, not where it applied.
 - Rule going forward: a probe's edit names the exact entry or line it means to change.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 16, pass of 2026-11-15)
 
 ## 2026-11-09: The lessons check left nothing to show it had happened
 
@@ -961,28 +967,28 @@ Format:
 - What went wrong: the 0.6.2 docs reviewer started `dev/release-check.sh --sums --quick`, which rewrites `SHA256SUMS`, in the worktree it was told not to change. It stopped the run itself, and nothing was left changed. Its finding 1 also did not reproduce: it took Windows' ENOENT for a path under a file as the answer for the file itself.
 - Why: "read-only" named no commands, and `--sums` is the habit the project's docs teach. The finding came from a code comment, with no run behind it.
 - Rule going forward: a review brief that says read-only names `dev/release-check.sh` as off limits. Reproduce a reviewer's finding before changing text for it, also when it is labeled CONFIRMED.
-- Status: open
+- Status: superseded (by PLAYBOOK "Reviewing" step 2: a reviewer works in a clone of its own, where no script it runs changes the owner's worktree; its second sentence is "Reviewing" step 4; pass of 2026-11-15)
 
 ## 2026-11-08: A batch's changelog notes said more than the code does
 
 - What went wrong: writing 0.6.2's CHANGELOG, two batch H notes didn't match the code. RS:658's note said setup "no longer writes through a link", while the batch's own re-check found the text was written nowhere and the change matters on Windows only. RS:638's note read as covering two hooks in general, while the fix covers only a record read with no `seenAt`.
 - Why: the notes were written as a summary of the fixes, before the reviews narrowed what each one does.
 - Rule going forward: write a CHANGELOG line from the merged code. A batch's note is a list of what to cover, not text to copy.
-- Status: open
+- Status: promoted (PLAYBOOK "Releasing" step 5, pass of 2026-11-15)
 
 ## 2026-11-08: A reviewer died on an API timeout and left its scratch worktree
 
 - What went wrong: batch H's round 2 reviewer ended on "Request timed out" with no report. Its scratch worktree stayed registered in `git worktree list`.
 - Why: a subagent that dies can't run its own cleanup.
 - Rule going forward: when a reviewer fails, check that its report exists, remove its worktree and temp folder (`git worktree list`, then `git worktree remove --force`), and run the round again with a fresh one.
-- Status: open
+- Status: promoted (PLAYBOOK "Reviewing" step 2 and "At each milestone" step 5, pass of 2026-11-15: reviewers work in clones now, not in worktrees)
 
 ## 2026-11-08: An edit's trailing space was lost, twice
 
 - What went wrong: batch H's Edit calls whose old and new text ended in a space shortened the line (`const listCmd =launcher`), and the fix for that moved the gap (`launcher ?` then a backtick). Both reviewers reported it.
 - Why: a string ending in whitespace is not a safe edit anchor: the new text lost its trailing space.
 - Rule going forward: an edit's old and new text end on a visible character.
-- Status: open
+- Status: promoted (PLAYBOOK "Committing" step 5, pass of 2026-11-15)
 
 ## 2026-11-08: An assertion that something did not happen passed for the wrong reason
 
@@ -1003,7 +1009,7 @@ Format:
 - What went wrong: batch W added "if one of them says trailmark's path isn't written here, stop" after "other lines, such as a command's output or a note about a commit, don't count". "One of them" took in command output, and the stop applied even with a valid launcher note, so text a repo prints could switch off checkpoints (Opus, round 1).
 - Why: the sentence came from a fix idea written for one case, and it was pinned by a test without walking the other cases the words reach.
 - Rule going forward: before adding a sentence that changes what a model does, list every case its words cover, not only the one it was written for, and state its scope in the sentence. A test that pins exact text proves the text, not the behavior.
-- Status: open
+- Status: promoted (PLAYBOOK "Writing code and docs" step 17, pass of 2026-11-15)
 
 The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE.md` and the project's saved notes. The 2026-11-07 entries from PR #10 came from the review-strategy session's messages and the speed-up session's notes. They were not re-run here.
 
@@ -1019,7 +1025,7 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - What went wrong: batch F's commit 2f5987b put its new commit's sha into `dev/release-state.md` with a global find-and-replace of a placeholder, `COMMIT`. It also rewrote every real `COMMIT` token in the file: `COMMIT_UNRESOLVED` became `bfa24ad_UNRESOLVED`, the "no COMMITS section" sign in "Load-sensitive tests" became "no bfa24adS section", 21 lines in all. The S5 session saw it on main, and the coordinating session confirmed it. Fixed in PR #20 from 2f5987b's own diff: only lines whose sole change was `COMMIT` to `bfa24ad`.
 - Why: the placeholder was a word the file already used, and the commit went in without a look at its diff.
 - Rule going forward: a placeholder that a replace fills in must be text that can't match real text (for example `@@SHA@@`), and the diff is read before the commit.
-- Status: open
+- Status: open (pass of 2026-11-15: the diff read before the commit is PLAYBOOK "Committing" step 5; the placeholder is not a step)
 
 ## 2026-11-08: Two sessions started the same four batch sessions
 
@@ -1040,7 +1046,7 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - What went wrong: the coordinating session reported that `cancel-in-progress` didn't fire, after watching the older run for 3 minutes. GitHub had cancelled that run about 2.5 minutes after the newer run was created ("Canceling since a higher priority waiting request for tests-14 exists").
 - Why: a run's status stays in_progress until every job has stopped, and the macOS and Windows jobs stop slowly.
 - Rule going forward: judge a CI setting from the job list after it settles, not from the run status.
-- Status: open
+- Status: promoted (PLAYBOOK "Pushing and CI" step 1, pass of 2026-11-15)
 
 ## 2026-11-07: A Windows-only check missed what POSIX returns
 
@@ -1068,7 +1074,7 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - What went wrong: in batch D, an edit to `dev/release-check.sh` landed while a background `--sums --quick` of it was still running. The run stopped with "syntax error near unexpected token" at a line that parses fine, and its result was lost. The same run's `--sums` had also reordered `SHA256SUMS` under the shell's UTF-8 locale (D4), which the coordinating session noticed in the worktree.
 - Why: bash reads a script as it runs it, so an edit shifts the bytes under a running copy. A background check makes this easy to forget.
 - Rule going forward: don't edit a script while a run of it is going. Wait for the run, or run a copy. A run that overlapped an edit doesn't count as a check: rerun it.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 16, pass of 2026-11-15)
 
 ## 2026-11-07: A commit went in after a failed check (batch O)
 
@@ -1082,7 +1088,7 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - What went wrong: S1's new test in `codex.test.js` was written with `\u201c`, `\u202e` and similar escapes in an Edit call, and the file got the raw characters, a bidi override among them (Opus round 1, finding 5). A mutation probe's `sed` pattern with `\\u201e` lost its backslashes in a Bash heredoc, so the edit never applied and the test "passed" the mutation.
 - Why: the edit tool wrote the escapes as the characters they name. The Bash tool collapses `\\` even in a quoted heredoc (PLAYBOOK's constraints).
 - Rule going forward: build non-ASCII and backslash characters in test source with `String.fromCharCode`, and grep the diff for non-ASCII after writing it. A mutation probe checks that its edit applied (count the new text) before reading the result.
-- Status: open
+- Status: open (pass of 2026-11-15: its second sentence is PLAYBOOK "Testing" step 16; the first is not a step)
 
 ## 2026-11-07: The control was a cheaper call than the one it stood in for
 
@@ -1124,7 +1130,7 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - What went wrong: `rm -rf "$B/$r"` was blocked by the safety check. Reported by the review-strategy session (PR #10 round 5).
 - Why: an empty variable could expand the path toward the root.
 - Rule going forward: delete by a literal path, or guard each variable with `${B:?}`.
-- Status: open
+- Status: promoted (PLAYBOOK "Testing" step 17, pass of 2026-11-15)
 
 ## 2026-11-07: A reviewer used powershell.exe again
 
@@ -1138,7 +1144,7 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - What went wrong: c02207a (a record of the CI failure) was pushed while the coordinating session was writing that everything should go in one batch push with round 3. From the speed-up session's notes.
 - Why: relayed instructions arrive a turn late, and Auto-fix had authorized the push itself.
 - Rule going forward: while another session runs a review round on this branch, hold pushes for that round's batch unless the user says otherwise.
-- Status: open
+- Status: promoted (PLAYBOOK "Reviewing" step 5, pass of 2026-11-15: its sentence went into the step after review round 2; "Two sessions started the same four batch sessions" counts it as a first sighting)
 
 ## 2026-11-07: Probes that measured themselves or the wrong thing
 
@@ -1159,7 +1165,7 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - What went wrong: CI failed handoff-checks "copies: the command the note gives ..." once on windows-latest, Node 26 (5a1e1a4). Session start's copy check (`otherCopies`) ran past its 300 ms budget and said it stopped early, which the test didn't accept. The sign was not on the load-sensitive list. The first fix accepted "stopped early", and round 4 found it then also passed an early stop for a reason other than time. Reported by both PR #10 sessions.
 - Why: the test checked only the success wording of a check with a time budget, and the loosened branches checked text that always comes with "stopped early".
 - Rule going forward: a test that relies on a wall-clock budget handles the out-of-time path or forces the in-time path. When it accepts a designed early stop, it asserts the reason is the designed one, and a probe shows it fails on another reason (here `maxEntries` at 0). Reproduce a timing failure at the call that timed out (budget 0 at session start only), not everywhere: budget 0 everywhere moved the failure to another assertion.
-- Status: open. The audit is done on `claude/load-proof-tests` (see "Load-proof tests" in `dev/release-state.md`): its rule held, and the three entries above add to it.
+- Status: open. The audit is done on `claude/load-proof-tests` (see "Load-proof tests" in `dev/release-state.md`): its rule held, and the three entries above add to it. Pass of 2026-11-15: its first two sentences are PLAYBOOK "Testing" steps 12 and 7; the third, on where a timing failure is reproduced, is not a step.
 
 ## 2026-11-07: A fix opened a hole next to it (`kill 0` and process groups)
 
@@ -1173,7 +1179,7 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - What went wrong: PR #10 (faster checks) took three review rounds in about an hour.
 - Why: fixing INFERRED edge cases in `dev/` tooling grew each fix diff, and every relay hop through a coordinating session waited on a turn.
 - Rule going forward: in `dev/` tooling, fix only CONFIRMED findings in the batch, and defer INFERRED ones with a repro unless they can change a test result. The owning session may run its review with fresh subagents.
-- Status: open. The user approved it on 2026-11-07, to land in `CLAUDE.md` and `tests.yml` after PR #10 merges.
+- Status: promoted (`CLAUDE.md` "Reviews", the bullet on `dev/` tooling, and "Sessions"; pass of 2026-11-15). The user approved it on 2026-11-07, to land in `CLAUDE.md` and `tests.yml` after PR #10 merges.
 
 ## 2026-11-06: Work stranded across sessions
 
