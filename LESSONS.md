@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: A time measured in one folder was written as the drive's time
+- What went wrong: SECURITY.md, a comment in `gitfacts.js`, a test comment and the notes gave 1.7 ms for a lookup of a name that is not there on a Windows drive in WSL. The round 2 reviewer measured 0.9 to 1.2 ms in another folder of the same drive, and a limit near 4,400 names where the doc had one between 2,000 and 3,000. A probe that changed one thing at a time showed that the time follows the depth of the folder: 1.3 ms three folders down, 3.6 ms nine down. The doc also gave 0.03 s for ext4 from the third run in one process, where a process of its own takes 0.05 s.
+- Why: every run here used one probe folder, four folders down, and two reviewers' runs in folders of like depth gave the same number. Agreement between runs of one shape was taken for the drive's number.
+- Rule going forward: a time that goes into a shipped doc is measured in at least two shapes that differ in what could set it (depth, size, name length, a fresh process), and the doc names the shape. When a reviewer's number differs from the notes, the cause is found by a probe that changes one thing at a time before the sentence is changed.
+- Status: open
+
 ## 2026-11-14: A doc sentence gave the largest size that was run, and the limit was 40 times lower
 - What went wrong: SECURITY.md said that with 100,000 tracked names not on disk the check ran out of time on a Windows drive in WSL. The regression reviewer of round 1 measured the limit near 2,300 names, and a run here gave 2,000 read and 3,000 not. The sentence also left out the subfolder that the shape needs.
 - Why: 100,000 was the size chosen to show that the look at the time works, and the sentence took its number from that run. The time of one lookup (1.7 ms) was in the notes and was not divided into the 4.2 s the check has.
