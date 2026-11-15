@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: A step cut down to a pointer said more than the text it points to
+- What went wrong: PLAYBOOK "Testing" step 10 was cut to one sentence and its case list moved to `dev/testing-cases.md`. The sentence said the negative cases of every validator come from a loop. The list asks for a loop only where a decision is made once for each item of a list. The sentence also sent a reader to the file only for a validator's test, and the file holds the rules for stand-ins and for a test's comment too. The docs reviewer of PR 64's round 1 found both.
+- Why: the sentence was written from the list's longest clause. The check before the commit compared the moved text with the old line, and nothing compared the new sentence with the list.
+- Rule going forward: a text that replaces a longer one with a pointer is read against each sentence of the longer one before the commit. It claims nothing the longer text limits to one case, and it names every kind of work the longer text covers.
+- Status: open
+
 ## 2026-11-14: A promoted step was skipped: the log call went out without its flag again
 - What went wrong: after a macOS job stalled on PR 63, `gh api .../jobs/<id>/logs` answered 404 for it, and I was about to write "no log exists". The same call for a job of the same run that had finished failed too: this `gh` refuses output with escape sequences without `--allow-escape-sequences`, as PLAYBOOK's Testing step 9 says. `gh run view --job <id> --log` gave 198 lines for the finished job and "log not found" for the stalled one.
 - Why: the call was typed from CLAUDE.md's line, which has no flag, and not from the PLAYBOOK step. The control was run only after the answer looked like the one expected.
