@@ -7,6 +7,8 @@
 #                               one of the words (case does not matter)
 #   dev/lessons.sh --check      checks the log's format: exit 1 if an entry is
 #                               missing a field or is out of date order
+#
+# A superseded lesson (its rule no longer holds) is counted and never printed.
 
 set -u
 FILE="$(dirname "$0")/../LESSONS.md"
@@ -31,12 +33,13 @@ function flush(   miss, i, hit, text) {
   if (!why) miss = miss " Why"
   if (rule == "") miss = miss " Rule-going-forward"
   if (status == "") miss = miss " Status"
-  else if (status !~ /^(open|promoted)/) miss = miss " Status-not-open-or-promoted"
+  else if (status !~ /^(open|promoted|superseded)/) miss = miss " Status-not-open-promoted-or-superseded"
   if (miss != "") { printf "BAD   line %d: %s: missing%s\n", at, title, miss; bad++ }
   entries++
   if (status ~ /^open/) opened++
+  if (status ~ /^superseded/) gone++
   if (mode == "open" && status ~ /^open/) { printf "%s\n    %s\n", title, rule; shown++ }
-  if (mode == "words") {
+  if (mode == "words" && status !~ /^superseded/) {
     text = tolower(body); hit = 0
     for (i = 1; i <= nw; i++) if (index(text, w[i])) hit = 1
     if (hit) { printf "[%s] %s\n    %s\n", (status ~ /^open/ ? "open" : "promoted"), title, rule; shown++ }
@@ -68,7 +71,7 @@ END {
   # Everything after an open fence was skipped, so the counts below are short.
   if (fence) { printf "BAD   line %d: code fence is never closed\n", fence_line; bad++ }
   if (entries == 0) { print "BAD   no entries found"; bad++ }
-  if (mode == "check") printf "%d entries, %d open, %d promoted, %d bad\n", entries, opened, entries - opened, bad
+  if (mode == "check") printf "%d entries, %d open, %d promoted, %d superseded, %d bad\n", entries, opened, entries - opened - gone, gone, bad
   else printf "-- %d shown of %d lessons (%d open)\n", shown, entries, opened
   exit bad ? 1 : 0
 }
