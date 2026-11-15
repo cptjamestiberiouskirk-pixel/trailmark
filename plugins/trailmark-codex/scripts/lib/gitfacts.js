@@ -135,7 +135,9 @@ const LIST_STEP = 1 << 20;
 // Windows and macOS find a file whatever the case of its name.
 const CASELESS = process.platform === 'win32' || process.platform === 'darwin';
 const WIN = process.platform === 'win32';
-function farWorktree(r, cwd) {
+// caseless: whether names are taken to be found whatever their case. The
+// tests give it, to ask for the other systems' way; gitFacts does not.
+function farWorktree(r, cwd, caseless = CASELESS) {
   const top = topLevel(r, cwd);
   if (!top.ok) return top.why === 'timeout' ? 'git-timeout' : 'git-error';
   const ls = r.run(cwd, ['ls-files', '--stage', '-z', '--full-name']);
@@ -253,7 +255,7 @@ function farWorktree(r, cwd) {
     if (!byFolder.has(dir)) byFolder.set(dir, []);
     byFolder.get(dir).push(rel.slice(i + 1));
   }
-  const fold = (x) => (CASELESS ? x.toLowerCase() : x);
+  const fold = (x) => (caseless ? x.toLowerCase() : x);
   for (const [dir, names] of byFolder) {
     if (++files % 500 === 0 && r.left() < 800) return 'git-timeout';
     let list;
@@ -268,15 +270,43 @@ function farWorktree(r, cwd) {
     } else {
       const whole = path.join(top.top, dir);
       try { list = fs.readdirSync(whole, { withFileTypes: true }); } catch (e) { if (!nothingIn(e, whole)) return 'unreadable-path'; continue; }
+      // Outside Windows and macOS a subfolder is checked below only when it
+      // is named like a tracked file, and names are compared as text. A file
+      // system can find a folder under another name than the listing gives
+      // it: on a Windows drive in WSL, which folds case, with `d/a`, `d/b`
+      // and `d/F` tracked and a repo at `d/f`, `git status` (2.56.1) opened
+      // `d/F/.git/config`, while the listing held `f` and that folder was
+      // passed over. So each tracked name the listing does not hold is
+      // looked up, as git's own lookup will, and one found as a folder is
+      // checked under the tracked name (RS-A-casefoldfs). Only in a folder
+      // that holds a subfolder. The time is looked at before each lookup:
+      // on that drive a name that is not there took 1.7 ms to look up
+      // (1,000 names 1.7 s, 10,400 names 17 s), so 500 lookups between two
+      // looks at the time would be 0.85 s.
+      if (!caseless && list.some(x => x.isDirectory())) {
+        const held = new Set(list.map(x => x.name));
+        for (const nm of names) {
+          if (held.has(nm)) continue;
+          if (r.left() < 800) return 'git-timeout';
+          const one = path.join(whole, nm);
+          // "No such name" is the usual answer here, and is taken without
+          // an error thrown for it: on ext4 100,000 such lookups took 1.1 s
+          // thrown and caught, and 0.15 s this way (Node 18).
+          let st;
+          try { st = fs.lstatSync(one, { throwIfNoEntry: false }); } catch (e) { if (!notThere(e, one)) return 'unreadable-path'; }
+          if (st && st.isDirectory()) list.push({ name: nm, isDirectory: () => true });
+        }
+      }
     }
     const subdirs = list.filter(x => x.isDirectory()).map(x => x.name);
     if (!subdirs.length) continue;
     // Windows and macOS match names in ways JavaScript's lower case doesn't
     // (final sigma, Unicode normal forms), so there every subfolder on disk
-    // is checked; elsewhere only those named like a tracked file.
+    // is checked; elsewhere only those named like a tracked file, and those
+    // the file system found for a tracked name (above).
     const want = new Set(names.map(fold));
     for (const nm of subdirs) {
-      if (!CASELESS && !want.has(nm)) continue;
+      if (!caseless && !want.has(nm)) continue;
       if (nm.includes('\uFFFD')) return 'odd-path';
       const at = path.join(top.top, dir, nm);
       let g = false;

@@ -1773,13 +1773,15 @@ test('git pointers: a lookup that fails for another reason than "not there" keep
 
   // git's two answers for a repo's folder, made up: the tracked paths.
   const sha = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
-  const tracked = (top, rels, mode = '100644') => {
+  // caseless: farWorktree's third argument, given by the one row that asks
+  // for the way of the systems that compare names (RS-A-casefoldfs).
+  const tracked = (top, rels, mode = '100644', caseless = undefined) => {
     const list = rels.map(p => `${mode} ${sha} 0\t${p}\0`).join('');
     const r = {
       run: (cwd, args) => (args[0] === 'rev-parse' ? { ok: true, out: `${top}\n` } : args[0] === 'ls-files' ? { ok: true, out: list } : { ok: false, out: '', why: 'error' }),
       left: () => 5000,
     };
-    return farWorktree(r, top);
+    return farWorktree(r, top, caseless);
   };
   // And for the filter check: one tracked file with the lfs filter, no
   // filter setting in the repo, no .lfsconfig in the index or in HEAD.
@@ -1833,6 +1835,10 @@ test('git pointers: a lookup that fails for another reason than "not there" keep
     ['a folder of tracked files', () => { const t = fresh('t'); fs.mkdirSync(path.join(t, 'd')); return { fn: 'lstatSync', at: path.join(t, 'd'), run: () => tracked(t, ['d/f']) }; }],
     ['a tracked name', () => { const t = fresh('t'); return { fn: 'lstatSync', at: path.join(t, 'f'), run: () => tracked(t, ['f']) }; }],
     ['a folder of three tracked files, listed', () => { const t = fresh('t'); fs.mkdirSync(path.join(t, 'd')); return { fn: 'readdirSync', at: path.join(t, 'd'), run: () => tracked(t, ['d/a', 'd/b', 'd/c']) }; }],
+    // RS-A-casefoldfs: where names are compared, a tracked name that the
+    // listing of its folder does not hold is looked up by itself (in a
+    // folder that holds a subfolder).
+    ['a tracked name that the listing of its folder does not hold', () => { const t = fresh('t'); fs.mkdirSync(path.join(t, 'd', 'sub'), { recursive: true }); for (const n of ['a', 'b']) fs.writeFileSync(path.join(t, 'd', n), 'x'); return { fn: 'lstatSync', at: path.join(t, 'd', 'c'), run: () => tracked(t, ['d/a', 'd/b', 'd/c'], '100644', false) }; }],
     ['the .git in a folder where a tracked file was', () => { const t = fresh('t'); fs.mkdirSync(path.join(t, 's')); return { fn: 'lstatSync', at: path.join(t, 's', '.git'), run: () => tracked(t, ['s']) }; }],
     ['that .git, asked a second time (by the check of a nested repo)', () => { const t = fresh('t'); fs.mkdirSync(path.join(t, 's', '.git'), { recursive: true }); return { fn: 'lstatSync', at: path.join(t, 's', '.git'), nth: 2, run: () => tracked(t, ['s']) }; }],
     ['the .git of a submodule', () => { const t = fresh('t'); return { fn: 'lstatSync', at: path.join(t, 'sub', '.git'), run: () => tracked(t, ['sub'], '160000') }; }],
@@ -2166,6 +2172,332 @@ test('git pointers: a folder that can be entered and not listed keeps git out, o
     } finally { fs.chmodSync(shut, 0o755); fs.chmodSync(path.join(t, 'd'), 0o755); }
   }
   done();
+});
+
+// RS-A-casefoldfs. Outside Windows and macOS a subfolder is checked for a
+// repo only when it is named like a tracked file, and the names were
+// compared as text. A file system can find a folder for a tracked name that
+// the listing gives under another name: one that folds case finds `f` for
+// `F`. On a Windows drive in WSL, with d/a, d/b and d/F tracked and a repo at
+// d/f whose config includes a share's text, status was read, and `git
+// status` (2.56.1) opened d/F/.git/config.
+// The tests ask farWorktree for that way on every system (its third
+// argument, false). Where the temp folder folds case (Windows and macOS as
+// they come) the disk finds `f` for `F`. Where it keeps case, foundAs stands
+// in for a disk that folds: every look at the path `from`, or below it, is
+// made at `to`.
+// The systems where every subfolder is checked, as the code has it.
+const EVERY_SUBFOLDER = WIN || process.platform === 'darwin';
+const foldsCase = (dir) => {
+  fs.mkdirSync(path.join(dir, 'case-f'));
+  return lookCode(() => fs.lstatSync(path.join(dir, 'CASE-F'))) === 'there';
+};
+// The looks the two library files make (gitbin.js and gitfacts.js name no
+// other function of fs that takes a path). `sent`: how many were made at
+// `to` in place of `from`.
+const LOOKS = ['lstatSync', 'statSync', 'readlinkSync', 'openSync', 'readFileSync', 'readdirSync', 'accessSync'];
+const foundAs = (from, to, run) => {
+  const real = LOOKS.map(fn => fs[fn]);
+  const native = fs.realpathSync.native;
+  let sent = 0;
+  const at = (p) => {
+    if (typeof p !== 'string' || (p !== from && !p.startsWith(from + path.sep))) return p;
+    sent++;
+    return to + p.slice(from.length);
+  };
+  LOOKS.forEach((fn, i) => { fs[fn] = function (p, ...a) { return real[i].call(this, at(p), ...a); }; });
+  fs.realpathSync.native = function (p, ...a) { return native.call(this, at(p), ...a); };
+  try { return { why: run(), sent }; } finally { LOOKS.forEach((fn, i) => { fs[fn] = real[i]; }); fs.realpathSync.native = native; }
+};
+// What farWorktree answers for the names `names` tracked in the folder `dir`
+// of `top`, with `tracked` in that folder found as `disk` (`F` as `f` unless
+// told), and the looks made at a tracked name's own path (`seen`, the name
+// once for each: the lookup, and where a repo was found there, the look its
+// check makes). `listed`: names the listing of that folder gives as plain
+// files on top of what is there, and then `listings` is how often it gave
+// them. `standIn`: foundAs does the finding (unless told, it does where the
+// disk does not fold case).
+const askFolded = (farWorktree, folds, top, dir, names, caseless = false, { tracked = 'F', disk = 'f', listed = [], standIn = !folds } = {}) => {
+  const rels = names.map(n => (dir ? `${dir}/${n}` : n));
+  const folder = path.join(top, dir);
+  const seen = [];
+  let listings = 0;
+  const run = () => {
+    const real = fs.lstatSync;
+    const list = fs.readdirSync;
+    fs.lstatSync = function (p, ...a) {
+      const rel = typeof p === 'string' ? path.relative(top, p).replace(/\\/g, '/') : '';
+      if (rels.includes(rel)) seen.push(rel);
+      return real.call(this, p, ...a);
+    };
+    fs.readdirSync = function (p, ...a) {
+      const got = list.call(this, p, ...a);
+      if (p !== folder || !listed.length) return got;
+      listings++;
+      return [...got, ...listed.map(name => ({ name, isDirectory: () => false }))];
+    };
+    try { return farWorktree(trackedIn(top, rels), top, caseless); } finally { fs.lstatSync = real; fs.readdirSync = list; }
+  };
+  const why = standIn ? foundAs(path.join(folder, tracked), path.join(folder, disk), run).why : run();
+  return listed.length ? { why, seen: seen.sort(), listings } : { why, seen: seen.sort() };
+};
+// Every name one change away from `t`: a character left out, at each place;
+// one of `chars` put in, at each place and at the end; a character changed
+// to each of `chars` and to its wide form (U+FF01 to U+FF5E), at each place;
+// two neighbors swapped.
+const nearNames = (t, chars) => {
+  const wide = (ch) => (ch > ' ' && ch <= '~' ? String.fromCharCode(ch.charCodeAt(0) + 0xfee0) : ch);
+  const out = new Set();
+  for (let k = 0; k <= t.length; k++) {
+    for (const ch of chars) out.add(t.slice(0, k) + ch + t.slice(k));
+    if (k === t.length) break;
+    out.add(t.slice(0, k) + t.slice(k + 1));
+    for (const ch of [...chars, wide(t[k])]) out.add(t.slice(0, k) + ch + t.slice(k + 1));
+    if (k + 1 < t.length) out.add(t.slice(0, k) + t[k + 1] + t[k] + t.slice(k + 2));
+  }
+  out.delete(t);
+  return [...out];
+};
+// What can be at dir/f: a repo whose .git names a share (the text the tests
+// use for one; nothing asks for it), a sound repo, a plain folder, a plain
+// file, nothing.
+const AT_F = {
+  far: (f) => { fs.mkdirSync(f); fs.writeFileSync(path.join(f, '.git'), `gitdir: ${SHARE}\n`); },
+  sound: (f) => {
+    for (const d of ['objects', 'refs']) fs.mkdirSync(path.join(f, '.git', d), { recursive: true });
+    fs.writeFileSync(path.join(f, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(f, '.git', 'config'), '[core]\n\trepositoryformatversion = 0\n');
+  },
+  folder: (f) => fs.mkdirSync(f),
+  file: (f) => fs.writeFileSync(f, 'x'),
+  nothing: () => {},
+};
+
+test('git status: a tracked name is looked up where the listing of its folder does not hold it (RS-A-casefoldfs)', () => {
+  const { farWorktree } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-casefold-');
+  const FOLDS = foldsCase(base);
+  let made = 0;
+  // A top folder whose folder `dir` holds the plain files a and b, a plain
+  // folder `sub` (named like no tracked file) unless told otherwise, and
+  // `what` at f (or at the name `at`).
+  const top = (dir, what, { sub = true, gitmodules = false, at = 'f' } = {}) => {
+    const t = path.join(base, `t${made++}`);
+    const d = path.join(t, dir);
+    fs.mkdirSync(d, { recursive: true });
+    for (const n of ['a', 'b']) fs.writeFileSync(path.join(d, n), 'x');
+    if (sub) fs.mkdirSync(path.join(d, 'sub'));
+    AT_F[what](path.join(d, at));
+    // A .gitmodules that is no plain file: refused once a tracked file is
+    // seen to be a folder now, and not looked at before.
+    if (gitmodules) fs.mkdirSync(path.join(t, '.gitmodules'));
+    return t;
+  };
+  const ask = (t, dir, names, caseless, more) => askFolded(farWorktree, FOLDS, t, dir, names, caseless, more);
+  // The stand-in works where it is used: `F` is found as the folder `f`,
+  // and a name next to it is not.
+  if (!FOLDS) {
+    const t = top('d', 'far');
+    const got = foundAs(path.join(t, 'd', 'F'), path.join(t, 'd', 'f'), () => [['F'], ['F', '.git'], ['G'], ['Fx']].map(p => lookCode(() => fs.lstatSync(path.join(t, 'd', ...p)))).join(' '));
+    assert.deepStrictEqual(got, { why: 'there there ENOENT ENOENT', sent: 2 });
+  }
+  // LOOKS is what its comment says: each function of fs that the two library
+  // files name is in it, or is the native realpath (which the stand-in also
+  // covers), or takes no path (closeSync and readSync take an open file,
+  // constants is a table).
+  for (const f of ['gitbin.js', 'gitfacts.js']) {
+    const named = new Set(fs.readFileSync(path.join(ROOT, 'scripts', 'lib', f), 'utf8').match(/(?<![A-Za-z])fs\.[A-Za-z]+(?:\.native)?/g));
+    assert.ok(named.has('fs.lstatSync') && named.has('fs.readdirSync'), `${f}: the search finds the names`);
+    for (const n of named) assert.ok([...LOOKS.map(l => `fs.${l}`), 'fs.realpathSync.native', 'fs.closeSync', 'fs.readSync', 'fs.constants'].includes(n), `${f} names ${n}`);
+  }
+  // The shape that was found, in the top folder, one folder down and three
+  // down: the repo at f is checked, and its .git names a share.
+  for (const dir of ['', 'd', 'd/e/g']) {
+    assert.strictEqual(ask(top(dir, 'far'), dir, ['a', 'b', 'F']).why, 'submodule-pointer', `three names in ${dir || 'the top folder'}`);
+  }
+  // `F` at each place of a list of nine names (six of them not on disk).
+  const others = ['a', 'b', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6'];
+  for (let i = 0; i <= others.length; i++) {
+    const names = [...others.slice(0, i), 'F', ...others.slice(i)];
+    assert.strictEqual(names.length, 9);
+    assert.strictEqual(ask(top('d', 'far'), 'd', names).why, 'submodule-pointer', `F at place ${i + 1} of nine`);
+  }
+  // The compare that says the listing holds a tracked name is of whole
+  // names, as text. `Fab` is tracked and found as the repo at `fab`, and the
+  // listing gives a plain file for every name one change away from `Fab`
+  // (nearNames, all of them in the one listing; `fab` is the folder itself).
+  // The characters put in are every ASCII character but NUL and the slash,
+  // which no name holds, and six that programs fold onto ASCII ones (a
+  // no-break space, the letters U+0131, U+0130 and U+017F, the Kelvin sign,
+  // a combining accent). None of those names counts as `Fab`: it is looked
+  // up, first, in the middle and last of the tracked names, and the repo is
+  // found.
+  // Not told: a listed name two or more changes away from the tracked one,
+  // other than `f` for `F` above.
+  const FOLDED_ONTO = [0xa0, 0x131, 0x130, 0x17f, 0x212a, 0x301];
+  const NAME_CHARS = [...Array.from({ length: 127 }, (_, n) => String.fromCharCode(n + 1)).filter(ch => ch !== '/'), ...FOLDED_ONTO.map(n => String.fromCharCode(n))];
+  // The set is what the comment says: each code from 1 to 127 but the
+  // slash's, each of the six others, and 132 members, so nothing else.
+  for (let n = 1; n < 128; n++) assert.strictEqual(NAME_CHARS.includes(String.fromCharCode(n)), n !== 47, `the character ${n}`);
+  for (const n of FOLDED_ONTO) assert.ok(NAME_CHARS.includes(String.fromCharCode(n)), `the character ${n} is among those tried`);
+  assert.strictEqual(NAME_CHARS.length, 132, 'and no other character is in the set');
+  const near = nearNames('Fab', NAME_CHARS).filter(n => n !== 'fab');
+  // More than 250 names for each character of `Fab`: the loops ran.
+  assert.ok(near.length > 250 * 3, `the names near Fab: ${near.length}`);
+  for (const names of [['Fab', 'a', 'b'], ['a', 'Fab', 'b'], ['a', 'b', 'Fab']]) {
+    const got = ask(top('d', 'far', { at: 'fab' }), 'd', names, false, { tracked: 'Fab', disk: 'fab', listed: near });
+    assert.deepStrictEqual({ why: got.why, listings: got.listings }, { why: 'submodule-pointer', listings: 1 }, `every name near Fab listed, tracked: ${names}`);
+  }
+  // Names that every object has, each tracked and found as a repo under its
+  // capitals: the listing is asked as a set of names and nothing else.
+  for (const nm of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__']) {
+    const disk = nm.toUpperCase();
+    assert.strictEqual(ask(top('d', 'far', { at: disk }), 'd', ['a', 'b', nm], false, { tracked: nm, disk }).why, 'submodule-pointer', `${nm} tracked, a repo at ${disk}`);
+  }
+  // A name in its other Unicode form is another name to the listing as well:
+  // a letter and its accent as one character tracked, with the repo at the
+  // name that has them as two, and the other way round. foundAs stands in
+  // on every system for a disk that finds the one for the other.
+  const E_ONE = String.fromCharCode(0xe9);
+  const E_TWO = `e${String.fromCharCode(0x301)}`;
+  assert.ok(E_ONE !== E_TWO && E_ONE === E_TWO.normalize('NFC'), 'the two forms of one letter');
+  for (const [tracked, disk] of [[E_ONE, E_TWO], [E_TWO, E_ONE]]) {
+    assert.strictEqual(ask(top('d', 'far', { at: disk }), 'd', ['a', 'b', tracked], false, { tracked, disk, standIn: true }).why, 'submodule-pointer', `a name of ${tracked.length} characters tracked, a repo at the form of ${disk.length}`);
+  }
+  // With `f` tracked as well the listing holds a tracked name, as before.
+  assert.strictEqual(ask(top('d', 'far'), 'd', ['a', 'b', 'f', 'F']).why, 'submodule-pointer', 'f and F tracked');
+  // One and two names were looked up by themselves before this, and are.
+  assert.strictEqual(ask(top('d', 'far'), 'd', ['F']).why, 'submodule-pointer', 'one name');
+  assert.strictEqual(ask(top('d', 'far'), 'd', ['a', 'F']).why, 'submodule-pointer', 'two names');
+  // What else `F` can be found as: nothing to refuse.
+  for (const what of ['sound', 'folder', 'file', 'nothing']) {
+    assert.strictEqual(ask(top('d', what), 'd', ['a', 'b', 'F']).why, '', `F found as: ${what}`);
+  }
+  // A tracked file found as a folder counts as one that became a folder,
+  // whatever is in it: .gitmodules is looked at then. Found as a plain file
+  // or not at all, it does not count.
+  for (const [what, why] of [['folder', 'submodule-pointer'], ['sound', 'submodule-pointer'], ['file', ''], ['nothing', '']]) {
+    assert.strictEqual(ask(top('d', what, { gitmodules: true }), 'd', ['a', 'b', 'F']).why, why, `.gitmodules a folder, F found as: ${what}`);
+  }
+  // A name the disk does not find `f` for: the repo at f is passed over, as
+  // it was, since it is not named like a tracked file. The Windows and macOS
+  // way (the third argument true) checks every subfolder, as it did.
+  assert.strictEqual(ask(top('d', 'far'), 'd', ['a', 'b', 'G']).why, '', 'G tracked, a repo at f');
+  assert.strictEqual(ask(top('d', 'far'), 'd', ['a', 'b', 'G'], true).why, 'submodule-pointer', 'G tracked, a repo at f, every subfolder checked');
+  // That way a plain folder f counts as the tracked file F become a folder
+  // (the names are compared in lower case), so .gitmodules is looked at;
+  // for the tracked G it does not count.
+  assert.strictEqual(ask(top('d', 'folder', { gitmodules: true }), 'd', ['a', 'b', 'F'], true).why, 'submodule-pointer', '.gitmodules a folder, a plain folder f, F tracked, every subfolder checked');
+  assert.strictEqual(ask(top('d', 'folder', { gitmodules: true }), 'd', ['a', 'b', 'G'], true).why, '', '.gitmodules a folder, a plain folder f, G tracked, every subfolder checked');
+  // Which names are looked up by themselves: the tracked names the listing
+  // does not hold (c and F here), each once.
+  assert.deepStrictEqual(ask(top('d', 'folder'), 'd', ['a', 'b', 'c', 'F']), { why: '', seen: ['d/F', 'd/c'] });
+  // None in a folder that holds no subfolder: no name in it is a folder.
+  assert.deepStrictEqual(ask(top('d', 'nothing', { sub: false }), 'd', ['a', 'b', 'c', 'F']), { why: '', seen: [] });
+  assert.deepStrictEqual(ask(top('d', 'file', { sub: false }), 'd', ['a', 'b', 'c', 'F']), { why: '', seen: [] });
+  // None the Windows and macOS way, where every subfolder is checked.
+  assert.deepStrictEqual(ask(top('d', 'folder'), 'd', ['a', 'b', 'c', 'F'], true), { why: '', seen: [] });
+});
+
+// The time is looked at before each of these lookups: on a Windows drive in
+// WSL one took 1.7 ms. Here one folder holds a and b, a plain subfolder and
+// five tracked names that are not on disk. `left` is what each look at the
+// time is told, by its number: the first look is the one before the folder
+// d, and the next five come before the five lookups (a and b, which the
+// listing holds, are not looked up and cost no look).
+test('git status: the time is looked at before each tracked name is looked up (RS-A-casefoldfs)', () => {
+  const { farWorktree } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const t = realTemp('jbmem-casefold-time-');
+  fs.mkdirSync(path.join(t, 'd', 'sub'), { recursive: true });
+  for (const n of ['a', 'b']) fs.writeFileSync(path.join(t, 'd', n), 'x');
+  const missing = Array.from({ length: 5 }, (_, k) => `d/m${k}`);
+  // lookups: the looks at one of the five names. Each asks for "no such
+  // name" as an answer and not as an error thrown (thrown and caught, a
+  // lookup took seven times as long on ext4): one asked another way is
+  // counted as a hundred.
+  const check = (left) => {
+    let asks = 0; let lookups = 0;
+    const r = { ...trackedIn(t, ['d/a', 'd/b', ...missing]), left: () => left(++asks) };
+    const real = fs.lstatSync;
+    fs.lstatSync = function (p, ...a) {
+      if (typeof p === 'string' && /^d\/m\d+$/.test(path.relative(t, p).replace(/\\/g, '/'))) lookups += a[0] && a[0].throwIfNoEntry === false ? 1 : 100;
+      return real.call(this, p, ...a);
+    };
+    try { return { why: farWorktree(r, t, false), asks, lookups }; } finally { fs.lstatSync = real; }
+  };
+  // Time in hand: every name is looked up, with a look at the time for each.
+  assert.deepStrictEqual(check(() => 5000), { why: '', asks: 6, lookups: 5 });
+  // Too little left at the look before a lookup, for each of the five: that
+  // name and the ones after it are not looked up. With 800 ms they are.
+  for (let k = 0; k < 5; k++) {
+    assert.deepStrictEqual(check(n => (n === k + 2 ? 799 : 5000)), { why: 'git-timeout', asks: k + 2, lookups: k }, `799 ms left before lookup ${k + 1}`);
+    assert.deepStrictEqual(check(n => (n === k + 2 ? 800 : 5000)), { why: '', asks: 6, lookups: 5 }, `800 ms left before lookup ${k + 1}`);
+  }
+  // The clock is the caller's, read anew each time: short from the fourth
+  // look on, the answer comes at the fourth.
+  assert.deepStrictEqual(check(n => (n >= 4 ? 0 : 5000)), { why: 'git-timeout', asks: 4, lookups: 2 });
+});
+
+// The same lookup where the system makes the failure itself. A tracked name
+// that is not in its folder's listing, in a folder that can be listed and
+// not entered (mode 0444): the look fails as "no access" with the folder
+// shut, which says "not there". And such a name at a whole path past what
+// the system takes: git goes there by the tracked path alone, so status is
+// not read, as for one or two names (RS-A-relpath).
+test('git status: a tracked name that can not be looked up, in a folder that can be listed (RS-A-casefoldfs)', { skip: WIN ? OFF_WIN.skip : (process.getuid() === 0 && 'root enters every folder') }, () => {
+  const { farWorktree } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const { next, deep, done } = sysPaths('jbmem-casefold-sys-');
+  const t = next('t');
+  fs.mkdirSync(path.join(t, 'd', 'sub'), { recursive: true });
+  for (const n of ['a', 'b']) fs.writeFileSync(path.join(t, 'd', n), 'x');
+  fs.chmodSync(path.join(t, 'd'), 0o444);
+  try {
+    assert.deepStrictEqual(fs.readdirSync(path.join(t, 'd')).sort(), ['a', 'b', 'sub']);
+    assert.strictEqual(lookCode(() => fs.lstatSync(path.join(t, 'd', 'c'))), 'EACCES');
+    assert.strictEqual(farWorktree(trackedIn(t, ['d/a', 'd/b', 'd/c']), t, false), '', 'mode 0444');
+  } finally { fs.chmodSync(path.join(t, 'd'), 0o755); }
+  for (const n of [SYS_LIMIT, SYS_OVER]) {
+    const top = next('t');
+    fs.mkdirSync(top);
+    // The tracked folders in which the name `c` ends at exactly n bytes.
+    const names = namesToBytes(top, n - 2);
+    const whole = path.join(top, ...names, 'c');
+    assert.strictEqual(Buffer.byteLength(whole), n);
+    deep(top, names, 'mkdir "$1/sub" && touch "$1/a" "$1/b"');
+    assert.strictEqual(lookCode(() => fs.lstatSync(whole)), n > SYS_LIMIT ? 'ENAMETOOLONG' : 'ENOENT', `${n} bytes`);
+    const rel = names.join('/');
+    assert.strictEqual(farWorktree(trackedIn(top, ['a', 'b', 'c'].map(f => `${rel}/${f}`)), top, false), n > SYS_LIMIT ? 'unreadable-path' : '', `a name not in the listing at ${n} bytes`);
+  }
+  done();
+});
+
+// Through gitFacts and git itself, each system its own way: Windows and
+// macOS check every subfolder, the others those named like a tracked file
+// and those found for a tracked name.
+test('git status: the snapshot is not read past a repo found for a tracked name of another case (RS-A-casefoldfs)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-casefold-git-');
+  const FOLDS = foldsCase(base);
+  const repo = (name, last, at) => {
+    const r = path.join(base, name); const g = repoAt(r);
+    fs.mkdirSync(path.join(r, 'd'));
+    for (const n of ['a', 'b']) fs.writeFileSync(path.join(r, 'd', n), 'x');
+    g('add', 'd/a', 'd/b');
+    // The third name is tracked and never on disk, with the blob d/a has.
+    g('update-index', '--add', '--cacheinfo', `100644,${g('rev-parse', ':d/a')},d/${last}`);
+    g('commit', '-qm', 'three');
+    AT_F.far(path.join(r, 'd', at));
+    return r;
+  };
+  const status = (r) => {
+    const run = () => { const f = gitFacts(r, ['status']); return f.statusSkipped || `read ${f.statusCount}`; };
+    return (FOLDS ? run() : foundAs(path.join(r, 'd', 'F'), path.join(r, 'd', 'f'), run).why);
+  };
+  // d/F tracked and a repo at d/f whose .git names a share.
+  assert.strictEqual(status(repo('folded', 'F', 'f')), 'submodule-pointer');
+  // A repo in a folder named like no tracked file, and found for none
+  // (d/c is tracked and not on disk): passed over where names are compared.
+  assert.strictEqual(status(repo('other', 'c', 'x')), EVERY_SUBFOLDER ? 'submodule-pointer' : 'read 1');
 });
 
 test('git pointers: every .git found on one way up from the session\'s folder shares one limit on the work (RS-A-abovegit)', () => {
@@ -3213,11 +3545,14 @@ test('git status: finding the folders of tracked files takes work that follows t
   assert.ok(deep.looked > deep.size, `the count works: ${deep.looked} characters for a list of ${deep.size}`);
   // A list of 2.6 MB in one folder: the time is looked at twice on the way
   // through the list (once for each 1,048,576 characters), then once before
-  // the folder is looked at.
+  // the folder is looked at. Outside Windows and macOS there are 10,400
+  // looks more: the folder `a` holds subfolders from the cases above, so
+  // each of its 10,400 tracked names, none of them on disk, is looked up,
+  // with a look at the time before each (RS-A-casefoldfs).
   const big = Array.from({ length: 10400 }, (_, k) => `a/${'x'.repeat(200)}${k}`);
   const plenty = check(big);
   assert.ok(plenty.size > 2.5 * 1048576 && plenty.size < 3 * 1048576, `the list has ${plenty.size} characters`);
-  assert.deepStrictEqual({ why: plenty.why, asks: plenty.asks }, { why: '', asks: 3 });
+  assert.deepStrictEqual({ why: plenty.why, asks: plenty.asks }, { why: '', asks: EVERY_SUBFOLDER ? 3 : 10403 });
   // Out of time at the second look: the answer comes from inside the list,
   // with no folder looked at.
   const late = check(big, (n) => (n === 2 ? 500 : 5000));
@@ -3225,8 +3560,9 @@ test('git status: finding the folders of tracked files takes work that follows t
   // 800 ms left is enough, as for the looks that follow.
   assert.deepStrictEqual(check(big, (n) => (n === 2 ? 800 : 5000)).why, '');
   // A short list is gone through without a look: the one look is the
-  // folder's.
-  assert.strictEqual(check(['a/f1', 'a/f2', 'a/f3']).asks, 1);
+  // folder's. Outside Windows and macOS three more come before the lookups
+  // of the three names, as above.
+  assert.strictEqual(check(['a/f1', 'a/f2', 'a/f3']).asks, EVERY_SUBFOLDER ? 1 : 4);
   // One folder more than can be looked at: the answer comes from the list,
   // before any folder is looked at.
   const many = check(Array.from({ length: 20001 }, (_, k) => `d${k}/f`));
