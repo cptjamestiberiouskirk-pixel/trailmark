@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: A doc sentence gave the largest size that was run, and the limit was 40 times lower
+- What went wrong: SECURITY.md said that with 100,000 tracked names not on disk the check ran out of time on a Windows drive in WSL. The regression reviewer of round 1 measured the limit near 2,300 names, and a run here gave 2,000 read and 3,000 not. The sentence also left out the subfolder that the shape needs.
+- Why: 100,000 was the size chosen to show that the look at the time works, and the sentence took its number from that run. The time of one lookup (1.7 ms) was in the notes and was not divided into the 4.2 s the check has.
+- Rule going forward: a doc sentence that names a size at which something fails gives the smallest size that fails, from a run on each side of it, and names every part of the shape that the run needed.
+- Status: open
+
+## 2026-11-14: A new constant took a name the test already had
+- What went wrong: `const few` was added to the RS-A-deepindex test, which declares `few` 44 lines up. The file did not parse, and the three WSL runs each showed "tests 1, fail 1".
+- Why: the test was read around the edited line only, and no parse came between the edit and the run.
+- Rule going forward: before a `const` is added inside an existing test, the test is searched for the name, and `node --check <file>` runs after an edit to a test file, before any test run.
+- Status: open
+
 ## 2026-11-14: A look at the time once in 500 steps was copied onto steps that ask the disk
 - What went wrong: the first form of the RS-A-casefoldfs fix looked at the time once in 500 lookups of a tracked name, the way the line above it does once in 500 folders. On a Windows drive in WSL a lookup takes 1.7 ms, and 100,000 names with 5 s given answered `git-timeout` after 4,969 ms: the 0.8 s kept for what comes after was used up. The timing probe found it after the tests were written, and the time test was written again.
 - Why: the idiom was taken from its neighbour without asking what one step costs here. The neighbour's step is a name in a list, and this one is a call to the disk.
