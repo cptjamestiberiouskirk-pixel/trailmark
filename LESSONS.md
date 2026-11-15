@@ -62,6 +62,12 @@ Format:
 - Rule going forward: none new. (1), (2) and (4) are open rules seen a second time, for the pass over the open lessons to promote: search the tests for the function's name before coding in it; a probe's label stays "noted" until a run on each system printed its result; an edit's old and new text end on a visible character, and the diff is read line by line before the check that guards the commit starts, not during it. (3) A text for a command goes through the Write tool and a file.
 - Status: open
 
+## 2026-11-14: A permission rule grew a clause for each review finding, and the next rounds found 8 and 9 more
+- What went wrong: the delegation for deferred items was written into `CLAUDE.md` "Conventions" as a list of what a session may do. Review round 1 found 12 points, and each was answered with a clause. Round 2 found 8 in the new clauses, and round 3 found 9. Several let a session act without asking in a case no clause named.
+- Why: the rule listed the allowed cases and said nothing about the rest, so every case it did not name was open to a reader that follows the letter. Each fix named one more case.
+- Rule going forward: a rule that lets a session act without asking gives the scope, the one condition that must hold, and a default for everything else (it is asked). When a later review round finds about as many points as the one before, stop adding clauses and cut the rule back to that form.
+- Status: open
+
 ## 2026-11-14: A step cut down to a pointer said more than the text it points to
 - What went wrong: PLAYBOOK "Testing" step 10 was cut to a short step of three sentences and its case list moved to `dev/testing-cases.md`. The first sentence said the negative cases of every validator come from a loop. The list asks for a loop only where a decision is made once for each item of a list. The last sentence sent a reader to the file only before "writing or changing such a test", and the file holds the rules for stand-ins and for a test's comment too. The docs reviewer of PR 64's round 1 found both.
 - Why: the first sentence was written from the list's longest clause. The check before the commit compared the moved text with the old line, and nothing compared the new step with the list.
