@@ -21,10 +21,10 @@ Format:
 - Status: open
 
 ## 2026-11-15: A value check looked for bad numbers instead of holding the value to one shape
-- What went wrong: `dev/check-workflow-timeouts.js` read the decimal numbers in a `timeout-minutes` expression and checked their range. A hex or exponent number, a negative one (read as positive), a bare context and a function all passed, and so did any limit written as a step's first key (`- timeout-minutes:`), which its line pattern never matched (review round 2). Round 3 found three more forms that still passed after batch 2: a flow-style step, a quoted key and a space before the colon.
+- What went wrong: `dev/check-workflow-timeouts.js` read the decimal numbers in a `timeout-minutes` expression and checked their range. A hex or exponent number, a negative one (read as positive), a bare context and a function all passed, and so did any limit written as a step's first key (`- timeout-minutes:`), which its line pattern never matched (review round 2). Round 3 found three more forms that still passed after batch 2: a flow-style step, a quoted key and a space before the colon. Round 4 found one more: a double-quoted key with an escape (`"timeout\x2dminutes"`).
 - Why: the check was written against the bad values that came to mind, so each new form needed a new rule; the forms YAML allows for a key were not listed.
 - Rule going forward: a check on a value says the one shape it accepts and refuses everything else, and a line that names the key in a form the check does not read is a fault too. Before the pattern is written, list the ways the format can write the key (for YAML: a plain key, a list item's first key, a flow mapping, a quoted key, a space before the colon) and give each a case.
-- Status: promoted (PLAYBOOK "Writing code and docs" step 8 and "Testing" step 10 already hold the rule; rounds 2 and 3 of RS-D-jobtimeout are its two sightings here)
+- Status: promoted (PLAYBOOK "Writing code and docs" step 8, its last sentence, added in batch 4 of RS-D-jobtimeout after rounds 2 and 3 found the gap)
 
 ## 2026-11-15: A step limit could never fire before its job's limit
 - What went wrong: the first cut of RS-D-jobtimeout gave the step "Checks added in 0.4.5" a limit of 25 minutes on every system, with a job limit of 20 on Linux and 25 on macOS. The step starts after other steps, so the job's limit always came first there, and the comment that a hung test ends before the job was true on Windows only (review round 1).
