@@ -14,10 +14,10 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
-## 2026-11-14: A permission rule grew a clause for each review finding, and each round found as many again
+## 2026-11-14: A permission rule grew a clause for each review finding, and the next rounds found 8 and 9 more
 - What went wrong: the delegation for deferred items was written into `CLAUDE.md` "Conventions" as a list of what a session may do. Review round 1 found 12 points, and each was answered with a clause. Round 2 found 8 in the new clauses, and round 3 found 9. Several let a session act without asking in a case no clause named.
 - Why: the rule listed the allowed cases and said nothing about the rest, so every case it did not name was open to a reader that follows the letter. Each fix named one more case.
-- Rule going forward: a rule that lets a session act without asking gives the scope, the one condition that must hold, and a default for everything else (it is asked). When a second review round finds as many points as the first, stop adding clauses and cut the rule back to that form.
+- Rule going forward: a rule that lets a session act without asking gives the scope, the one condition that must hold, and a default for everything else (it is asked). When a later review round finds about as many points as the one before, stop adding clauses and cut the rule back to that form.
 - Status: open
 
 ## 2026-11-14: A step cut down to a pointer said more than the text it points to
