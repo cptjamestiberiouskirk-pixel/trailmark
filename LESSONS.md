@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-15: The record merged with "not pushed" in two places
+- What went wrong: the first line of `dev/release-state.md` said the branch of the open-lessons pass was "committed there and not pushed", and the bullet of the pass said "not pushed". The push and PR 67 came after the commit that wrote them, and both places merged to `main` as they were. A notes change after the merge had to correct them.
+- Why: each sentence was true when it was written and named no moment. Four older places of the same file say "when this was written" for a state that changes, one of them for a push, and these two did not. A fix on the branch would have been a new push, which had to be asked first.
+- Rule going forward: a sentence in the record about its own branch's push, PR or merge says "when this was written", or it waits for the commit that can name the PR.
+- Status: open
+
+## 2026-11-15: A PR opened by one session was bound to a second one
+- What went wrong: session 909a8770 asked this session to bind PR 67, which it had opened from this session's branch (its report), and this session bound it. The app had already bound the PR to 909a8770, the session that ran `gh pr create` (its report, in a correction that came after the binding). The second binding was taken off again.
+- Why: this session bound on the request after it had read only its own status, which said that no PR was bound to it.
+- Rule going forward: before a PR is bound to a session that did not open it, read the binding of the session that opened it (`get_status` with that session's id, as the tool's description gives it; not tried here).
+- Status: open
+
 ## 2026-11-15: The pass over the open lessons marked entries without reading the text they name
 - What went wrong: review round 1 of the pass found marks and steps that the files contradict. An entry was marked superseded because "a shipped text gives no 'slowest found' any more", and SECURITY.md and a comment in `gitbin.js` still say it. An entry was marked as held by two older steps, and neither says its rule. A new step got a clause ("or in a check before `git status`") that no lesson has and that the code contradicts: `repoRoot` asks `farGitConfig` alone. Another step took one lesson's whole-file run from "a change to what a failed lookup means" to every change inside a function.
 - Why: the marks on older steps and on shipped text were made from what the session remembered of them, while each new step was read against its lessons as it was written. The clause and the wider scope came from making one step out of several lessons: words went in so that the sentence read as one rule.
