@@ -15,8 +15,8 @@ Format:
 ```
 
 ## 2026-11-14: A step cut down to a pointer said more than the text it points to
-- What went wrong: PLAYBOOK "Testing" step 10 was cut to one sentence and its case list moved to `dev/testing-cases.md`. The sentence said the negative cases of every validator come from a loop. The list asks for a loop only where a decision is made once for each item of a list. The sentence also sent a reader to the file only for a validator's test, and the file holds the rules for stand-ins and for a test's comment too. The docs reviewer of PR 64's round 1 found both.
-- Why: the sentence was written from the list's longest clause. The check before the commit compared the moved text with the old line, and nothing compared the new sentence with the list.
+- What went wrong: PLAYBOOK "Testing" step 10 was cut to a short step of three sentences and its case list moved to `dev/testing-cases.md`. The first sentence said the negative cases of every validator come from a loop. The list asks for a loop only where a decision is made once for each item of a list. The last sentence sent a reader to the file only before "writing or changing such a test", and the file holds the rules for stand-ins and for a test's comment too. The docs reviewer of PR 64's round 1 found both.
+- Why: the first sentence was written from the list's longest clause. The check before the commit compared the moved text with the old line, and nothing compared the new step with the list.
 - Rule going forward: a text that replaces a longer one with a pointer is read against each sentence of the longer one before the commit. It claims nothing the longer text limits to one case, and it names every kind of work the longer text covers.
 - Status: open
 
