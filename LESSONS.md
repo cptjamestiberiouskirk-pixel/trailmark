@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-15: An exemption written for one valid text opened a hole of its own
+- What went wrong: batch 5 of RS-D-jobtimeout refused an `&` or a `*` that starts a token, except one followed by `&`, so that the shell's `&&` would pass. The anchor `&&k` and its alias `*&k` passed through that exemption and got a limit of 400 past the check (review round 6). Its quote rule took any quote as the start of a quoted value, and a quote inside a plain key hid an anchor after it. Round 6's mutations also showed that three rules batch 5 added had no case that failed without them: PLAYBOOK "Testing" step 8 was not run on that batch. The fix the coordinating session first asked for (refuse every `&` or `*` that starts a token) would have refused two `if:` lines of `tests.yml`.
+- Why: the exemption was taken from the valid text that tripped the rule (`a && b`), not from where the format can hold the refused thing. YAML reads an anchor or an alias only where a node starts, and a quote starts a quoted value only there too.
+- Rule going forward: an exemption to a refusal is written from the format's own rule for where the refused thing can occur, and each exemption gets a case with the refused thing written right next to the exempted text (`&&k` beside `&&`). After each batch of a check's rules, mutate each new rule alone and see a case fail (PLAYBOOK "Testing" step 8).
+- Status: open
+
 ## 2026-11-15: A third hang sat in the data with no note naming it
 - What went wrong: RS-D-jobtimeout's notes said a macOS job hung twice. The data its own script fetched held a third: run 42450240343 (push to `main`, 2026-11-08), whose job "macos-latest, Node 26" ran 6 h 5 min with no step reported and ended `cancelled`. No session had noticed it at the time, and this session did not see it in its data either; the round 2 reviewer found it.
 - Why: the sizing scripts read passing jobs only, and nobody looked at the long jobs of the other conclusions.
