@@ -15,9 +15,12 @@
 // shape: `matrix.os == '<label>' && <n> || ... || <n>`, every <n> a whole
 // number in that range. The last part is a number, so no matrix row falls
 // through to `false`; any other shape (a hex or negative number, a function, a
-// bare context) is refused. It prints the self-test's line, then one line per file and one
-// `FAULT <file>: ...` line for each fault, and exits 1 on any fault. It only
-// reads files. Shapes it does not read as YAML (a flow-style or quoted job
+// bare context) is refused. A line that names `timeout-minutes` in any other
+// form (a flow-style step, a quoted key, a space before the colon, a `run:`
+// line) is refused too, and a `#` with no space before it is part of the
+// value, as in YAML. It prints the self-test's line, then one line per file
+// and one `FAULT <file>: ...` line for each fault, and exits 1 on any fault.
+// It only reads files. Shapes it does not read as YAML (a flow-style or quoted job
 // key, an anchor, a quoted value, a job that calls a reusable workflow, which
 // cannot take a limit) fail the check rather than pass it.
 'use strict';
@@ -52,8 +55,14 @@ function check(text) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   const faults = [];
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^\s*(?:-\s+)?timeout-minutes:\s*(.*?)\s*(#.*)?$/);
-    if (m) { const b = badValue(m[1]); if (b) faults.push(`line ${i + 1}: timeout-minutes ${b}`); }
+    if (!lines[i].includes('timeout-minutes') || /^\s*#/.test(lines[i])) continue;
+    // A comment needs a space before its `#`, as in YAML, so `30#c` is read
+    // whole and refused. Any other line naming the key (a flow-style step, a
+    // quoted key, a space before the colon) is refused as unread.
+    const m = lines[i].match(/^\s*(?:-\s+)?timeout-minutes:\s*(.*?)\s*(?:\s#.*)?$/);
+    if (!m) { faults.push(`line ${i + 1}: names timeout-minutes in a form this check does not read: ${lines[i].trim()}`); continue; }
+    const b = badValue(m[1]);
+    if (b) faults.push(`line ${i + 1}: timeout-minutes ${b}`);
   }
   const start = lines.findIndex((l) => /^jobs:\s*(#.*)?$/.test(l));
   if (start < 0) return { jobs: [], faults: [...faults, 'no top-level jobs: key'] };
@@ -113,6 +122,13 @@ function selfTest() {
     ['a step limit as the first key, falling through', job('    timeout-minutes: 30\n').replace('      - run: true\n', "      - timeout-minutes: ${{ matrix.os == 'x' && 8 }}\n        run: true\n"), 'fall through'],
     ['a step limit as the first key, 0', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - timeout-minutes: 0\n        run: true\n'), 'not from 1 to 360'],
     ['a step limit as the first key only', job('').replace('      - run: true\n', '      - timeout-minutes: 30\n        run: true\n'), 'no timeout-minutes'],
+    ['a flow-style step with a limit', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - {run: true, timeout-minutes: 0}\n'), 'does not read'],
+    ['a quoted step key', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: true\n        "timeout-minutes": 0\n'), 'does not read'],
+    ['a space before the colon', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: true\n        timeout-minutes : 0\n'), 'does not read'],
+    ['a run line naming the key', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: echo timeout-minutes\n'), 'does not read'],
+    ['a job limit 30#c', job('    timeout-minutes: 30#c\n'), 'neither'],
+    ['a step limit 30#c', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: true\n        timeout-minutes: 30#c\n'), 'neither'],
+    ['a limit with spaces after it', job('    timeout-minutes: 30   \n'), ''],
     ['an expression with no last number', job("    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 }}\n"), 'fall through'],
     ['an expression whose last part is a test', job("    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || matrix.os == 'macos-latest' && 25 }}\n"), 'fall through'],
     ['an expression ending in a quoted number', job("    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || '20' }}\n"), 'fall through'],
