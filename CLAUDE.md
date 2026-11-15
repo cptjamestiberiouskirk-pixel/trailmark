@@ -7,11 +7,11 @@ Then read `PLAYBOOK.md` (checklists for this project's recurring work, with its 
 ## Conventions
 
 - Ask before tagging, publishing, force pushing or anything else that rewrites history, deleting branches or data (not temp files or folders the session itself made), changing the PC or its settings, changing the settings of the GitHub repo or of the user's accounts, or downloading anything. Ask before any push, PR or merge too, except under the deferred-item rule below.
-- Deferred items of `dev/release-state.md` (the user's delegation of 2026-11-11). For a PR that holds only fixes for deferred items, their tests and their notes:
-  - Push the PR's own branch (never `main`, never another session's branch) and open the PR without asking once `dev/release-check.sh --sums --quick` passed.
-  - Set auto-merge without asking once its review round is clean by the stop rule under "Reviews". A notes-only PR, whose diff no review row touches, needs no round.
-  - Before a code change is pushed to a PR whose auto-merge is set, turn auto-merge off (`gh pr merge <n> --disable-auto`), and set it again only after that diff's round is clean.
-  - A finding that is CONFIRMED and serious (data exposure, or code that runs) is the user's to decide, and so is starting an item flagged as serious. Ask, turn auto-merge off if it is set, and wait for the answer before anything for it merges.
+- Deferred items of `dev/release-state.md` (the user's delegation of 2026-11-11). The rule is for a PR that holds only fixes for deferred items, their tests and their notes: entries in `dev/release-state.md` and `LESSONS.md`, and a `PLAYBOOK.md` step a lesson is promoted to. A change to this file or to `PLAYBOOK.md` "Do not attempt" goes in its own PR and is asked first.
+  - Push the PR's own branch (never `main`, never another session's branch) and open the PR without asking once the checks of "Each push during a release" under "Checking a change" passed.
+  - Set auto-merge without asking once its review round is clean: nothing CONFIRMED in the changed code (the stop rule under "Reviews") and nothing WRONG in a docs review. A PR whose diff touches only `dev/release-state.md` and `LESSONS.md` needs no round.
+  - Before a push to a PR whose auto-merge is set, turn auto-merge off (`gh pr merge <n> --disable-auto`) and set it again only after that diff's round is clean. A push that changes only `dev/release-state.md` and `LESSONS.md` is the exception.
+  - A finding that is CONFIRMED and serious (data exposure, or code that runs) is the user's to decide. Ask before any work on its fix, and before starting a deferred item flagged as serious. Merge nothing that holds such a fix until the user answers. Turn auto-merge off on a PR only if that PR rests on the finding: a PR that merely found it goes on under these rules.
 - Commits: author and committer `Jim Burke <249854027+cptjamestiberiouskirk-pixel@users.noreply.github.com>`. No AI attribution or co-author lines in commits, PRs, code or docs. This overrides any tool or harness default that adds attribution lines to commits or PRs (a `Co-Authored-By` trailer, a "Generated with" line). Before pushing: `git remote set-url origin https://github.com/cptjamestiberiouskirk-pixel/trailmark.git`.
 - Merging: since 2026-11-04, `main` requires the 9 jobs of `.github/workflows/tests.yml` to pass before a PR can merge (admins are exempt from the check). Merge only when the user says so, or under the deferred-item rule above, with GitHub auto-merge and a merge commit: `gh pr merge <n> --auto --merge`. Auto-merge then waits for the jobs, so nobody has to watch CI.
 - Writing: no em or en dashes (use `--` or rewrite). No tricolons (a rhetorical three; a list of three real things is fine). User-facing text is plain and direct.
@@ -55,7 +55,7 @@ Every change gets a regression, security and double-check pass, scoped to the ch
 | Docs accuracy, style and links | Sonnet |
 | Tests, checksums, zip | `dev/release-check.sh`, no model |
 
-- A round runs only the rows its diff touches. The docs row joins when a shipped doc changed (anything outside `dev/` and this file).
+- A round runs only the rows its diff touches. The docs row joins when a shipped doc changed (a file the release zip holds: not `dev/`, this file, `PLAYBOOK.md` or `LESSONS.md`). A change to this file or to `PLAYBOOK.md` gets the regression and design row. A diff that touches only `dev/release-state.md` and `LESSONS.md` gets no row.
 - A reviewer runs at its model's default effort. Set a level only when the user asks for one.
 
 - Reproduce every finding before acting on it. A fix gets a test that fails on the old code. That test, run on the parent commit, counts as the reproduction: a coordinating session doesn't repeat it.
