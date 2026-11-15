@@ -111,6 +111,19 @@ The user still sees every one. Each keeps its label, commit and repro where it i
 - Round 2 of RS-A-dotpath left one question open (section "RS-A-dotpath round 2", item 2 of the security finding): a git that lists the files after a sparse checkout of a hand-made tree. With 2.56.1 on Windows and on Linux it fails, and status stays unread.
 - Older lists stand as they were: "Deferred items carried forward" in section "0.6.2: the release step", and the lists it names. One item there was flagged as serious by the triage and stays deferred: the rest of RS:651 (the Claude Code skills take `${CLAUDE_PLUGIN_ROOT}` as it is; since 0.6.2 session start warns about a path that is not plain).
 
+## Prompt audit of the instruction files (2026-11-14, branch `claude/prompt-audit-fable` off 2246165)
+
+The user asked for an audit of the instruction files against Claude Fable 5.2, the model the sessions run on, and then said "Yes, open PR" to its three proposed edits. Read for it: `CLAUDE.md`, `PLAYBOOK.md`, the output of `dev/lessons.sh`, and `plugins/trailmark/skills/checkpoint/SKILL.md`. The other five skills under `plugins/trailmark/skills` were searched for patterns only. Not read: the skills under `plugins/trailmark-codex`, both `hooks.json` files, and the hook texts in the scripts.
+
+- Changed, `CLAUDE.md` "Reviews": a new bullet after the stop rule says a docs review lists WRONG apart from COULD BE CLEARER and only WRONG holds a merge. Until now the two labels were used only in this file's review sections, and no file said which of them holds a merge.
+- Changed, `CLAUDE.md` "Reviews" and `PLAYBOOK.md` "Reviewing" step 2: a review brief says what the report holds, in place of a word limit.
+- Changed, `PLAYBOOK.md` "Testing" step 10: its case list moved word for word to `dev/testing-cases.md`, and the step keeps the principle and points there. The step had 438 words (`wc -w` on its line).
+- Not tried: what any of the three does to a review round. The next round is the first run.
+- Left for the user, no edit made:
+  - `CLAUDE.md` "Conventions" (the "Ask before" and "Merging" bullets) and `PLAYBOOK.md` "Do not attempt" say to ask before every push, PR and merge. The user's delegation of 2026-11-11 for deferred-item PRs is written only in a memory file on the user's PC. The wording of a combined rule is the user's.
+  - `dev/lessons.sh` with no words printed 205 lines and 29,252 characters on 2246165. Which of its open lessons still hold needs a pass of its own.
+  - The model table in `CLAUDE.md` names no effort level for a reviewer.
+
 ## Next version: RS-A-linkgit, RS-A-relpath and RS-A-bytepath (2026-11-14, branch `claude/rs-a-linkgit` off a1c7269)
 
 Worked under the user's go-ahead of 2026-11-10 for the deferred items. The three were flagged in the section below and share one cause: in `scripts/lib/gitbin.js` and `gitfacts.js` a lookup that fails for another reason than "not there" was read as "not there". The check then answered `''` and git ran, while git reached the same thing through a link or a relative path. The code, tests and shipped docs are commit 1e7b064. Times are local, 2026-11-14. The probes, runners and outputs named here are copied to `rs-a-linkgit-scripts/` in the sessions' shared notes folder, next to the working notes `rs-a-linkgit-notes.md`.

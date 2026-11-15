@@ -39,7 +39,7 @@ Don't drive those steps by hand one at a time, and don't paste full test output 
 
 Every change gets a regression, security and double-check pass, scoped to the change:
 
-- One reviewer on `git diff <last reviewed>..HEAD`, not the whole repo. Give it the goal, the files, what earlier rounds already fixed, and a word limit for the report. Tell it to use its own temp folder and clear it.
+- One reviewer on `git diff <last reviewed>..HEAD`, not the whole repo. Give it the goal, the files, what earlier rounds already fixed, and what the report holds: each finding first with its label and repro, then what was tried and found clean, and nothing that restates the diff. Tell it to use its own temp folder and clear it.
 - The brief also asks the reviewer to check that each new test fails on the commit before its fix, and to probe the fix's neighbors (for the context watch: a window that flips, a repeat ask, a window that shrinks).
 - Choose the model by task. `contextwatch.js` (from 0.6.0) and the launcher run before the sandbox and read untrusted input (transcripts, settings files, hook payloads), so they are in the security row:
 
@@ -55,6 +55,7 @@ Every change gets a regression, security and double-check pass, scoped to the ch
 - Reproduce every finding before acting on it. A fix gets a test that fails on the old code. That test, run on the parent commit, counts as the reproduction: a coordinating session doesn't repeat it.
 - Each deferred item carries its label, the commit it was seen on, and a repro (a test name or a script).
 - Stop rule: release when a round finds nothing CONFIRMED in code changed since the last round. Older edge cases found along the way go in the deferred list in `dev/release-state.md` for the next version instead of holding the release.
+- A docs review lists WRONG (the text says something the code or a run contradicts) apart from COULD BE CLEARER. Only WRONG holds a merge. The rest goes to the deferred list.
 - Batches: gather a round's findings and the scanner and Copilot comments on that head, fix them in one push, then review that push's diff once.
 - In `dev/` tooling (files outside the release zip, so not `plugins/` tests), a batch fixes the round's CONFIRMED findings. An INFERRED or HYPOTHESIZED one goes to the deferred list with its repro instead, unless it can change whether a test passes or fails (for example, processes left running or temp folders left behind). Shipped code is unchanged by this rule.
 - Scope freeze: once the user freezes a release, the next round is the last. A finding holds the release only if it is CONFIRMED in that round's diff and makes the release worse than the previous one. Everything else goes to the deferred list, scanner and Copilot comments included, with no decision from the user each time: a scanner thread gets the reply "deferred to the next version (scope frozen)" and is resolved. The user still sees every deferred item, and one that looks serious (data exposure, code that runs) is flagged; it stays deferred unless the user pulls it back in. A round that finds only deferred items counts as clean for the merge.
