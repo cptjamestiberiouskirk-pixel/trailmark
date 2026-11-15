@@ -14,9 +14,15 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-15: A step limit could never fire before its job's limit
+- What went wrong: the first cut of RS-D-jobtimeout gave the step "Checks added in 0.4.5" a limit of 25 minutes on every system, with a job limit of 20 on Linux and 25 on macOS. The step starts after other steps, so the job's limit always came first there, and the comment that a hung test ends before the job was true on Windows only (review round 1).
+- Why: each limit was sized against its own slowest time, and no one added up where a step starts and where the steps after it end.
+- Rule going forward: a limit inside another (a step in a job, a call in a hook's budget) is checked against the outer one by a script: for a hang at each inner place, with everything else at its slowest seen time put before it, the inner limit must fire first and what runs after it must still fit. The script's output is named in the notes.
+- Status: open
+
 ## 2026-11-15: A time limit sized from a guess, then from a short window, was too tight
-- What went wrong: RS-D-jobtimeout's fix idea of 2026-11-11 was about 20 minutes per job. The Actions API showed healthy Windows jobs taking up to 21.5 minutes, so that limit would have cancelled passing jobs. Then the first step limit for "trailmark tests", 10 minutes, was sized from the last 20 + 20 runs (slowest 4.2 minutes); the last 100 + 100 runs had one of 7.28 minutes, and it went to 15 before any commit.
-- Why: the idea was written from the macOS step's usual time, with no reading of the other systems' jobs, and the first data window held only the newest runs, which were not the slowest.
+- What went wrong: RS-D-jobtimeout's fix idea of 2026-11-11 was about 20 minutes per job. The Actions API showed healthy Windows jobs taking up to 21.5 minutes, so that limit would have cancelled passing jobs. Then the first step limit for "trailmark tests", 10 minutes, was sized from the last 20 + 20 runs (slowest 4.2 minutes); the last 100 + 100 runs had one of 7.28 minutes, and it went to 15 before any commit. Then review round 1 found that the 100 + 100 window, too, left out 62 passing PR runs and every passing job inside a failed or cancelled run: over all of them that step's slowest was 7.45.
+- Why: the idea was written from the macOS step's usual time, with no reading of the other systems' jobs, and the first data window held only the newest runs, which were not the slowest. The second window still asked for passing runs, where the rule's own words ask for every listed run.
 - Rule going forward: a time limit is sized from the slowest passing time over the widest window the data gives (every run that is still listed, not the newest 20), for each system on its own, and the notes give the ratio of each limit to that time with the run it came from.
 - Status: open
 

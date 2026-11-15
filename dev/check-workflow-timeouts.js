@@ -12,8 +12,12 @@
 // below the job (a step's limit is deeper and does not count for the job).
 // Each `timeout-minutes` value it finds, job or step, is a whole number from 1
 // to 360, or a `${{ }}` expression whose unquoted numbers are all in that range
-// (with at least one). It prints one line per file and exits 1 on any fault.
-// It only reads files.
+// and that ends in `|| <number>`, so that no matrix row falls through to
+// `false`. It prints the self-test's line, then one line per file and one
+// `FAULT <file>: ...` line for each fault, and exits 1 on any fault. It only
+// reads files. Shapes it does not read as YAML (a flow-style or quoted job
+// key, an anchor, a quoted value, a job that calls a reusable workflow, which
+// cannot take a limit) fail the check rather than pass it.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -28,7 +32,8 @@ function badValue(v) {
   const nums = m[1].replace(/'[^']*'/g, '').match(/\b[0-9]+(\.[0-9]+)?\b/g) || [];
   if (!nums.length) return `${JSON.stringify(v)} holds no number`;
   const off = nums.filter((n) => !/^[0-9]+$/.test(n) || Number(n) < 1 || Number(n) > 360);
-  return off.length ? `${JSON.stringify(v)} holds ${off.join(', ')}, not from 1 to 360` : '';
+  if (off.length) return `${JSON.stringify(v)} holds ${off.join(', ')}, not from 1 to 360`;
+  return /\|\|\s*[0-9]+\s*$/.test(m[1]) ? '' : `${JSON.stringify(v)} does not end in || <number>, so a matrix row can fall through`;
 }
 
 // Returns { jobs: [names], faults: [texts] } for one workflow's text.
@@ -48,13 +53,14 @@ function check(text) {
   if (!body.length) return { jobs: [], faults: [...faults, 'jobs: holds no job'] };
   const jobIndent = indentOf(body[0]);
   const jobs = [];
+  const names = () => jobs.map((j) => j.name);
   let cur = null;
   for (const l of body) {
     const ind = indentOf(l);
-    if (ind < jobIndent) return { jobs, faults: [...faults, `a line under jobs: is less indented than its first job: ${l.trim()}`] };
+    if (ind < jobIndent) return { jobs: names(), faults: [...faults, `a line under jobs: is less indented than its first job: ${l.trim()}`] };
     if (ind === jobIndent) {
       const jm = l.match(/^\s*([A-Za-z_][A-Za-z0-9_-]*):\s*(#.*)?$/);
-      if (!jm) return { jobs, faults: [...faults, `not a job key at the job level: ${l.trim()}`] };
+      if (!jm) return { jobs: names(), faults: [...faults, `not a job key at the job level: ${l.trim()}`] };
       cur = { name: jm[1], keyIndent: -1, limit: false };
       jobs.push(cur);
       continue;
@@ -63,7 +69,7 @@ function check(text) {
     if (ind === cur.keyIndent && /^\s*timeout-minutes:/.test(l)) cur.limit = true;
   }
   for (const j of jobs) if (!j.limit) faults.push(`job ${j.name} has no timeout-minutes of its own`);
-  return { jobs: jobs.map((j) => j.name), faults };
+  return { jobs: names(), faults };
 }
 
 function selfTest() {
@@ -84,6 +90,11 @@ function selfTest() {
     ['an expression with 0', job('    timeout-minutes: ${{ true && 0 || 25 }}\n'), 'not from 1 to 360'],
     ['an expression with 400', job('    timeout-minutes: ${{ true && 400 || 25 }}\n'), 'not from 1 to 360'],
     ['an expression with no number', job('    timeout-minutes: ${{ matrix.limit }}\n'), 'holds no number'],
+    ['an expression with no last number', job("    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 }}\n"), 'fall through'],
+    ['an expression whose last part is a test', job("    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || matrix.os == 'macos-latest' && 25 }}\n"), 'fall through'],
+    ['an expression ending in a quoted number', job("    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || '20' }}\n"), 'fall through'],
+    ['an expression ending in || 20', job("    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 20 || matrix.os == 'macos-latest' && 25 || 45 }}\n"), ''],
+    ['a step expression that can fall through', job('    timeout-minutes: 30\n').replace('      - run: true\n', "      - run: true\n        timeout-minutes: ${{ matrix.os == 'x' && 8 }}\n"), 'fall through'],
     ['a bad step limit', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - run: true\n        timeout-minutes: 999\n'), 'not from 1 to 360'],
     ['two jobs, the second with none', job('    timeout-minutes: 30\n') + '  b:\n    runs-on: x\n', 'job b has no'],
     ['two jobs, the first with none', `jobs:\n  a:\n    runs-on: x\n  b:\n    runs-on: x\n    timeout-minutes: 5\n`, 'job a has no'],
@@ -93,12 +104,16 @@ function selfTest() {
     ['no jobs key', 'on: push\n', 'no top-level jobs'],
     ['an empty jobs key', 'jobs:\non: push\n', 'holds no job'],
     ['a key after jobs at the top level', job('    timeout-minutes: 30\n') + 'env:\n  timeout-minutes: 1\n', ''],
+    ['a line less indented than the first job', `jobs:\n    a:\n        runs-on: x\n        timeout-minutes: 5\n  b:\n    runs-on: x\n`, 'less indented', 'a'],
+    ['a quoted job key', `jobs:\n  a:\n    runs-on: x\n    timeout-minutes: 5\n  "b":\n    runs-on: x\n`, 'not a job key', 'a'],
   ];
   let bad = 0;
-  for (const [name, text, want] of cases) {
-    const got = check(text).faults.join('; ');
-    const ok = want ? got.includes(want) : got === '';
-    if (!ok) { bad++; console.log(`self-test FAIL: ${name}: wanted ${want ? JSON.stringify(want) : 'no fault'}, got ${JSON.stringify(got)}`); }
+  for (const [name, text, want, jobsWant] of cases) {
+    const r = check(text);
+    const got = r.faults.join('; ');
+    let ok = want ? got.includes(want) : got === '';
+    if (jobsWant !== undefined && r.jobs.join(',') !== jobsWant) ok = false;
+    if (!ok) { bad++; console.log(`self-test FAIL: ${name}: wanted ${want ? JSON.stringify(want) : 'no fault'}${jobsWant !== undefined ? ` and jobs ${jobsWant}` : ''}, got ${JSON.stringify(got)}, jobs ${r.jobs.join(',')}`); }
   }
   console.log(`self-test: ${cases.length - bad} of ${cases.length} cases as expected`);
   return bad === 0;
@@ -111,9 +126,12 @@ if (args[0] !== '--self-test') {
   const files = args.length ? args : fs.readdirSync(dir).filter((f) => /\.ya?ml$/.test(f)).sort().map((f) => path.join(dir, f));
   if (!files.length) { console.log('no workflow files found'); ok = false; }
   for (const f of files) {
-    const r = check(fs.readFileSync(f, 'utf8'));
+    let text;
+    try { text = fs.readFileSync(f, 'utf8'); } catch (e) { ok = false; console.log(`FAULT ${path.basename(f)}: cannot read it (${e.code || e.message})`); continue; }
+    const r = check(text);
     if (r.faults.length) ok = false;
-    console.log(`${path.basename(f)}: ${r.jobs.length} jobs (${r.jobs.join(', ')}), ${r.faults.length ? r.faults.join('; ') : 'each has timeout-minutes'}`);
+    console.log(`${path.basename(f)}: ${r.jobs.length} jobs (${r.jobs.join(', ')}), ${r.faults.length ? `${r.faults.length} faults` : 'each has timeout-minutes'}`);
+    for (const t of r.faults) console.log(`FAULT ${path.basename(f)}: ${t}`);
   }
 }
 process.exit(ok ? 0 : 1);
