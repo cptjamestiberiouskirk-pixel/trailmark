@@ -14,6 +14,66 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: The probe that found a cause held the process's working folder fixed
+- What went wrong: after round 2 a probe changed one thing at a time, found that a lookup's time on a Windows drive in WSL follows the depth of the folder, and SECURITY.md gave times by depth. The round 3 reviewer measured half those times at the same depth. The time follows the folder the process works in: that folder and the ones above it cost nothing. Every run here had started in the worktree, so that never varied, and the round 2 reviewer's other times were put down to depth with no look at where its process ran.
+- Why: the probe varied the folders (size, names, depth) and nothing about the process that asked. An explanation that fit the numbers at hand was written as the cause, while the reviewer's own shape was INFERRED and not run.
+- Rule going forward: when a reviewer's number differs, run the reviewer's own shape first, in the same process and minute as one's own. The cause is named only once one run shows both numbers. A probe of a time lists what it held fixed (the working folder, the process, the machine), and the doc sentence names the shape. This is the second time for "A time measured in one folder was written as the drive's time": a `PLAYBOOK.md` step for the pass over the open lessons.
+- Status: open
+
+## 2026-11-14: A time measured in one folder was written as the drive's time
+- What went wrong: SECURITY.md, a comment in `gitfacts.js`, a test comment and the notes gave 1.7 ms for a lookup of a name that is not there on a Windows drive in WSL. The round 2 reviewer measured 0.9 to 1.2 ms in another folder of the same drive, and a limit near 4,400 names where the doc had one between 2,000 and 3,000. A probe that changed one thing at a time showed that the time follows the depth of the folder: 1.3 ms three folders down, 3.6 ms nine down. The doc also gave 0.03 s for ext4 from the third run in one process, where a process of its own takes 0.05 s.
+- Why: every run here used one probe folder, four folders down, and two reviewers' runs in folders of like depth gave the same number. Agreement between runs of one shape was taken for the drive's number.
+- Rule going forward: a time that goes into a shipped doc is measured in at least two shapes that differ in what could set it (depth, size, name length, a fresh process), and the doc names the shape. When a reviewer's number differs from the notes, the cause is found by a probe that changes one thing at a time before the sentence is changed.
+- Status: open
+
+## 2026-11-14: A doc sentence gave the largest size that was run, and the limit was 40 times lower
+- What went wrong: SECURITY.md said that with 100,000 tracked names not on disk the check ran out of time on a Windows drive in WSL. The regression reviewer of round 1 measured the limit near 2,300 names, and a run here gave 2,000 read and 3,000 not. The sentence also left out the subfolder that the shape needs.
+- Why: 100,000 was the size chosen to show that the look at the time works, and the sentence took its number from that run. The time of one lookup (1.7 ms) was in the notes and was not divided into the 4.2 s the check has.
+- Rule going forward: a doc sentence that names a size at which something fails gives the smallest size that fails, from a run on each side of it, and names every part of the shape that the run needed.
+- Status: open
+
+## 2026-11-14: A new constant took a name the test already had
+- What went wrong: `const few` was added to the RS-A-deepindex test, which declares `few` 44 lines up. The file did not parse, and the three WSL runs each showed "tests 1, fail 1".
+- Why: the test was read around the edited line only, and no parse came between the edit and the run.
+- Rule going forward: before a `const` is added inside an existing test, the test is searched for the name, and `node --check <file>` runs after an edit to a test file, before any test run.
+- Status: open
+
+## 2026-11-14: A look at the time once in 500 steps was copied onto steps that ask the disk
+- What went wrong: the first form of the RS-A-casefoldfs fix looked at the time once in 500 lookups of a tracked name, the way the line above it does once in 500 folders. On a Windows drive in WSL a lookup takes 1.7 ms, and 100,000 names with 5 s given answered `git-timeout` after 4,969 ms: the 0.8 s kept for what comes after was used up. The timing probe found it after the tests were written, and the time test was written again.
+- Why: the idiom was taken from its neighbour without asking what one step costs here. The neighbour's step is a name in a list, and this one is a call to the disk.
+- Rule going forward: a look at the time once in N steps is written only after one step was timed on the slowest disk here (a Windows drive in WSL). A step that asks the disk gets a look each time.
+- Status: open
+
+## 2026-11-14: "A fold such as NFKC" was tried as NFKC alone, and a compare after NFC passed
+- What went wrong: the mutation list for RS-A-casefoldfs loosened the compare of a tracked name with the listed names by NFKC, and the wide forms among the near names told it. A compare after NFC passed every test on Linux (`wsl-mutate-1.out`). A name in the other Unicode form is a real member of this fault's class: a file system can find the one for the other.
+- Why: the near names put a combining accent in, which makes another letter, and had no letter with its accent in both forms. One fold was taken to stand for all.
+- Rule going forward: where a compare of names is loosened in a mutation list, NFC and NFKC are two probes, and the test has a name with an accent in both forms, each way round.
+- Status: open
+
+## 2026-11-14: A test helper's count was called "lookups" and counted every look at the path
+- What went wrong: `askFolded` counts the looks at a tracked name's own path. A new case expected one for `d/Fab` and got two: the lookup, and the look `farNested` makes when it checks the repo found there. The case failed on its first run on both systems.
+- Why: the helper's comment said "the tracked names it looked up", and the earlier cases all used a plain folder, where nothing looks a second time.
+- Rule going forward: a helper that counts calls says in its comment which callers' calls it counts, and an expected count is written for a shape only after the callers that look at that shape were read.
+- Status: open
+
+## 2026-11-14: A test added an index entry with the id of a blob the repo did not have
+- What went wrong: the `gitFacts` test for RS-A-casefoldfs added `d/F` with `update-index --cacheinfo` and the id of the empty blob, and `git commit` failed with "invalid object". The stand-ins for git use that id as plain text, where no object is asked for.
+- Why: a constant that works in a made-up list was carried over to real git.
+- Rule going forward: a test that adds an index entry by id takes the id from an object of that repo (`git rev-parse :<path>`).
+- Status: open
+
+## 2026-11-14: A timing probe ran past the ten minutes a foreground command gets
+- What went wrong: `probe-lookups.js` timed three sizes, three runs and two versions on two disks. The largest size on the Windows drive took over three minutes for one run, and the command was moved to the background when its time ran out.
+- Why: the sizes were chosen for ext4. Nothing was worked out from one small run on the slow disk first.
+- Rule going forward: a probe whose sizes multiply gets its whole time worked out from its smallest run on the slowest disk before it starts, and above two minutes it starts in the background.
+- Status: open
+
+## 2026-11-14: Four open rules were not followed in one item
+- What went wrong: (1) The RS-A-deepindex test counts the looks at the time in `farWorktree`, and it was not in the `--only` pattern from the first run: a whole-file run in WSL showed it, and it was changed twice. (2) A mutation probe's label was changed from "noted" to "Linux only" from the Linux run and a guess about Windows, and Windows tells it too. (3) The handoff's text went to the checkpoint through a heredoc, and an apostrophe in it ended the shell's parsing; nothing was written. (4) An Edit took the space out of `const askFolded = (` in the test file. The line-by-line read of the diff before the commit found it, while the quick check was running, and the tests and the quick check were run again.
+- Why: (1) the search for tests that count a function's work was made for the new lines and not for the function. (2) one system's result was taken for the label. (3) the heredoc is the skill's first way, and the text was not looked at for quotes. (4) INFERRED from the result, the edit was not looked up: its new text ended on that space.
+- Rule going forward: none new. (1), (2) and (4) are open rules seen a second time, for the pass over the open lessons to promote: search the tests for the function's name before coding in it; a probe's label stays "noted" until a run on each system printed its result; an edit's old and new text end on a visible character, and the diff is read line by line before the check that guards the commit starts, not during it. (3) A text for a command goes through the Write tool and a file.
+- Status: open
+
 ## 2026-11-14: A permission rule grew a clause for each review finding, and the next rounds found 8 and 9 more
 - What went wrong: the delegation for deferred items was written into `CLAUDE.md` "Conventions" as a list of what a session may do. Review round 1 found 12 points, and each was answered with a clause. Round 2 found 8 in the new clauses, and round 3 found 9. Several let a session act without asking in a case no clause named.
 - Why: the rule listed the allowed cases and said nothing about the rest, so every case it did not name was open to a reader that follows the letter. Each fix named one more case.
