@@ -10,7 +10,7 @@
 #
 # A superseded lesson (its rule no longer holds) is counted and never printed.
 # Its Status reads "superseded (by what)": the word alone is refused, and so
-# is a bracket with nothing in it.
+# is a bracket that a space or its closing bracket follows.
 
 set -u
 FILE="$(dirname "$0")/../LESSONS.md"
