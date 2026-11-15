@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-15: A third hang sat in the data with no note naming it
+- What went wrong: RS-D-jobtimeout's notes said a macOS job hung twice. The data its own script fetched held a third: run 42450240343 (push to `main`, 2026-11-08), whose job "macos-latest, Node 26" ran 6 h 5 min with no step reported and ended `cancelled`. No session had noticed it at the time, and this session did not see it in its data either; the round 2 reviewer found it.
+- Why: the sizing scripts read passing jobs only, and nobody looked at the long jobs of the other conclusions.
+- Rule going forward: when run data is gathered for an item, also list the longest jobs of every conclusion (cancelled and failed too), and check each against the notes before the notes say how often something happened.
+- Status: open
+
+## 2026-11-15: A value check looked for bad numbers instead of holding the value to one shape
+- What went wrong: `dev/check-workflow-timeouts.js` read the decimal numbers in a `timeout-minutes` expression and checked their range. A hex or exponent number, a negative one (read as positive), a bare context and a function all passed, and so did any limit written as a step's first key (`- timeout-minutes:`), which its line pattern never matched (review round 2).
+- Why: the check was written against the bad values that came to mind, so each new form needed a new rule; the forms YAML allows for a key were not listed.
+- Rule going forward: a check on a value says the one shape it accepts and refuses everything else, and its cases include each way the format can write the same key (here a plain key and a list item's first key).
+- Status: open
+
 ## 2026-11-15: A step limit could never fire before its job's limit
 - What went wrong: the first cut of RS-D-jobtimeout gave the step "Checks added in 0.4.5" a limit of 25 minutes on every system, with a job limit of 20 on Linux and 25 on macOS. The step starts after other steps, so the job's limit always came first there, and the comment that a hung test ends before the job was true on Windows only (review round 1).
 - Why: each limit was sized against its own slowest time, and no one added up where a step starts and where the steps after it end.
@@ -612,7 +624,7 @@ Format:
 - What went wrong: on PR #50's last head the job "macos-latest, Node 22" sat in the step "trailmark tests" for 44 minutes, where that step takes 1 to 3. `tests.yml` sets no `timeout-minutes`, so GitHub's 6 hours applied and auto-merge waited on the job. A watcher here ran into its own time limit first, which says nothing about the job. A job that never answered leaves no log, so the cause could not be read afterwards: three reruns passed and it stays unproven.
 - Why: nothing in the workflow bounds a job, and the step's usual time was written down nowhere to compare with.
 - Rule going forward: a job that runs past three times its step's usual time is treated as hung. Take auto-merge off, cancel, ask for the log, compare the step's time on other heads, and rerun that job alone three times before anything merges. A watcher's own limit running out reads "still running", never "failed". A hang with no log and passing reruns is recorded as unexplained with its evidence, and the user decides the merge.
-- Status: open (pass of 2026-11-15: seen a second time on PR 63, where auto-merge was set again on a fresh head and no job was rerun three times; which way holds is asked of the user. Also 2026-11-15: `tests.yml` has job and step limits now, section "Next version: RS-D-jobtimeout" of `dev/release-state.md`, which says what they change for that question; the question is still the user's)
+- Status: open (pass of 2026-11-15: seen a second time on PR 63, where auto-merge was set again on a fresh head and no job was rerun three times; which way holds is asked of the user. Also 2026-11-15: `tests.yml` has job and step limits now, section "Next version: RS-D-jobtimeout" of `dev/release-state.md`, which says what they change for that question; the question is still the user's. Review round 2 of that PR found a third hang in the data, run 42450240343 of 2026-11-08, which ran into the 6 hours with no step reported: entry "A third hang sat in the data with no note naming it")
 
 ## 2026-11-11: A case with real git was loosened, and its strict twin left out one value
 - What went wrong: round 2 let the two cases "real git is stopped at 1 ms" accept either answer and moved the strict check to a stand-in, but the stand-in was stopped at 2000 ms only. A change that reads git stopped at 1 ms as an empty file then passed the test, where the test before it failed (round 3's reviewer). A second gap had been there from the start: nothing showed that the time is asked again when git starts.

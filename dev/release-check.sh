@@ -285,6 +285,7 @@ for f in $SHARED; do cmp -s "plugins/trailmark/$f" "plugins/trailmark-codex/$f" 
 if out="$(node dev/check-workflow-timeouts.js 2>&1)"; then record PASS "workflow jobs have timeout-minutes ($(grep -c ' jobs (' <<<"$out") files)"
 else
   why="$(grep -m1 -E '^(FAULT |self-test FAIL|no workflow)' <<<"$out")"
+  [ -n "$why" ] || why="$(grep -m1 'Error' <<<"$out" | cut -c1-120)"
   record FAIL "workflow timeouts: ${why:-no fault line; last line: $(tail -1 <<<"$out")}"
 fi
 

@@ -10,10 +10,12 @@
 // It reads the files line by line, not as YAML: a job is a key one level below
 // the top-level `jobs:`, and its limit is a `timeout-minutes:` key one level
 // below the job (a step's limit is deeper and does not count for the job).
-// Each `timeout-minutes` value it finds, job or step, is a whole number from 1
-// to 360, or a `${{ }}` expression whose unquoted numbers are all in that range
-// and that ends in `|| <number>`, so that no matrix row falls through to
-// `false`. It prints the self-test's line, then one line per file and one
+// Each `timeout-minutes` value it finds, job or step (a step's first key, after
+// `- `, too), is a whole number from 1 to 360, or a `${{ }}` expression of one
+// shape: `matrix.os == '<label>' && <n> || ... || <n>`, every <n> a whole
+// number in that range. The last part is a number, so no matrix row falls
+// through to `false`; any other shape (a hex or negative number, a function, a
+// bare context) is refused. It prints the self-test's line, then one line per file and one
 // `FAULT <file>: ...` line for each fault, and exits 1 on any fault. It only
 // reads files. Shapes it does not read as YAML (a flow-style or quoted job
 // key, an anchor, a quoted value, a job that calls a reusable workflow, which
@@ -25,15 +27,24 @@ const path = require('path');
 const indentOf = (l) => l.match(/^ */)[0].length;
 const isBlank = (l) => /^\s*(#.*)?$/.test(l);
 
+const inRange = (n) => Number(n) >= 1 && Number(n) <= 360;
+const CHAIN_PART = /^matrix\.os\s*==\s*'[A-Za-z0-9._-]+'\s*&&\s*([0-9]+)$/;
+
 function badValue(v) {
-  if (/^[0-9]+$/.test(v)) return Number(v) >= 1 && Number(v) <= 360 ? '' : `${v} is not from 1 to 360`;
+  if (/^[0-9]+$/.test(v)) return inRange(v) ? '' : `${v} is not from 1 to 360`;
   const m = v.match(/^\$\{\{(.*)\}\}$/);
   if (!m) return `${JSON.stringify(v)} is neither a number nor an expression`;
-  const nums = m[1].replace(/'[^']*'/g, '').match(/\b[0-9]+(\.[0-9]+)?\b/g) || [];
-  if (!nums.length) return `${JSON.stringify(v)} holds no number`;
-  const off = nums.filter((n) => !/^[0-9]+$/.test(n) || Number(n) < 1 || Number(n) > 360);
-  if (off.length) return `${JSON.stringify(v)} holds ${off.join(', ')}, not from 1 to 360`;
-  return /\|\|\s*[0-9]+\s*$/.test(m[1]) ? '' : `${JSON.stringify(v)} does not end in || <number>, so a matrix row can fall through`;
+  const parts = m[1].split('||').map((p) => p.trim());
+  const last = parts[parts.length - 1];
+  if (!/^[0-9]+$/.test(last)) return `${JSON.stringify(v)} does not end in || <number>, so a matrix row can fall through`;
+  const nums = [last];
+  for (const p of parts.slice(0, -1)) {
+    const pm = p.match(CHAIN_PART);
+    if (!pm) return `${JSON.stringify(v)} has a part that is not matrix.os == '<label>' && <number>: ${JSON.stringify(p)}`;
+    nums.push(pm[1]);
+  }
+  const off = nums.filter((n) => !inRange(n));
+  return off.length ? `${JSON.stringify(v)} holds ${off.join(', ')}, not from 1 to 360` : '';
 }
 
 // Returns { jobs: [names], faults: [texts] } for one workflow's text.
@@ -41,7 +52,7 @@ function check(text) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   const faults = [];
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^\s*timeout-minutes:\s*(.*?)\s*(#.*)?$/);
+    const m = lines[i].match(/^\s*(?:-\s+)?timeout-minutes:\s*(.*?)\s*(#.*)?$/);
     if (m) { const b = badValue(m[1]); if (b) faults.push(`line ${i + 1}: timeout-minutes ${b}`); }
   }
   const start = lines.findIndex((l) => /^jobs:\s*(#.*)?$/.test(l));
@@ -87,9 +98,21 @@ function selfTest() {
     ['a limit of 361', job('    timeout-minutes: 361\n'), 'not from 1 to 360'],
     ['a limit of 2.5', job('    timeout-minutes: 2.5\n'), 'neither'],
     ['an empty limit', job('    timeout-minutes:\n'), 'neither'],
-    ['an expression with 0', job('    timeout-minutes: ${{ true && 0 || 25 }}\n'), 'not from 1 to 360'],
-    ['an expression with 400', job('    timeout-minutes: ${{ true && 400 || 25 }}\n'), 'not from 1 to 360'],
-    ['an expression with no number', job('    timeout-minutes: ${{ matrix.limit }}\n'), 'holds no number'],
+    ['an expression with 0', job("    timeout-minutes: ${{ matrix.os == 'x' && 0 || 25 }}\n"), 'not from 1 to 360'],
+    ['an expression with 400', job("    timeout-minutes: ${{ matrix.os == 'x' && 400 || 25 }}\n"), 'not from 1 to 360'],
+    ['an expression ending in 0', job("    timeout-minutes: ${{ matrix.os == 'x' && 30 || 0 }}\n"), 'not from 1 to 360'],
+    ['an expression with no number', job('    timeout-minutes: ${{ matrix.limit }}\n'), 'fall through'],
+    ['an expression with a hex number', job("    timeout-minutes: ${{ matrix.os == 'x' && 0x200 || 20 }}\n"), 'not matrix.os'],
+    ['an expression with an exponent', job("    timeout-minutes: ${{ matrix.os == 'x' && 1e3 || 20 }}\n"), 'not matrix.os'],
+    ['an expression ending in an exponent', job("    timeout-minutes: ${{ matrix.os == 'x' && 30 || 1e3 }}\n"), 'fall through'],
+    ['an expression with a negative number', job("    timeout-minutes: ${{ matrix.os == 'x' && -5 || 20 }}\n"), 'not matrix.os'],
+    ['an expression with a bare context', job('    timeout-minutes: ${{ matrix.os || 20 }}\n'), 'not matrix.os'],
+    ['an expression with a function', job('    timeout-minutes: ${{ fromJSON(matrix.limit) || 20 }}\n'), 'not matrix.os'],
+    ['an expression in parentheses', job("    timeout-minutes: ${{ (matrix.os == 'x' && 8) || 20 }}\n"), 'not matrix.os'],
+    ['an expression that is one number', job('    timeout-minutes: ${{ 30 }}\n'), ''],
+    ['a step limit as the first key, falling through', job('    timeout-minutes: 30\n').replace('      - run: true\n', "      - timeout-minutes: ${{ matrix.os == 'x' && 8 }}\n        run: true\n"), 'fall through'],
+    ['a step limit as the first key, 0', job('    timeout-minutes: 30\n').replace('      - run: true\n', '      - timeout-minutes: 0\n        run: true\n'), 'not from 1 to 360'],
+    ['a step limit as the first key only', job('').replace('      - run: true\n', '      - timeout-minutes: 30\n        run: true\n'), 'no timeout-minutes'],
     ['an expression with no last number', job("    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 }}\n"), 'fall through'],
     ['an expression whose last part is a test', job("    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || matrix.os == 'macos-latest' && 25 }}\n"), 'fall through'],
     ['an expression ending in a quoted number', job("    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || '20' }}\n"), 'fall through'],

@@ -18,9 +18,10 @@ jobs:
   test:
     name: ${{ matrix.os }}, Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
-    # A job is cancelled at this limit, not at GitHub's 6 hours: Linux 20,
-    # macOS 25, Windows 45 minutes, at least twice the slowest passing job seen
-    # on each (dev/release-state.md, section "Next version: RS-D-jobtimeout").
+    # The job's time limit, in place of GitHub's default of 6 hours (its docs
+    # say a job is cancelled at its limit): Linux 20, macOS 25, Windows 45
+    # minutes, at least twice the slowest passing job seen on each
+    # (dev/release-state.md, section "Next version: RS-D-jobtimeout").
     # The largest limit comes last, so a runner not named here gets it.
     timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 20 || matrix.os == 'macos-latest' && 25 || 45 }}
     strategy:
