@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK
 ```
 
+## 2026-11-14: The probe that found a cause held the process's working folder fixed
+- What went wrong: after round 2 a probe changed one thing at a time, found that a lookup's time on a Windows drive in WSL follows the depth of the folder, and SECURITY.md gave times by depth. The round 3 reviewer measured half those times at the same depth. The time follows the folder the process works in: that folder and the ones above it cost nothing. Every run here had started in the worktree, so that never varied, and the round 2 reviewer's other times were put down to depth with no look at where its process ran.
+- Why: the probe varied the folders (size, names, depth) and nothing about the process that asked. An explanation that fit the numbers at hand was written as the cause, while the reviewer's own shape was INFERRED and not run.
+- Rule going forward: when a reviewer's number differs, run the reviewer's own shape first, in the same process and minute as one's own. The cause is named only once one run shows both numbers. A probe of a time lists what it held fixed (the working folder, the process, the machine), and the doc sentence names the shape. This is the second time for "A time measured in one folder was written as the drive's time": a `PLAYBOOK.md` step for the pass over the open lessons.
+- Status: open
+
 ## 2026-11-14: A time measured in one folder was written as the drive's time
 - What went wrong: SECURITY.md, a comment in `gitfacts.js`, a test comment and the notes gave 1.7 ms for a lookup of a name that is not there on a Windows drive in WSL. The round 2 reviewer measured 0.9 to 1.2 ms in another folder of the same drive, and a limit near 4,400 names where the doc had one between 2,000 and 3,000. A probe that changed one thing at a time showed that the time follows the depth of the folder: 1.3 ms three folders down, 3.6 ms nine down. The doc also gave 0.03 s for ext4 from the third run in one process, where a process of its own takes 0.05 s.
 - Why: every run here used one probe folder, four folders down, and two reviewers' runs in folders of like depth gave the same number. Agreement between runs of one shape was taken for the drive's number.
