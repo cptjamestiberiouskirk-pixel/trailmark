@@ -18,6 +18,12 @@ jobs:
   test:
     name: ${{ matrix.os }}, Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
+    # The job's time limit, in place of GitHub's default of 6 hours (its docs
+    # say a job is cancelled at its limit): Linux 20, macOS 25, Windows 45
+    # minutes, at least twice the slowest passing job seen on each
+    # (dev/release-state.md, section "Next version: RS-D-jobtimeout").
+    # The largest limit comes last, so a runner not named here gets it.
+    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 20 || matrix.os == 'macos-latest' && 25 || 45 }}
     strategy:
       fail-fast: false
       matrix:
@@ -88,7 +94,11 @@ jobs:
           Write-Output "::notice title=watchdog test::$result"
           if ($fails.Count) { Write-Output ("::warning title=watchdog test failures ($($fails.Count))::" + (($fails | ForEach-Object { $_.Trim() }) -join '%0A')) }
           if (-not $result -or $fails.Count) { exit 1 }
+      # Each test step has a limit of its own too, at least twice its slowest
+      # passing time on each system, so that a hung test is stopped before the
+      # job's limit and the steps after it have time to run (the same section).
       - name: Checks added in 0.4.5 (both copies)
+        timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 8 || matrix.os == 'macos-latest' && 12 || 25 }}
         shell: bash
         run: |
           node --test --test-reporter=tap plugins/trailmark/tests/handoff-checks.test.js plugins/trailmark-codex/tests/handoff-checks.test.js > tap-new.txt 2>&1 && ok=1 || ok=0
@@ -99,6 +109,7 @@ jobs:
       # copy's test files other than handoff-checks run here, side by side.
       - name: trailmark tests
         if: always()
+        timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 8 || matrix.os == 'macos-latest' && 12 || 15 }}
         shell: bash
         run: |
           node --test --test-reporter=tap $(ls plugins/trailmark/tests/*.test.js | grep -v '/handoff-checks.test.js$') > tap-claude.txt 2>&1 && ok=1 || ok=0
@@ -106,6 +117,7 @@ jobs:
           [ "$ok" = 1 ]
       - name: trailmark-codex tests
         if: always()
+        timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 8 || matrix.os == 'macos-latest' && 12 || 15 }}
         shell: bash
         run: |
           node --test --test-reporter=tap $(ls plugins/trailmark-codex/tests/*.test.js | grep -v '/handoff-checks.test.js$') > tap-codex.txt 2>&1 && ok=1 || ok=0

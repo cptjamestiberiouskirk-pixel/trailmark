@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-15: A merge that kept both sides' new entries left one without its Status line
+- What went wrong: merging `main` into the pause watch branch, `LESSONS.md` had one conflict block, both sides' new entries at the top. Both sides' last entries ended in `- Status: open`; git kept that line once, as context after the block, so keeping both sides gave one entry no Status line and put a blank line before the other's. `dev/lessons.sh --check` found it (1 bad).
+- Why: a conflict block holds only what differs; a line both sides end with sits outside it, and a resolver that keeps "ours, then theirs" gives it to one side only.
+- Rule going forward: after resolving a conflict in a file of entries, run its format check (`dev/lessons.sh --check`) and compare the sorted entry titles with the union of both parents' before the merge commit.
+- Status: open
+
 ## 2026-11-15: A load log printed nothing, and the runs it was for were already done
 - What went wrong: `rerun-pattern.sh` logged processor load with `pwsh` before and after each of three test runs. In that background shell `pwsh` was not on PATH (an earlier script of the same shape, two hours before, found it), so each log line was empty after a "command not found", and the one run that failed has no load reading of its own. The reading was taken after, with the full path.
 - Why: the script did not check that its probe works before the runs, and printed an empty value as a reading.
@@ -61,6 +67,48 @@ Format:
 - What went wrong: the pause watch's doc edits were scanned with `LC_ALL=C.UTF-8 grep -c $'\xe2\x80[\x93\x94]'` in Git Bash. It printed 0 for the added lines and 0 for a control line that held an em dash, and exited 1, which reads as "none found". A Node scan (a class of U+2013 and U+2014 over the added lines of the diff) found 0 in 340 added lines and 1 in its control.
 - Why: in a UTF-8 locale the bracket `[\x93\x94]` names characters, and the two lone bytes are no characters there, so the pattern can't match a whole em dash. Exit 1 is "no match", the same as a clean text.
 - Rule going forward: a scan for non-ASCII characters runs in Node over the diff text (`git diff` piped to a script with a `\u` class), with a control line in the same run. "Committing" step 4 caught this one through its control; this is a second shape of its `grep -P` case.
+- Status: open
+
+## 2026-11-15: A failed run's kept folder was pushed out before the review read it
+- What went wrong: RS-D-jobtimeout's batch 9 check failed 3 tests, and the notes cited its kept folder. Before round 10 read it, `prune_kept` had removed it: another session's `--only` runs added more than 20 unmarked folders. Only the lines this session had printed to its console were left (`quick-14-failures.txt`).
+- Why: the rule of 2026-11-08 ("Reviewers' proofs push out kept failed runs") was in `LESSONS.md` only, not in the step that is read when a run fails.
+- Rule going forward: copy the failed tests' lines out of a kept folder at once (PLAYBOOK "Testing" step 4).
+- Status: promoted to PLAYBOOK ("Testing" step 4)
+
+## 2026-11-15: A record gave one reading for three cases, and a rule's reach without its skips
+- What went wrong: RS-D-jobtimeout's round 6 record said the `yaml` package reads `"30 - 0"` for X11, X13 and X14, but the output it cited showed `"30 0"` for X14. The bullet "The check" said a line deeper than a value is refused "whatever the line holds", but the checker skips a blank line, a full-line comment and a line inside a block scalar before that rule runs. The round 7 docs reviewer found both (WRONG).
+- Why: the reading was taken from the first case and written for the group. The rule's sentence was written from the rule's own line of code, not from the loop that decides which lines reach it. Round 8 then found that batch 7's fix cited a probe file for two cases that are in another file, and gave reviewer claims without "not re-run"; round 9 found batch 8 had miscounted those cases and missed three more such claims.
+- Rule going forward: a record that gives one result for several cases checks it against each case's line in the output it cites. A sentence that says what a rule refuses names the lines that skip it, read from the code above the rule. Each case a repro names is found by a search in the file the repro cites, and a reviewer's claim copied into the notes says "not re-run" unless this session ran it.
+- Status: open
+
+## 2026-11-15: An exemption written for one valid text opened a hole of its own
+- What went wrong: batch 5 of RS-D-jobtimeout refused an `&` or a `*` that starts a token, except one followed by `&`, so that the shell's `&&` would pass. The anchor `&&k` and its alias `*&k` passed through that exemption and got a limit of 400 past the check (review round 6). Its quote rule took any quote as the start of a quoted value, and a quote inside a plain key hid an anchor after it. Round 6's mutations also showed that three rules batch 5 added had no case that failed without them: PLAYBOOK "Testing" step 8 was not run on that batch. The fix the coordinating session first asked for (refuse every `&` or `*` that starts a token) would have refused two `if:` lines of `tests.yml`.
+- Why: the exemption was taken from the valid text that tripped the rule (`a && b`), not from where the format can hold the refused thing. YAML reads an anchor or an alias only where a node starts, and a quote starts a quoted value only there too.
+- Rule going forward: an exemption to a refusal is written from the format's own rule for where the refused thing can occur, and each exemption gets a case with the refused thing written right next to the exempted text (`&&k` beside `&&`). After each batch of a check's rules, mutate each new rule alone and see a case fail (PLAYBOOK "Testing" step 8).
+- Status: open
+
+## 2026-11-15: A third hang sat in the data with no note naming it
+- What went wrong: RS-D-jobtimeout's notes said a macOS job hung twice. The data its own script fetched held a third: run 42450240343 (push to `main`, 2026-11-08), whose job "macos-latest, Node 26" ran 6 h 5 min with no step reported and ended `cancelled`. No session had noticed it at the time, and this session did not see it in its data either; the round 2 reviewer found it.
+- Why: the sizing scripts read passing jobs only, and nobody looked at the long jobs of the other conclusions.
+- Rule going forward: when run data is gathered for an item, also list the longest jobs of every conclusion (cancelled and failed too), and check each against the notes before the notes say how often something happened.
+- Status: open
+
+## 2026-11-15: A value check looked for bad numbers instead of holding the value to one shape
+- What went wrong: `dev/check-workflow-timeouts.js` read the decimal numbers in a `timeout-minutes` expression and checked their range. A hex or exponent number, a negative one (read as positive), a bare context and a function all passed, and so did any limit written as a step's first key (`- timeout-minutes:`), which its line pattern never matched (review round 2). Round 3 found three more forms that still passed after batch 2: a flow-style step, a quoted key and a space before the colon. Round 4 found one more: a double-quoted key with an escape (`"timeout\x2dminutes"`).
+- Why: the check was written against the bad values that came to mind, so each new form needed a new rule; the forms YAML allows for a key were not listed.
+- Rule going forward: a check on a value says the one shape it accepts and refuses everything else, and a line that names the key in a form the check does not read is a fault too. Before the pattern is written, list the ways the format can write the key (for YAML: a plain key, a list item's first key, a flow mapping, a quoted key, a space before the colon) and give each a case.
+- Status: promoted (PLAYBOOK "Writing code and docs" step 8, its last sentence, added in batch 4 of RS-D-jobtimeout after rounds 2 and 3 found the gap)
+
+## 2026-11-15: A step limit could never fire before its job's limit
+- What went wrong: the first cut of RS-D-jobtimeout gave the step "Checks added in 0.4.5" a limit of 25 minutes on every system, with a job limit of 20 on Linux and 25 on macOS. The step starts after other steps, so the job's limit always came first there, and the comment that a hung test ends before the job was true on Windows only (review round 1).
+- Why: each limit was sized against its own slowest time, and no one added up where a step starts and where the steps after it end.
+- Rule going forward: a limit inside another (a step in a job, a call in a hook's budget) is checked against the outer one by a script: for a hang at each inner place, with everything else at its slowest seen time put before it, the inner limit must fire first and what runs after it must still fit. The script's output is named in the notes.
+- Status: open
+
+## 2026-11-15: A time limit sized from a guess, then from a short window, was too tight
+- What went wrong: RS-D-jobtimeout's fix idea of 2026-11-11 was about 20 minutes per job. The Actions API showed healthy Windows jobs taking up to 21.5 minutes, so that limit would have cancelled passing jobs. Then the first step limit for "trailmark tests", 10 minutes, was sized from the last 20 + 20 runs (slowest 4.2 minutes); the last 100 + 100 runs had one of 7.28 minutes, and it went to 15 before any commit. Then review round 1 found that the 100 + 100 window, too, left out 62 passing PR runs and every passing job inside a failed or cancelled run: over all of them that step's slowest was 7.45.
+- Why: the idea was written from the macOS step's usual time, with no reading of the other systems' jobs, and the first data window held only the newest runs, which were not the slowest. The second window still asked for passing runs, where the rule's own words ask for every listed run.
+- Rule going forward: a time limit is sized from the slowest passing time over the widest window the data gives (every run that is still listed, not the newest 20), for each system on its own, and the notes give the ratio of each limit to that time with the run it came from.
 - Status: open
 
 ## 2026-11-15: The record merged with "not pushed" in two places
@@ -649,7 +697,7 @@ Format:
 - What went wrong: on PR #50's last head the job "macos-latest, Node 22" sat in the step "trailmark tests" for 44 minutes, where that step takes 1 to 3. `tests.yml` sets no `timeout-minutes`, so GitHub's 6 hours applied and auto-merge waited on the job. A watcher here ran into its own time limit first, which says nothing about the job. A job that never answered leaves no log, so the cause could not be read afterwards: three reruns passed and it stays unproven.
 - Why: nothing in the workflow bounds a job, and the step's usual time was written down nowhere to compare with.
 - Rule going forward: a job that runs past three times its step's usual time is treated as hung. Take auto-merge off, cancel, ask for the log, compare the step's time on other heads, and rerun that job alone three times before anything merges. A watcher's own limit running out reads "still running", never "failed". A hang with no log and passing reruns is recorded as unexplained with its evidence, and the user decides the merge.
-- Status: open (pass of 2026-11-15: seen a second time on PR 63, where auto-merge was set again on a fresh head and no job was rerun three times; which way holds is asked of the user)
+- Status: open (pass of 2026-11-15: seen a second time on PR 63, where auto-merge was set again on a fresh head and no job was rerun three times; which way holds is asked of the user. Also 2026-11-15: `tests.yml` has job and step limits now, section "Next version: RS-D-jobtimeout" of `dev/release-state.md`, which says what they change for that question; the question is still the user's. Review round 2 of that PR found a third hang in the data, run 42450240343 of 2026-11-08, which ran into the 6 hours with no step reported: entry "A third hang sat in the data with no note naming it")
 
 ## 2026-11-11: A case with real git was loosened, and its strict twin left out one value
 - What went wrong: round 2 let the two cases "real git is stopped at 1 ms" accept either answer and moved the strict check to a stand-in, but the stand-in was stopped at 2000 ms only. A change that reads git stopped at 1 ms as an empty file then passed the test, where the test before it failed (round 3's reviewer). A second gap had been there from the start: nothing showed that the time is asked again when git starts.
@@ -1063,7 +1111,7 @@ Format:
 - What went wrong: a review round's deliberate failures (a mutation per run) count against the 20 kept failed runs in the shared `trailmark-release-check` folder. Two reviewers reported older folders gone during their runs, three of them named (INFERRED: `prune_kept`; another session's run isn't ruled out).
 - Why: every session and subagent on the machine shares that one cap, and a proof that fails on purpose looks like any other failed run.
 - Rule going forward: when a failed run's output will be needed later, copy what matters out of that folder. To read a run's own output, take its folder from that run's summary, not from a listing of the shared folder.
-- Status: open
+- Status: promoted to PLAYBOOK ("Testing" step 4, 2026-11-15, after the second sighting)
 
 ## 2026-11-08: An exception to a skill's rule had no scope
 
