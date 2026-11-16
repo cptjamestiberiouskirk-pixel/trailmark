@@ -14,6 +14,11 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-16: A test failed only because the checkout sat at a long path
+- What went wrong: the docs branch of the Codex trials, checked out under the session's scratch folder, failed `injection: a note shortened to fit is never cut inside the launcher's path` (`169 > 150`) in `--sums --quick`, on a docs-only change. The same `plugins/` files passed in the usual worktree and in a checkout at `E:/DevTemp/cxd`.
+- Why: the test puts the launcher's path at character 140 of each note and expects the 300 cut to overflow the budget. With the launcher path at 158 characters or more, the 300 cut drops the whole path (140 plus the 29 of the marker), 7 such notes fit, and the 150 cut the test checks is never reached. The scratch folder's path made the launcher 158 characters long.
+- Rule going forward: a check runs from a checkout at a short path (the usual worktree, or one under `E:/DevTemp`), never under the session's scratch folder. A failure in a checkout at a new path is first compared with the same commit at a short path.
+- Status: open
 ## 2026-11-16: A sandbox trial passed because the folder under test was inside a root the sandbox opens
 - What went wrong: the Codex trials' checkpoint run under `-s workspace-write` first ran as read-only (no `[windows]` sandbox setting, repo not trusted), then saved the handoff with no approval. The scratch memory folder was under `%TEMP%`, and Codex's workspace-write lets commands write there unless `exclude_tmpdir_env_var` is set. A later run that needed the sandbox off (`danger-full-access`) was refused by the session's permission check.
 - Why: the scratch layout put everything under the temp folder for easy clean-up, and the run's result was read before the policy it ran under.
