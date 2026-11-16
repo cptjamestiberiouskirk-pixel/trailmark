@@ -56,7 +56,7 @@ Below 80% of the earliest point any setting allows, the launcher exits before it
 
 It starts over after a compaction, or once the context has shrunk by a fifth or fallen below 75% of the compaction point (after a request made from the transcript's own size); the launcher reads that from the transcript since the last request. It also starts over when the compaction point grows past the biggest one it has asked under, as with a bigger window from another model or a setting, once the context reaches a step of the bigger point. Until then the earlier request stands, so a window that flips between two sizes doesn't ask again on each flip. Its state is kept in the session's record in the state file. Before a step is reached, the state is written only to change an earlier request: to clear it when it starts over, or to note what came since (a handoff write, or the transcript reaching the first step after a request from the estimate). `"contextWatch": {"on": false}` in `.jbmem.json` turns it off.
 
-The Codex copy has no context watch: Codex records token counts, but where it compacts by default isn't established, and its hooks have no prompt event.
+The Codex copy has no context watch: Codex records token counts, but where it compacts by default isn't established. Codex does send a prompt event (`UserPromptSubmit`, seen with Codex 0.169), which the Codex copy doesn't use.
 
 ### Pause watch
 

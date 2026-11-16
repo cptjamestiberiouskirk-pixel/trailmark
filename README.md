@@ -75,7 +75,7 @@ Part of the install happens in the app, so there is no single command for it.
    codex plugin marketplace add <release folder>
    ```
 
-3. Restart the ChatGPT desktop app, open Plugins, choose the `trailmark-codex` marketplace and install `trailmark-codex`. Review and trust its hooks when the app asks. Codex runs a plugin's hooks only when it was installed in the app.
+3. Restart the ChatGPT desktop app, open Plugins, choose the `trailmark-codex` marketplace and install `trailmark-codex`. Review and trust its hooks when the app asks. `codex plugin add trailmark-codex@trailmark-codex` installs it from the command line instead (MANUAL.md section 8).
 4. On Windows, set `NoDefaultCurrentDirectoryInExePath` ([MANUAL.md](MANUAL.md), section 9) and restart the app once more.
 
 The [Codex copy's README](plugins/trailmark-codex/README.md) and [MANUAL.md](MANUAL.md), section 8, have every step in full, with what has and hasn't been tested.
