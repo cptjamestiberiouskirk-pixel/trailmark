@@ -14,6 +14,23 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-16: A test failed only because the checkout sat at a long path
+- What went wrong: the docs branch of the Codex trials, checked out under the session's scratch folder, failed `injection: a note shortened to fit is never cut inside the launcher's path` (`169 > 150`) in `--sums --quick`, on a docs-only change. The same `plugins/` files passed in the usual worktree and in a checkout at `E:/DevTemp/cxd`.
+- Why: the test puts the launcher's path at character 140 of each note and expects the 300 cut to overflow the budget. With the launcher path at 158 characters or more, the 300 cut drops the whole path (140 plus the 29 of the marker), 7 such notes fit, and the 150 cut the test checks is never reached. The scratch folder's path made the launcher 158 characters long.
+- Rule going forward: a check runs from a checkout at a short path (the usual worktree, or one under `E:/DevTemp`), never under the session's scratch folder. A failure in a checkout at a new path is first compared with the same commit at a short path.
+- Status: open
+## 2026-11-16: A sandbox trial passed because the folder under test was inside a root the sandbox opens
+- What went wrong: the Codex trials' checkpoint run under `-s workspace-write` first ran as read-only (no `[windows]` sandbox setting, repo not trusted), then saved the handoff with no approval. The scratch memory folder was under `%TEMP%`, and Codex's workspace-write lets commands write there unless `exclude_tmpdir_env_var` is set. A later run that needed the sandbox off (`danger-full-access`) was refused by the session's permission check.
+- Why: the scratch layout put everything under the temp folder for easy clean-up, and the run's result was read before the policy it ran under.
+- Rule going forward: a sandbox trial reads the policy each run actually got (the rollout's `sandbox_policy` line) before its result, and puts the folder under test outside every root that policy opens (temp folders included), or closes them. A trial step that needs a sandbox off is planned as the user's step from the start.
+- Status: open
+
+## 2026-11-16: An insert script copied the file's top line into the text it inserted
+- What went wrong: the script that put the Codex trials' notes into `dev/release-state.md` used `String.replace` with the notes as a string. The notes held `` `^Bash$` ``, and `` $` `` in a replacement string means "the text before the match", so the file's top line went into the insert and the script's own count of the top line's anchor failed (nothing was written).
+- Why: JavaScript reads `$&`, `` $` ``, `$'` and `$1` in a replacement string as patterns, and notes about regexes hold `$`.
+- Rule going forward: a script that inserts text into a file passes the replacement as a function (`t.replace(anchor, () => text)`), and checks after the replace that the text is in the result word for word.
+- Status: open
+
 ## 2026-11-16: A probe read the wrong line of a zip listing, and the listing hid the field that differs
 - What went wrong: RS-T-ziptz's probe printed line 4 of `unzip -l` as "the first entry's time" and got a row of dashes: git puts the commit id in the zip comment, which moves the listing down a line. Read at the right line, `unzip -l` showed the same time for a zip built with `TZ=UTC` and one built without, though their sha256 differed. The first comment in `build_zip` had said "a zip entry's time is local time", taken from the item's notes. `unzip -Zv` showed that only the DOS date and time follow the time zone, and the UT extra field holds the same instant in both.
 - Why: the probe took a fixed line number from memory of the tool's output, not from that output. The comment named a cause no run had shown at the level of the bytes.
@@ -48,7 +65,8 @@ Format:
 - What went wrong: merging `main` into the pause watch branch, `LESSONS.md` had one conflict block, both sides' new entries at the top. Both sides' last entries ended in `- Status: open`; git kept that line once, as context after the block, so keeping both sides gave one entry no Status line and put a blank line before the other's. `dev/lessons.sh --check` found it (1 bad).
 - Why: a conflict block holds only what differs; a line both sides end with sits outside it, and a resolver that keeps "ours, then theirs" gives it to one side only.
 - Rule going forward: after resolving a conflict in a file of entries, run its format check (`dev/lessons.sh --check`) and compare the sorted entry titles with the union of both parents' before the merge commit.
-- Status: open
+- Second sighting (2026-11-16, merging `main` with PR 74 into `claude/codex-trials`): the entry "An insert script copied the file's top line into the text it inserted" lost its Status line the same way; `dev/lessons.sh --check` showed 1 bad, and the line was put back.
+- Status: promoted to PLAYBOOK ("Committing" step 6)
 
 ## 2026-11-15: A load log printed nothing, and the runs it was for were already done
 - What went wrong: `rerun-pattern.sh` logged processor load with `pwsh` before and after each of three test runs. In that background shell `pwsh` was not on PATH (an earlier script of the same shape, two hours before, found it), so each log line was empty after a "command not found", and the one run that failed has no load reading of its own. The reading was taken after, with the full path.

@@ -99,6 +99,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 3. Before a batch's commit, each sentence it adds (a comment, a note, the commit message) is read once against the line or the run that makes it true. One that names a commit is read at that commit (`git show <commit>:<file>`).
 4. A scan that guards a commit, a push or a send prints a count from what it read, and is run once on a text known to hold what it looks for. An exit code that is neither "found" nor "not found" stops the step: `grep -P '[\x{2013}\x{2014}]'` in Git Bash on this machine exits 2 ("character value in \x{} or \o{} is too large"), and `||` or `if` reads that as nothing found.
 5. An edit's old and new text end on a visible character, at the end of a line. Before the check that guards a commit starts, the diff of code and tests is read line by line, not only counted.
+6. A merge whose conflict is in a file of entries (`LESSONS.md`, the sections of `dev/release-state.md`), resolved by keeping both sides: git keeps a line both sides end with (`- Status: open`) once, outside the block. Before the merge commit, run `dev/lessons.sh --check` and compare the entry or section titles with the union of both parents'.
 
 ## Pushing and CI
 
