@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-16: A sandbox trial passed because the folder under test was inside a root the sandbox opens
+- What went wrong: the Codex trials' checkpoint run under `-s workspace-write` first ran as read-only (no `[windows]` sandbox setting, repo not trusted), then saved the handoff with no approval. The scratch memory folder was under `%TEMP%`, and Codex's workspace-write lets commands write there unless `exclude_tmpdir_env_var` is set. A later run that needed the sandbox off (`danger-full-access`) was refused by the session's permission check.
+- Why: the scratch layout put everything under the temp folder for easy clean-up, and the run's result was read before the policy it ran under.
+- Rule going forward: a sandbox trial reads the policy each run actually got (the rollout's `sandbox_policy` line) before its result, and puts the folder under test outside every root that policy opens (temp folders included), or closes them. A trial step that needs a sandbox off is planned as the user's step from the start.
+- Status: open
+
+## 2026-11-16: An insert script copied the file's top line into the text it inserted
+- What went wrong: the script that put the Codex trials' notes into `dev/release-state.md` used `String.replace` with the notes as a string. The notes held `` `^Bash$` ``, and `` $` `` in a replacement string means "the text before the match", so the file's top line went into the insert and the script's own count of the top line's anchor failed (nothing was written).
+- Why: JavaScript reads `$&`, `` $` ``, `$'` and `$1` in a replacement string as patterns, and notes about regexes hold `$`.
+- Rule going forward: a script that inserts text into a file passes the replacement as a function (`t.replace(anchor, () => text)`), and checks after the replace that the text is in the result word for word.
+- Status: open
+
 ## 2026-11-16: A deferred item named four letters, and its class had six
 - What went wrong: RS-T-foldletters said the decision test's paths needed `s`, `S`, `k` and `K`, for U+017F and the Kelvin sign. Probing every fold of the six characters the test's comment names, at the parent's test, found two more compares that passed, besides those of the four letters: U+0131 read as `I`, and U+0130 read as `I` (`mutations-1.out` in `rs-t-foldletters/` of the sessions' notes folder). A fix that added only the four letters would have left two of the six with no letter to meet.
 - Why: the item was written from the one mutation that drew it (round 4 of RS-A-redirect), and the record's fix named that mutation's letters, not the class.
