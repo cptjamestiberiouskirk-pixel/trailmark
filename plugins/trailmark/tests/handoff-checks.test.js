@@ -106,28 +106,35 @@ function junctionGit(base, onRetry = () => {}) {
 }
 
 // The launcher stops a hook's script at its time limit (trailmark.js, run:
-// 9 s from the launcher's start, less its own work) and says so on stderr.
-// On a busy machine that is the designed outcome, not a fault: in the stops
-// seen here the launcher's own work took 4.9 to 13.1 s, so the script got
-// what was left or the 300 ms floor (RS-T-startstopped in
-// dev/release-state.md). So a stopped session start is made again, three
-// times in all. Each stop must show, in the launcher's JBMEM_SHOW_RUN line,
-// that the script got what the launcher's rule leaves (9000 - spent, at
-// least 300). After the third stop the script runs alone, outside the
-// launcher, with 30 s, as a control: a script that hangs or fails fails the
-// test. Otherwise the test is skipped with the reason (sinceTest and
-// copiesTest); a test with neither wrapper fails on it, with the reason.
-// Not covered: a launcher step that is slow at rest but ends, which these
-// stops can't tell from load (one that never ends leaves the test waiting,
-// with no stop).
+// 9 s from T0, which it sets once its first modules have loaded, less its
+// own work since) and says so on stderr. On a busy machine that is the
+// designed outcome, not a fault: in the stops seen here the launcher's own
+// work after T0 took 4.9 to 13.1 s, so the script got what was left or the
+// 300 ms floor (RS-T-startstopped in dev/release-state.md). So a stopped
+// session start is made again, three times in all. Each stop must show, in
+// the launcher's JBMEM_SHOW_RUN line, that the script got what the
+// launcher's rule leaves (9000 - spent, at least 300), and that the launcher
+// itself was slow: at least SLOW_LAUNCHER_MS (at rest it took 0.5 to 1.2 s
+// here). A stop after a quick launcher is the script's own slowness or hang,
+// and fails the test. After the third stop the script runs alone, outside
+// the launcher, with 30 s, as a control: a script that hangs or fails there
+// fails the test. Otherwise the test is skipped with the reason (sinceTest
+// and copiesTest); a test with neither wrapper fails on it, with the reason.
+// Not covered, under load only (at rest the bound above fails them all): a
+// hang on a path the control doesn't take (the sandbox, or the git facts
+// only the launcher hands over), a bug a stopped try's state write hides
+// from the next try, and a launcher step that is slow at rest but ends (one
+// that never ends leaves the test waiting, with no stop).
 const HOOK_STOPPED = /took too long and was stopped/;
 const SHOW_RUN = /^trailmark run: stopped spent=(\d+) timeout=(\d+)$/m;
+const SLOW_LAUNCHER_MS = 3000;
 class HookOutOfTime extends Error {}
 function stoppedForTime(r) {
   const m = SHOW_RUN.exec(r.stderr || '');
   assert.ok(m, `the launcher stopped the hook, but wrote no JBMEM_SHOW_RUN line (stderr: ${JSON.stringify(r.stderr)})`);
   const [spent, timeout] = m.slice(1).map(Number);
   assert.strictEqual(timeout, Math.max(300, 9000 - spent), `the script's time isn't the launcher's rule: ${m[0]}`);
+  assert.ok(spent >= SLOW_LAUNCHER_MS, `the launcher stopped the session-start script after only ${spent} ms of its own work (under ${SLOW_LAUNCHER_MS}): the machine isn't slow, the script is (${m[0]})`);
   return `spent=${spent} timeout=${timeout}`;
 }
 function startInTime(call, alone, tries = 3) {
