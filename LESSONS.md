@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-16: A load control was sized from busy loops, and real load failed it
+- What went wrong: RS-T-startstopped's first test fix failed a stopped session start unless the launcher's own work had left the script more than the 300 ms floor. Its bound came from the stops seen with 16 busy loops (the probe printed 5.7 and 5.9 s of the launcher's own work at its two stops there). The first `--only` run on the fix ran while other sessions kept the processor at 100% (16 Codex processes), and the launcher spent 8.7 to 13.1 s: 3 tests failed on the control itself.
+- Why: the bound was read from one kind of load and taken as the edge of all load. Busy loops load the processor only; that the other work slowed the launcher more by starting processes and reading the disk is INFERRED, not measured.
+- Rule going forward: a control that tells load from a fault is tried under the machine's real background load as well as under busy loops before it is kept, and a bound that real load crosses is dropped, with the case it no longer covers named in the test's comment.
+- Status: open
+
 ## 2026-11-15: A failed run's kept folder was pushed out before the review read it
 - What went wrong: RS-D-jobtimeout's batch 9 check failed 3 tests, and the notes cited its kept folder. Before round 10 read it, `prune_kept` had removed it: another session's `--only` runs added more than 20 unmarked folders. Only the lines this session had printed to its console were left (`quick-14-failures.txt`).
 - Why: the rule of 2026-11-08 ("Reviewers' proofs push out kept failed runs") was in `LESSONS.md` only, not in the step that is read when a run fails.
