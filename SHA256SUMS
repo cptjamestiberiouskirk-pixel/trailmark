@@ -39,7 +39,7 @@ df987cc76e4491ebfdf0ad961c9adb0de5e92e6208936c78afcd9381dfd727c8 *./plugins/trai
 5286c4a2d3fbf2c1e0fa6b54e6ed6f66697dc732c1158250a4b6d45af4e5fb69 *./plugins/trailmark-codex/scripts/lib/store.js
 21f1162a2d2edef79063e59f991d9e474d7af13acad8db00ace23f47afebfc48 *./plugins/trailmark-codex/scripts/lib/transcript.js
 173f92b3685cd16ac05f99b6139b6dd360a900ca077a45545a9c405686f4ca0b *./plugins/trailmark-codex/scripts/memory.js
-721cb5648c83f49eb33355545ff12668609859ebc478958fcd33c7e95366b7b4 *./plugins/trailmark-codex/scripts/trailmark.js
+51e0f4b1f7e3195d9318b412dd75d31b0a26371a20bbb2ba139a44738224a53b *./plugins/trailmark-codex/scripts/trailmark.js
 39576bd01b283bb4fa742f1ac6b5333edda2e8b6486a1bcbf2ade772839ef0ce *./plugins/trailmark-codex/skills/tm-checkpoint/SKILL.md
 d32214f30c2b32085493c60a7025c8f1f7d31b28afcea8cd5510be2c9d174842 *./plugins/trailmark-codex/skills/tm-memory-prune/SKILL.md
 440f8a2ca309c47eb8dcb7f31937b29d68043b38f755902c2d3a5eac19a22771 *./plugins/trailmark-codex/skills/tm-memory-setup/SKILL.md
@@ -51,7 +51,7 @@ e6d5404bfa18ed9b5e4ecede0a8975febca70fc5a463cd9c0201efa81a1a0831 *./plugins/trai
 d0006a14e452cf76841b6a9dd7237d2743b4d6216aebfda0ce71fe45cc7579bb *./plugins/trailmark-codex/tests/commit-folders.test.js
 c0704aea54e588b9f3bd3811d28ea26cb4292a7bca92fac4f961af3429670803 *./plugins/trailmark-codex/tests/commits.test.js
 3980d31cdf925449d865e2b465a1cc9e020d3cf40a2c7ea884e162abc7bf0010 *./plugins/trailmark-codex/tests/copies.test.js
-82ff4427009a00024ff77bfc1ed243067ce7ef27f1ea5450eaa19e842b317762 *./plugins/trailmark-codex/tests/handoff-checks.test.js
+b46c1241b9751eb2df5fab33ce23426af70fd697dfecd8026990135175baa9ca *./plugins/trailmark-codex/tests/handoff-checks.test.js
 be1321d5ed7b188bf41a8ae474c420d15dfb6bdccbabda143d2d0b9839489781 *./plugins/trailmark-codex/tests/hardening.test.js
 209c46764fb859b7effb80d7fe5819882e07f1498b5fcfc389752b0841e995fb *./plugins/trailmark-codex/tests/helpers.js
 306cd8613dff1d608f7725f3c7f2417dcf3a8410765f300ef7bdca0de283b311 *./plugins/trailmark-codex/tests/security.test.js
@@ -81,7 +81,7 @@ f6e394c16257d13fc1f355f87991f6f3da292194ad4af13a27e7094879ab54a2 *./plugins/trai
 deb651b942403dc5faa3ce84059d38940f4d8c6ea073ce08eb73e71dacc09880 *./plugins/trailmark/scripts/lib/store.js
 87f40ba18d2091ce3fd119b777abb500a576666baeabca6174da03dfdc6d210f *./plugins/trailmark/scripts/lib/transcript.js
 648be38b1b6cc283b10091b57910eb1bd2227ae50ba440de344580be56fdb434 *./plugins/trailmark/scripts/memory.js
-647804f0707de8751c2ae9083b9ef99ec4849a732b1986282a3a20b7e7ba86bd *./plugins/trailmark/scripts/trailmark.js
+9ddf26457ae4e30cf13ba228ccfc8ef5421491124680dc52a84c481864592cfb *./plugins/trailmark/scripts/trailmark.js
 32fb0754895acb58b78e400f0269ec8519d80f840fed2578176b9dcdadd83bb3 *./plugins/trailmark/skills/checkpoint/SKILL.md
 fff18fdf531d6b4227f3ae2bb04111d2aeafb2da3bd570518cbb31d1bea0c0ca *./plugins/trailmark/skills/memory-prune/SKILL.md
 2918706f47ce7b5816b7822be02635ff442c4b107a62f17401e53e9b43412e22 *./plugins/trailmark/skills/memory-setup/SKILL.md
@@ -93,7 +93,7 @@ a00a373a93f3ebbf81ab65d3704b1bc4df9d87063d6480d287e0d47148ec46f5 *./plugins/trai
 bf3221207f85b17983af4511f876c3c1045084985c3aef3ae250381ba69f27a4 *./plugins/trailmark/tests/commits.test.js
 923f613aaaf68f077e61a07931db87fa7cd0765d9aa15ce18e19c7cc1cb0e3d7 *./plugins/trailmark/tests/context-watch.test.js
 1ffafe00dd98f3b2c02242fff6455cd7ae14356ac393ee6ea49838f512603780 *./plugins/trailmark/tests/copies.test.js
-82ff4427009a00024ff77bfc1ed243067ce7ef27f1ea5450eaa19e842b317762 *./plugins/trailmark/tests/handoff-checks.test.js
+b46c1241b9751eb2df5fab33ce23426af70fd697dfecd8026990135175baa9ca *./plugins/trailmark/tests/handoff-checks.test.js
 7f4479f7de48efe7f3112a3c27629653f11d767fe5d70bb85c4e2923c572b23a *./plugins/trailmark/tests/hardening.test.js
 fc776c992644088419b7c22a3aa9c591f04d9684d3c8740bea293bd26ec19981 *./plugins/trailmark/tests/helpers.js
 8333db3e4d6af1f79d197fa8b80663eecf8332f72ed71722a4320b9d9a06055d *./plugins/trailmark/tests/pause-watch.test.js
