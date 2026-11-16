@@ -248,7 +248,10 @@ build_zip() {
   else
     ver="$(node -p "require('./plugins/trailmark/.claude-plugin/plugin.json').version")"
     mkdir -p "$ZIPDIR"; z="$ZIPDIR/trailmark-$ver.zip"
-    git archive --format=zip --prefix=trailmark/ HEAD > "$z"
+    # git archive writes each entry's DOS date and time in local time, so the
+    # bytes follow the time zone. The release job runs in UTC: TZ=UTC here gives
+    # its bytes on this PC at UTC-5 too (RS-T-ziptz).
+    TZ=UTC git archive --format=zip --prefix=trailmark/ HEAD > "$z"
     (cd "$ZIPDIR" && sha256sum "trailmark-$ver.zip" > "trailmark-$ver.zip.sha256")
     mkdir "$T/zip" && (cd "$T/zip" && unzip -q "$z")
     if (cd "$T/zip/trailmark" && sha256sum --quiet -c SHA256SUMS >/dev/null 2>&1) && [ "$(find "$T/zip" -type l | wc -l)" = 0 ]; then
