@@ -10,18 +10,18 @@ Added at the user's request on 2026-11-09, to work on later:
 
 ## Verification guidance from the Claude Code team (2026-11-16, branch `claude/verification-guidance` off 6ac3074)
 
-The user asked to add the testing guidance of the post "How the Claude Code team thinks about verification" (claude.dev blog, 2026-11-16) to this project. The post was read through a fetch on 2026-11-16 (HTTP 200, no redirect). Each of its practices was set beside `PLAYBOOK.md`, `CLAUDE.md` and `LESSONS.md`. Only `PLAYBOOK.md` changed; `CLAUDE.md` and "Do not attempt" were left alone, since a change there is asked first.
+The user asked to add the testing guidance of the post "How the Claude Code team thinks about verification" (claude.dev blog; its date was not settled: one fetch reported 2026-11-16, another showed none) to this project. The post was read through a fetch on 2026-11-16 (HTTP 200, no redirect). Each of its practices was set beside `PLAYBOOK.md`, `CLAUDE.md` and `LESSONS.md`. Of the instruction files, only `PLAYBOOK.md` changed; `CLAUDE.md` and "Do not attempt" were left alone, since a change there is asked first.
 
 Added to `PLAYBOOK.md`, each new:
 
-- "Testing" step 18: a change to a hook or a skill is also run in a real host session (Claude Code, or Codex for the Codex copy) before its PR, and the notes say how the copy was loaded and what the session showed. The post ranks a run of the real thing above tests, and end-to-end tests above unit tests.
+- "Testing" step 18: a change to a hook or a skill is also run in a real host session (Claude Code, or Codex for the Codex copy) before its PR, and the notes say how the copy was loaded and what the session showed. A PR whose host run is still untested is not set to auto-merge until the user decides. The post ranks a run of the real thing above tests, and end-to-end tests above unit tests.
 - "Testing" step 19: an invariant test for a function that folds, normalizes, parses or encodes text from outside, over inputs a loop generates from a stated alphabet and length range. No property-test library, since adding one is a download.
 - "Testing" step 20: a rewrite that must keep behavior compares old and new code over the same inputs, with intended differences listed. "Writing" step 18 and RS-T-ziptz already did this for one case each.
-- "Testing" step 21: no sleep, rerun until it passes, new skip or looser bound for a failing test without a proven cause. The two existing kinds of skip (on a time sign, step 7; on a system where the test can't run) are named as allowed.
-- "Committing" step 7: a `Verified:` line in each commit message, `Verified: none` with the reason included.
+- "Testing" step 21: no sleep, rerun in place of a cause, new skip or looser bound for a failing test without a proven cause. The two existing kinds of skip (on a time sign, step 7; on a system where the test can't run) are named as allowed.
+- "Committing" step 7: a `Verified:` line in each commit made in a session, `Verified: none` with the reason included.
 - "Pushing and CI" step 3: a new check that can fail CI or stop a commit reports only for at least one PR first, as the watchdog test step in `tests.yml` does (`continue-on-error: true`, read on 6ac3074).
 - "Reviewing" step 7: a change that edits a check that judges it names that check, and the reviewer runs the base branch's version too where it can.
-- "Reviewing" step 8: a fix that still fails after three rounds goes to the user before a fourth.
+- "Reviewing" step 8: a fix whose own test or check still fails after three attempts at that same failure goes to the user before a fourth, with auto-merge off. Review rounds that find something new are not counted.
 
 Already covered here, so not added: no "flaky" label ("Do not attempt"); one reviewer for each row, with rounds that build on the rounds before ("Reviewing" steps 1 and 2); a review only at a fixed head (step 2's detached clone, step 5's held pushes); cheap checks before a push (`--only`, then `--sums --quick`); a miss turned into a rule once it is seen twice (the lessons check, step 7); pruning (`CLAUDE.md`: keep `PLAYBOOK.md` short).
 
@@ -32,7 +32,7 @@ Not taken, for the user:
 - Scoring reviewers against past reverts and incidents, and a checklist keyed by triggers read from a diff: there is no such corpus here yet. `dev/lessons.sh <words>` is the nearest form of the checklist.
 - A property-test library (fast-check): a download.
 
-Checks on this change: `dev/lessons.sh --check` and the dash scan (results in this branch's commit message). No review round yet: the docs row (Sonnet) applies, since `PLAYBOOK.md` is an instruction file.
+Checks on this change: `dev/lessons.sh --check` and the dash scan (results in each commit message of this branch). Docs review round 1 (Sonnet, on 6ac3074..a64c6d4): no WRONG, five COULD BE CLEARER, all fixed in the next commit after a check of each here (7 of the last 30 commit subjects on `main` are GitHub merge commits, which a `Verified:` line can't reach): step 18 now says a PR untested in a host is not set to auto-merge until the user decides; step 21 names step 5's reruns; "Committing" step 7 is scoped to commits made in a session; "Reviewing" step 8 counts attempts at the same failure, not review rounds; and this section's first lines were fixed.
 
 ## Next version: the Codex trials (2026-11-16, branch `claude/codex-trials` off a3bc3f6, origin/main merged in at 692e8ff)
 
