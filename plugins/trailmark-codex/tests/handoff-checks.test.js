@@ -120,11 +120,13 @@ function junctionGit(base, onRetry = () => {}) {
 // the launcher, with 30 s, as a control: a script that hangs or fails there
 // fails the test. Otherwise the test is skipped with the reason (sinceTest
 // and copiesTest); a test with neither wrapper fails on it, with the reason.
-// Not covered, under load only (at rest the bound above fails them all): a
-// hang on a path the control doesn't take (the sandbox, or the git facts
-// only the launcher hands over), a bug a stopped try's state write hides
-// from the next try, and a launcher step that is slow at rest but ends (one
-// that never ends leaves the test waiting, with no stop).
+// Not covered whenever the launcher's own work takes SLOW_LAUNCHER_MS or
+// more, from load or from a launcher step that is slow even at rest (the
+// bound fails these only after a quick launcher): a hang on a path the
+// control doesn't take (the sandbox, or the git facts only the launcher
+// hands over), a bug a stopped try's state write hides from the next try,
+// and the slow launcher step itself, if it ends (one that never ends leaves
+// the test waiting, with no stop).
 const HOOK_STOPPED = /took too long and was stopped/;
 const SHOW_RUN = /^trailmark run: stopped spent=(\d+) timeout=(\d+)$/m;
 const SLOW_LAUNCHER_MS = 3000;
@@ -134,7 +136,7 @@ function stoppedForTime(r) {
   assert.ok(m, `the launcher stopped the hook, but wrote no JBMEM_SHOW_RUN line (stderr: ${JSON.stringify(r.stderr)})`);
   const [spent, timeout] = m.slice(1).map(Number);
   assert.strictEqual(timeout, Math.max(300, 9000 - spent), `the script's time isn't the launcher's rule: ${m[0]}`);
-  assert.ok(spent >= SLOW_LAUNCHER_MS, `the launcher stopped the session-start script after only ${spent} ms of its own work (under ${SLOW_LAUNCHER_MS}): the machine isn't slow, the script is (${m[0]})`);
+  assert.ok(spent >= SLOW_LAUNCHER_MS, `the launcher's own work before the session-start script took only ${spent} ms (under ${SLOW_LAUNCHER_MS}), and the script then ran out of the ${timeout} ms it got, so the stop points at the script, not at a busy machine (${m[0]})`);
   return `spent=${spent} timeout=${timeout}`;
 }
 function startInTime(call, alone, tries = 3) {
