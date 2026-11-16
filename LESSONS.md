@@ -14,6 +14,24 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-16: A test comment said "at rest" about a gap only a quick launcher closes
+- What went wrong: RS-T-startstopped's round 1 batch bounded the launcher's own time (3 s) and wrote that the gaps left were "under load only", with the bound failing them all at rest. Round 2 showed a launcher slow at rest reopens every gap on an idle machine (a mutation slowing the launcher 3 s made a sandbox-only hang skip). The mutation list had slowed the launcher, but never together with the round's fault mutations.
+- Why: the comment named the cause of a slow launcher (load) where the code tests only the measure (spent). Each fault was tried with a quick launcher and alone with a slow one, not combined.
+- Rule going forward: a comment that scopes a gap says it in terms of what the code measures, and each fault mutation the fix is meant to catch is also run with the other input the guard reads set past its bound, to see the gap the comment names.
+- Status: open
+
+## 2026-11-16: A load control was sized from busy loops, and real load failed it
+- What went wrong: RS-T-startstopped's first test fix failed a stopped session start unless the launcher's own work had left the script more than the 300 ms floor. Its bound came from the stops seen with 16 busy loops (the probe printed 5.7 and 5.9 s of the launcher's own work at its two stops there). The first `--only` run on the fix ran while other sessions kept the processor at 100% (16 Codex processes), and the launcher spent 8.7 to 13.1 s: 3 tests failed on the control itself.
+- Why: the bound was read from one kind of load and taken as the edge of all load. Busy loops load the processor only; that the other work slowed the launcher more by starting processes and reading the disk is INFERRED, not measured.
+- Rule going forward: a control that tells load from a fault is tried under the machine's real background load as well as under busy loops before it is kept, and a bound that real load crosses is dropped, with the case it no longer covers named in the test's comment.
+- Status: open
+
+## 2026-11-16: A script split "path:sha" at the drive letter's colon
+- What went wrong: RS-T-startstopped's `alternate.sh` passed each clone as `"$dir:$sha"` and split it with `${x%%:*}`. Its paths start with `C:/`, so both clones were made in a folder named `C` in the worktree, the four timed runs each found no clone and ended at once, and the cleanup removed paths that did not exist. The stray clone was found in `git status` and removed by its literal path.
+- Why: a pair packed into one text with `:` between, on a system where `:` is part of every absolute path. The script also did not check that each clone was where the runs would look for it.
+- Rule going forward: a script never packs a path with other values into one text split at a character a path can hold; it takes them as separate arguments or arrays. After it makes a folder, it checks the folder at the path it will use, and stops if it is not there.
+- Status: open
+
 ## 2026-11-15: A merge that kept both sides' new entries left one without its Status line
 - What went wrong: merging `main` into the pause watch branch, `LESSONS.md` had one conflict block, both sides' new entries at the top. Both sides' last entries ended in `- Status: open`; git kept that line once, as context after the block, so keeping both sides gave one entry no Status line and put a blank line before the other's. `dev/lessons.sh --check` found it (1 bad).
 - Why: a conflict block holds only what differs; a line both sides end with sits outside it, and a resolver that keeps "ours, then theirs" gives it to one side only.

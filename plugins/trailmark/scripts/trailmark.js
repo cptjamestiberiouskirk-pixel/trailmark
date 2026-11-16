@@ -207,6 +207,11 @@ function run(script, args, { dir, method, root, cwd, stdin, from, payload, reads
   const nodeArgs = [...(sb.on ? permissionFlags({ reads, writes }) : []), path.join(SCRIPTS, script), ...args];
   // For the tests: show what the sandboxed script is allowed to touch.
   if (process.env.JBMEM_SHOW_GRANTS === '1') process.stderr.write(`trailmark grants: read=${reads.map(r => path.resolve(r)).join('|')} write=${writes.map(w => path.resolve(w)).join('|')}\n`);
+  // A hook's script is killed before the host's own hook timeout, so it
+  // can't be left running on its own if something blocks it.
+  // (commit-start's own timeout is 5 s, the others' 10 s or more).
+  const spentMs = Date.now() - T0;
+  const timeout = HOOK_RUN ? Math.max(300, (HOOK_RUN === 'commit-start' ? 4500 : 9000) - spentMs) : 120000;
   const r = spawnSync(process.execPath, nodeArgs, {
     cwd,
     env,
@@ -217,15 +222,16 @@ function run(script, args, { dir, method, root, cwd, stdin, from, payload, reads
     stdio: [stdin === undefined ? 'ignore' : stdin, 'inherit', 'inherit'],
     windowsHide: true,
     maxBuffer: 64 * 1024 * 1024,
-    // A hook's script is killed before the host's own hook timeout, so it
-    // can't be left running on its own if something blocks it.
-    // (commit-start's own timeout is 5 s, the others' 10 s or more).
-    timeout: HOOK_RUN ? Math.max(300, (HOOK_RUN === 'commit-start' ? 4500 : 9000) - (Date.now() - T0)) : 120000,
+    timeout,
     killSignal: 'SIGKILL',
   });
   if (r.error) {
-    if (r.error.code === 'ETIMEDOUT') process.stderr.write(`trailmark: ${script} took too long and was stopped. Nothing it had not finished was saved.\n`);
-    else process.stderr.write(`trailmark: could not start ${script}: ${r.error.message}\n`);
+    if (r.error.code === 'ETIMEDOUT') {
+      process.stderr.write(`trailmark: ${script} took too long and was stopped. Nothing it had not finished was saved.\n`);
+      // JBMEM_SHOW_RUN=1 (the tests): the launcher's own time before the
+      // script started and the time the script then got. It only reports.
+      if (process.env.JBMEM_SHOW_RUN === '1') process.stderr.write(`trailmark run: stopped spent=${spentMs} timeout=${timeout}\n`);
+    } else process.stderr.write(`trailmark: could not start ${script}: ${r.error.message}\n`);
     return 1;
   }
   return r.status === null ? 1 : r.status;

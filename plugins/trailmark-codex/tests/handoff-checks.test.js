@@ -105,6 +105,54 @@ function junctionGit(base, onRetry = () => {}) {
   return r;
 }
 
+// The launcher stops a hook's script at its time limit (trailmark.js, run:
+// 9 s from T0, which it sets once its first modules have loaded, less its
+// own work since) and says so on stderr. On a busy machine that is the
+// designed outcome, not a fault: in the stops seen here the launcher's own
+// work after T0 took 4.9 to 13.1 s, so the script got what was left or the
+// 300 ms floor (RS-T-startstopped in dev/release-state.md). So a stopped
+// session start is made again, three times in all. Each stop must show, in
+// the launcher's JBMEM_SHOW_RUN line, that the script got what the
+// launcher's rule leaves (9000 - spent, at least 300), and that the launcher
+// itself was slow: at least SLOW_LAUNCHER_MS (at rest it took 0.5 to 1.2 s
+// here). A stop after a quick launcher is the script's own slowness or hang,
+// and fails the test. After the third stop the script runs alone, outside
+// the launcher, with 30 s, as a control: a script that hangs or fails there
+// fails the test. Otherwise the test is skipped with the reason (sinceTest
+// and copiesTest); a test with neither wrapper fails on it, with the reason.
+// Not covered whenever the launcher's own work takes SLOW_LAUNCHER_MS or
+// more, from load or from a launcher step that is slow even at rest (the
+// bound fails these only after a quick launcher): a hang on a path the
+// control doesn't take (the sandbox, or the git facts only the launcher
+// hands over), a bug a stopped try's state write hides from the next try,
+// and the slow launcher step itself, if it ends (one that never ends leaves
+// the test waiting, with no stop).
+const HOOK_STOPPED = /took too long and was stopped/;
+const SHOW_RUN = /^trailmark run: stopped spent=(\d+) timeout=(\d+)$/m;
+const SLOW_LAUNCHER_MS = 3000;
+class HookOutOfTime extends Error {}
+function stoppedForTime(r) {
+  const m = SHOW_RUN.exec(r.stderr || '');
+  assert.ok(m, `the launcher stopped the hook, but wrote no JBMEM_SHOW_RUN line (stderr: ${JSON.stringify(r.stderr)})`);
+  const [spent, timeout] = m.slice(1).map(Number);
+  assert.strictEqual(timeout, Math.max(300, 9000 - spent), `the script's time isn't the launcher's rule: ${m[0]}`);
+  assert.ok(spent >= SLOW_LAUNCHER_MS, `the launcher's own work before the session-start script took only ${spent} ms (under ${SLOW_LAUNCHER_MS}), and the script then ran out of the ${timeout} ms it got, so the stop points at the script, not at a busy machine (${m[0]})`);
+  return `spent=${spent} timeout=${timeout}`;
+}
+function startInTime(call, alone, tries = 3) {
+  const seen = [];
+  for (let i = 1; ; i++) {
+    const r = call();
+    if (r.status !== 1 || !HOOK_STOPPED.test(r.stderr)) return r;
+    seen.push(stoppedForTime(r));
+    if (i < tries) continue;
+    // And the script isn't stuck: alone, with 30 s, it answers.
+    const c = alone();
+    assert.ok(c.status === 0 && /"additionalContext"/.test(c.stdout), `every session start was stopped, and the script alone with 30 s did not answer: ${JSON.stringify({ status: c.status, error: c.error && c.error.code, stderr: c.stderr })}`);
+    throw new HookOutOfTime(`the launcher stopped the session-start hook at its time limit ${tries} times in a row (${seen.join('; ')}): the machine is too slow now`);
+  }
+}
+
 function sandbox() {
   const base = realTemp('jbmem-');
   const cfg = path.join(base, 'cfg');
@@ -113,13 +161,16 @@ function sandbox() {
   const projectDir = path.join(cfg, 'projects', repo.replace(/[^a-zA-Z0-9]/g, '-'));
   fs.mkdirSync(projectDir, { recursive: true });
   // JBMEM_SHOW_SINCE: the launcher says why the commit list ran out of time
-  // (sinceInTime reads it).
-  const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg, JBMEM_SHOW_SINCE: '1' };
+  // (sinceInTime reads it). JBMEM_SHOW_RUN: what time a stopped script had
+  // (startInTime reads it).
+  const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg, JBMEM_SHOW_SINCE: '1', JBMEM_SHOW_RUN: '1' };
   delete env.JBMEM_DIR; delete env.CLAUDE_CODE_PROJECT_DIR_NAME; delete env.CLAUDE_CODE_ENTRYPOINT;
   const jbm = (args, input, cwd = repo) => spawnSync(process.execPath, [JBM, ...args], { cwd, env, input, encoding: 'utf8' });
   const memdir = path.join(projectDir, 'memory');
   const start = (sid = SA, cwd = repo) => {
-    const r = jbm(['--hook', 'session-start'], JSON.stringify({ cwd, source: 'startup', session_id: sid }), cwd);
+    const payload = JSON.stringify({ cwd, source: 'startup', session_id: sid });
+    const alone = () => spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'hook-session-start.js')], { cwd, env, input: payload, encoding: 'utf8', timeout: 30000 });
+    const r = startInTime(() => jbm(['--hook', 'session-start'], payload, cwd), alone);
     assert.strictEqual(r.status, 0, r.stderr);
     const out = JSON.parse(r.stdout);
     return { context: out.hookSpecificOutput.additionalContext, message: out.systemMessage || '', stderr: r.stderr };
@@ -170,7 +221,7 @@ function copiesInTime(s, call, { listed, waitMs = 30000 } = {}) {
 }
 const copiesTest = (fn) => (t) => {
   try { fn(t); } catch (e) {
-    if (!(e instanceof CopiesOutOfTime)) throw e;
+    if (!(e instanceof CopiesOutOfTime || e instanceof HookOutOfTime)) throw e;
     t.skip(e.message);
   }
 };
@@ -226,7 +277,7 @@ function sinceInTime(s, call, tries = 3) {
 }
 const sinceTest = (fn) => (t) => {
   try { fn(t); } catch (e) {
-    if (!(e instanceof CommitsOutOfTime)) throw e;
+    if (!(e instanceof CommitsOutOfTime || e instanceof HookOutOfTime)) throw e;
     t.skip(e.message);
   }
 };
