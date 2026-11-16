@@ -594,6 +594,9 @@ function hookMode(name, extraIn) {
   let extra = extraIn;
   // The hook's time counts from the process's start (T0, above).
   const started = T0;
+  // JBMEM_SHOW_CLOCK=1 (the tests): the two clocks, in ms since 1970. It only
+  // reports.
+  if (process.env.JBMEM_SHOW_CLOCK === '1') process.stderr.write(`trailmark clock: t0=${T0} started=${started}\n`);
   const spec = HOOKS[name];
   if (!spec) process.exit(0);
   const raw = readAllStdin();
