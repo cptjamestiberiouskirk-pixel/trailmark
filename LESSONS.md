@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-15: A record gave one reading for three cases, and a rule's reach without its skips
+- What went wrong: RS-D-jobtimeout's round 6 record said the `yaml` package reads `"30 - 0"` for X11, X13 and X14, but the output it cited showed `"30 0"` for X14. The bullet "The check" said a line deeper than a value is refused "whatever the line holds", but the checker skips a blank line, a full-line comment and a line inside a block scalar before that rule runs. The round 7 docs reviewer found both (WRONG).
+- Why: the reading was taken from the first case and written for the group. The rule's sentence was written from the rule's own line of code, not from the loop that decides which lines reach it.
+- Rule going forward: a record that gives one result for several cases checks it against each case's line in the output it cites. A sentence that says what a rule refuses names the lines that skip it, read from the code above the rule.
+- Status: open
+
 ## 2026-11-15: An exemption written for one valid text opened a hole of its own
 - What went wrong: batch 5 of RS-D-jobtimeout refused an `&` or a `*` that starts a token, except one followed by `&`, so that the shell's `&&` would pass. The anchor `&&k` and its alias `*&k` passed through that exemption and got a limit of 400 past the check (review round 6). Its quote rule took any quote as the start of a quoted value, and a quote inside a plain key hid an anchor after it. Round 6's mutations also showed that three rules batch 5 added had no case that failed without them: PLAYBOOK "Testing" step 8 was not run on that batch. The fix the coordinating session first asked for (refuse every `&` or `*` that starts a token) would have refused two `if:` lines of `tests.yml`.
 - Why: the exemption was taken from the valid text that tripped the rule (`a && b`), not from where the format can hold the refused thing. YAML reads an anchor or an alias only where a node starts, and a quote starts a quoted value only there too.
