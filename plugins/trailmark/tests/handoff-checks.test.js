@@ -4723,8 +4723,10 @@ test('git pointers: finding the repo for a hook stops with the hook\'s time (RS-
   // 2. The launcher, started as a hook's own process with a preload. The
   // preload notes each git call that reads a config file and each one that
   // asks for the root, runs every call with time to spare, and stands the
-  // clock still: it moves only when the `at`th config file is read, by `by`
-  // ms. So the timeouts noted say what the hook had left, on any machine.
+  // clock still at the process's start, where the launcher's hook time
+  // counts from (T0 in trailmark.js): it moves only when the `at`th config
+  // file is read, by `by` ms. So the timeouts noted say what the hook had
+  // left, on any machine.
   const s = sandbox();
   quoted(s.repo, path.join(s.base, 'inc'));
   let made = 0;
@@ -4734,7 +4736,7 @@ test('git pointers: finding the repo for a hook stops with the hook\'s time (RS-
     fs.writeFileSync(stub, `const cp = require('child_process');
 const fs = require('fs');
 const real = cp.execFileSync;
-const t0 = Date.now();
+const t0 = Math.floor(performance.timeOrigin);
 let moved = 0; let files = 0;
 Date.now = () => t0 + moved;
 cp.execFileSync = function (file, args, opts, ...rest) {
