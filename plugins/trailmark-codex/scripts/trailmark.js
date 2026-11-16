@@ -51,9 +51,14 @@ const S = require('./lib/store');
 function findMemoryDir(ctx) { const l = findMemoryDirRaw(ctx); if (l && l.dir) S.addMemoryRoot(l.dir); return l; }
 const { commitsSince, gitFacts, commitFacts, fitCommitFacts, sweepCommits, sameFolder, windowMs, farNetwork } = require('./lib/gitfacts');
 const { localPath, localPathFrom } = require('./lib/gitbin');
-// When the launcher started: a hook's sandboxed script gets what is left of
-// the host's hook timeout, not a fixed time on top of the launcher's own work.
-const T0 = Date.now();
+// When the launcher's process started, as Node records it: a hook's sandboxed
+// script gets what is left of the host's hook timeout, not a fixed time on top
+// of the launcher's own work, and the hook's git work counts from here too
+// (hookMode). The host's timeout also counts Node's own start and the modules
+// loaded above, which once took 4,687 ms under load (RS-T-launchover in
+// dev/release-state.md), so the time is not taken after them. The time before
+// Node records its start, and after the launcher exits, no limit here counts.
+const T0 = Math.floor(performance.timeOrigin);
 const { isMilestoneCommand, commitSites } = require('./lib/commands');
 // A hook's script gets only the payload fields it reads (see hookio.js).
 const { hookInput, PAYLOAD_MAX } = require('./lib/hookio');
@@ -206,6 +211,9 @@ function run(script, args, { dir, method, root, cwd, stdin, from, payload, reads
   // (commit-start's own timeout is 5 s, the others' 10 s or more).
   const spentMs = Date.now() - T0;
   const timeout = HOOK_RUN ? Math.max(300, (HOOK_RUN === 'commit-start' ? 4500 : 9000) - spentMs) : 120000;
+  // JBMEM_SHOW_CLOCK=1 (the tests): the time since the process started and
+  // the time the hook's script gets, before it starts. It only reports.
+  if (HOOK_RUN && process.env.JBMEM_SHOW_CLOCK === '1') process.stderr.write(`trailmark run: script spent=${spentMs} timeout=${timeout}\n`);
   const r = spawnSync(process.execPath, nodeArgs, {
     cwd,
     env,
@@ -584,7 +592,8 @@ function logShape(name, extra, p) {
 
 function hookMode(name, extraIn) {
   let extra = extraIn;
-  const started = Date.now();
+  // The hook's time counts from the process's start (T0, above).
+  const started = T0;
   const spec = HOOKS[name];
   if (!spec) process.exit(0);
   const raw = readAllStdin();

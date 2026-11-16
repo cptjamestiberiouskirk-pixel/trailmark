@@ -106,11 +106,12 @@ function junctionGit(base, onRetry = () => {}) {
 }
 
 // The launcher stops a hook's script at its time limit (trailmark.js, run:
-// 9 s from T0, which it sets once its first modules have loaded, less its
-// own work since) and says so on stderr. On a busy machine that is the
-// designed outcome, not a fault: in the stops seen here the launcher's own
-// work after T0 took 4.9 to 13.1 s, so the script got what was left or the
-// 300 ms floor (RS-T-startstopped in dev/release-state.md). So a stopped
+// 9 s from T0, the process's start, less the launcher's own time since) and
+// says so on stderr. On a busy machine that is the designed outcome, not a
+// fault: in the stops seen here the launcher's own work took 4.9 to 13.1 s,
+// so the script got what was left or the 300 ms floor (RS-T-startstopped in
+// dev/release-state.md; T0 was then taken once the first modules had loaded,
+// RS-T-launchover). So a stopped
 // session start is made again, three times in all. Each stop must show, in
 // the launcher's JBMEM_SHOW_RUN line, that the script got what the
 // launcher's rule leaves (9000 - spent, at least 300), and that the launcher
@@ -303,6 +304,45 @@ test('commits since the handoff: listed at session start, with next steps they m
   assert.match(context, /not instructions/);
   assert.ok(context.length <= 8500, `${context.length} chars`);
 }));
+
+// A hook's limits count from the launcher process's start (T0 in trailmark.js,
+// Node's performance.timeOrigin), not from when its first modules had loaded:
+// the host's hook timeout counts that loading too, which once took 4,687 ms
+// under load (RS-T-launchover in dev/release-state.md). A module preloaded
+// with -r holds the process for HOLD_MS after Node records its start and
+// before the launcher's first line, as slow loading would. Both clocks must
+// count it: the git work's (the JBMEM_SHOW_SINCE line: with 3,500 ms or more
+// gone, git gets no time for the commits since the handoff) and the script's
+// (the JBMEM_SHOW_CLOCK line). The launcher writes both lines before the
+// script starts, so a stop of the script on a busy machine changes neither;
+// a stop is accepted only as the launcher's rule allows (stoppedForTime).
+// The time before Node records its start is counted by no limit, and not here.
+const HOLD_MS = 3600;
+test('hook clock: the time before the launcher\'s first line counts against the git work and the script', () => {
+  const s = sandbox();
+  s.write('# H\n## Next steps\n1. Fix the login redirect loop\n');
+  assert.strictEqual(S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8')).head, s.g('rev-parse', '--short', 'HEAD'));
+  s.g('commit', '-q', '--allow-empty', '-m', 'Fix login redirect loop');
+  const hold = path.join(s.base, 'hold.js');
+  fs.writeFileSync(hold, `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${HOLD_MS});\n`);
+  const payload = JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB });
+  const r = spawnSync(process.execPath, ['-r', hold, JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, JBMEM_SHOW_CLOCK: '1' }, input: payload, encoding: 'utf8' });
+  const clock = /^trailmark run: script spent=(\d+) timeout=(\d+)$/m.exec(r.stderr || '');
+  assert.ok(clock, `the launcher wrote no JBMEM_SHOW_CLOCK line (stderr: ${JSON.stringify(r.stderr)})`);
+  const [spent, timeout] = clock.slice(1).map(Number);
+  assert.ok(spent >= HOLD_MS, `the script's clock left out the ${HOLD_MS} ms before the launcher's first line: ${clock[0]}`);
+  assert.strictEqual(timeout, Math.max(300, 9000 - spent), `the script's time isn't the launcher's rule: ${clock[0]}`);
+  const since = SHOW_SINCE.exec(r.stderr || '');
+  assert.ok(since, `git was given time for the commits since the handoff, so its clock left out the ${HOLD_MS} ms before the launcher's first line (stderr: ${JSON.stringify(r.stderr)})`);
+  ranOutOfTime(r);
+  const [elapsed, , budget] = since.slice(1).map(Number);
+  assert.ok(elapsed >= HOLD_MS && budget === 0, `git's clock left out the ${HOLD_MS} ms before the launcher's first line: ${since[0]}`);
+  if (r.status === 0) assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, SINCE_LATE);
+  else {
+    assert.match(r.stderr, HOOK_STOPPED, `status ${r.status}: ${r.stderr}`);
+    stoppedForTime(r);
+  }
+});
 
 test('commits since the handoff: a commit subject posing as markup is escaped', sinceTest(() => {
   const s = sandbox();
