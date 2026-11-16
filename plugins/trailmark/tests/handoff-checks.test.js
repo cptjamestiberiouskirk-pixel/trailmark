@@ -4090,8 +4090,8 @@ test('git status: an answer of check-attr that is not one for each path sent is 
     return { why: got.why, off: got.offFiles, later };
   };
   const one = (p, v = 'unspecified', word = 'filter') => `${p}\0${word}\0${v}\0`;
-  const paths = ['a.txt', 'dir/b.bin', 'c d.txt'];
-  const [a, b, c] = [one('a.txt'), one('dir/b.bin', 'evil'), one('c d.txt')];
+  const paths = ['a.txt', 'dir/b.bin', 'c d sSkKI.txt'];
+  const [a, b, c] = [one('a.txt'), one('dir/b.bin', 'evil'), one('c d sSkKI.txt')];
   const read = { why: undefined, off: 1, later: 2 };
   const refused = { why: 'filter-check', off: undefined, later: 0 };
   assert.deepStrictEqual(ask(paths, a + b + c), read, 'one answer for each path, in order');
@@ -4140,6 +4140,12 @@ test('git status: an answer of check-attr that is not one for each path sent is 
   for (let n = 1; n < 128; n++) assert.ok(CHARS.includes(String.fromCharCode(n)), `the character ${n} is among those tried`);
   for (const n of [0xa0, 0x131, 0x130, 0x17f, 0x212a, 0x301]) assert.ok(CHARS.includes(String.fromCharCode(n)), `the character ${n} is among those tried`);
   assert.strictEqual(CHARS.length, 133, 'and no other character is in the set');
+  // The paths hold the characters five of the six are folded onto (U+017F
+  // onto `s` and `S`, the Kelvin sign onto `K` and `k`, U+0131 and U+0130
+  // onto `i` and `I`, the no-break space onto a space; the combining accent
+  // is folded onto nothing), so a compare that folds one of them meets a
+  // text it must refuse (RS-T-foldletters).
+  for (const ch of 'sSkKiI ') assert.ok(paths.some(p => p.includes(ch)), `a path holds ${JSON.stringify(ch)}`);
   const wide = (ch) => (ch === ' ' ? '\u3000' : ch > ' ' && ch <= '~' ? String.fromCharCode(ch.charCodeAt(0) + 0xfee0) : ch);
   const near = (t) => {
     const out = new Set([`./${t}`, t.toUpperCase(), [...t].map(wide).join(''), t.replace(/\//g, '\\'), '']);

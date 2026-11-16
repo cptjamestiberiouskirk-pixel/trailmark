@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-16: A deferred item named four letters, and its class had six
+- What went wrong: RS-T-foldletters said the decision test's paths needed `s`, `S`, `k` and `K`, for U+017F and the Kelvin sign. Probing every fold of the six characters the test's comment names, at the parent's test, found two more compares that passed, besides those of the four letters: U+0131 read as `I`, and U+0130 read as `I` (`mutations-1.out` in `rs-t-foldletters/` of the sessions' notes folder). A fix that added only the four letters would have left two of the six with no letter to meet.
+- Why: the item was written from the one mutation that drew it (round 4 of RS-A-redirect), and the record's fix named that mutation's letters, not the class.
+- Rule going forward: a deferred test gap is fixed for the class its test's comment names, not for the repro alone. Before the fix is written, each member of that class gets its own mutation, run on the parent's test, and the list of those that pass sets what the fix must cover (PLAYBOOK "Testing" step 8 says the same for a new test).
+- Status: open
+
 ## 2026-11-16: A test comment said "at rest" about a gap only a quick launcher closes
 - What went wrong: RS-T-startstopped's round 1 batch bounded the launcher's own time (3 s) and wrote that the gaps left were "under load only", with the bound failing them all at rest. Round 2 showed a launcher slow at rest reopens every gap on an idle machine (a mutation slowing the launcher 3 s made a sandbox-only hang skip). The mutation list had slowed the launcher, but never together with the round's fault mutations.
 - Why: the comment named the cause of a slow launcher (load) where the code tests only the measure (spent). Each fault was tried with a quick launcher and alone with a slow one, not combined.
