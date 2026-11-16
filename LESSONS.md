@@ -15,9 +15,9 @@ Format:
 ```
 
 ## 2026-11-15: A failed run's kept folder was pushed out before the review read it
-- What went wrong: RS-D-jobtimeout's batch 9 check failed 3 tests, and the notes cited its kept folder. Before round 10 read it, `prune_kept` had removed it: another session's `--only` runs added more than 20 unmarked folders. Only the lines this session had printed to its console were left (`quick-14-failures.txt`). The same session's next check, alone at its start, had that session's runs during it, and the notes called it alone.
-- Why: the rule of 2026-11-08 ("Reviewers' proofs push out kept failed runs") was in `LESSONS.md` only, not in the step that is read when a run fails. "Alone" was checked only at a run's start.
-- Rule going forward: copy the failed tests' lines out of a kept folder at once (PLAYBOOK "Testing" step 4). A run is called alone only if no other run's folder or process falls inside its start and end times.
+- What went wrong: RS-D-jobtimeout's batch 9 check failed 3 tests, and the notes cited its kept folder. Before round 10 read it, `prune_kept` had removed it: another session's `--only` runs added more than 20 unmarked folders. Only the lines this session had printed to its console were left (`quick-14-failures.txt`).
+- Why: the rule of 2026-11-08 ("Reviewers' proofs push out kept failed runs") was in `LESSONS.md` only, not in the step that is read when a run fails.
+- Rule going forward: copy the failed tests' lines out of a kept folder at once (PLAYBOOK "Testing" step 4).
 - Status: promoted to PLAYBOOK ("Testing" step 4)
 
 ## 2026-11-15: A record gave one reading for three cases, and a rule's reach without its skips
