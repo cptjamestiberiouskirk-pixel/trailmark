@@ -63,6 +63,9 @@ const DEFAULTS = {
   // window. When nothing sets the window, the model's own is used (the docs
   // give it per model; lib/contextwatch.js).
   contextWatch: { on: true, steps: [85, 90, 95], reserve: 33000 },
+  // The pause watch (hook-pause-watch.js): a prompt that says the user is
+  // about to reboot or close the session asks for a checkpoint.
+  pauseWatch: { on: true },
   staleDays: 30,
   // The daily log (notes/): on unless "notes": false, and files older than
   // this many days are deleted when a new day's log starts.
@@ -609,6 +612,7 @@ function loadConfig(dir) {
     notes: user.notes !== false,
     notesKeepDays: configInt(user.notesKeepDays, CONFIG_RANGES.notesKeepDays, DEFAULTS.notesKeepDays),
     contextWatch: contextWatchConfig(user.contextWatch),
+    pauseWatch: { on: !(isPlainObject(user.pauseWatch) && user.pauseWatch.on === false) },
   };
   // Kept only so session start can warn that it is ignored (trailmark.js: the
   // sandbox is turned off by JBMEM_SANDBOX=off alone, since 0.3.8).

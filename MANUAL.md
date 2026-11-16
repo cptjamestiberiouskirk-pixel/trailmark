@@ -172,12 +172,15 @@ Most of it happens on its own.
 | A subagent finishes | Reminds Claude to checkpoint if the result changed the state |
 | Before a compaction | Saves a snapshot of git state for that session |
 | The context nears auto-compaction (Claude Code only) | Asks Claude to checkpoint before Claude Code compacts the session, and shows `[trailmark] Context about ...` to you |
+| Your prompt says you are about to reboot, restart, shut down or close the session (Claude Code only) | Asks Claude to checkpoint before the turn ends, and shows `[trailmark] Your prompt mentions a ...` to you |
 
 After the handoff, session start also lists the commits made on HEAD since the handoff was written, and names any next step one of them may already cover. After a compaction it adds that session's snapshot. It names other sessions active in the repo in the last 3 hours, and warns if a second repo maps to the same memory folder.
 
 The reminders are rate-limited (20 minutes apart by default), and Claude may skip one when nothing material changed.
 
 The context watch is not: it is the last chance before the compaction summarizes the session. It asks at 85% of the point where Claude Code compacts, then at 90% and 95% only if no checkpoint was written since. It starts over after a compaction, and when the window grows past any it has asked in and the context reaches a step of the bigger one. Section 7 has its settings.
+
+The pause watch is not rate-limited either. When your prompt says you are about to reboot, restart, shut down or close the session ("pause for reboot", "restarting now", "closing this session"), Claude is asked to checkpoint before the turn ends, and to ignore the request when the word was about something else, such as restarting a server. It reads English only, and only a prompt of up to 2,000 characters; a word list decides, so some phrasings are missed, and then you can run `/trailmark:checkpoint` yourself. It stays silent when this session wrote the handoff within `hints.freshCheckpointMinutes`. Nothing of your prompt is saved or passed on. Section 7 has its setting.
 
 You call the skills by their full names:
 
@@ -192,7 +195,7 @@ You call the skills by their full names:
 
 Type the full name. Claude Code's own `/rewind` answers to `checkpoint`, so `/checkpoint` alone opens that instead.
 
-This section describes Claude Code. In Codex the same things happen at a new chat, a commit, a PR merge and a compaction, with these differences: there is no reminder after a subagent's result and no context watch, the `[trailmark]` message at a chat's start is shown only when it holds a warning, and the skills have other names, which you ask the agent to run (section 8). The Codex copy's README has the full list under "How it differs from the Claude Code plugin".
+This section describes Claude Code. In Codex the same things happen at a new chat, a commit, a PR merge and a compaction, with these differences: there is no reminder after a subagent's result, no context watch and no pause watch, the `[trailmark]` message at a chat's start is shown only when it holds a warning, and the skills have other names, which you ask the agent to run (section 8). The Codex copy's README has the full list under "How it differs from the Claude Code plugin".
 
 Several sessions can work in one repo at once. Every handoff write names the version it started from, and a write based on an older version is refused. The skill then merges the other session's changes and writes again, so neither session can silently undo the other's checkpoint.
 
@@ -261,6 +264,7 @@ Keep the evidence labels unless you have a reason to drop them. They let the nex
 | `contextWatch.on` | true | true or false | `false` turns the context watch off (Claude Code only) |
 | `contextWatch.steps` | `[85, 90, 95]` | One to three whole numbers, each 80 to 99 | When Claude is asked to checkpoint, in percent of the point where Claude Code auto-compacts |
 | `contextWatch.reserve` | 33000 | 20000 to 50000 | How many tokens below its window Claude Code compacts. 33000 is what transcripts showed with 400k and 1M windows; Claude Code doesn't document it |
+| `pauseWatch.on` | true | true or false | `false` turns the pause watch off (Claude Code only) |
 
 To find that point, the context watch takes the window from `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, then from the `env` block of a settings file, then from `modelSettings.<model>.autoCompactWindow` or `autoCompactWindow`. The settings files are Claude Code's `settings.json` and the project's `.claude/settings.json` and `.claude/settings.local.json`; a later one wins. Without any of these it uses the model's own window, as its name in the transcript shows it: 1M for a model that has one, and 200k for others or with `CLAUDE_CODE_DISABLE_1M_CONTEXT=1`. The window is never more than the model's own. A request bigger than that proves a bigger window (a 1M context chosen with `[1m]`, which transcripts don't record), and the cap is dropped. Compaction comes `reserve` tokens below the window, or at `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` percent of it when that is earlier.
 

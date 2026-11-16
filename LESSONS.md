@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-15: An inline `node -e` edit of a scratch script lost its backslashes
+- What went wrong: to add two entries to the pause watch's mutation list, a `node -e` command held the old and new text of the script. The Bash tool collapsed its `\\d` and `\\/`, the old text was not found, and the guard (the old text must occur once) stopped it with nothing written. The same edit then went through the Edit tool.
+- Why: the session reached for a one-line command for a small scratch edit, against "Constraints and known limits", which says no script goes in inline, a small rewrite of a scratch one included.
+- Rule going forward: as that constraint says; its guard made this a redo and not a wrong file. No new step.
+- Status: promoted to PLAYBOOK (held by "Constraints and known limits", first bullet, read beside this rule: "every script, a scratch one and a small rewrite of one included, ... is written to a file with the Write or Edit tool")
+
+## 2026-11-15: A dash scan with the dash's bytes in a bracket found nothing in a line that had one
+- What went wrong: the pause watch's doc edits were scanned with `LC_ALL=C.UTF-8 grep -c $'\xe2\x80[\x93\x94]'` in Git Bash. It printed 0 for the added lines and 0 for a control line that held an em dash, and exited 1, which reads as "none found". A Node scan (`/[–—]/` over the added lines of the diff) found 0 in 340 added lines and 1 in its control.
+- Why: in a UTF-8 locale the bracket `[\x93\x94]` names characters, and the two lone bytes are no characters there, so the pattern can't match a whole em dash. Exit 1 is "no match", the same as a clean text.
+- Rule going forward: a scan for non-ASCII characters runs in Node over the diff text (`git diff` piped to a script with a `\u` class), with a control line in the same run. "Committing" step 4 caught this one through its control; this is a second shape of its `grep -P` case.
+- Status: open
+
 ## 2026-11-15: The record merged with "not pushed" in two places
 - What went wrong: the first line of `dev/release-state.md` said the branch of the open-lessons pass was "committed there and not pushed", and the bullet of the pass said "not pushed". The push and PR 67 came after the commit that wrote them, and both places merged to `main` as they were. A notes change after the merge had to correct them.
 - Why: each sentence was true when it was written and named no moment. Four older places of the same file say "when this was written" for a state that changes, one of them for a push, and these two did not. A fix on the branch would have been a new push, which had to be asked first.

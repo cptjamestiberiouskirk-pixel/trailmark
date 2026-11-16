@@ -12,7 +12,7 @@ Please don't open a public issue for anything that lets a repo, a web page or an
 
 ## What runs, and with what rights
 
-Every hook and skill command enters through `plugins/trailmark/scripts/trailmark.js` (the launcher). The launcher only reads: it finds the repo's memory folder and collects a few git facts. For the context watch it also reads the end of the session's transcript and Claude Code's settings files. It then runs the real script under Node's permission model:
+Every hook and skill command enters through `plugins/trailmark/scripts/trailmark.js` (the launcher). The launcher only reads: it finds the repo's memory folder and collects a few git facts. For the context watch it also reads the end of the session's transcript and Claude Code's settings files. For the pause watch it reads the prompt in the hook's input. It then runs the real script under Node's permission model:
 
 | Right | Granted |
 |---|---|
@@ -57,6 +57,7 @@ git is run by the launcher, outside the sandbox. It runs by full path (found on 
 | Network paths in command text, payloads or `--from` | Untrusted | Never touched unless the session works under that path |
 | Claude Code's plugin cache | Untrusted | Read with limits on entries, bytes and time; network links are never followed. Session start says how many other Trailmark copies are there, in fixed text, and tells Claude not to run them; `trailmark.js --copies --show-names`, named only in the warning shown to you, lists their folders, after a line saying the names are data, with tag-like text escaped. Plain `--copies`, the form the note to Claude names, prints counts only |
 | Claude Code's settings files and the session's transcript, read for the context watch | Untrusted | Read by the launcher, as plain local files only (`lib/plainfile.js`): a settings file up to 1 MB, and up to the last 32 MB of a transcript that is a `.jsonl` file directly in a folder of Claude Code's projects folder. Only numbers and a model name of plain characters come out. No text from either file is passed on: two token counts appear, in the message to you and in the request to Claude |
+| The prompt, read for the pause watch | Untrusted | Read by the launcher from the hook's input, only when it is 2,000 characters or shorter, and compared word by word with fixed lists (`lib/pausewords.js`). Only one word from a fixed list comes out, and the sandboxed hook takes it only if it is on the same list. No text of the prompt is saved or passed on: the hook's script gets the input without the prompt |
 | The Codex rollout transcript | Untrusted | Read by session ID only, only for a session that started in this repo, streamed with a size limit |
 
 ## Known limits

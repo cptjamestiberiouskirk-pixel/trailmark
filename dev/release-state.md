@@ -8,6 +8,19 @@ Added at the user's request on 2026-11-09, to work on later:
 
 - Make the lessons check enforced as well as followed. Today the only part a tool enforces is the log's format, which `dev/release-check.sh` fails on if an entry is broken. Sessions still follow the rest by hand. A commit or push hook could force the rules to appear, but that is a settings change and needs the user's approval.
 
+## Next version: the pause watch (2026-11-15, branch `claude/upbeat-bouman-62d581` off 79d0715)
+
+New scope, asked by the coordinating session (session 5685aa10) on the user's report that "pause for reboot" got no checkpoint: not a deferred item, so the deferred-item rule of `CLAUDE.md` does not cover it, and a push or PR is asked of the user. Design and reasons: `dev/pause-watch-design.md`.
+
+- What it does: a second UserPromptSubmit hook, `trailmark.js --hook pause-watch`. The launcher reads the prompt in `lib/pausewords.js` before it loads the rest of its code; on a match it finds the memory folder and starts `hook-pause-watch.js` with one word from a fixed list. The hook asks Claude to run `trailmark:checkpoint` before the turn ends, or to ignore the note when the word was about something else. Silent for a repo not set up, a subagent, `"pauseWatch": {"on": false}`, and when this session wrote the handoff within `hints.freshCheckpointMinutes`. It writes nothing. Claude Code copy only.
+- Tests: `plugins/trailmark/tests/pause-watch.test.js`, `--only 'pause watch'` 9/9 pass (run 20261115-210438-3379, uncommitted tree on 79d0715).
+- Mutation list (`mutate.js`, with its output `mutate2.out`, in `pause-watch/` of the shared notes folder): 20 mutations, one part of the change removed in each; each run's summary shows 1 to 4 failed of 9, each file was restored, and the failing tests of each run were read and are the ones for the part removed. The feature is new, so no test can fail on the parent commit: the list is its proof. One case was tightened after the first run: with the launcher's "not set up" exit removed, the script's own memory-folder check stayed silent too, so that case now also asserts that no script was started, and that assertion is the one that fails.
+- Matcher probe: `probe-words.js` (same folder) over the sample prompts of the design note gave a word for each one meant to match and nothing for each false hit, before the number rule; "rebooting in 5 minutes" then showed a miss, and numbers of one to three digits were allowed.
+- Codex: its hooks page (read 2026-11-15, see the design note) lists `UserPromptSubmit` with a `prompt` field, so a Codex copy looks possible. Not built: the user has not yet seen the Codex copy's hooks run, and the field names came from a fetch tool's summary, not a quote.
+- Deferred, new:
+  - RS-D-codexprompt (INFERRED, seen on 79d0715): `docs/how-it-works.md`, section "Context watch", says Codex's "hooks have no prompt event"; Codex's hooks page now lists `UserPromptSubmit`. Repro: read that sentence beside learn.chatgpt.com/docs/hooks. Fix with the Codex copy of the pause watch, after the Codex trials.
+  - RS-P-codexpause (feature, not started): the pause watch for the Codex copy, once its hooks were seen running.
+
 ## 0.6.3: the release step (2026-11-13, branch `claude/release-0-6-3` off 318223d)
 
 Started on the user's "Yes, release 0.6.3" (2026-11-13), the answer to "Should a 0.6.3 release follow once PR 57 has merged?". That covers this writing, its PR and its merge. The publish, which makes the tag, is asked for by name as its own question (PLAYBOOK, "Do not attempt"). Scope is what has merged since v0.6.2: PR #28 to PR #57. No shipped code changes here.
