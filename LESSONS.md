@@ -16,7 +16,7 @@ Format:
 
 ## 2026-11-15: A record gave one reading for three cases, and a rule's reach without its skips
 - What went wrong: RS-D-jobtimeout's round 6 record said the `yaml` package reads `"30 - 0"` for X11, X13 and X14, but the output it cited showed `"30 0"` for X14. The bullet "The check" said a line deeper than a value is refused "whatever the line holds", but the checker skips a blank line, a full-line comment and a line inside a block scalar before that rule runs. The round 7 docs reviewer found both (WRONG).
-- Why: the reading was taken from the first case and written for the group. The rule's sentence was written from the rule's own line of code, not from the loop that decides which lines reach it. Round 8 then found that batch 7's fix cited a probe file for three cases that are in another file, and gave reviewer claims without "not re-run".
+- Why: the reading was taken from the first case and written for the group. The rule's sentence was written from the rule's own line of code, not from the loop that decides which lines reach it. Round 8 then found that batch 7's fix cited a probe file for two cases that are in another file, and gave reviewer claims without "not re-run"; round 9 found batch 8 had miscounted those cases and missed three more such claims.
 - Rule going forward: a record that gives one result for several cases checks it against each case's line in the output it cites. A sentence that says what a rule refuses names the lines that skip it, read from the code above the rule. Each case a repro names is found by a search in the file the repro cites, and a reviewer's claim copied into the notes says "not re-run" unless this session ran it.
 - Status: open
 
