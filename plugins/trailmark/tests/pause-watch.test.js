@@ -67,8 +67,11 @@ test('pause watch: names every object has are no word of any table, after a pair
   // The class (PLAYBOOK "Writing" step 11): the names every object has, in
   // lower case, as the matcher sees its text. `__proto__` reaches the tables
   // as `proto` (an underscore ends a word); both are here. Round 1's security
-  // review found `shut constructor` gave the Object function.
-  const names = ['constructor', '__proto__', 'proto', 'tostring', 'hasownproperty', 'valueof', 'isprototypeof', 'propertyisenumerable', 'tolocalestring'];
+  // review found `shut constructor` gave the Object function. The list comes
+  // from Object.prototype itself, so a name added there is in it.
+  const own = Object.getOwnPropertyNames(Object.prototype).map(s => s.toLowerCase());
+  const names = [...new Set([...own, ...own.map(s => s.replace(/[^a-z]/g, ''))])];
+  for (const n of ['constructor', '__proto__', 'proto', 'definegetter', 'lookupsetter']) assert.ok(names.includes(n), n);
   for (const p of ['shut', 'shutting', 'power', 'powering', 'log', 'logging', 'sign', 'signing', 'turn', 'turning']) {
     for (const n of names) {
       assert.strictEqual(P.pauseWord(`${p} ${n}`), '', `${p} ${n}`);
@@ -184,8 +187,17 @@ test('pause watch: through the launcher, "pause for reboot" asks for a checkpoin
   assert.match(askText(a), /ignore this note/);
   assert.match(a.systemMessage, /^\[trailmark\] Your prompt may say you are about to stop \(it matched "reboot"\): asked Claude to checkpoint first/);
   // Each word reads the same way in the message (round 1 found "mentions a end").
-  for (const [p, w] of [['exit claude', 'exit'], ['ending this conversation', 'end'], ['log out now', 'log off']]) {
-    assert.ok(c.run({ prompt: p }).systemMessage.includes(`(it matched "${w}")`), p);
+  const each = {
+    reboot: 'rebooting now', restart: 'restarting now', 'shut down': 'shutting down now', 'power off': 'powering off now',
+    'log off': 'log out now', 'sign off': 'signing off now', 'turn off': 'turning off now', close: 'close the session',
+    quit: 'quit claude', exit: 'exit claude', end: 'ending this conversation',
+  };
+  assert.deepStrictEqual(Object.keys(each).sort(), [...P.WORDS].sort());
+  for (const [w, p] of Object.entries(each)) {
+    assert.strictEqual(P.pauseWord(p), w, p);
+    const r = c.run({ prompt: p });
+    assert.ok(r.systemMessage.includes(`may say you are about to stop (it matched "${w}"): asked Claude`), p);
+    assert.ok(askText(r).includes(`(it matched "${w}"). If it does`), p);
   }
   // Nothing of the prompt is in the note or the message.
   assert.doesNotMatch(JSON.stringify(a), /REBOOTING|NOW|OK,/);

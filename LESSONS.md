@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-15: A class typed out by hand left out four of its members, and a comment said "each" over three of eleven
+- What went wrong: the batch after the pause watch's round 1 added a test that loops over "names every object has", typed as a list of nine; `Object.prototype` has four more (`__defineGetter__` and the other three of that family). Beside it, a comment said "Each word reads the same way in the message" over a loop of 3 of the 11 words. The regression reviewer of round 2 found both; no result moved, as only `constructor` was reachable.
+- Why: the list was written from memory of the class, not read from where the class is defined, and the loop's sample was chosen from round 1's examples and then described as the whole.
+- Rule going forward: a test's list of a class that the language or the code defines (an object's own names, a word list) is read from that source at run time, and the test asserts it covers the source. A comment that says "each" or "every" sits over a loop of every member.
+- Status: open
+
+## 2026-11-15: A handoff edit went in through a heredoc, and ran its read from the scratch folder
+- What went wrong: to shorten two handoff lines, a scratch script was written with `cat <<'EOF'` in a Bash command, and the command `cd`'d to the scratch folder first. There, `trailmark.js handoff` found no repo, the script's guard (old text found once) refused, and nothing was written. Rerun from the worktree root.
+- Why: a small follow-up to a script written with the Write tool a minute before was done by hand in the shell, against two promoted rules: no script goes in inline, a heredoc included ("Constraints and known limits", first bullet), and a trailmark command runs from the worktree root (lesson of 2026-11-14 "A scan that could not run printed the all-clear").
+- Rule going forward: as those two rules say. A follow-up script is a new file from the Write tool, and its command runs without a `cd`. No new step.
+- Status: promoted to PLAYBOOK (held by "Constraints and known limits", first bullet, read beside this rule: "No script goes in inline (`node -e`, a heredoc)")
+
 ## 2026-11-15: A table keyed by prompt words answered `constructor`
 - What went wrong: the pause watch's pair table held plain objects (`{ down: 'shut down' }`), so `shut constructor` gave the `Object` function, the early path went on, and `turn constructor. Rebooting now` got no ask. The security reviewer of round 1 found it; no test or mutation had it.
 - Why: "Writing" step 11 lists "a name every object has (`__proto__`, `constructor`)" for a table keyed by text, and the Set and Map tables of the same file were safe, so the inner objects were not read as tables. The step was not run on this change before the review.
