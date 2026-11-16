@@ -14,6 +14,61 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-15: A merge that kept both sides' new entries left one without its Status line
+- What went wrong: merging `main` into the pause watch branch, `LESSONS.md` had one conflict block, both sides' new entries at the top. Both sides' last entries ended in `- Status: open`; git kept that line once, as context after the block, so keeping both sides gave one entry no Status line and put a blank line before the other's. `dev/lessons.sh --check` found it (1 bad).
+- Why: a conflict block holds only what differs; a line both sides end with sits outside it, and a resolver that keeps "ours, then theirs" gives it to one side only.
+- Rule going forward: after resolving a conflict in a file of entries, run its format check (`dev/lessons.sh --check`) and compare the sorted entry titles with the union of both parents' before the merge commit.
+- Status: open
+
+## 2026-11-15: A load log printed nothing, and the runs it was for were already done
+- What went wrong: `rerun-pattern.sh` logged processor load with `pwsh` before and after each of three test runs. In that background shell `pwsh` was not on PATH (an earlier script of the same shape, two hours before, found it), so each log line was empty after a "command not found", and the one run that failed has no load reading of its own. The reading was taken after, with the full path.
+- Why: the script did not check that its probe works before the runs, and printed an empty value as a reading.
+- Rule going forward: a script that logs a measurement calls the probe once before the work, stops if it gives no value, and names the program by its full path (`/c/Program Files/PowerShell/7/pwsh.exe`).
+- Status: open
+
+## 2026-11-15: The record said every reviewer's mutation was caught, and one report listed one that passed
+- What went wrong: the pause watch's round 2 bullet said "Each reviewer re-ran mutations of the batch's fixes and each was caught". `r2-security.md` listed five, and one (the early path back to `!word`) passed 12/12. The regression reviewer of round 3 found it.
+- Why: the sentence was written from the three reports' hand-back summaries, as a summary of all of them, and the reports were not read line by line beside it. The one that passed was the one the notes already called untellable, so it read as nothing new.
+- Rule going forward: a sentence that sums up several reports ("each", "all", "none") is checked against every item of every report it covers before the commit, the expected exceptions included, and names any exception.
+- Second sighting, the same evening: round 4's reviewer found the round 3 bullet "The batch's check" called every failing answer `git-timeout` and gave one expected value per test, where the kept TAP showed `count: 1` in one copy and an empty answer from a refused git check in another case. It was written from the summary lines of `release-check.sh` and two `error:` blocks, not from each failing case.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 15, its last sentence)
+
+## 2026-11-15: A class typed out by hand left out four of its members, and a comment said "each" over three of eleven
+- What went wrong: the batch after the pause watch's round 1 added a test that loops over "names every object has", typed as a list of nine; `Object.prototype` has four more (`__defineGetter__` and the other three of that family). Beside it, a comment said "Each word reads the same way in the message" over a loop of 3 of the 11 words. The regression reviewer of round 2 found both; no result moved, as only `constructor` was reachable.
+- Why: the list was written from memory of the class, not read from where the class is defined, and the loop's sample was chosen from round 1's examples and then described as the whole.
+- Rule going forward: a test's list of a class that the language or the code defines (an object's own names, a word list) is read from that source at run time, and the test asserts it covers the source. A comment that says "each" or "every" sits over a loop of every member.
+- Status: open
+
+## 2026-11-15: A handoff edit went in through a heredoc, and ran its read from the scratch folder
+- What went wrong: to shorten two handoff lines, a scratch script was written with `cat <<'EOF'` in a Bash command, and the command `cd`'d to the scratch folder first. There, `trailmark.js handoff` found no repo, the script's guard (old text found once) refused, and nothing was written. Rerun from the worktree root.
+- Why: a small follow-up to a script written with the Write tool a minute before was done by hand in the shell, against two promoted rules: no script goes in inline, a heredoc included ("Constraints and known limits", first bullet), and a trailmark command runs from the worktree root (lesson of 2026-11-14 "A scan that could not run printed the all-clear").
+- Rule going forward: as those two rules say. A follow-up script is a new file from the Write tool, and its command runs without a `cd`. No new step.
+- Status: promoted to PLAYBOOK (held by "Constraints and known limits", first bullet, read beside this rule: "No script goes in inline (`node -e`, a heredoc)")
+
+## 2026-11-15: A table keyed by prompt words answered `constructor`
+- What went wrong: the pause watch's pair table held plain objects (`{ down: 'shut down' }`), so `shut constructor` gave the `Object` function, the early path went on, and `turn constructor. Rebooting now` got no ask. The security reviewer of round 1 found it; no test or mutation had it.
+- Why: "Writing" step 11 lists "a name every object has (`__proto__`, `constructor`)" for a table keyed by text, and the Set and Map tables of the same file were safe, so the inner objects were not read as tables. The step was not run on this change before the review.
+- Rule going forward: as "Writing" step 11 says, for every lookup on text from outside, inner tables included; the test names the class and loops over it. Held by that step; this is its second sighting.
+- Status: promoted to PLAYBOOK (held by "Writing" step 11, read beside this rule: "a name every object has (`__proto__`, `constructor`)")
+
+## 2026-11-15: New files were left out of SHA256SUMS, and a dash went in after the dash scan
+- What went wrong: the pause watch's commit a66710e had three new shipped files that `SHA256SUMS` did not list, and a `LESSONS.md` line with an en and an em dash in it. The docs reviewer of round 1 found both. `--sums --quick` had passed: the new files were untracked when it ran. The dash scan had run before that `LESSONS.md` entry was written.
+- Why: `dev/release-check.sh` takes its list from `git ls-files`, so an untracked file is in neither the list nor its count, and its stale message ("run with --sums after staging your change") never shows. The scan was run once, part way through the edits, not on the commit's whole diff.
+- Rule going forward: a change that adds files runs `git add` on them before `--sums`. The dash scan runs on `git diff --cached` (new files staged) right before the commit, after the last edit, notes included.
+- Status: open
+
+## 2026-11-15: An inline `node -e` edit of a scratch script lost its backslashes
+- What went wrong: to add two entries to the pause watch's mutation list, a `node -e` command held the old and new text of the script. The Bash tool collapsed its `\\d` and `\\/`, the old text was not found, and the guard (the old text must occur once) stopped it with nothing written. The same edit then went through the Edit tool.
+- Why: the session reached for a one-line command for a small scratch edit, against "Constraints and known limits", which says no script goes in inline, a small rewrite of a scratch one included.
+- Rule going forward: as that constraint says; its guard made this a redo and not a wrong file. No new step.
+- Status: promoted to PLAYBOOK (held by "Constraints and known limits", first bullet, read beside this rule: "every script, a scratch one and a small rewrite of one included, ... is written to a file with the Write or Edit tool")
+
+## 2026-11-15: A dash scan with the dash's bytes in a bracket found nothing in a line that had one
+- What went wrong: the pause watch's doc edits were scanned with `LC_ALL=C.UTF-8 grep -c $'\xe2\x80[\x93\x94]'` in Git Bash. It printed 0 for the added lines and 0 for a control line that held an em dash, and exited 1, which reads as "none found". A Node scan (a class of U+2013 and U+2014 over the added lines of the diff) found 0 in 340 added lines and 1 in its control.
+- Why: in a UTF-8 locale the bracket `[\x93\x94]` names characters, and the two lone bytes are no characters there, so the pattern can't match a whole em dash. Exit 1 is "no match", the same as a clean text.
+- Rule going forward: a scan for non-ASCII characters runs in Node over the diff text (`git diff` piped to a script with a `\u` class), with a control line in the same run. "Committing" step 4 caught this one through its control; this is a second shape of its `grep -P` case.
+- Status: open
+
 ## 2026-11-15: A failed run's kept folder was pushed out before the review read it
 - What went wrong: RS-D-jobtimeout's batch 9 check failed 3 tests, and the notes cited its kept folder. Before round 10 read it, `prune_kept` had removed it: another session's `--only` runs added more than 20 unmarked folders. Only the lines this session had printed to its console were left (`quick-14-failures.txt`).
 - Why: the rule of 2026-11-08 ("Reviewers' proofs push out kept failed runs") was in `LESSONS.md` only, not in the step that is read when a run fails.

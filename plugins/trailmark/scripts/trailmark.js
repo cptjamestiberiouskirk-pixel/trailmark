@@ -13,7 +13,7 @@
 //
 // Usage:
 //   node trailmark.js <memory.js command> [args]        skills
-//   node trailmark.js --hook <session-start|precompact|commit-start|milestone|context-watch> [kind]   hooks
+//   node trailmark.js --hook <session-start|precompact|commit-start|milestone|context-watch|pause-watch> [kind]   hooks
 //   node trailmark.js --sandbox-check                   self-test of the seat belt
 //   node trailmark.js --copies [--show-names]           count other trailmark copies on disk; --show-names lists them
 //
@@ -39,6 +39,9 @@ for (const k of ['JBMEM_DIR', 'JBMEM_DIR_MISSING', 'JBMEM_LAUNCHED', 'JBMEM_METH
 // The context watch runs after every tool call: below its first step it
 // leaves here, before the rest of the launcher is even loaded.
 const CW_EARLY = process.argv[2] === '--hook' && process.argv[3] === 'context-watch' ? require('./lib/contextwatch').fastPath() : null;
+// The pause watch runs on every prompt: unless the prompt says the user is
+// about to reboot or close the session, it leaves here too.
+const PW_EARLY = process.argv[2] === '--hook' && process.argv[3] === 'pause-watch' ? require('./lib/pausewords').fastPath() : null;
 
 const fs = require('fs');
 const os = require('os');
@@ -69,6 +72,7 @@ const HOOKS = {
   milestone: { script: 'hook-milestone.js', facts: [] }, // commits: see commitFacts below
   'commit-start': { script: 'hook-commit-start.js', facts: [] },
   'context-watch': { script: 'hook-context-watch.js', facts: [] }, // context: see contextWatch below
+  'pause-watch': { script: 'hook-pause-watch.js', facts: [] }, // pause: see pauseWatch below
 };
 const STDIN_COMMANDS = new Set(['write-handoff', 'park']);
 
@@ -293,6 +297,7 @@ function hookMode(name, extra) {
   const spec = HOOKS[name];
   if (!spec) process.exit(0);
   if (name === 'context-watch') contextWatch(CW_EARLY, () => 5000 - (Date.now() - started));
+  if (name === 'pause-watch') pauseWatch(PW_EARLY, () => 5000 - (Date.now() - started));
   const raw = readAllStdin();
   let payload = {};
   try { payload = JSON.parse(raw.toString('utf8').replace(/^\uFEFF/, '') || '{}'); } catch { /* empty payload */ }
@@ -402,6 +407,22 @@ function contextWatch(early, left) {
   }
   const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, payload: hookInput(payload), reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
   process.exit(run(HOOKS['context-watch'].script, [], { ...opts, facts: { context } }));
+}
+
+// The pause watch: lib/pausewords.js (top of this file) has read the prompt
+// and found a word from its fixed list. Only that word goes on; the script's
+// payload has no prompt (hookInput). See hook-pause-watch.js.
+// left: what is left of the hook's time for git, for finding the memory
+// folder (hookMemory).
+function pauseWatch(early, left) {
+  if (!early) process.exit(0);
+  const { payload, word } = early;
+  const cwd = typeof payload.cwd === 'string' && path.isAbsolute(payload.cwd) ? payload.cwd : process.cwd();
+  const loc = hookMemory(payload, cwd, undefined, left);
+  if (!loc) process.exit(0); // repo not set up: stay silent
+  // The script writes nothing, so it may write nowhere.
+  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, payload: hookInput(payload), reads: [PLUGIN_ROOT, loc.dir], writes: [] };
+  process.exit(run(HOOKS['pause-watch'].script, [], { ...opts, facts: { pause: { word } } }));
 }
 
 // The commits on HEAD since the handoff's HEAD (its Updated line), read

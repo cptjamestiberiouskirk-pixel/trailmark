@@ -58,6 +58,12 @@ It starts over after a compaction, or once the context has shrunk by a fifth or 
 
 The Codex copy has no context watch: Codex records token counts, but where it compacts by default isn't established, and its hooks have no prompt event.
 
+### Pause watch
+
+The pause watch is a second hook on every prompt. The launcher reads the prompt, only when it is 2,000 characters or shorter, and leaves at once, before it loads the rest of its code or looks for the memory folder, unless one clause of it says the user is about to stop. A clause matches when it holds a trigger (`reboot`, `restart`, `shut down`, `power off`, `log off`, `sign off`, `turn off`, or `close`, `quit`, `exit` or `end` together with a session word such as `session`, `chat` or `claude`) and every other word in it is on a fixed list of short words (`now`, `my`, `pc`, `for`, `updates`) or a number of up to three digits. Clauses end at punctuation, at a line break and at `and`, `then`, `so`, `but`, `also` and `plus`. So "pause for reboot" and "commit this, then I'll restart my pc" match, and "restart the server", "don't reboot" and "I rebooted" don't. Text between backticks and lines that start with `>` don't count. `lib/pausewords.js` has the lists.
+
+On a match the launcher finds the memory folder and starts the sandboxed hook with the matched word, one from a fixed list, never the prompt. The hook asks Claude to run `trailmark:checkpoint` before the turn ends, or to ignore the note when the word is about something else, and shows you `[trailmark] Your prompt may say you are about to stop ...`. It stays silent when this session wrote the handoff within `hints.freshCheckpointMinutes`, for a subagent, and with `"pauseWatch": {"on": false}` in `.jbmem.json`. It writes nothing, so the same prompt asks again. The Codex copy has no pause watch.
+
 ### Writing the handoff
 
 Writing the handoff stays a model action, through the `trailmark:checkpoint` skill. A hook can remind but can't make Claude write.
@@ -317,7 +323,8 @@ All of this happens only in repos set up with `/trailmark:memory-setup`. In any 
 | PostToolUse (the same commands, and `gh pr merge`) and PostToolUseFailure (the same commands, without `gh pr merge`) | git: the commits the command made | Log lines, the state file |
 | PostToolUse (Agent, Task) | Nothing | The reminder time in the state file |
 | PreCompact | git: branch, HEAD, status | `snapshots/<session>.md`, one log line |
-| PostToolUse (every tool) and UserPromptSubmit | Nothing below 80% of the earliest compaction point. Past it, the launcher's `git rev-parse` to find the memory folder | The session's context-watch state in the state file, when it changes |
+| PostToolUse (every tool) and UserPromptSubmit (the context watch) | Nothing below 80% of the earliest compaction point. Past it, the launcher's `git rev-parse` to find the memory folder | The session's context-watch state in the state file, when it changes |
+| UserPromptSubmit (the pause watch) | Nothing unless the prompt says the user is about to stop. Then the launcher's `git rev-parse` to find the memory folder | Nothing |
 
 Every hook goes through `scripts/trailmark.js`, which only reads. It runs git by full path, without a shell, with timeouts, and with every repo setting that could start a program switched off (`lib/gitbin.js` lists them). The git subcommands it uses are `rev-parse`, `branch`, `log` (also over the reflog), `rev-list`, `merge-base`, `status`, `ls-files`, `check-attr`, `config --show-scope`, and `config --file` to read a repo's own config files before git runs there. Then it starts the script that writes, under Node's permission model: that script can write only in the repo's memory folder, and can't start programs.
 
