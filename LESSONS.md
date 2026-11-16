@@ -20,6 +20,12 @@ Format:
 - Rule going forward: a control that tells load from a fault is tried under the machine's real background load as well as under busy loops before it is kept, and a bound that real load crosses is dropped, with the case it no longer covers named in the test's comment.
 - Status: open
 
+## 2026-11-16: A script split "path:sha" at the drive letter's colon
+- What went wrong: RS-T-startstopped's `alternate.sh` passed each clone as `"$dir:$sha"` and split it with `${x%%:*}`. Its paths start with `C:/`, so both clones were made in a folder named `C` in the worktree, the four timed runs each found no clone and ended at once, and the cleanup removed paths that did not exist. The stray clone was found in `git status` and removed by its literal path.
+- Why: a pair packed into one text with `:` between, on a system where `:` is part of every absolute path. The script also did not check that each clone was where the runs would look for it.
+- Rule going forward: a script never packs a path with other values into one text split at a character a path can hold; it takes them as separate arguments or arrays. After it makes a folder, it checks the folder at the path it will use, and stops if it is not there.
+- Status: open
+
 ## 2026-11-15: A merge that kept both sides' new entries left one without its Status line
 - What went wrong: merging `main` into the pause watch branch, `LESSONS.md` had one conflict block, both sides' new entries at the top. Both sides' last entries ended in `- Status: open`; git kept that line once, as context after the block, so keeping both sides gave one entry no Status line and put a blank line before the other's. `dev/lessons.sh --check` found it (1 bad).
 - Why: a conflict block holds only what differs; a line both sides end with sits outside it, and a resolver that keeps "ours, then theirs" gives it to one side only.
