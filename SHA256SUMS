@@ -96,7 +96,7 @@ bf3221207f85b17983af4511f876c3c1045084985c3aef3ae250381ba69f27a4 *./plugins/trai
 82ff4427009a00024ff77bfc1ed243067ce7ef27f1ea5450eaa19e842b317762 *./plugins/trailmark/tests/handoff-checks.test.js
 7f4479f7de48efe7f3112a3c27629653f11d767fe5d70bb85c4e2923c572b23a *./plugins/trailmark/tests/hardening.test.js
 fc776c992644088419b7c22a3aa9c591f04d9684d3c8740bea293bd26ec19981 *./plugins/trailmark/tests/helpers.js
-70c6eaa453179d9f21fbc66964df1d73bca2cd0bba4dd327c376140df630a9f2 *./plugins/trailmark/tests/pause-watch.test.js
+8333db3e4d6af1f79d197fa8b80663eecf8332f72ed71722a4320b9d9a06055d *./plugins/trailmark/tests/pause-watch.test.js
 3b7b918029358d2e5df90d4628df74654da8c376644cc31f9b558ea04b0ecb5d *./plugins/trailmark/tests/security.test.js
 2336f61475f53e9ca6f0b61dda5c600e6f8209593371bff3830d319cf8512038 *./plugins/trailmark/tests/sessions.test.js
 b7d3e39e70e9a4ade98aa834e52b09035b285dd60a106be9ce3ad766f38cc0e5 *./plugins/trailmark/tests/sweep.test.js

@@ -68,10 +68,11 @@ test('pause watch: names every object has are no word of any table, after a pair
   // lower case, as the matcher sees its text. `__proto__` reaches the tables
   // as `proto` (an underscore ends a word); both are here. Round 1's security
   // review found `shut constructor` gave the Object function. The list comes
-  // from Object.prototype itself, so a name added there is in it.
+  // from Object.prototype itself, so a name added there is in it. `__proto__`
+  // is added by hand: `--disable-proto=delete` takes it off Object.prototype.
   const own = Object.getOwnPropertyNames(Object.prototype).map(s => s.toLowerCase());
-  const names = [...new Set([...own, ...own.map(s => s.replace(/[^a-z]/g, ''))])];
-  for (const n of ['constructor', '__proto__', 'proto', 'definegetter', 'lookupsetter']) assert.ok(names.includes(n), n);
+  const names = [...new Set(['__proto__', 'proto', ...own, ...own.map(s => s.replace(/[^a-z]/g, ''))])];
+  for (const n of ['constructor', 'definegetter', 'lookupsetter']) assert.ok(names.includes(n), n);
   for (const p of ['shut', 'shutting', 'power', 'powering', 'log', 'logging', 'sign', 'signing', 'turn', 'turning']) {
     for (const n of names) {
       assert.strictEqual(P.pauseWord(`${p} ${n}`), '', `${p} ${n}`);
@@ -196,6 +197,7 @@ test('pause watch: through the launcher, "pause for reboot" asks for a checkpoin
   for (const [w, p] of Object.entries(each)) {
     assert.strictEqual(P.pauseWord(p), w, p);
     const r = c.run({ prompt: p });
+    assert.ok(r, `no ask for: ${p}`);
     assert.ok(r.systemMessage.includes(`may say you are about to stop (it matched "${w}"): asked Claude`), p);
     assert.ok(askText(r).includes(`(it matched "${w}"). If it does`), p);
   }
