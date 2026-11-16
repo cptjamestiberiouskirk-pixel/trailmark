@@ -2,7 +2,7 @@
 
 trailmark-codex gives Codex a memory for each project. Each repo gets a short handoff note on where the work stands, what to do next, the decisions behind it and the questions still open. The note is refreshed after commits and PR merges and before Codex compacts a long chat, and every new chat starts with it, so you don't have to explain the project again or dig back through old chats.
 
-It's the Codex copy of [Trailmark](https://github.com/cptjamestiberiouskirk-pixel/trailmark), tested with the ChatGPT desktop app on Windows. Codex runs a plugin's hooks only when the plugin was installed in the app, so install it there (below).
+It's the Codex copy of [Trailmark](https://github.com/cptjamestiberiouskirk-pixel/trailmark), tested with the ChatGPT desktop app on Windows. Install it in the app (below), or with the Codex CLI's `codex plugin add`: with Codex 0.169 on Windows, the app and `codex exec` both ran its hooks installed that way.
 
 ## What it does
 
@@ -27,7 +27,7 @@ You need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines), t
 
    If you also use Claude Code, the release's installer does both: `./install.sh --codex` (`install.ps1 -Codex` on Windows) installs the Claude Code plugin and then runs that command. The installer needs Claude Code, so for Codex alone use the command above.
 
-   Restart the ChatGPT desktop app, open the Plugins directory, choose the **trailmark-codex** marketplace and install the plugin. Install it in the app, not from the command line: Codex runs a plugin's hooks only when it was installed there. Newer Codex CLIs also have `codex plugin add`; this copy hasn't been tested installed that way.
+   Restart the ChatGPT desktop app, open the Plugins directory, choose the **trailmark-codex** marketplace and install the plugin. Newer Codex CLIs can install it instead with `codex plugin add trailmark-codex@trailmark-codex`. With Codex 0.169 on Windows, the app (after a restart) and `codex exec` ran its hooks installed that way.
 
 2. **Trust the hooks.** Codex runs a plugin's hooks only after you review and trust them, and again after any change to them. Each hook should read `node -e "...PLUGIN_ROOT..." trailmark --hook <name>`. In the Codex CLI, `/hooks` lists them.
 
@@ -40,7 +40,7 @@ You need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines), t
    writable_roots = ['<memory folder, as dir printed it>']
    ```
 
-   Single quotes keep Windows backslashes as they are. Add one entry per repo, and don't add the whole `projects` folder, which also holds Claude Code's transcripts. If the file already has a `[sandbox_workspace_write]` table, add the entry to its list. Whether Codex's own sandbox on Windows honors this setting hasn't been checked yet; approving each write works.
+   Single quotes keep Windows backslashes as they are. Add one entry per repo, and don't add the whole `projects` folder, which also holds Claude Code's transcripts. If the file already has a `[sandbox_workspace_write]` table, add the entry to its list. With Codex 0.169 on Windows, Codex's unelevated sandbox honored this setting in `codex exec`; its elevated sandbox and the app weren't tried. Approving each write works too.
 
 4. **Windows: keep `node` from being found in a repo folder.** Every hook starts `node` by name. If Codex runs hooks through cmd.exe, cmd looks in the current folder (the repo) before PATH, so a `node.exe` or `node.cmd` committed to a repo would run in place of Node. One user setting turns that lookup off:
 
