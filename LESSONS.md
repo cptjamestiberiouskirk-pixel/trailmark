@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-15: A load log printed nothing, and the runs it was for were already done
+- What went wrong: `rerun-pattern.sh` logged processor load with `pwsh` before and after each of three test runs. In that background shell `pwsh` was not on PATH (an earlier script of the same shape, two hours before, found it), so each log line was empty after a "command not found", and the one run that failed has no load reading of its own. The reading was taken after, with the full path.
+- Why: the script did not check that its probe works before the runs, and printed an empty value as a reading.
+- Rule going forward: a script that logs a measurement calls the probe once before the work, stops if it gives no value, and names the program by its full path (`/c/Program Files/PowerShell/7/pwsh.exe`).
+- Status: open
+
 ## 2026-11-15: The record said every reviewer's mutation was caught, and one report listed one that passed
 - What went wrong: the pause watch's round 2 bullet said "Each reviewer re-ran mutations of the batch's fixes and each was caught". `r2-security.md` listed five, and one (the early path back to `!word`) passed 12/12. The regression reviewer of round 3 found it.
 - Why: the sentence was written from the three reports' hand-back summaries, as a summary of all of them, and the reports were not read line by line beside it. The one that passed was the one the notes already called untellable, so it read as nothing new.
