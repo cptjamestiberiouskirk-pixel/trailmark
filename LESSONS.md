@@ -50,6 +50,12 @@ Format:
 - Rule going forward: a repro of a load-only failure names the background load it ran under (the load snapshot's counts) beside its loops. When the same loops don't reproduce it, the loops are raised (to three per core) before the failure is called gone, and the notes say which load reproduced it.
 - Status: open
 
+## 2026-11-16: A CI re-run was started with auto-merge on, before the hang lesson was read
+- What went wrong: PR #75's job "windows-latest, Node 22" hung and was cancelled at 45 min. Another session suggested re-running it and checking that auto-merge was still set; the job was re-run with auto-merge on. The open lesson "A job that hung had no time limit and left no log" says to take auto-merge off, re-run the job alone three times, and leave the merge to the user. Auto-merge came off at 21:19:37Z, 30 s after the re-run's job started (21:19:07Z) and long before it could finish.
+- Why: the lessons check was skipped for a step that came in as another session's suggestion, and the suggestion was taken as the plan.
+- Rule going forward: a CI failure, hang or cancel is a step like any other: run `dev/lessons.sh` with its words (`hang`, `job`, `cancel`, `rerun`) before the first command, a re-run included. A plan from another session is checked against the lessons before it is followed.
+- Status: open
+
 ## 2026-11-16: A test failed only because the checkout sat at a long path
 - What went wrong: the docs branch of the Codex trials, checked out under the session's scratch folder, failed `injection: a note shortened to fit is never cut inside the launcher's path` (`169 > 150`) in `--sums --quick`, on a docs-only change. The same `plugins/` files passed in the usual worktree and in a checkout at `E:/DevTemp/cxd`.
 - Why: the test puts the launcher's path at character 140 of each note and expects the 300 cut to overflow the budget. With the launcher path at 158 characters or more, the 300 cut drops the whole path (140 plus the 29 of the marker), 7 such notes fit, and the 150 cut the test checks is never reached. The scratch folder's path made the launcher 158 characters long.
