@@ -14,6 +14,17 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-16: A time fix cut the longest overrun and left the lost handoffs as they were
+- What went wrong: RS-T-launchover moved the launcher's clocks to the process's start. Under 48 busy loops the longest session start fell from 15,155 to 11,766 ms, but 9 of 16 starts lost the handoff with each version (`lost.js` over `alt-*.out` in `rs-t-launchover/` of the sessions' notes folder). With the parent, 5 starts ran past 10 s with no stop and 4 were stopped; with the fix, all 9 were launcher stops, each of them still past 10 s. Read by its longest time alone, the fix looked like it closed the item.
+- Why: the host's limit counts time no limit inside the process can see (the process's start before Node records it, up to 2,113 ms here, and its exit, up to 1,026 ms), and under that load the script needed more than what was left.
+- Rule going forward: a fix for a hook that passes its host's time limit is measured, for the parent and the fix, by the count of runs whose output the user would lose (stopped by the launcher, or past the host's limit), and the notes give that count beside the times. The time outside the process is measured beside it with a bare process spawn under the same load.
+- Status: open
+
+## 2026-11-16: The busy loops that reproduced a load failure the day before did not reproduce it
+- What went wrong: RS-T-startstopped's repro of the stop was 16 busy loops (one per core), with 16 Codex and 46 node processes of other work running. On 2026-11-16, with lighter other work, 20 session starts under the same 16 loops all ended by 8.7 s (`probe2-1.out`). 48 loops (three per core) brought 8 of 20 past 10 s (`probe2-2.out`).
+- Why: the repro's load was the loops plus the background, and only the loops were written down as the repro.
+- Rule going forward: a repro of a load-only failure names the background load it ran under (the load snapshot's counts) beside its loops. When the same loops don't reproduce it, the loops are raised (to three per core) before the failure is called gone, and the notes say which load reproduced it.
+
 ## 2026-11-16: A test failed only because the checkout sat at a long path
 - What went wrong: the docs branch of the Codex trials, checked out under the session's scratch folder, failed `injection: a note shortened to fit is never cut inside the launcher's path` (`169 > 150`) in `--sums --quick`, on a docs-only change. The same `plugins/` files passed in the usual worktree and in a checkout at `E:/DevTemp/cxd`.
 - Why: the test puts the launcher's path at character 140 of each note and expects the 300 cut to overflow the budget. With the launcher path at 158 characters or more, the 300 cut drops the whole path (140 plus the 29 of the marker), 7 such notes fit, and the 150 cut the test checks is never reached. The scratch folder's path made the launcher 158 characters long.
