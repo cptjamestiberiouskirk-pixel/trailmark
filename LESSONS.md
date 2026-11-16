@@ -18,7 +18,8 @@ Format:
 - What went wrong: the pause watch's round 2 bullet said "Each reviewer re-ran mutations of the batch's fixes and each was caught". `r2-security.md` listed five, and one (the early path back to `!word`) passed 12/12. The regression reviewer of round 3 found it.
 - Why: the sentence was written from the three reports' hand-back summaries, as a summary of all of them, and the reports were not read line by line beside it. The one that passed was the one the notes already called untellable, so it read as nothing new.
 - Rule going forward: a sentence that sums up several reports ("each", "all", "none") is checked against every item of every report it covers before the commit, the expected exceptions included, and names any exception.
-- Status: open
+- Second sighting, the same evening: round 4's reviewer found the round 3 bullet "The batch's check" called every failing answer `git-timeout` and gave one expected value per test, where the kept TAP showed `count: 1` in one copy and an empty answer from a refused git check in another case. It was written from the summary lines of `release-check.sh` and two `error:` blocks, not from each failing case.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 15, its last sentence)
 
 ## 2026-11-15: A class typed out by hand left out four of its members, and a comment said "each" over three of eleven
 - What went wrong: the batch after the pause watch's round 1 added a test that loops over "names every object has", typed as a list of nine; `Object.prototype` has four more (`__defineGetter__` and the other three of that family). Beside it, a comment said "Each word reads the same way in the message" over a loop of 3 of the 11 words. The regression reviewer of round 2 found both; no result moved, as only `constructor` was reachable.
