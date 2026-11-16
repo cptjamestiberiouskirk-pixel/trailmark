@@ -420,7 +420,8 @@ function pauseWatch(early, left) {
   const cwd = typeof payload.cwd === 'string' && path.isAbsolute(payload.cwd) ? payload.cwd : process.cwd();
   const loc = hookMemory(payload, cwd, undefined, left);
   if (!loc) process.exit(0); // repo not set up: stay silent
-  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, payload: hookInput(payload), reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
+  // The script writes nothing, so it may write nowhere.
+  const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, payload: hookInput(payload), reads: [PLUGIN_ROOT, loc.dir], writes: [] };
   process.exit(run(HOOKS['pause-watch'].script, [], { ...opts, facts: { pause: { word } } }));
 }
 

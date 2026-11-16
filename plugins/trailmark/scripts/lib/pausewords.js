@@ -28,12 +28,15 @@ const TRIGGERS = new Map([
   ['restart', 'restart'], ['restarts', 'restart'], ['restarting', 'restart'],
 ]);
 // Two words read as one trigger: first word, then the second word's canonical.
+// Maps all the way down: a plain object would answer `constructor` and the
+// other names every object has (security review, round 1).
+const pair = o => new Map(Object.entries(o));
 const PAIRS = new Map([
-  ['shut', { down: 'shut down' }], ['shutting', { down: 'shut down' }],
-  ['power', { off: 'power off', down: 'power off' }], ['powering', { off: 'power off', down: 'power off' }],
-  ['log', { off: 'log off', out: 'log off' }], ['logging', { off: 'log off', out: 'log off' }],
-  ['sign', { off: 'sign off', out: 'sign off' }], ['signing', { off: 'sign off', out: 'sign off' }],
-  ['turn', { off: 'turn off' }], ['turning', { off: 'turn off' }],
+  ['shut', pair({ down: 'shut down' })], ['shutting', pair({ down: 'shut down' })],
+  ['power', pair({ off: 'power off', down: 'power off' })], ['powering', pair({ off: 'power off', down: 'power off' })],
+  ['log', pair({ off: 'log off', out: 'log off' })], ['logging', pair({ off: 'log off', out: 'log off' })],
+  ['sign', pair({ off: 'sign off', out: 'sign off' })], ['signing', pair({ off: 'sign off', out: 'sign off' })],
+  ['turn', pair({ off: 'turn off' })], ['turning', pair({ off: 'turn off' })],
 ]);
 TRIGGERS.set('shutdown', 'shut down');
 // A trigger only with a session word in the same clause.
@@ -75,8 +78,8 @@ function clauseWord(words) {
   let hasSession = false;
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
-    const pair = PAIRS.get(w);
-    const second = pair && i + 1 < words.length ? pair[words[i + 1]] : undefined;
+    const seconds = PAIRS.get(w);
+    const second = seconds && i + 1 < words.length ? seconds.get(words[i + 1]) : undefined;
     if (second) { found = found || second; i++; continue; }
     if (TRIGGERS.has(w)) { found = found || TRIGGERS.get(w); continue; }
     if (NEEDS_SESSION.has(w)) { needsSession = needsSession || NEEDS_SESSION.get(w); continue; }
@@ -124,7 +127,7 @@ function fastPath() {
   if (payload.agent_id || payload.agent_type) process.exit(0); // a subagent's prompt
   if (typeof payload.session_id !== 'string' || !SESSION_RE.test(payload.session_id)) process.exit(0);
   const word = pauseWord(payload.prompt);
-  if (!word) process.exit(0);
+  if (!WORDS.includes(word)) process.exit(0);
   return { payload, word };
 }
 

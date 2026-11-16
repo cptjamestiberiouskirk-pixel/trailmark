@@ -47,10 +47,10 @@ function main() {
   const cfg = S.loadConfig(dir);
   if (!decide(S.sessionRecord(dir, session), cfg, Date.now())) return;
   emit({
-    systemMessage: `[trailmark] Your prompt mentions a ${word}: asked Claude to checkpoint first, if that is what you meant.`,
+    systemMessage: `[trailmark] Your prompt may say you are about to stop (it matched "${word}"): asked Claude to checkpoint first, if that is what you meant.`,
     hookSpecificOutput: {
       hookEventName: 'UserPromptSubmit',
-      additionalContext: `[trailmark] The user's prompt may say they are about to reboot, restart, shut down or close this session (it has the word "${word}"). If it does, run the ${S.CHECKPOINT_SKILL} skill before this turn ends, after any short step they asked for first, so the handoff holds this session's state when the next session starts. If the word is about something else, such as restarting a server or starting a task over, ignore this note. ${S.SKILL_RULE}`,
+      additionalContext: `[trailmark] The user's prompt may say they are about to reboot, restart, shut down or close this session (it matched "${word}"). If it does, run the ${S.CHECKPOINT_SKILL} skill before this turn ends, after any short step they asked for first, so the handoff holds this session's state when the next session starts. If the word is about something else, such as restarting a server or starting a task over, ignore this note. ${S.SKILL_RULE}`,
     },
   });
 }

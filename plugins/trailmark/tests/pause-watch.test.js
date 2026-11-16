@@ -63,6 +63,23 @@ test('pause watch: one word not on the allowed list, anywhere in the clause, sto
   for (const w of ['rebooted', 'restarted', 'reboooting', 'rebootnow', 'shut', 'power', 'log', 'sign', 'turn', 'down', 'off']) assert.strictEqual(P.pauseWord(w), '', w);
 });
 
+test('pause watch: names every object has are no word of any table, after a pair word or alone', () => {
+  // The class (PLAYBOOK "Writing" step 11): the names every object has, in
+  // lower case, as the matcher sees its text. `__proto__` reaches the tables
+  // as `proto` (an underscore ends a word); both are here. Round 1's security
+  // review found `shut constructor` gave the Object function.
+  const names = ['constructor', '__proto__', 'proto', 'tostring', 'hasownproperty', 'valueof', 'isprototypeof', 'propertyisenumerable', 'tolocalestring'];
+  for (const p of ['shut', 'shutting', 'power', 'powering', 'log', 'logging', 'sign', 'signing', 'turn', 'turning']) {
+    for (const n of names) {
+      assert.strictEqual(P.pauseWord(`${p} ${n}`), '', `${p} ${n}`);
+      assert.strictEqual(P.pauseWord(`${p} ${n}. Rebooting now`), 'reboot', `${p} ${n}. Rebooting now`);
+    }
+  }
+  for (const n of names) {
+    for (const t of [n, `reboot ${n}`, `close ${n}`, `${n} the session`]) assert.strictEqual(P.pauseWord(t), '', t);
+  }
+});
+
 test('pause watch: close, quit, exit and end need a session word in the same clause', () => {
   const forms = ['close', 'closing', 'quit', 'quitting', 'exit', 'exiting', 'end', 'ending'];
   const sessions = ['session', 'chat', 'conversation', 'claude', 'codex', 'terminal', 'window', 'ide', 'editor', 'vscode'];
@@ -162,10 +179,14 @@ test('pause watch: through the launcher, "pause for reboot" asks for a checkpoin
   assert.ok(a, 'asks');
   assert.strictEqual(a.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
   assert.match(askText(a), /^\[trailmark\] The user's prompt may say they are about to reboot/);
-  assert.match(askText(a), /the word "reboot"/);
+  assert.match(askText(a), /\(it matched "reboot"\)/);
   assert.match(askText(a), /run the trailmark:checkpoint skill before this turn ends/);
   assert.match(askText(a), /ignore this note/);
-  assert.match(a.systemMessage, /^\[trailmark\] Your prompt mentions a reboot: asked Claude to checkpoint first/);
+  assert.match(a.systemMessage, /^\[trailmark\] Your prompt may say you are about to stop \(it matched "reboot"\): asked Claude to checkpoint first/);
+  // Each word reads the same way in the message (round 1 found "mentions a end").
+  for (const [p, w] of [['exit claude', 'exit'], ['ending this conversation', 'end'], ['log out now', 'log off']]) {
+    assert.ok(c.run({ prompt: p }).systemMessage.includes(`(it matched "${w}")`), p);
+  }
   // Nothing of the prompt is in the note or the message.
   assert.doesNotMatch(JSON.stringify(a), /REBOOTING|NOW|OK,/);
   // The script got the word and the payload without the prompt.
@@ -185,7 +206,9 @@ test('pause watch: through the launcher, "pause for reboot" asks for a checkpoin
 test('pause watch: through the launcher, silent for other prompts, other events, a subagent, a repo not set up, when off and right after a write', () => {
   const c = setup();
   const spy = spyOn(c.s);
-  for (const prompt of ['restart the server', 'please fix the test', '', 'x'.repeat(5000) + ' reboot']) assert.strictEqual(c.run({ prompt }, spy.env), null, prompt.slice(0, 30));
+  // The long prompt would match without the length limit: its first clause is
+  // "rebooting now", and each x is a line of its own.
+  for (const prompt of ['restart the server', 'please fix the test', '', 'rebooting now' + '\nx'.repeat(P.MAX_CHARS)]) assert.strictEqual(c.run({ prompt }, spy.env), null, prompt.slice(0, 30));
   assert.strictEqual(c.run({ hook_event_name: 'PostToolUse' }, spy.env), null, 'a tool call');
   assert.strictEqual(c.run({ agent_id: 'a1' }, spy.env), null, 'a subagent');
   assert.strictEqual(c.run({ agent_type: 'Explore' }, spy.env), null, 'a subagent type');
@@ -212,6 +235,37 @@ test('pause watch: through the launcher, silent for other prompts, other events,
   assert.strictEqual(c.run(), null, 'a handoff written just now');
   fs.writeFileSync(marker, JSON.stringify({ ...cfg0, hints: { freshCheckpointMinutes: 0 } }));
   assert.ok(c.run(), 'with freshCheckpointMinutes 0 it asks');
+});
+
+test('pause watch: the script is granted no write, and a cwd that is not a full path is the launcher\'s own', () => {
+  const c = setup();
+  const r = c.call({}, { JBMEM_SHOW_GRANTS: '1' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stderr, /^trailmark grants: read=\S+ write=$/m, r.stderr);
+  assert.ok(askText(JSON.parse(r.stdout)), 'asks with no write grant');
+  // A relative cwd in the payload: the launcher works from its own folder (the repo here).
+  assert.ok(c.run({ cwd: 'not-a-folder' }), 'asks, from the launcher\'s own folder');
+});
+
+test('pause watch: the script run on its own checks the event, a subagent and the session itself', () => {
+  const c = setup();
+  const script = path.join(ROOT, 'scripts', 'hook-pause-watch.js');
+  const env = { ...c.s.env, JBMEM_GIT: JSON.stringify({ pause: { word: 'reboot' } }) };
+  delete env.JBMEM_LAUNCHED; delete env.JBMEM_PAYLOAD;
+  const direct = (extra = {}) => {
+    const r = require('child_process').spawnSync(process.execPath, [script], { cwd: c.s.repo, env, encoding: 'utf8', input: JSON.stringify({
+      session_id: SA, transcript_path: c.transcript, cwd: c.s.repo, hook_event_name: 'UserPromptSubmit', ...extra,
+    }) });
+    assert.strictEqual(r.status, 0, r.stderr);
+    return r.stdout.trim() ? JSON.parse(r.stdout) : null;
+  };
+  assert.ok(askText(direct()), 'the control asks');
+  assert.strictEqual(direct({ hook_event_name: 'PostToolUse' }), null, 'another event');
+  assert.strictEqual(direct({ agent_id: 'a1' }), null, 'a subagent');
+  assert.strictEqual(direct({ agent_type: 'Explore' }), null, 'a subagent type');
+  assert.strictEqual(direct({ session_id: 'not-a-session' }), null, 'no session ID');
+  env.JBMEM_GIT = JSON.stringify({ pause: { word: 'restart the server' } });
+  assert.strictEqual(direct(), null, 'a word not on the list');
 });
 
 test('pause watch: hooks.json runs it on every prompt, beside the context watch', () => {
