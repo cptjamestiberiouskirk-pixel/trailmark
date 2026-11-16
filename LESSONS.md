@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-15: A failed run's kept folder was pushed out before the review read it
+- What went wrong: RS-D-jobtimeout's batch 9 check failed 3 tests, and the notes cited its kept folder. Before round 10 read it, `prune_kept` had removed it: another session's `--only` runs added more than 20 unmarked folders. Only the lines this session had printed to its console were left (`quick-14-failures.txt`). The same session's next check, alone at its start, had that session's runs during it, and the notes called it alone.
+- Why: the rule of 2026-11-08 ("Reviewers' proofs push out kept failed runs") was in `LESSONS.md` only, not in the step that is read when a run fails. "Alone" was checked only at a run's start.
+- Rule going forward: copy the failed tests' lines out of a kept folder at once (PLAYBOOK "Testing" step 4). A run is called alone only if no other run's folder or process falls inside its start and end times.
+- Status: promoted to PLAYBOOK ("Testing" step 4)
+
 ## 2026-11-15: A record gave one reading for three cases, and a rule's reach without its skips
 - What went wrong: RS-D-jobtimeout's round 6 record said the `yaml` package reads `"30 - 0"` for X11, X13 and X14, but the output it cited showed `"30 0"` for X14. The bullet "The check" said a line deeper than a value is refused "whatever the line holds", but the checker skips a blank line, a full-line comment and a line inside a block scalar before that rule runs. The round 7 docs reviewer found both (WRONG).
 - Why: the reading was taken from the first case and written for the group. The rule's sentence was written from the rule's own line of code, not from the loop that decides which lines reach it. Round 8 then found that batch 7's fix cited a probe file for two cases that are in another file, and gave reviewer claims without "not re-run"; round 9 found batch 8 had miscounted those cases and missed three more such claims.
@@ -1050,7 +1056,7 @@ Format:
 - What went wrong: a review round's deliberate failures (a mutation per run) count against the 20 kept failed runs in the shared `trailmark-release-check` folder. Two reviewers reported older folders gone during their runs, three of them named (INFERRED: `prune_kept`; another session's run isn't ruled out).
 - Why: every session and subagent on the machine shares that one cap, and a proof that fails on purpose looks like any other failed run.
 - Rule going forward: when a failed run's output will be needed later, copy what matters out of that folder. To read a run's own output, take its folder from that run's summary, not from a listing of the shared folder.
-- Status: open
+- Status: promoted to PLAYBOOK ("Testing" step 4, 2026-11-15, after the second sighting)
 
 ## 2026-11-08: An exception to a skill's rule had no scope
 
