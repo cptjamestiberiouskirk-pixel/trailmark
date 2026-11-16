@@ -26,6 +26,12 @@ Format:
 - Rule going forward: a script that inserts text into a file passes the replacement as a function (`t.replace(anchor, () => text)`), and checks after the replace that the text is in the result word for word.
 - Status: open
 
+## 2026-11-16: A probe read the wrong line of a zip listing, and the listing hid the field that differs
+- What went wrong: RS-T-ziptz's probe printed line 4 of `unzip -l` as "the first entry's time" and got a row of dashes: git puts the commit id in the zip comment, which moves the listing down a line. Read at the right line, `unzip -l` showed the same time for a zip built with `TZ=UTC` and one built without, though their sha256 differed. The first comment in `build_zip` had said "a zip entry's time is local time", taken from the item's notes. `unzip -Zv` showed that only the DOS date and time follow the time zone, and the UT extra field holds the same instant in both.
+- Why: the probe took a fixed line number from memory of the tool's output, not from that output. The comment named a cause no run had shown at the level of the bytes.
+- Rule going forward: a probe that prints one line of another tool's output prints that line's label or header with it, so a wrong line shows as wrong. Before a comment says why two files' bytes differ, a tool that shows each field (`unzip -Zv`, `cmp -l`) is run on both, and the comment names the field it showed.
+- Status: open
+
 ## 2026-11-16: A deferred item named four letters, and its class had six
 - What went wrong: RS-T-foldletters said the decision test's paths needed `s`, `S`, `k` and `K`, for U+017F and the Kelvin sign. Probing every fold of the six characters the test's comment names, at the parent's test, found two more compares that passed, besides those of the four letters: U+0131 read as `I`, and U+0130 read as `I` (`mutations-1.out` in `rs-t-foldletters/` of the sessions' notes folder). A fix that added only the four letters would have left two of the six with no letter to meet.
 - Why: the item was written from the one mutation that drew it (round 4 of RS-A-redirect), and the record's fix named that mutation's letters, not the class.
@@ -54,7 +60,8 @@ Format:
 - What went wrong: merging `main` into the pause watch branch, `LESSONS.md` had one conflict block, both sides' new entries at the top. Both sides' last entries ended in `- Status: open`; git kept that line once, as context after the block, so keeping both sides gave one entry no Status line and put a blank line before the other's. `dev/lessons.sh --check` found it (1 bad).
 - Why: a conflict block holds only what differs; a line both sides end with sits outside it, and a resolver that keeps "ours, then theirs" gives it to one side only.
 - Rule going forward: after resolving a conflict in a file of entries, run its format check (`dev/lessons.sh --check`) and compare the sorted entry titles with the union of both parents' before the merge commit.
-- Status: open
+- Second sighting (2026-11-16, merging `main` with PR 74 into `claude/codex-trials`): the entry "An insert script copied the file's top line into the text it inserted" lost its Status line the same way; `dev/lessons.sh --check` showed 1 bad, and the line was put back.
+- Status: promoted to PLAYBOOK ("Committing" step 6)
 
 ## 2026-11-15: A load log printed nothing, and the runs it was for were already done
 - What went wrong: `rerun-pattern.sh` logged processor load with `pwsh` before and after each of three test runs. In that background shell `pwsh` was not on PATH (an earlier script of the same shape, two hours before, found it), so each log line was empty after a "command not found", and the one run that failed has no load reading of its own. The reading was taken after, with the full path.
