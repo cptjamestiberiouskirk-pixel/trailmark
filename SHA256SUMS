@@ -11,7 +11,7 @@ f81f737038bd2de241a3a63161e5921405dd786a885f2325ec1c7928b1405c05 *./.github/ISSU
 f31f76ba74260381fad218d7927387f314690a76a5a8dac8fbf4f269a3d7216a *./CHANGELOG.md
 37cff15995e572e30dc900d6602996d83ebe3f7e7425c254cdd4b70809d131b6 *./CONTRIBUTING.md
 2d172f3f7cebcf8c0ffd6db4720e86ce14fd91a6b152e07dc6102eb3c2f6ffc4 *./LICENSE
-061c91c2b2b32a0a15dc497dee4d07296982ed2212383b8e056ce185da27b383 *./MANUAL.md
+fdbcdfa4b14843f678e901f59d6ee09c170ca582a10078d8f3d8620935b8386c *./MANUAL.md
 552cf8b0ce0e5202959fe38e57cd3092bead8a32e2e5d1cdeb8d97d4f5962a40 *./README.md
 42a11de6b58fcf7fce8c41ae332dc38ec3c8aba5576cb72745f2badc8190f354 *./SECURITY.md
 6becd31da6d74674b9165708ba092396df84b1ee039583f6df51ade42a0b9a54 *./docs/how-it-works.md
@@ -21,7 +21,7 @@ f31f76ba74260381fad218d7927387f314690a76a5a8dac8fbf4f269a3d7216a *./CHANGELOG.md
 71b690b15ec0b8f77c4cbee65895e1b9cefae06d4effe68e9799e6c9993367bd *./migrate-from-jb-memory.cmd
 39259ec03dcb411c48cabcf0a1a4ffa2bc43ccce6d3ff46dcf9de96d85735ebb *./plugins/trailmark-codex/.codex-plugin/plugin.json
 2d172f3f7cebcf8c0ffd6db4720e86ce14fd91a6b152e07dc6102eb3c2f6ffc4 *./plugins/trailmark-codex/LICENSE
-b0af024f5e72b25a02666da47171a2db4ef25da3661eca3126663d6f15d9110a *./plugins/trailmark-codex/README.md
+2b84ecc39368d487e465a01b3dc7ff4ebd2aac967e99aa13e17ab024e13a69ba *./plugins/trailmark-codex/README.md
 846670429ebebc278f20a05d3a26838af6031455e9457e9eccc72d028d43ec0f *./plugins/trailmark-codex/hooks/hooks.json
 39259ec03dcb411c48cabcf0a1a4ffa2bc43ccce6d3ff46dcf9de96d85735ebb *./plugins/trailmark-codex/plugin.json
 99162c38fe4e1132b253b429b0ce1c894a8f7ee0e44a408939acfea59efaaa42 *./plugins/trailmark-codex/scripts/hook-commit-start.js

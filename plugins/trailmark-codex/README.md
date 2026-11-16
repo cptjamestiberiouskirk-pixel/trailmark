@@ -146,7 +146,7 @@ With the ChatGPT desktop app on Windows:
 - The app starts short `fork` chats next to a chat. Each gets the handoff and logs a start; they do no harm.
 - `CODEX_THREAD_ID` isn't set in the hooks' environment, so the skills take the session ID from the chat-start note.
 
-Not checked yet: whether `writable_roots` applies under Codex's own sandbox on Windows, whether a compacted chat gets the handoff text back, and anything on macOS or Linux, where the same hooks and skills are expected to work.
+Not checked yet: whether `writable_roots` applies under Codex's elevated sandbox on Windows or in the app (the unelevated sandbox honored it in `codex exec`, step 3), whether a compacted chat gets the handoff text back, and anything on macOS or Linux, where the same hooks and skills are expected to work.
 
 ## Tests
 
