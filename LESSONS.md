@@ -15,7 +15,7 @@ Format:
 ```
 
 ## 2026-11-17: The coordinator said a folder waited on the user after the user had answered elsewhere
-- What went wrong: the coordinator session told the user that the Codex scratch home `E:\DevTemp\h78x-919ZLG` (PR 78's host run) was "still waiting on your word", twice, and asked what to do with it. The user had already answered in the launchover session, signed out with `codex logout` there, and the folder was removed (CONFIRMED: a listing of `E:\DevTemp` here found no `h78x*`, and that session's notes record the logout and the removal, with its own listing at 20:31Z).
+- What went wrong: the coordinator session told the user that the Codex scratch home `E:\DevTemp\h78x-919ZLG` (PR 78's host run) was "still waiting on your word", twice, and asked what to do with it. The user had already answered in the launchover session, signed out with `codex logout` there, and the folder was removed (CONFIRMED here on 2026-11-17: a listing of `E:\DevTemp` found no `h78x*`; CONFIRMED by the launchover session, not re-run: the user's answer, the logout and the removal, in that session's transcript and in its message to the coordinator, with its own listing at 20:31Z). The listing shows the folder gone when it was made, not when it went.
 - Why: the coordinator took the item's state from that session's earlier message and from its own handoff text, both older than the user's answer, and did not list the folder or read the session's latest turn before each mention.
 - Rule going forward: before telling the user that something waits on them, check its current state in that same turn (a listing, `gh`, or the owning session's latest turn), and say when it was checked.
 - Status: open
