@@ -97,13 +97,19 @@ jobs:
       # Each test step has a limit of its own too, at least twice its slowest
       # passing time on each system, so that a hung test is stopped before the
       # job's limit and the steps after it have time to run (the same section).
+      # Each test step runs run-tests.sh, with a per-test limit of 240 s on
+      # Linux, 300 s on macOS and 400 s on Windows, under its step limit with
+      # room for the steps after it (section "Next version: RS-T-hang75"; the
+      # step's limit did not end the two hangs seen there). For now it only
+      # reports the slowest tests and any test over the limit: enforce makes
+      # the limit end a hung test as a failure that names it.
       - name: Checks added in 0.4.5 (both copies)
         timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 8 || matrix.os == 'macos-latest' && 12 || 25 }}
         shell: bash
-        run: |
-          node --test --test-reporter=tap plugins/trailmark/tests/handoff-checks.test.js plugins/trailmark-codex/tests/handoff-checks.test.js > tap-new.txt 2>&1 && ok=1 || ok=0
-          node .github/tap-annotate.js tap-new.txt
-          [ "$ok" = 1 ]
+        env:
+          TRAILMARK_TEST_LIMIT_MS: ${{ matrix.os == 'ubuntu-latest' && 240000 || matrix.os == 'macos-latest' && 300000 || 400000 }}
+          TRAILMARK_TEST_LIMITS: report
+        run: bash .github/run-tests.sh tap-new.txt plugins/trailmark/tests/handoff-checks.test.js plugins/trailmark-codex/tests/handoff-checks.test.js
       # A few tests need a shell script in place of git; they say so and
       # skip themselves on Windows, where trailmark runs git.exe only. Each
       # copy's test files other than handoff-checks run here, side by side.
@@ -111,15 +117,24 @@ jobs:
         if: always()
         timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 8 || matrix.os == 'macos-latest' && 12 || 15 }}
         shell: bash
-        run: |
-          node --test --test-reporter=tap $(ls plugins/trailmark/tests/*.test.js | grep -v '/handoff-checks.test.js$') > tap-claude.txt 2>&1 && ok=1 || ok=0
-          node .github/tap-annotate.js tap-claude.txt
-          [ "$ok" = 1 ]
+        env:
+          TRAILMARK_TEST_LIMIT_MS: ${{ matrix.os == 'ubuntu-latest' && 240000 || matrix.os == 'macos-latest' && 300000 || 400000 }}
+          TRAILMARK_TEST_LIMITS: report
+        run: bash .github/run-tests.sh tap-claude.txt $(ls plugins/trailmark/tests/*.test.js | grep -v '/handoff-checks.test.js$')
       - name: trailmark-codex tests
         if: always()
         timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 8 || matrix.os == 'macos-latest' && 12 || 15 }}
         shell: bash
-        run: |
-          node --test --test-reporter=tap $(ls plugins/trailmark-codex/tests/*.test.js | grep -v '/handoff-checks.test.js$') > tap-codex.txt 2>&1 && ok=1 || ok=0
-          node .github/tap-annotate.js tap-codex.txt
-          [ "$ok" = 1 ]
+        env:
+          TRAILMARK_TEST_LIMIT_MS: ${{ matrix.os == 'ubuntu-latest' && 240000 || matrix.os == 'macos-latest' && 300000 || 400000 }}
+          TRAILMARK_TEST_LIMITS: report
+        run: bash .github/run-tests.sh tap-codex.txt $(ls plugins/trailmark-codex/tests/*.test.js | grep -v '/handoff-checks.test.js$')
+      # The limits' enforce mode, checked on each system and Node version with
+      # a limit of 3 s: each kind of hang it is for must end and name its test.
+      # It reports only, for now (PLAYBOOK "Pushing and CI" step 3).
+      - name: Test limits check (reports only)
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 3
+        shell: bash
+        run: node .github/test-limits-check.js

@@ -14,6 +14,42 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-17: A release check ran beside a probe started in the same message
+- What went wrong: in RS-T-hang75, `node .github/test-limits-check.js` (12 node processes, 3 s limits) and the background `dev/release-check.sh --sums --quick` were sent in one message, so the probe ran during the suite's first minute. The check failed 3 "git pointers" tests with RS-T-gitcfgload's sign (779 s against 411 s for the run before); they passed alone, the change touches no file under `plugins/`, and the next check, run alone, passed on every line.
+- Why: the two calls were sent together to save a turn, and the release check's sensitivity to load was not weighed.
+- Rule going forward: a release check runs alone: no probe, test or other check of the session is started in the same message or while it runs, and the node process count is logged at its start and end.
+- Status: open
+
+## 2026-11-17: Moving a step's lines into a script dropped the step shell's `-e`
+- What went wrong: in RS-T-hang75, the three test steps' inline `run:` lines moved into `.github/run-tests.sh`, written with `set -u` only. GitHub runs a `shell: bash` step with `-eo pipefail`, so before, a `tap-annotate.js` that threw failed the step; in the script, a passing run with a throwing `tap-annotate.js` exited 0 (CONFIRMED by a run on a copy). The line-by-line read of the staged diff caught it before the commit.
+- Why: the move copied the lines, not the shell options they ran under.
+- Rule going forward: when a workflow step's commands move into a script, the script starts with the options the step's shell had (`set -eo pipefail` for `shell: bash`), and a run with one command made to fail shows the step's exit status is the same as before.
+- Status: open
+
+## 2026-11-17: A stop by command-line pattern stopped the shell that ran it
+- What went wrong: in RS-T-hang75, a scratch script (`leftovers.ps1 -Stop`) stopped the `node` and `bash` processes whose command line named `limits-mut-` or `trailmark-limits-`. The Bash tool's own shell for that call held those words too (the `rm` of the same folders came next in the command), so the script stopped it, and the call ended with exit 255 (CONFIRMED: the next listing showed the six leftovers gone and only the current call's shells matching).
+- Why: the stop ran in the same call as text holding its own pattern; `CLAUDE.md`'s note that an inline command's text shows in the process list was read for `ps | grep` probes, not for a stop.
+- Rule going forward: a script that stops processes by a pattern lists them first, in one call, and stops them in a separate call whose command line holds none of the pattern's words; it leaves out the Bash tool's own shells (`bash.exe -c "source .../shell-snapshots/..."`).
+- Status: open
+
+## 2026-11-17: A control call hit a 5 s limit because process starts were slow
+- What went wrong: in RS-T-hang75's probe, the control case (`execFileSync` of `node --version` under the new preload with a 5 s limit) was stopped by the limit, and looked like a fault in the preload. Three plain `node --version` runs right after took 1,889, 4,763 and 628 ms at about 49% CPU load; two reruns of the control passed.
+- Why: the probe's limit was sized for the hangs it was meant to stop, not for the slowest start of a call meant to pass.
+- Rule going forward: a probe limit under 10 s on this PC is given only to calls meant to be stopped; a call meant to pass gets its own limit of minutes, or none.
+- Status: open
+
+## 2026-11-17: The planned fix was a flag that could not end the hang most of the tests can have
+- What went wrong: RS-T-hang75's plan was `node --test --test-timeout`. Node's runner gives the file-level test no timeout, and the limit runs on the test's own thread (Node source, branches v22.x, v24.x, v26.x); a probe showed it never ends a busy loop or a `spawnSync` with no `timeout`, and with a timer left open the run went on past the limit until `--test-force-exit` was added. Most tests here wait in synchronous child calls (`grep -c` finds 110 lines of `handoff-checks.test.js` that name `spawnSync`, `execFileSync` or `execSync`).
+- Why: the plan named the flag from its docs, not from a run against each shape of hang.
+- Rule going forward: a limit is shown on each shape of hang it is meant for (an async wait, a block in the test's own code, a synchronous child call, a child that leaves a grandchild holding its pipe) before it goes into a check, beside a control that passes.
+- Status: open
+
+## 2026-11-17: A probe file was rewritten while a background run of it was going
+- What went wrong: in RS-T-hang75, the probe's test file was rewritten with new modes while the third configuration of `all.sh` was starting in the background, so that configuration's results could not count; it was run again after the first run ended.
+- Why: the run's end was not checked (its "all done" line) before the edit, against PLAYBOOK "Testing" step 16.
+- Rule going forward: before editing a probe's files, check that no background run that reads them is still going; new modes go into a copy.
+- Status: open
+
 ## 2026-11-17: The coordinator said a folder waited on the user after the user had answered elsewhere
 - What went wrong: the coordinator session told the user that the Codex scratch home `E:\DevTemp\h78x-919ZLG` (PR 78's host run) was "still waiting on your word", twice, and asked what to do with it. The user had already answered in the launchover session, signed out with `codex logout` there, and the folder was removed (CONFIRMED here on 2026-11-17: a listing of `E:\DevTemp` found no `h78x*`; CONFIRMED by the launchover session, not re-run: the user's answer, the logout and the removal, in that session's transcript and in its message to the coordinator, with its own listing at 20:31Z). The listing shows the folder gone when it was made, not when it went.
 - Why: the coordinator took the item's state from that session's earlier message and from its own handoff text, both older than the user's answer, and did not list the folder or read the session's latest turn before each mention.

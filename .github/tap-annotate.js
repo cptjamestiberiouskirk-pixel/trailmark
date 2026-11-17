@@ -32,3 +32,25 @@ for (let i = 0; i < lines.length && shown < 8; i++) {
 }
 const sum = lines.filter(l => /^# (tests|pass|fail)/.test(l)).join(', ');
 console.log(`::notice title=summary::${esc(sum)}`);
+// RS-T-hang75 (dev/release-state.md): the time of each top-level test (the
+// first duration_ms in its block; a file's own line, named *.test.js, is
+// left out), so the per-test limit can be sized from CI's own times. These
+// lines only report.
+const times = [];
+for (let i = 0; i < lines.length; i++) {
+  const m = /^(?:not )?ok \d+ - (.*)$/.exec(lines[i]);
+  if (!m || /\.test\.js$/.test(m[1])) continue;
+  for (let k = i + 1; k < lines.length && k < i + 8; k++) {
+    const d = /^\s+duration_ms: ([\d.]+)/.exec(lines[k]);
+    if (d) { times.push({ name: m[1], ms: Number(d[1]) }); break; }
+  }
+}
+times.sort((a, b) => b.ms - a.ms);
+const secs = t => `${(t.ms / 1000).toFixed(1)} s ${t.name.slice(0, 110)}`;
+if (times.length) console.log(`::notice title=slowest tests (of ${times.length})::${esc(times.slice(0, 5).map(secs).join('\n'))}`);
+const limit = Number(process.env.TRAILMARK_TEST_LIMIT_MS) || 0;
+const over = limit ? times.filter(t => t.ms > limit) : [];
+if (over.length) console.log(`::warning title=tests over the per-test limit of ${limit / 1000} s (${over.length})::${esc(over.map(secs).join('\n'))}`);
+// .github/test-limits.js names a test file that ended with handles still open.
+const open = lines.map(l => /trailmark-test-limits: open at exit in (.*)$/.exec(l)).filter(Boolean).map(m => m[1].slice(0, 300));
+if (open.length) console.log(`::warning title=test files that ended with handles open (${open.length})::${esc(open.join('\n'))}`);
