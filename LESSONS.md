@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-16: A script written in a heredoc lost a backslash and its exact-match check failed
+- What went wrong: the script that rebuilds PR 78's body (`pr-body-2.js`) was written through a Bash heredoc. Its old text held a doubled backslash for the `\)` in a test pattern; the Bash tool passed it on as a single one, so the JavaScript string lost the backslash and the "exactly once" check refused the block that was there. A second fix through a shell one-liner broke the script's syntax.
+- Why: `CLAUDE.md` "Windows notes" says the Bash tool collapses a doubled backslash "in an inline command"; a quoted heredoc inside that command is not spared (CONFIRMED: a heredoc line with a doubled backslash reached its file with one), which the note does not say.
+- Rule going forward: a script whose text holds a backslash is written with the Write tool and run from its file, never through a heredoc or an inline `node -e`.
+- Status: open (a second sighting of the "Windows notes" rule; promote by adding "heredocs included" there)
+
 ## 2026-11-16: TaskStop did not stop a background harness, and its leftovers were reported unchecked
 - What went wrong: for the reboot, `join-alt.sh` (RS-T-joinheadroom) was stopped with TaskStop at 19:05:43, and the stop was reported done with its clone "left behind". The harness kept running: it finished its last run, removed its clone itself and wrote its end line at 19:11:15 (`join-alt-1.out`). At 19:09:23, 48 busy loops were running and the clone was still listed; `stop-busy.ps1` (its result at 19:11:18) found 11 and stopped them (left=0). That they were the harness's own, and that its own `kill` at its end stopped the other 37, is INFERRED. The `--sums --quick` stopped at the same time (its bash started 18:46:59) was also still running at 19:09:23. A docs reviewer found it from the output file.
 - Why: on Windows TaskStop ended the task's outer shell, and the bash running `join-alt.sh` went on without it (CONFIRMED: the task's output reads `[killed]`, and `join-alt-1.out` lacks the `exit` line the outer shell would have appended after the script, yet ends with the script's own `end 19:11:15`). The clone was named from a listing at 19:09:23, made while the harness still ran, and not listed again after the loops were stopped.
