@@ -14,11 +14,10 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
-## 2026-11-16: Stopping a harness with TaskStop left its busy loops running
-
-- What went wrong: for the reboot, `join-alt.sh` (RS-T-joinheadroom) was stopped with TaskStop. Its `trap cleanup EXIT INT TERM HUP` did not stop the busy loops: `stop-busy.ps1` found 11 still running at 19:08 and stopped them (left=0), and the handoff listed its clone as left behind.
-- Why: (HYPOTHESIZED, not traced) on Windows the stop ends the harness without a signal bash can trap, and the busy loops, started in the background, are not in the tree it ends.
-- Rule going forward: a harness that starts helper processes or folders comes with a stop script that finds them by command line or name (as `stop-busy.ps1` does). After any stop, run it and list the folders, and report the stop done only when none are left.
+## 2026-11-16: TaskStop did not stop a background harness, and its leftovers were reported unchecked
+- What went wrong: for the reboot, `join-alt.sh` (RS-T-joinheadroom) was stopped with TaskStop at 19:05:43, and the stop was reported done with its clone "left behind". The harness kept running: it finished its last run, removed its clone itself and wrote its end line at 19:11:15 (`join-alt-1.out`). The 11 busy loops `stop-busy.ps1` stopped (found=11, left=0, its result at 19:11:18) were the harness's own, still live. A docs reviewer found it from the output file.
+- Why: (HYPOTHESIZED, not traced) on Windows TaskStop ended the task's outer shell, and the bash running `join-alt.sh` went on without it. The clone was named from what a stopped harness would leave, not from a listing.
+- Rule going forward: after stopping a task, look for the script itself by command line in the process list, not only its helpers, and wait for it to end or stop it by its PID. Name what is left only from a listing made after it ended.
 - Status: open
 
 ## 2026-11-16: A clock change passed three review rounds and broke two tests that stub the clock
