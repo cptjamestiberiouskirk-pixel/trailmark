@@ -106,11 +106,12 @@ function junctionGit(base, onRetry = () => {}) {
 }
 
 // The launcher stops a hook's script at its time limit (trailmark.js, run:
-// 9 s from T0, which it sets once its first modules have loaded, less its
-// own work since) and says so on stderr. On a busy machine that is the
-// designed outcome, not a fault: in the stops seen here the launcher's own
-// work after T0 took 4.9 to 13.1 s, so the script got what was left or the
-// 300 ms floor (RS-T-startstopped in dev/release-state.md). So a stopped
+// 9 s from T0, the process's start, less the launcher's own time since) and
+// says so on stderr. On a busy machine that is the designed outcome, not a
+// fault: in the stops seen here the launcher's own work took 4.9 to 13.1 s,
+// so the script got what was left or the 300 ms floor (RS-T-startstopped in
+// dev/release-state.md; T0 was then taken once the first modules had loaded,
+// RS-T-launchover). So a stopped
 // session start is made again, three times in all. Each stop must show, in
 // the launcher's JBMEM_SHOW_RUN line, that the script got what the
 // launcher's rule leaves (9000 - spent, at least 300), and that the launcher
@@ -303,6 +304,71 @@ test('commits since the handoff: listed at session start, with next steps they m
   assert.match(context, /not instructions/);
   assert.ok(context.length <= 8500, `${context.length} chars`);
 }));
+
+// A hook's limits count from the launcher process's start (T0 in trailmark.js,
+// Node's performance.timeOrigin), not from when its first modules had loaded:
+// the host's hook timeout counts that loading too, which once took 4,687 ms
+// under load (RS-T-launchover in dev/release-state.md). A module preloaded
+// with -r holds the process for HOLD_MS after Node records its start and
+// before the launcher's first line, as slow loading would, and writes the time
+// just before its wait. The launcher's JBMEM_SHOW_CLOCK line gives both clocks as
+// times (T0 for the script's limit, `started` for the git work's): each must
+// lie between this test's spawn call and the hold's start, CLOCK_SLACK_MS
+// either way for two readings of the system clock. That bounds each clock
+// from both sides whatever the load: a clock taken after the launcher's first
+// line is past the hold's start however slow the launcher is after it (round
+// 1, F2), and one far too early is before the spawn (round 1, F1). The times
+// spent must then show it: the script's (the JBMEM_SHOW_CLOCK run line, with
+// the launcher's rule) and the git work's (the JBMEM_SHOW_SINCE line). Each
+// is at least HOLD_MS, and at most the time from its clock to the end of the
+// spawn, so a reader that counts more than its clock fails too (round 2,
+// R2-1). For git, with more than 3,100 ms gone, under 400 ms is left of the
+// 3,500 ms that the commit list has from the process's start, and git gets no
+// time for the commits since the handoff. The launcher writes these lines
+// before the script starts, so a stop of the script on a busy machine changes
+// none of them; a stop is accepted only as the launcher's rule allows
+// (stoppedForTime). The time before Node records its start is counted by no
+// limit, and not here.
+const HOLD_MS = 3600;
+const CLOCK_SLACK_MS = 50;
+test('hook clock: the time before the launcher\'s first line counts against the git work and the script', () => {
+  const s = sandbox();
+  s.write('# H\n## Next steps\n1. Fix the login redirect loop\n');
+  assert.strictEqual(S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8')).head, s.g('rev-parse', '--short', 'HEAD'));
+  s.g('commit', '-q', '--allow-empty', '-m', 'Fix login redirect loop');
+  const hold = path.join(s.base, 'hold.js');
+  const holdAt = path.join(s.base, 'hold-start');
+  fs.writeFileSync(hold, `require('fs').writeFileSync(${JSON.stringify(holdAt)}, String(Date.now()));\nAtomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${HOLD_MS});\n`);
+  const payload = JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB });
+  const spawnAt = Date.now();
+  const r = spawnSync(process.execPath, ['-r', hold, JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, JBMEM_SHOW_CLOCK: '1' }, input: payload, encoding: 'utf8' });
+  const endAt = Date.now();
+  assert.ok(fs.existsSync(holdAt), `the hold never ran (error: ${r.error}, status ${r.status}, stderr: ${JSON.stringify(r.stderr)})`);
+  const holdStart = Number(fs.readFileSync(holdAt, 'utf8'));
+  const times =/^trailmark clock: t0=(\d+) started=(\d+)$/m.exec(r.stderr || '');
+  assert.ok(times, `the launcher wrote no JBMEM_SHOW_CLOCK clock line (stderr: ${JSON.stringify(r.stderr)})`);
+  for (const [name, at] of [['T0', Number(times[1])], ['started', Number(times[2])]]) {
+    assert.ok(at >= spawnAt - CLOCK_SLACK_MS, `${name} is ${spawnAt - at} ms before this test's spawn call: ${times[0]}`);
+    assert.ok(at <= holdStart + CLOCK_SLACK_MS, `${name} is ${at - holdStart} ms after the hold before the launcher's first line began: ${times[0]}`);
+  }
+  const clock = /^trailmark run: script spent=(\d+) timeout=(\d+)$/m.exec(r.stderr || '');
+  assert.ok(clock, `the launcher wrote no JBMEM_SHOW_CLOCK line (stderr: ${JSON.stringify(r.stderr)})`);
+  const [spent, timeout] = clock.slice(1).map(Number);
+  assert.ok(spent >= HOLD_MS, `the script's clock left out the ${HOLD_MS} ms before the launcher's first line: ${clock[0]}`);
+  assert.ok(spent <= endAt - Number(times[1]) + CLOCK_SLACK_MS, `the script's time spent is ${spent - (endAt - Number(times[1]))} ms more than from T0 to the spawn's end: ${clock[0]}`);
+  assert.strictEqual(timeout, Math.max(300, 9000 - spent), `the script's time isn't the launcher's rule: ${clock[0]}`);
+  const since = SHOW_SINCE.exec(r.stderr || '');
+  assert.ok(since, `git was given time for the commits since the handoff, so its clock left out the ${HOLD_MS} ms before the launcher's first line (stderr: ${JSON.stringify(r.stderr)})`);
+  ranOutOfTime(r);
+  const [elapsed, , budget] = since.slice(1).map(Number);
+  assert.ok(elapsed <= endAt - Number(times[2]) + CLOCK_SLACK_MS, `git's time spent is ${elapsed - (endAt - Number(times[2]))} ms more than from \`started\` to the spawn's end: ${since[0]}`);
+  assert.ok(elapsed >= HOLD_MS && budget === 0,`git's clock left out the ${HOLD_MS} ms before the launcher's first line: ${since[0]}`);
+  if (r.status === 0) assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, SINCE_LATE);
+  else {
+    assert.match(r.stderr, HOOK_STOPPED, `status ${r.status}: ${r.stderr}`);
+    stoppedForTime(r);
+  }
+});
 
 test('commits since the handoff: a commit subject posing as markup is escaped', sinceTest(() => {
   const s = sandbox();
@@ -4657,8 +4723,10 @@ test('git pointers: finding the repo for a hook stops with the hook\'s time (RS-
   // 2. The launcher, started as a hook's own process with a preload. The
   // preload notes each git call that reads a config file and each one that
   // asks for the root, runs every call with time to spare, and stands the
-  // clock still: it moves only when the `at`th config file is read, by `by`
-  // ms. So the timeouts noted say what the hook had left, on any machine.
+  // clock still at the process's start, where the launcher's hook time
+  // counts from (T0 in trailmark.js): it moves only when the `at`th config
+  // file is read, by `by` ms. So the timeouts noted say what the hook had
+  // left, on any machine.
   const s = sandbox();
   quoted(s.repo, path.join(s.base, 'inc'));
   let made = 0;
@@ -4668,7 +4736,7 @@ test('git pointers: finding the repo for a hook stops with the hook\'s time (RS-
     fs.writeFileSync(stub, `const cp = require('child_process');
 const fs = require('fs');
 const real = cp.execFileSync;
-const t0 = Date.now();
+const t0 = Math.floor(performance.timeOrigin);
 let moved = 0; let files = 0;
 Date.now = () => t0 + moved;
 cp.execFileSync = function (file, args, opts, ...rest) {

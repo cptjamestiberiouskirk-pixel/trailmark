@@ -492,8 +492,9 @@ test('strict reads: a file that can\'t be read stops the write instead of being 
 // then run once with the lock removed. If that run left room for the lock's
 // wait (2 s, store.js) inside the 9 s limit, with 1 s to spare, the lock cost
 // more than its wait and the test fails; a slower free run says nothing either
-// way. The free run's time includes the launcher's own work before the limit
-// starts, so it can only overstate what the limit saw. The lock stays removed.
+// way. The free run's time includes the process's start before Node records
+// it, which the limit doesn't count, so it can only overstate what the limit
+// saw. The lock stays removed.
 const HOOK_STOPPED = /took too long and was stopped/;
 const ROOM_FOR_LOCK_MS = 9000 - 2000 - 1000;
 class HookOutOfTime extends Error {}

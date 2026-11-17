@@ -399,8 +399,9 @@ test('context watch: finding the memory folder is inside the hook\'s 5 s for git
   }
   // The launcher with a preload that notes each git call that reads a config
   // file or asks for the root, runs every call with time to spare, and
-  // stands the clock still: it moves only when the `at`th config file is
-  // read, by `by` ms.
+  // stands the clock still at the process's start, where the launcher's hook
+  // time counts from (T0 in trailmark.js): it moves only when the `at`th
+  // config file is read, by `by` ms.
   let made = 0;
   const hook = (at, by) => {
     const log = path.join(c.s.base, `calls${++made}.txt`);
@@ -408,7 +409,7 @@ test('context watch: finding the memory folder is inside the hook\'s 5 s for git
     fs.writeFileSync(stub, `const cp = require('child_process');
 const fs = require('fs');
 const real = cp.execFileSync;
-const t0 = Date.now();
+const t0 = Math.floor(performance.timeOrigin);
 let moved = 0; let files = 0;
 Date.now = () => t0 + moved;
 cp.execFileSync = function (file, args, opts, ...rest) {

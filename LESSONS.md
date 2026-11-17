@@ -14,6 +14,54 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-16: A script went in through a heredoc against the promoted rule, and lost a backslash
+- What went wrong: in RS-T-launchover, the script that rebuilds PR 78's body (`pr-body-2.js`) went in through a Bash heredoc, and an exact-match check refused a block that was there: a doubled backslash in its old text reached the file as one (CONFIRMED: a one-line heredoc with a doubled backslash reached its file with one). A fix through an inline `node -e` then broke the script's syntax (seen in that session, no file kept), and the script was rewritten with the Write tool. The same session had made several other edits inline (`node -e`).
+- Why: the rule was already there and was not followed. `PLAYBOOK.md` "Constraints and known limits", first bullet, says the collapse happens "a quoted heredoc included" and that no script goes in inline (`node -e`, a heredoc); this is a sighting after promotion, following "A handoff edit went in through a heredoc, and ran its read from the scratch folder" (2026-11-15) and six earlier entries since 2026-11-07 whose titles name a heredoc, `node -e` or the inline rule. The lessons check before the work used other words (host, plugin, hook) and did not show that bullet.
+- Rule going forward: no new step. Before writing any script or edit command, read "Constraints and known limits" in `PLAYBOOK.md`, not only the lessons the keywords bring up.
+- Status: promoted to PLAYBOOK (a sighting after promotion; "Constraints and known limits", first bullet)
+
+## 2026-11-16: TaskStop did not stop a background harness, and its leftovers were reported unchecked
+- What went wrong: for the reboot, `join-alt.sh` (RS-T-joinheadroom) was stopped with TaskStop at 19:05:43, and the stop was reported done with its clone "left behind". The harness kept running: it finished its last run, removed its clone itself and wrote its end line at 19:11:15 (`join-alt-1.out`). At 19:09:23, 48 node processes running `busy.js` were counted and the clone was still listed; `stop-busy.ps1` (its result at 19:11:18) found 11 and stopped them (left=0). That all 48 were the harness's (it starts 48) is INFERRED. The harness's own `kill` runs only after its last run (P run 3, started 19:05:38; its end line at 19:11:15), so it came after the count of 48 at 19:09:23 (INFERRED from those times); the files do not show whether it came before `stop-busy.ps1` counted 11 (its result at 19:11:18). If it did, 11 loops outlived it. The `--sums --quick` stopped at the same time (its bash started 18:46:59) was also still running at 19:09:23. A docs reviewer found it from the output file.
+- Why: on Windows TaskStop ended the task's outer shell, and the bash running `join-alt.sh` went on without it (CONFIRMED: the task's output reads `[killed]`, and `join-alt-1.out` lacks the `exit` line the outer shell would have appended after the script, yet ends with the script's own `end 19:11:15`). The clone was named from a listing at 19:09:23, made while the harness still ran, and not listed again after the loops were stopped.
+- Rule going forward: after stopping a task, look for the script itself by command line in the process list, not only its helpers, and wait for it to end or stop it by its PID. Name what is left only from a listing made after it ended.
+- Status: open
+
+## 2026-11-16: A clock change passed three review rounds and broke two tests that stub the clock
+- What went wrong: RS-T-launchover moved the launcher's hook clock to `performance.timeOrigin`. Three review rounds found nothing wrong in the launcher, and then the owner's `--sums --quick` failed "git pointers: finding the repo for a hook stops with the hook's time (RS-A-firstcheck)" in both copies. It and a test in `context-watch.test.js` stand the clock still with a preload that replaces `Date.now`, frozen at a time taken after `timeOrigin`, and expect exact budgets: 1980 came for 2000, 3 of 3 at rest (`only-5.out` in `rs-t-launchover/` of the sessions' notes folder). The first reading of the failure was load; the numbers showed it was not.
+- Why: the briefs asked for every reader of `T0` and `started` in the launcher, not for the tests that stub the clock those readers use. The `--only` runs covered the new test and the "commits since the handoff" tests, and `--sums --quick` ran only after the last round. `context-watch.test.js` is a long suite that `--quick` skips.
+- Rule going forward: for a change to a clock or any other value that tests stub, search every test file, long suites included, for stubs of it (`Date.now =`, `performance`, a preload) before the first review round, and run each test found with `--only`. Run `--sums --quick` before the first round, not only before the push.
+- Status: open
+
+## 2026-11-16: Two edits ended on a space and lost it, and the diff was not read before the commit
+- What went wrong: in RS-T-launchover's round 2 batch, two Edit calls had an old and new text that ended on a space, and the space was dropped. `const times =/^` and `budget === 0,` with the message right after the comma went into 5a2dd38 in both copies. Round 3 (Opus) found them (R3-2); confirmed here by grep.
+- Why: PLAYBOOK "Committing" step 5 was not followed: neither that an edit's text ends on a visible character, nor that the diff is read line by line before the commit.
+- Rule going forward: none new; PLAYBOOK "Committing" step 5 holds. This is a sighting of a promoted rule not being followed.
+- Status: promoted to PLAYBOOK ("Committing" step 5)
+
+## 2026-11-16: A clock test held the reported clocks and passed a reader that counted 10 s too much
+- What went wrong: round 1 of RS-T-launchover made the test "hook clock" bound both clocks the launcher reports (`T0`, `started`) from both sides. Round 2 (Opus) found that a launcher whose script limit or git clock counted 10 s more than the clock it printed still passed 2 of 2 (`spentOver10s`, `sinceOver10s`; `repro-r2-1.out` in `rs-t-launchover/` of the sessions' notes folder). The fix bounds each time spent from above by the time from its clock to the end of the spawn.
+- Why: the mutation list after round 1 mutated the clocks and the report lines, not the code that reads the clocks after the report.
+- Rule going forward: when a test checks a value the code reports, its mutation list also mutates each reader of that value after the report (each place the value is used), and the test bounds what each reader gives, not only the report.
+- Status: open
+
+## 2026-11-16: A commit after `git add plugins` also took a file staged before
+- What went wrong: RS-T-launchover's round 2 batch was committed after `git add plugins`, and the commit also took `LESSONS.md`, staged earlier in a form that missed a "Status: open" line (fixed in the working tree only). The commit's `LESSONS.md` fails `dev/lessons.sh --check` until the next commit.
+- Why: `git commit` commits the whole index, and the index held an earlier `git add`; `git diff --stat` before the commit showed working-tree changes, not the index.
+- Rule going forward: right before each commit, read `git diff --cached --stat` and check it lists only the files meant for that commit.
+- Status: open
+
+## 2026-11-16: A time fix cut the longest overrun and left the lost handoffs as they were
+- What went wrong: RS-T-launchover moved the launcher's clocks to the process's start. Under 48 busy loops the longest session start fell from 15,155 to 11,766 ms, but 9 of 16 starts lost the handoff with each version (`lost.js` over `alt-*.out` in `rs-t-launchover/` of the sessions' notes folder). With the parent, 5 starts ran past 10 s with no stop and 4 were stopped; with the fix, all 9 were launcher stops, each of them still past 10 s. Read by its longest time alone, the fix looked like it closed the item.
+- Why: the host's limit counts time no limit inside the process can see (the process's start before Node records it, up to 2,113 ms here, and its exit, up to 1,026 ms), and under that load the script needed more than what was left.
+- Rule going forward: a fix for a hook that passes its host's time limit is measured, for the parent and the fix, by the count of runs whose output the user would lose (stopped by the launcher, or past the host's limit), and the notes give that count beside the times. The time outside the process is measured beside it with a bare process spawn under the same load.
+- Status: open
+
+## 2026-11-16: The busy loops that reproduced a load failure the day before did not reproduce it
+- What went wrong: RS-T-startstopped's repro of the stop was 16 busy loops (one per core), with 16 Codex and 46 node processes of other work running. On 2026-11-16, with lighter other work, 20 session starts under the same 16 loops all ended by 8.7 s (`probe2-1.out`). 48 loops (three per core) brought 8 of 20 past 10 s (`probe2-2.out`).
+- Why: the repro's load was the loops plus the background, and only the loops were written down as the repro.
+- Rule going forward: a repro of a load-only failure names the background load it ran under (the load snapshot's counts) beside its loops. When the same loops don't reproduce it, the loops are raised (to three per core) before the failure is called gone, and the notes say which load reproduced it.
+- Status: open
+
 ## 2026-11-16: A CI re-run was started with auto-merge on, before the hang lesson was read
 - What went wrong: PR #75's job "windows-latest, Node 22" hung and was cancelled at 45 min. Another session suggested re-running it and checking that auto-merge was still set; the job was re-run with auto-merge on. The open lesson "A job that hung had no time limit and left no log" says to take auto-merge off, re-run the job alone three times, and leave the merge to the user. Auto-merge came off at 21:19:37Z, 30 s after the re-run's job started (21:19:07Z) and long before it could finish.
 - Why: the lessons check was skipped for a step that came in as another session's suggestion, and the suggestion was taken as the plan.
@@ -25,6 +73,7 @@ Format:
 - Why: the test puts the launcher's path at character 140 of each note and expects the 300 cut to overflow the budget. With the launcher path at 158 characters or more, the 300 cut drops the whole path (140 plus the 29 of the marker), 7 such notes fit, and the 150 cut the test checks is never reached. The scratch folder's path made the launcher 158 characters long.
 - Rule going forward: a check runs from a checkout at a short path (the usual worktree, or one under `E:/DevTemp`), never under the session's scratch folder. A failure in a checkout at a new path is first compared with the same commit at a short path.
 - Status: open
+
 ## 2026-11-16: A sandbox trial passed because the folder under test was inside a root the sandbox opens
 - What went wrong: the Codex trials' checkpoint run under `-s workspace-write` first ran as read-only (no `[windows]` sandbox setting, repo not trusted), then saved the handoff with no approval. The scratch memory folder was under `%TEMP%`, and Codex's workspace-write lets commands write there unless `exclude_tmpdir_env_var` is set. A later run that needed the sandbox off (`danger-full-access`) was refused by the session's permission check.
 - Why: the scratch layout put everything under the temp folder for easy clean-up, and the run's result was read before the policy it ran under.
