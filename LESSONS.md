@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-16: Stopping a harness with TaskStop left its busy loops running
+
+- What went wrong: for the reboot, `join-alt.sh` (RS-T-joinheadroom) was stopped with TaskStop. Its `trap cleanup EXIT INT TERM HUP` did not stop the busy loops: `stop-busy.ps1` found 11 still running at 19:08 and stopped them (left=0), and the handoff listed its clone as left behind.
+- Why: (HYPOTHESIZED, not traced) on Windows the stop ends the harness without a signal bash can trap, and the busy loops, started in the background, are not in the tree it ends.
+- Rule going forward: a harness that starts helper processes or folders comes with a stop script that finds them by command line or name (as `stop-busy.ps1` does). After any stop, run it and list the folders, and report the stop done only when none are left.
+- Status: open
+
 ## 2026-11-16: A clock change passed three review rounds and broke two tests that stub the clock
 - What went wrong: RS-T-launchover moved the launcher's hook clock to `performance.timeOrigin`. Three review rounds found nothing wrong in the launcher, and then the owner's `--sums --quick` failed "git pointers: finding the repo for a hook stops with the hook's time (RS-A-firstcheck)" in both copies. It and a test in `context-watch.test.js` stand the clock still with a preload that replaces `Date.now`, frozen at a time taken after `timeOrigin`, and expect exact budgets: 1980 came for 2000, 3 of 3 at rest (`only-5.out` in `rs-t-launchover/` of the sessions' notes folder). The first reading of the failure was load; the numbers showed it was not.
 - Why: the briefs asked for every reader of `T0` and `started` in the launcher, not for the tests that stub the clock those readers use. The `--only` runs covered the new test and the "commits since the handoff" tests, and `--sums --quick` ran only after the last round. `context-watch.test.js` is a long suite that `--quick` skips.
