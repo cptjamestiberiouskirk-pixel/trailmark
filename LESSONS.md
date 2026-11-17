@@ -14,6 +14,24 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-17: The coordinator said a folder waited on the user after the user had answered elsewhere
+- What went wrong: the coordinator session told the user that the Codex scratch home `E:\DevTemp\h78x-919ZLG` (PR 78's host run) was "still waiting on your word", twice, and asked what to do with it. The user had already answered in the launchover session, signed out with `codex logout` there, and the folder was removed (CONFIRMED: a listing of `E:\DevTemp` here found no `h78x*`, and that session's notes record the logout and the removal, with its own listing at 20:31Z).
+- Why: the coordinator took the item's state from that session's earlier message and from its own handoff text, both older than the user's answer, and did not list the folder or read the session's latest turn before each mention.
+- Rule going forward: before telling the user that something waits on them, check its current state in that same turn (a listing, `gh`, or the owning session's latest turn), and say when it was checked.
+- Status: open
+
+## 2026-11-17: Handoff rewrites from `trailmark.js handoff` output added a blank line each time
+- What went wrong: in RS-T-launchover, the session rewrote the handoff three times by piping `trailmark.js handoff` output through a script that stripped the version line and front matter and replaced one line. Each write kept the output's trailing newline, and the saved handoff grew by one blank line per write (62, 63, 64 lines; CONFIRMED by that session with `cat -A` on the tail, not re-run here).
+- Why: the script did not normalize the end of the text, and the line count in the `handoff saved:` message was not compared with the one before.
+- Rule going forward: a script that rebuilds the handoff from `handoff` output trims trailing whitespace and ends with one newline, and the line count printed after each write is compared with the last one.
+- Status: open
+
+## 2026-11-17: Handoff texts went in through heredocs against the promoted rule
+- What went wrong: the coordinator session wrote three handoff checkpoints through a quoted Bash heredoc (`write-handoff <<'EOF'`), on 2026-11-16 and 2026-11-17. The texts held no backslash, so nothing was lost (CONFIRMED: no `\` in the texts as sent, read back from the commands).
+- Why: "Constraints and known limits" in `PLAYBOOK.md` was not read before the writes. Its first bullet names "a handoff" among the texts that go to a file with the Write tool first.
+- Rule going forward: none new; the promoted rule holds. A handoff text is written to a file with the Write tool and passed to `write-handoff` from that file.
+- Status: promoted to PLAYBOOK (a sighting after promotion; "Constraints and known limits", first bullet)
+
 ## 2026-11-16: A script went in through a heredoc against the promoted rule, and lost a backslash
 - What went wrong: in RS-T-launchover, the script that rebuilds PR 78's body (`pr-body-2.js`) went in through a Bash heredoc, and an exact-match check refused a block that was there: a doubled backslash in its old text reached the file as one (CONFIRMED: a one-line heredoc with a doubled backslash reached its file with one). A fix through an inline `node -e` then broke the script's syntax (seen in that session, no file kept), and the script was rewritten with the Write tool. The same session had made several other edits inline (`node -e`).
 - Why: the rule was already there and was not followed. `PLAYBOOK.md` "Constraints and known limits", first bullet, says the collapse happens "a quoted heredoc included" and that no script goes in inline (`node -e`, a heredoc); this is a sighting after promotion, following "A handoff edit went in through a heredoc, and ran its read from the scratch folder" (2026-11-15) and six earlier entries since 2026-11-07 whose titles name a heredoc, `node -e` or the inline rule. The lessons check before the work used other words (host, plugin, hook) and did not show that bullet.
