@@ -4,10 +4,12 @@
 // asynchronous, but it runs on the test's own thread, so it can't end a test
 // blocked in a synchronous child call: one whose child never ends, or whose
 // child has ended and left a grandchild holding its output pipe. This gives
-// each spawnSync, execFileSync and execSync call that has no `timeout` key in
-// its options the same limit, TRAILMARK_TEST_LIMIT_MS (unset or 0: calls are
-// left as they are). Node's own timeout then stops the child and closes the
-// pipes, and the call throws an error that names the command, the limit and
+// each spawnSync, execFileSync and execSync call with no timeout of its own
+// (no `timeout` key, or 0 or undefined, which Node reads as none) the same
+// limit, TRAILMARK_TEST_LIMIT_MS (unset or 0: calls are left as they are).
+// Node's own timeout then stops the child, with SIGKILL unless the call names
+// its own killSignal (a child that ignores SIGTERM is stopped too), and closes
+// the pipes, and the call throws an error that names the command, the limit and
 // the test file's line, also when the child itself had ended (spawnSync then
 // gives status 0 with ETIMEDOUT). The error is also written to stderr, and
 // the process exits with 1 at its end, so the file fails even when a test
@@ -40,10 +42,11 @@ if (LIMIT > 0) {
     return e;
   };
   // spawnSync and execFileSync take (file, [args], [options]); execSync
-  // takes (command, [options]). Only a call whose options have no timeout
-  // key gets the limit.
+  // takes (command, [options]). A call whose own timeout is above 0 keeps it;
+  // any other call gets the limit.
   const split = (a, b) => (Array.isArray(a) || a == null ? { args: a, opts: b } : { args: undefined, opts: a });
-  const limited = opts => (opts && Object.prototype.hasOwnProperty.call(opts, 'timeout') ? null : { ...(opts || {}), timeout: LIMIT });
+  const limited = opts => (opts && opts.timeout > 0 ? null
+    : { ...(opts || {}), timeout: LIMIT, killSignal: (opts && opts.killSignal) || 'SIGKILL' });
 
   const { spawnSync, execFileSync, execSync } = cp;
   cp.spawnSync = function (file, a, b) {

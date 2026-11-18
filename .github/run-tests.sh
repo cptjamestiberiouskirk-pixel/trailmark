@@ -9,7 +9,13 @@
 #            limit. Nothing more can fail. The test steps use this for now
 #            (PLAYBOOK "Pushing and CI" step 3).
 #   enforce  the limit ends a hung test as a failure that names it:
-#     --test-timeout     ends a test that waits on something asynchronous;
+#     --test-timeout     ends a test that waits on something asynchronous,
+#                        on Node 24 and later only: on Node 22 each test
+#                        file's own test takes the same limit, so it would
+#                        fail every file that runs longer (Node 22's
+#                        lib/internal/test_runner/test.js copies the parent's
+#                        timeout; Node 24 sets the file's to null), and there
+#                        only the preload's limit applies;
 #     --test-force-exit  lets the file end once its tests are done, though the
 #                        test that was ended left a child or a timer open;
 #     --require test-limits.js  gives each synchronous child call with no
@@ -23,7 +29,11 @@ set -euo pipefail
 tap=${1:?usage: run-tests.sh <tap file> <test file>...}; shift
 limit=${TRAILMARK_TEST_LIMIT_MS:?TRAILMARK_TEST_LIMIT_MS is not set}
 case "${TRAILMARK_TEST_LIMITS:-}" in
-  enforce) flags=(--test-timeout="$limit" --test-force-exit --require ./.github/test-limits.js) ;;
+  enforce)
+    flags=()
+    major=$(node -p 'process.versions.node.split(".")[0]')
+    if [ "$major" -ge 24 ]; then flags=(--test-timeout="$limit"); fi
+    flags+=(--test-force-exit --require ./.github/test-limits.js) ;;
   report) flags=() ;;
   *) echo "run-tests.sh: TRAILMARK_TEST_LIMITS must be report or enforce" >&2; exit 2 ;;
 esac

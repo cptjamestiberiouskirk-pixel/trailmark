@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-17: A source reading took a test's options from where it was built, not what it inherits
+- What went wrong: RS-T-hang75's notes and the lesson below said Node's runner gives the file-level test no timeout on v22.x, v24.x and v26.x, read from the options `runTestFile` passes. On v22.x the `Test` constructor copies the parent's timeout into every subtest (`test.js` line 554), so `--test-timeout` limited each test file as a whole; v24.x and v26.x set it to null afterward. CI's self-check on ddfd0a9 showed 2 of 6 on the three Node 22 jobs, and review round 1 found the cause.
+- Why: the reading stopped at the call that builds the object and did not follow what its constructor takes from the parent; Node 22 was not run here, and the claim was labelled CONFIRMED from that reading for all three branches.
+- Rule going forward: a claim about a value a runtime object gets is read through its constructor and any later assignment, on each version claimed; a version not run is named as read only, and a check that runs on it (here CI's self-check) is read before the claim goes into notes as CONFIRMED.
+- Status: open
+
 ## 2026-11-17: A release check ran beside a probe started in the same message
 - What went wrong: in RS-T-hang75, `node .github/test-limits-check.js` (12 node processes, 3 s limits) and the background `dev/release-check.sh --sums --quick` were sent in one message, so the probe ran during the suite's first minute. The check failed 3 "git pointers" tests with RS-T-gitcfgload's sign (779 s against 411 s for the run before); they passed alone, the change touches no file under `plugins/`, and the next check, run alone, passed on every line.
 - Why: the two calls were sent together to save a turn, and the release check's sensitivity to load was not weighed.
@@ -39,7 +45,7 @@ Format:
 - Status: open
 
 ## 2026-11-17: The planned fix was a flag that could not end the hang most of the tests can have
-- What went wrong: RS-T-hang75's plan was `node --test --test-timeout`. Node's runner gives the file-level test no timeout, and the limit runs on the test's own thread (Node source, branches v22.x, v24.x, v26.x); a probe showed it never ends a busy loop or a `spawnSync` with no `timeout`, and with a timer left open the run went on past the limit until `--test-force-exit` was added. Most tests here wait in synchronous child calls (`grep -c` finds 110 lines of `handoff-checks.test.js` that name `spawnSync`, `execFileSync` or `execSync`).
+- What went wrong: RS-T-hang75's plan was `node --test --test-timeout`. Node's runner gives the file-level test no timeout on v24.x and v26.x (on v22.x it does, which this entry first missed; see "A source reading took a test's options ..."), and the limit runs on the test's own thread (Node source, branches v22.x, v24.x, v26.x); a probe showed it never ends a busy loop or a `spawnSync` with no `timeout`, and with a timer left open the run went on past the limit until `--test-force-exit` was added. Most tests here wait in synchronous child calls (`grep -c` finds 110 lines of `handoff-checks.test.js` that name `spawnSync`, `execFileSync` or `execSync`).
 - Why: the plan named the flag from its docs, not from a run against each shape of hang.
 - Rule going forward: a limit is shown on each shape of hang it is meant for (an async wait, a block in the test's own code, a synchronous child call, a child that leaves a grandchild holding its pipe) before it goes into a check, beside a control that passes.
 - Status: open
