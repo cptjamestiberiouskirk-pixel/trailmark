@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-18: A read-only listing of a run's events went through `node -p`
+- What went wrong: in RS-T-clockstep's Codex host run, a listing of the event types in `run.jsonl` ran as an inline `node -p` one-liner, against `PLAYBOOK.md` "Constraints and known limits", first bullet. It read one file and wrote nothing; the next read went through a script file (`read-codex-run.js`).
+- Why: the second sighting of the lesson of 2026-11-17 ("Read-only checks went through `node -e` against the constraint"): a quick look did not feel like a script, and the bullet did not name read-only scripts.
+- Rule going forward: none new. The bullet now names read-only scripts, and the lesson of 2026-11-17 is promoted.
+- Status: promoted to PLAYBOOK ("Constraints and known limits", first bullet)
+
 ## 2026-11-18: Each reader was mutated alone, and the sweep's old form as a whole passed every test
 - What went wrong: in RS-T-clockstep, the mutation list turned each reader of the launcher's clock back to `Date.now() - T0` one at a time, and each failed a test. Both reviewers of round 1 put the sweep's deadline and its three reads back to `Date.now()` together, the form on 762b728, and every test passed (F1, CONFIRMED here with `mutate.js sweepAllParent`, 10:05). Every stub stepped the clock before the launcher's first line, so a deadline set and read on the same clock never saw the step. A test that steps the clock at the sweep's first root call now fails that mutation.
 - Why: a single-reader mutation mixes the old clock with the new one, and the mixed form is what the tests caught. The parent's own form had a different shape, and the list never ran it. "Testing" step 8 says to remove each part of a fix alone; the parent's whole form of a function is a case of its own.
@@ -96,7 +102,7 @@ Format:
 - What went wrong: in RS-T-hang75, two read-only inspections (a job record's steps and its annotations, saved as JSON) ran as `node -e` one-liners, against the constraint in `CLAUDE.md` and the task's brief that scripts go to files with the Write tool, never heredocs or `node -e`. Nothing broke: no backslash was in them.
 - Why: the reads felt too small for a file, and the rule was read as being for scripts that change things.
 - Rule going forward: none new; the rule covers every script, read-only ones included. A one-off read uses `gh api --jq` or a saved script file.
-- Status: open
+- Status: promoted to PLAYBOOK ("Constraints and known limits", first bullet, which names read-only scripts since RS-T-clockstep's second sighting, 2026-11-18)
 
 ## 2026-11-17: A source reading took a test's options from where it was built, not what it inherits
 - What went wrong: RS-T-hang75's notes and the lesson below said Node's runner gives the file-level test no timeout on v22.x, v24.x and v26.x, read from the options `runTestFile` passes. On v22.x the `Test` constructor copies the parent's timeout into every subtest (`test.js` line 554), so `--test-timeout` limited each test file as a whole; v24.x and v26.x set it to null afterward. CI's self-check on ddfd0a9 showed 2 of 6 on the three Node 22 jobs, and review round 1 found the cause.
