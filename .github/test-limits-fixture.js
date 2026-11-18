@@ -6,6 +6,8 @@
 //              with `timeout: Infinity` (which Node reads as none)
 //   longfile   three tests of 1.2 s each: the file runs past the limit and
 //              no test does, so all pass
+//   readonly   Error.prepareStackTrace made read-only before a test() call,
+//              which must still register the test
 //   spawnsync  spawnSync of a child that never ends and ignores SIGTERM,
 //              with `timeout: 0` (which Node reads as none)
 //   orphan     execFileSync of a child that exits at once and leaves a
@@ -51,7 +53,11 @@ if (process.argv[2] === 'sleep' || process.argv[2] === 'stubborn') {
     test('case async with timeout Infinity', { timeout: Infinity }, hang);
   }
   if (which === 'longfile') for (const n of [1, 2, 3]) test(`case longfile ${n}`, () => sleep(1200));
-  if (which !== 'async' && which !== 'longfile') test(`case ${which}`, which === 'own' ? { timeout: 8000 } : {}, async () => {
+  if (which === 'readonly') {
+    Object.defineProperty(Error, 'prepareStackTrace', { value: Error.prepareStackTrace, writable: false, configurable: true });
+    test('case readonly', () => {});
+  }
+  if (which !== 'async' && which !== 'longfile' && which !== 'readonly') test(`case ${which}`, which === 'own' ? { timeout: 8000 } : {}, async () => {
     if (which === 'spawnsync') {
       const r = spawnSync(process.execPath, [__filename, 'stubborn'], { encoding: 'utf8', timeout: 0 });
       assert.strictEqual(r.status, 0);

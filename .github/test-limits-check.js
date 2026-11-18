@@ -47,6 +47,7 @@ const cases = [
   { name: 'own', status: 0, holds: [/^ok \d+ - case own$/m, /^# fail 0$/m], says: [] },
   { name: 'async', file: parenCopy, status: 1, holds: [/^not ok \d+ - case async$/m, /^not ok \d+ - case async with options$/m, /^not ok \d+ - case async with timeout Infinity$/m, /test timed out after 3000ms/, asyncAt], says: [] },
   { name: 'longfile', status: 0, holds: [/^ok \d+ - case longfile 3$/m, /^# fail 0$/m, /^# cancelled 0$/m], says: [] },
+  { name: 'readonly', status: 0, holds: [/^ok \d+ - case readonly$/m, /^ok \d+ - after the case$/m, /^# fail 0$/m], says: [] },
   { name: 'spawnsync', status: 1, holds: [/^not ok \d+ - case spawnsync$/m, /spawnSync .*test-limits-fixture\.js stubborn was stopped by the test limit of 3000 ms .* at [^']*test-limits-fixture\.js:\d+/], says: [stopLine] },
   { name: 'orphan', status: 1, holds: [/^not ok \d+ - case orphan$/m, /execFileSync .*test-limits-fixture\.js orphan was stopped by the test limit of 3000 ms .* at [^']*test-limits-fixture\.js:\d+/], says: [stopLine] },
   { name: 'swallowed', status: 1, holds: [/^ok \d+ - case swallowed$/m, /2 call\(s\) stopped by the test limit; this file fails/], says: [/^::error title=calls stopped by the per-test limit \(2\)::execFileSync .*orphan a.nb.rc.u2028d.u2029e was stopped/m] },

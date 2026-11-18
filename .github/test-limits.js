@@ -120,13 +120,17 @@ if (LIMIT > 0) {
     // The place that called test(): the first stack frame in a .js file that
     // is neither Node's own nor this file, read from V8's call sites rather
     // than parsed from the stack's text, where a path may hold parentheses.
+    // Null when a test file made Error.prepareStackTrace read-only (the
+    // assignment throws in strict code) or replaced it with an accessor.
     const callSite = () => {
       const keep = Error.prepareStackTrace;
       let sites = [];
       try {
         Error.prepareStackTrace = (_, s) => s;
         sites = new Error().stack;
-      } finally { Error.prepareStackTrace = keep; }
+      } catch { return null; } finally {
+        try { Error.prepareStackTrace = keep; } catch { /* read-only: it was never changed */ }
+      }
       for (const s of Array.isArray(sites) ? sites : []) {
         const file = s.getFileName();
         if (file && file.endsWith('.js') && !file.startsWith('node:') && file !== __filename) {
