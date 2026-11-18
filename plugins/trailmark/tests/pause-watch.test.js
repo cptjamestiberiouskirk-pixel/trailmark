@@ -261,6 +261,48 @@ test('pause watch: the script is granted no write, and a cwd that is not a full 
   assert.ok(c.run({ cwd: 'not-a-folder' }), 'asks, from the launcher\'s own folder');
 });
 
+// RS-T-clockstep: the hook's time for finding the memory folder counts on
+// Node's monotonic clock (sinceT0 in trailmark.js). A preload sets the system
+// clock (Date.now) 20 s forward before the launcher's first line, as a clock
+// change during the hook would, and notes the timeout of each git call that
+// asks for the repo's root (rev-parse --git-common-dir, repoRoot in
+// lib/paths.js). Read from Date.now, the hook would have no time left and
+// start no git for the root (it then finds the root without git and still
+// asks: seen on 762b728). With the launcher's time spent before its script
+// (the JBMEM_SHOW_CLOCK run line) under 1500 ms, that call had its 3000 ms;
+// a busy machine skips that check, with a note.
+test('pause watch: a system clock set forward during the hook takes no time from finding the memory folder (RS-T-clockstep)', (t) => {
+  const c = setup();
+  const roots = path.join(c.s.base, 'step-roots.txt');
+  const stub = path.join(c.s.base, 'step.js');
+  fs.writeFileSync(stub, `const cp = require('child_process');
+const fs = require('fs');
+const real = Date.now;
+Date.now = () => real() + 20000;
+const exec = cp.execFileSync;
+cp.execFileSync = function (file, a, opts) {
+  if (Array.isArray(a) && a.includes('--git-common-dir')) fs.appendFileSync(${JSON.stringify(roots)}, String(opts && opts.timeout) + String.fromCharCode(10));
+  return exec.apply(this, arguments);
+};
+`);
+  const spawnAt = Date.now();
+  const r = require('child_process').spawnSync(process.execPath, ['-r', stub, JBM, '--hook', 'pause-watch'], { cwd: c.s.repo, env: { ...c.s.env, JBMEM_SHOW_CLOCK: '1' }, encoding: 'utf8', input: JSON.stringify({
+    session_id: SA, transcript_path: c.transcript, cwd: c.s.repo, hook_event_name: 'UserPromptSubmit', prompt: 'pause for reboot',
+  }) });
+  const endAt = Date.now();
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(askText(JSON.parse(r.stdout || 'null')), /may say they are about to reboot/);
+  const run = /^trailmark run: script spent=(-?\d+) timeout=(\d+)$/m.exec(r.stderr);
+  assert.ok(run, `the launcher wrote no JBMEM_SHOW_CLOCK run line (stderr: ${JSON.stringify(r.stderr)})`);
+  // The time spent the check below is gated on: inside the spawn, 50 ms
+  // either way for two readings of the system clock.
+  assert.ok(Number(run[1]) >= 0 && Number(run[1]) <= endAt - spawnAt + 50, `the script's time spent is not inside the spawn's ${endAt - spawnAt} ms: ${run[0]}`);
+  if (Number(run[1]) >= 1500) return t.diagnostic(`the launcher spent ${run[1]} ms before its script: the root call was not checked`);
+  let calls = [];
+  try { calls = fs.readFileSync(roots, 'utf8').split('\n').filter(Boolean).map(Number); } catch { calls = []; }
+  assert.ok(calls.includes(3000), `finding the memory folder started no git for the root with its 3000 ms (root calls: ${JSON.stringify(calls)}; ${run[0]})`);
+});
+
 test('pause watch: the script run on its own checks the event, a subagent and the session itself', () => {
   const c = setup();
   const script = path.join(ROOT, 'scripts', 'hook-pause-watch.js');

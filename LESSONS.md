@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-18: Two clock-step tests passed the old launcher, first on a wrong premise, then through their own skip gate
+- What went wrong: in RS-T-clockstep, the context-watch and pause-watch tests for a clock set 20 s forward expected the hook to say nothing on the old launcher, "with no time left it finds no memory folder". Run on the parent 762b728 they passed: with too little time, `repoRoot` (`lib/paths.js`) finds the root without git and the hook asks as usual (`fixparent-1.out`). Rewritten to check the root call's 3000 ms timeout, skipped when the launcher's reported time spent was 1500 ms or more, they passed the parent again: the old launcher reported the stepped 20,041 ms, so the gate skipped the check (`fixparent-2.out`).
+- Why: the first premise was written from what the code should do, not from a run of the old code. The gate then read its condition from the value under test.
+- Rule going forward: a new test's premise about the old code is run on the parent before the test is built on it. A skip gate that reads a value the change computes bounds that value from outside first (here, inside the spawn's length), so the old code fails the bound instead of skipping.
+- Status: open
+
 ## 2026-11-18: A result was moved onto a commit on a reviewer's word, without opening the files it cited
 - What went wrong: in RS-T-hang75-enforce, the notes at bd0a6c5 said the Node 22 stand-in's test, location, timeout and count lines equal native `--test-timeout`'s, "20 of 20 (`proto/control.sh`)". Round 2's docs reviewer asked to say it was measured on bd0a6c5's preload, and the batch wrote "bd0a6c5's stand-in (before round 1's fix)". Round 3's docs reviewer opened `proto/`: `control.sh` compared an early prototype, `each.js`, made before bd0a6c5, and the saved lines are 23 against 20, unequal at the tenth test (WRONG).
 - Why: the first note was written from the run as remembered, not read back from the saved lines, and the rewording took the reviewer's premise about which code ran without opening the script or its output. Two sentences of 2026-11-15's lesson would have caught both: "a record that gives one result for several cases checks it against each case's line in the output it cites" and "each case a repro names is found by a search in the file the repro cites". That lesson stays open for its other sentences.

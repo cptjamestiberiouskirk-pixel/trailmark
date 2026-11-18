@@ -399,9 +399,10 @@ test('context watch: finding the memory folder is inside the hook\'s 5 s for git
   }
   // The launcher with a preload that notes each git call that reads a config
   // file or asks for the root, runs every call with time to spare, and
-  // stands the clock still at the process's start, where the launcher's hook
-  // time counts from (T0 in trailmark.js): it moves only when the `at`th
-  // config file is read, by `by` ms.
+  // stands both clocks still at the process's start, where the launcher's
+  // hook time counts from (T0 and sinceT0 in trailmark.js): the system clock
+  // at T0 and Node's monotonic clock at 0. They move together only when the
+  // `at`th config file is read, by `by` ms.
   let made = 0;
   const hook = (at, by) => {
     const log = path.join(c.s.base, `calls${++made}.txt`);
@@ -412,6 +413,7 @@ const real = cp.execFileSync;
 const t0 = Math.floor(performance.timeOrigin);
 let moved = 0; let files = 0;
 Date.now = () => t0 + moved;
+performance.now = () => moved;
 cp.execFileSync = function (file, args, opts, ...rest) {
   let kind = '';
   if (Array.isArray(args)) kind = args.includes('--file') ? 'file' : args.includes('--git-common-dir') ? 'root' : '';
@@ -441,4 +443,47 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   h = hook(2, 4800);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, 3000], root: [] });
   assert.match(askText(h.out), /has not written the handoff since the first request/);
+});
+
+// RS-T-clockstep: the hook's time for finding the memory folder counts on
+// Node's monotonic clock (sinceT0 in trailmark.js). A preload sets the system
+// clock (Date.now) 20 s forward before the launcher's first line, as a clock
+// change during the hook would, and notes the timeout of each git call that
+// asks for the repo's root (rev-parse --git-common-dir, repoRoot in
+// lib/paths.js). Read from Date.now, the hook would have no time left and
+// start no git for the root (it then finds the root without git and still
+// asks: seen on 762b728). With the launcher's time spent before its script
+// (the JBMEM_SHOW_CLOCK run line) under 1500 ms, that call had its 3000 ms;
+// a busy machine skips that check, with a note.
+test('context watch: a system clock set forward during the hook takes no time from finding the memory folder (RS-T-clockstep)', (t) => {
+  const c = contextWatchSetup();
+  const roots = path.join(c.s.base, 'step-roots.txt');
+  const stub = path.join(c.s.base, 'step.js');
+  fs.writeFileSync(stub, `const cp = require('child_process');
+const fs = require('fs');
+const real = Date.now;
+Date.now = () => real() + 20000;
+const exec = cp.execFileSync;
+cp.execFileSync = function (file, a, opts) {
+  if (Array.isArray(a) && a.includes('--git-common-dir')) fs.appendFileSync(${JSON.stringify(roots)}, String(opts && opts.timeout) + String.fromCharCode(10));
+  return exec.apply(this, arguments);
+};
+`);
+  c.usage(316000);
+  const spawnAt = Date.now();
+  const r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', 'context-watch'], { cwd: c.s.repo, env: { ...c.s.env, JBMEM_SHOW_CLOCK: '1' }, encoding: 'utf8', input: JSON.stringify({
+    session_id: SA, transcript_path: c.transcript, cwd: c.s.repo, hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_response: { stdout: '' },
+  }) });
+  const endAt = Date.now();
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(askText(JSON.parse(r.stdout || 'null')), /trailmark:checkpoint/);
+  const run = /^trailmark run: script spent=(-?\d+) timeout=(\d+)$/m.exec(r.stderr);
+  assert.ok(run, `the launcher wrote no JBMEM_SHOW_CLOCK run line (stderr: ${JSON.stringify(r.stderr)})`);
+  // The time spent the check below is gated on: inside the spawn, 50 ms
+  // either way for two readings of the system clock.
+  assert.ok(Number(run[1]) >= 0 && Number(run[1]) <= endAt - spawnAt + 50, `the script's time spent is not inside the spawn's ${endAt - spawnAt} ms: ${run[0]}`);
+  if (Number(run[1]) >= 1500) return t.diagnostic(`the launcher spent ${run[1]} ms before its script: the root call was not checked`);
+  let calls = [];
+  try { calls = fs.readFileSync(roots, 'utf8').split('\n').filter(Boolean).map(Number); } catch { calls = []; }
+  assert.ok(calls.includes(3000), `finding the memory folder started no git for the root with its 3000 ms (root calls: ${JSON.stringify(calls)}; ${run[0]})`);
 });
