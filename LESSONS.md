@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-17: A batch was staged before `--sums` rewrote SHA256SUMS, and went out with the old sums
+- What went wrong: in RS-T-hang75, round 2's batch was staged (`git add -A .github ...`) and then `--sums --quick` ran, which rewrote `SHA256SUMS` for the four changed `.github` files. The rewritten file was not staged again, so commit 4a69e2c was pushed with the old sums; `git status --short` right after the commit showed ` M SHA256SUMS`. Fixed forward in the next commit.
+- Why: the earlier commits of the item staged `SHA256SUMS` after the check; this time staging came first, for the dash scan, and the order was not checked again. A sibling of "New files were left out of SHA256SUMS" (2026-11-15).
+- Rule going forward: right before `git commit`, `git status --short` shows no line with a change in the work tree (a second column other than a space); `SHA256SUMS` is staged after the last `--sums`.
+- Status: open
+
 ## 2026-11-17: Read-only checks went through `node -e` against the constraint
 - What went wrong: in RS-T-hang75, two read-only inspections (a job record's steps and its annotations, saved as JSON) ran as `node -e` one-liners, against the constraint in `CLAUDE.md` and the task's brief that scripts go to files with the Write tool, never heredocs or `node -e`. Nothing broke: no backslash was in them.
 - Why: the reads felt too small for a file, and the rule was read as being for scripts that change things.
