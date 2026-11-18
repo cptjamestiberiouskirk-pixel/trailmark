@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-18: A commit's Verified line got a time range no run printed
+- What went wrong: in RS-T-sinceload, bf38e47's Verified line says `--sums --quick` ran "14:30 to 14:38". I wrote it with sed before reading any time: the output file prints none, and its mtime is 14:37:08. The commit was not amended (a history rewrite needs the user's word); the notes give the real time.
+- Why: a sighting of "Writing code and docs" step 15: a count or time comes from a run that printed it. The earlier Verified lines had times from `only-fix.sh`, which prints them; this check's wrapper did not.
+- Rule going forward: none new; step 15 holds. A wrapper whose time goes into a Verified line prints its start and end time.
+- Status: open
+
 ## 2026-11-18: Round 1 of RS-T-sinceload found gaps that three playbook steps cover
 - What went wrong: the Opus round on 487107e found that no test reached `stampedHead`'s fail branch (the control with 30 s also gives no HEAD): dropping its assert passed 14/14, and my mutation list had no entry for it. It also found that the new write test passed the calls it did not stand in for to real git under the launcher's 5 s budget and ran outside `sinceTest`, and that "superprojects: many module gitdirs stay fast" gave `gitFacts` 60 s in all with 4 s a call, a caller my grep missed because it searched `scripts/` only.
 - Why: sightings of "Testing" step 8 (remove each part of a fix alone; the control assert is part of it), step 12 (give a new test's real-time calls a third of their budget) and "Planning a change" step 5 (grep every caller in every file, tests included).
