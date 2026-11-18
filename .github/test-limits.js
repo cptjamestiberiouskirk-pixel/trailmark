@@ -120,11 +120,11 @@ if (LIMIT > 0) {
     // The place that called test(): the first stack frame in a .js file that
     // is neither Node's own nor this file, read from V8's call sites rather
     // than parsed from the stack's text, where a path may hold parentheses.
-    // Null when a test file made Error.prepareStackTrace read-only (the
-    // assignment throws in strict code) or gave it an accessor that does not
-    // keep what is assigned (the stack is then no array). An accessor that
-    // keeps it gives the call site; a getter that throws still throws here
-    // (RS-T-pstaccessor).
+    // Null when a test file's Error.prepareStackTrace makes the assignment
+    // throw (read-only in strict code, a getter with no setter, a setter that
+    // throws) or not take (an accessor that does not keep what is assigned:
+    // the stack is then no array). An accessor that keeps it gives the call
+    // site; a getter that throws still throws here (RS-T-pstaccessor).
     const callSite = () => {
       const keep = Error.prepareStackTrace;
       let sites = [];
