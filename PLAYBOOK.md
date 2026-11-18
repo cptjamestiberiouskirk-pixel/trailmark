@@ -27,7 +27,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 - An inline command's text shows in the process list, so `ps | grep` probes match themselves: write probes to script files.
 - This `gh` refuses output that holds escape sequences: a plain `gh api .../jobs/<id>/logs` exited 1 for each job with a log that it was tried on. Read a job's log with `gh run view --job <id> --log`, or pass `--allow-escape-sequences`.
 - Windows gives back a killed process's file handles a moment after it exits: cleanup after a stop retries for a few seconds.
-- On Windows, TaskStop ends a background task's outer shell and can leave the script it ran going (`LESSONS.md`, 2026-11-16 and 2026-11-17). After a stop, list processes by the script's command line (pwsh `Get-CimInstance Win32_Process`), stop what is left by tree (`taskkill /PID <pid> /T /F`), and name leftovers only from a listing made after that.
+- On Windows, TaskStop ends a background task's outer shell and can leave the script it ran going (`LESSONS.md`, 2026-11-16 and 2026-11-17). After a stop, list processes by the script's command line (`Get-CimInstance Win32_Process`, from a pwsh script file), stop what is left by tree in pwsh (`taskkill /PID <pid> /T /F`; Git Bash rewrites `/PID`), and name leftovers only from a listing made after that.
 - PowerShell means `pwsh` (7), never `powershell.exe` (5.1), `gsudo` runs and `-File` scripts included.
 - Node's `os.tmpdir()` uses `TEMP`/`TMP` on Windows, not `TMPDIR`. The user's `TMPDIR=E:\DevTemp` reaches tests only through `dev/release-check.sh`.
 - Defender's MPLog is readable only by administrators. The user runs elevated scripts. Claude can't.
