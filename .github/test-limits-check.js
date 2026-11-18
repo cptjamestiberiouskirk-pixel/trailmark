@@ -4,7 +4,8 @@
 // in its enforce mode, on .github/test-limits-fixture.js with a limit of 3 s,
 // and reads the TAP output and the annotations: a hung case must end, fail
 // and name the case. Each run has a guard of 25 s, and the whole check a
-// budget of 150 s, so that a limit that can't fire fails the check, and the
+// budget of 160 s (no case starts after 135 s), so that a limit that can't
+// fire fails the check, and the
 // check still prints its result and stops what the cases left within its
 // step's limit of 3 min. On Node 22 run-tests.sh leaves --test-timeout out
 // (see there), so the async case is skipped. It runs from the repository's
@@ -18,7 +19,7 @@ const { spawnSync } = require('child_process');
 
 const LIMIT_MS = 3000;
 const GUARD_MS = 25000;
-const BUDGET_MS = 150000;
+const BUDGET_MS = 160000;
 const NODE_MAJOR = Number(process.versions.node.split('.')[0]);
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trailmark-limits-'));
 const stopLine = /^::error title=calls stopped by the per-test limit \(1\)::/m;
@@ -32,7 +33,7 @@ const cases = [
     skip: NODE_MAJOR < 24 && `Node ${NODE_MAJOR}: run-tests.sh gives no --test-timeout before Node 24` },
   { name: 'spawnsync', status: 1, holds: [/^not ok \d+ - case spawnsync$/m, /spawnSync .*test-limits-fixture\.js stubborn was stopped by the test limit of 3000 ms .* at [^']*test-limits-fixture\.js:\d+/], says: [stopLine] },
   { name: 'orphan', status: 1, holds: [/^not ok \d+ - case orphan$/m, /execFileSync .*test-limits-fixture\.js orphan was stopped by the test limit of 3000 ms .* at [^']*test-limits-fixture\.js:\d+/], says: [stopLine] },
-  { name: 'swallowed', status: 1, holds: [/^ok \d+ - case swallowed$/m, /1 call\(s\) stopped by the test limit; this file fails/], says: [stopLine] },
+  { name: 'swallowed', status: 1, holds: [/^ok \d+ - case swallowed$/m, /2 call\(s\) stopped by the test limit; this file fails/], says: [/^::error title=calls stopped by the per-test limit \(2\)::execFileSync .*orphan line\\nbreak was stopped/m] },
 ];
 
 const start = Date.now();

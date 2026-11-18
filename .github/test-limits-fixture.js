@@ -6,9 +6,10 @@
 //              with `timeout: 0` (which Node reads as none)
 //   orphan     execFileSync of a child that exits at once and leaves a
 //              grandchild holding its output pipe, with `timeout: undefined`
-//   swallowed  the orphan case, with no timeout key, inside a try/catch that
-//              ignores the error
-//   own        spawnSync with a timeout of its own, which it keeps
+//   swallowed  the orphan case twice, with no timeout key and an argument
+//              with a line break, inside a try/catch that ignores the error
+//   own        spawnSync with a timeout of its own, which it keeps, and one
+//              with a timeout Node refuses, which still throws
 // LIMITS_PIDS names a file where every process started here writes its pid,
 // so the check can stop what is left.
 'use strict';
@@ -45,10 +46,15 @@ if (process.argv[2] === 'sleep' || process.argv[2] === 'stubborn') {
     } else if (which === 'orphan') {
       execFileSync(process.execPath, [__filename, 'orphan'], { encoding: 'utf8', timeout: undefined });
     } else if (which === 'swallowed') {
-      try { execFileSync(process.execPath, [__filename, 'orphan'], { encoding: 'utf8' }); } catch { /* ignored on purpose */ }
+      // The same call twice, with an argument that holds a line break: each
+      // stop is counted, and its message stays on one line.
+      for (let i = 0; i < 2; i++) {
+        try { execFileSync(process.execPath, [__filename, 'orphan', 'line\nbreak'], { encoding: 'utf8' }); } catch { /* ignored on purpose */ }
+      }
     } else if (which === 'own') {
       const r = spawnSync(process.execPath, [__filename, 'sleep'], { encoding: 'utf8', timeout: 1000 });
       assert.strictEqual(r.error && r.error.code, 'ETIMEDOUT');
+      assert.throws(() => spawnSync(process.execPath, ['--version'], { timeout: -1 }), { code: 'ERR_OUT_OF_RANGE' });
     }
   });
   test('after the case', () => {});

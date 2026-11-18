@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-17: Read-only checks went through `node -e` against the constraint
+- What went wrong: in RS-T-hang75, two read-only inspections (a job record's steps and its annotations, saved as JSON) ran as `node -e` one-liners, against the constraint in `CLAUDE.md` and the task's brief that scripts go to files with the Write tool, never heredocs or `node -e`. Nothing broke: no backslash was in them.
+- Why: the reads felt too small for a file, and the rule was read as being for scripts that change things.
+- Rule going forward: none new; the rule covers every script, read-only ones included. A one-off read uses `gh api --jq` or a saved script file.
+- Status: open
+
 ## 2026-11-17: A source reading took a test's options from where it was built, not what it inherits
 - What went wrong: RS-T-hang75's notes and the lesson below said Node's runner gives the file-level test no timeout on v22.x, v24.x and v26.x, read from the options `runTestFile` passes. On v22.x the `Test` constructor copies the parent's timeout into every subtest (`test.js` line 554), so `--test-timeout` limited each test file as a whole; v24.x and v26.x set it to null afterward. CI's self-check on ddfd0a9 showed 2 of 6 on the three Node 22 jobs, and review round 1 found the cause.
 - Why: the reading stopped at the call that builds the object and did not follow what its constructor takes from the parent; Node 22 was not run here, and the claim was labelled CONFIRMED from that reading for all three branches.

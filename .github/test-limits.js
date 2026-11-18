@@ -5,7 +5,7 @@
 // blocked in a synchronous child call: one whose child never ends, or whose
 // child has ended and left a grandchild holding its output pipe. This gives
 // each spawnSync, execFileSync and execSync call with no timeout of its own
-// (no `timeout` key, or 0 or undefined, which Node reads as none) the same
+// (no `timeout` key, or 0, null or undefined, which Node reads as none) the same
 // limit, TRAILMARK_TEST_LIMIT_MS (unset or 0: calls are left as they are).
 // Node's own timeout then stops the child, with SIGKILL unless the call names
 // its own killSignal (a child that ignores SIGTERM is stopped too), and closes
@@ -35,17 +35,21 @@ if (LIMIT > 0) {
   const where = () => (new Error().stack || '').split('\n').map(l => l.trim().replace(/^at /, ''))
     .filter(l => /\.js:\d+:\d+\)?$/.test(l) && !/\(node:|^node:/.test(l) && !l.includes(__filename)).slice(0, 3).join(' < ');
   const stoppedError = (name, file, args) => {
-    const e = new Error(`${name} ${[file, ...(args || [])].join(' ').slice(0, 300)} was stopped by the test limit of ${LIMIT} ms (TRAILMARK_TEST_LIMIT_MS, .github/test-limits.js) at ${where() || 'an unknown line'}`);
+    // Line breaks in the command are written as \r and \n, so the message
+    // stays on one line of stderr, where tap-annotate.js finds it.
+    const cmd = [file, ...(args || [])].join(' ').replace(/\r/g, '\\r').replace(/\n/g, '\\n').slice(0, 300);
+    const e = new Error(`${name} ${cmd} was stopped by the test limit of ${LIMIT} ms (TRAILMARK_TEST_LIMIT_MS, .github/test-limits.js) at ${where() || 'an unknown line'}`);
     e.code = 'TRAILMARK_TEST_LIMIT';
     stopped.push(e.message);
     process.stderr.write(`# ${e.message}\n`);
     return e;
   };
   // spawnSync and execFileSync take (file, [args], [options]); execSync
-  // takes (command, [options]). A call whose own timeout is above 0 keeps it;
-  // any other call gets the limit.
+  // takes (command, [options]). A call whose timeout is undefined, null or 0
+  // (Node's "none") gets the limit; any other timeout, a valid one or one Node
+  // refuses, goes to Node as the call gave it.
   const split = (a, b) => (Array.isArray(a) || a == null ? { args: a, opts: b } : { args: undefined, opts: a });
-  const limited = opts => (opts && opts.timeout > 0 ? null
+  const limited = opts => (opts && !(opts.timeout == null || opts.timeout === 0) ? null
     : { ...(opts || {}), timeout: LIMIT, killSignal: (opts && opts.killSignal) || 'SIGKILL' });
 
   const { spawnSync, execFileSync, execSync } = cp;

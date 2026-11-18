@@ -54,7 +54,7 @@ if (over.length) console.log(`::warning title=tests over the per-test limit of $
 // .github/test-limits.js writes each call the per-test limit stopped to
 // stderr (in the TAP: `# \# <message>`, backslashes doubled); a test that
 // caught the error has no "not ok" line, so each is named here as an error.
-const stops = [...new Set(lines.map(l => /^# \\# ((?:spawnSync|execFileSync|execSync) .* was stopped by the test limit of .*)$/.exec(l)).filter(Boolean).map(m => m[1].replace(/\\\\/g, '\\').slice(0, 400)))];
+const stops = lines.map(l => /^# \\# ((?:spawnSync|execFileSync|execSync) .* was stopped by the test limit of .*)$/.exec(l)).filter(Boolean).map(m => m[1].replace(/\\\\/g, '\\').slice(0, 400));
 if (stops.length) console.log(`::error title=calls stopped by the per-test limit (${stops.length})::${esc(stops.join('\n'))}`);
 // .github/test-limits.js names a test file that ended with handles still open.
 const open = lines.map(l => /trailmark-test-limits: open at exit in (.*)$/.exec(l)).filter(Boolean).map(m => m[1].slice(0, 300));
