@@ -8,8 +8,13 @@
 // fire fails the check, and the
 // check still prints its result and stops what the cases left within its
 // step's limit of 3 min. On Node 22 run-tests.sh leaves --test-timeout out
-// (see there), so the async case is skipped. It runs from the repository's
-// root, needs bash on PATH, and stops the processes the cases leave.
+// and the preload gives each test() call the limit (see there): the async
+// case checks that, with the TAP's location line of its first test, and the
+// longfile case checks that a file whose tests together run past the limit
+// still passes, which --test-timeout on Node 22 would fail. Its step fails
+// the job when a case does not give what it must (RS-T-hang75-enforce). It
+// runs from the repository's root, needs bash on PATH, and stops the
+// processes the cases leave.
 // Usage: node .github/test-limits-check.js
 'use strict';
 const fs = require('fs');
@@ -20,17 +25,23 @@ const { spawnSync } = require('child_process');
 const LIMIT_MS = 3000;
 const GUARD_MS = 25000;
 const BUDGET_MS = 160000;
-const NODE_MAJOR = Number(process.versions.node.split('.')[0]);
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trailmark-limits-'));
 const stopLine = /^::error title=calls stopped by the per-test limit \(1\)::/m;
+// The fixture's line and column of the async case's first test() call, which
+// its TAP location line must name (line 0 when the call is not found, which
+// no location matches).
+const fixture = fs.readFileSync('.github/test-limits-fixture.js', 'utf8').split('\n');
+const asyncLine = fixture.findIndex(l => l.includes("test('case async', hang)")) + 1;
+const asyncCol = asyncLine ? fixture[asyncLine - 1].indexOf('test(') + 1 : 0;
+const asyncAt = new RegExp(`^not ok \\d+ - case async\\n(?:  .*\\n)*?  location: '[^']*test-limits-fixture\\.js:${asyncLine}:${asyncCol}'$`, 'm');
 
 // What each case must give: the run's exit status, patterns the TAP output
 // must match (holds) and patterns the annotations must match (says).
 const cases = [
   { name: 'pass', status: 0, holds: [/^ok \d+ - case pass$/m, /^# fail 0$/m], says: [] },
   { name: 'own', status: 0, holds: [/^ok \d+ - case own$/m, /^# fail 0$/m], says: [] },
-  { name: 'async', status: 1, holds: [/^not ok \d+ - case async$/m, /test timed out after 3000ms/], says: [],
-    skip: NODE_MAJOR < 24 && `Node ${NODE_MAJOR}: run-tests.sh gives no --test-timeout before Node 24` },
+  { name: 'async', status: 1, holds: [/^not ok \d+ - case async$/m, /^not ok \d+ - case async with options$/m, /^not ok \d+ - case async with timeout Infinity$/m, /test timed out after 3000ms/, asyncAt], says: [] },
+  { name: 'longfile', status: 0, holds: [/^ok \d+ - case longfile 3$/m, /^# fail 0$/m, /^# cancelled 0$/m], says: [] },
   { name: 'spawnsync', status: 1, holds: [/^not ok \d+ - case spawnsync$/m, /spawnSync .*test-limits-fixture\.js stubborn was stopped by the test limit of 3000 ms .* at [^']*test-limits-fixture\.js:\d+/], says: [stopLine] },
   { name: 'orphan', status: 1, holds: [/^not ok \d+ - case orphan$/m, /execFileSync .*test-limits-fixture\.js orphan was stopped by the test limit of 3000 ms .* at [^']*test-limits-fixture\.js:\d+/], says: [stopLine] },
   { name: 'swallowed', status: 1, holds: [/^ok \d+ - case swallowed$/m, /2 call\(s\) stopped by the test limit; this file fails/], says: [/^::error title=calls stopped by the per-test limit \(2\)::execFileSync .*orphan a.nb.rc.u2028d.u2029e was stopped/m] },
@@ -44,7 +55,6 @@ try {
   const v = spawnSync('bash', ['--version'], { encoding: 'utf8' });
   console.log(`node ${process.version}, ${(v.stdout || String(v.error)).split('\n')[0]}`);
   for (const c of cases) {
-    if (c.skip) { console.log(`skip ${c.name}: ${c.skip}`); continue; }
     ran++;
     if (Date.now() - start > BUDGET_MS - GUARD_MS) { bad++; console.log(`FAIL ${c.name}: not run, the check's ${BUDGET_MS / 1000} s budget is spent`); continue; }
     const pids = path.join(dir, `${c.name}.pids`);
@@ -79,5 +89,5 @@ try {
   }
   console.log(`processes the cases started: ${left.length}, kill signals delivered now: ${stopped}; temp folder removed ${removed}${removed ? '' : ` (${dir})`}`);
 }
-console.log(`${ran - bad} of ${ran} cases as expected${ran < cases.length ? ` (${cases.length - ran} skipped)` : ''}`);
+console.log(`${ran - bad} of ${ran} cases as expected`);
 process.exit(bad ? 1 : 0);

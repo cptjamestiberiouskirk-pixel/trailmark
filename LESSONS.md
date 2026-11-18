@@ -14,6 +14,30 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-17: A log parser found no self-check result on heads that had one
+- What went wrong: in RS-T-hang75-enforce, `summarize.js` read each job log's lines as `<job>\t<step>\t<text>` and found the self-check's result by the step name. In 30 job logs (`gh run view --job <id> --log`), 8 of 621a631, 4 of 4a69e2c and all 9 of c20c9c0 and of 8174dc9 (`unknown-count.js` over `summary-1.out` in `rs-t-hang75-enforce/`), lines name their step "UNKNOWN STEP", so those jobs showed "(no result line)" and their slowest-test notices were missed, though PR 82's notes say c20c9c0 and 8174dc9 passed. Fixed: where the log gives no name, the step is taken from the last `##[group]Run <command>` line.
+- Why: the format was read from one job's log, and the parser was not checked against a head whose result was already known.
+- Rule going forward: a parser of CI logs prints, for each step it reads, how many jobs it found a result in, against the jobs whose record shows that step completed, and is run first on a head with a known result ("Testing" step 9).
+- Status: open
+
+## 2026-11-17: A step-time scan read 300 of 370 runs, and its sum took in steps the workflow no longer has
+- What went wrong: in RS-T-hang75-enforce, `steptimes.sh` (copied from RS-T-hang75) reads three pages of 100 runs, and GitHub listed 370 (`total_count`); its "every run still listed" was the newest 300. With a fourth page the window reached 2026-10-28, and `nest-check.js` then summed every step name in the data, `jb-memory tests` and `actions/checkout@v4` of the October workflows among them, and printed "9 places do not fit". Fixed: four pages, and the sum counts only the step names of the newest run, for each system (`nest-check.out`: every place fits).
+- Why: the page count was fixed when fewer runs were listed, and the sum was written when every listed run had the same steps.
+- Rule going forward: a script that claims every listed run prints the API's `total_count` beside the count it read. A sum over a workflow's steps takes the steps the workflow has now, not every name in the data.
+- Status: open
+
+## 2026-11-17: A WSL mutation run used the system's Node 18
+- What went wrong: in RS-T-hang75-enforce, `probe/wsl-run.sh` ran `node` from a plain `wsl.exe -e bash`, which found Ubuntu's Node v18.19.1, not nvm's 26.13.1 that PR #82's WSL runs used. Every case failed in about 1 s, both controls failed, and the summary line still read "caught 30" (`probe/wsl-mutate6-node18-norun.out`). The script printed the version first, and the controls showed the run was not one; it was run again with nvm's 26.13.1.
+- Why: the script was written from the Windows run, where `node` is the one Node, and the WSL notes of PR #82 were not read for how they chose a version.
+- Rule going forward: a probe for another system selects its runtime by version in the script (here `nvm use 26.13.1`) and stops when it can't; a mutation tally counts only when its control passed in the same run ("Testing" step 16).
+- Status: open
+
+## 2026-11-17: An expected TAP column was written by hand, and the call was indented
+- What went wrong: in RS-T-hang75-enforce, the self-check's pattern for the async case's TAP location expected column 3; the fixture's `test('case async', hang)` sits inside an `if` block at column 5, so the first run failed that case (`probe/check1-win26.out`) while the location was right. Fixed: the check reads the line and the column from the fixture.
+- Why: the column was taken from the fixture's other `test(` calls, before the new ones were put inside the block.
+- Rule going forward: none new; "Writing code and docs" step 15 already says an expected value comes from a run or from the code, not from counting by hand.
+- Status: open
+
 ## 2026-11-17: TaskStop left a release check running, a second time
 - What went wrong: in RS-T-hang75, `dev/release-check.sh --sums --quick` was started in the background and stopped with TaskStop, so that `LESSONS.md` could be edited while nothing read it. Three `bash.exe` processes running `release-check.sh` were still there after the stop (pwsh `Get-CimInstance Win32_Process`). `taskkill /PID <first> /T /F` ended all three, and a second listing found none of them and no test `node.exe`.
 - Why: the same as "TaskStop did not stop a background harness, and its leftovers were reported unchecked" (2026-11-16): on Windows TaskStop ends the task's outer shell, and the script under it goes on.

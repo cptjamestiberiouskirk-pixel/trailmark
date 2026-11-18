@@ -6,16 +6,19 @@
 # TRAILMARK_TEST_LIMITS says what to do with it:
 #   report   node --test runs as it did before; tap-annotate.js lists the
 #            slowest tests and warns about each test that ran longer than the
-#            limit. Nothing more can fail. The test steps use this for now
-#            (PLAYBOOK "Pushing and CI" step 3).
-#   enforce  the limit ends a hung test as a failure that names it:
+#            limit. Nothing more can fail. The test steps ran this way in
+#            PR #82 (PLAYBOOK "Pushing and CI" step 3).
+#   enforce  the limit ends a hung test as a failure that names it. The test
+#            steps run this way (RS-T-hang75-enforce).
 #     --test-timeout     ends a test that waits on something asynchronous,
 #                        on Node 24 and later only: on Node 22 each test
 #                        file's own test takes the same limit, so it would
 #                        fail every file that runs longer (Node 22's
 #                        lib/internal/test_runner/test.js copies the parent's
-#                        timeout; Node 24 sets the file's to null), and there
-#                        only the preload's limit applies;
+#                        timeout; Node 24 sets the file's to null). On Node 22
+#                        TRAILMARK_TEST_LIMIT_OPTION=1 has the preload give
+#                        each test() call the limit as its own timeout option
+#                        in its place (see that file);
 #     --test-force-exit  lets the file end once its tests are done, though the
 #                        test that was ended left a child or a timer open;
 #     --require test-limits.js  gives each synchronous child call with no
@@ -32,7 +35,8 @@ case "${TRAILMARK_TEST_LIMITS:-}" in
   enforce)
     flags=()
     major=$(node -p 'process.versions.node.split(".")[0]')
-    if [ "$major" -ge 24 ]; then flags=(--test-timeout="$limit"); fi
+    if [ "$major" -ge 24 ]; then flags=(--test-timeout="$limit"); option=0; else option=1; fi
+    export TRAILMARK_TEST_LIMIT_OPTION=$option
     flags+=(--test-force-exit --require ./.github/test-limits.js) ;;
   report) flags=() ;;
   *) echo "run-tests.sh: TRAILMARK_TEST_LIMITS must be report or enforce" >&2; exit 2 ;;
