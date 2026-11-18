@@ -14,6 +14,84 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-17: TaskStop left a release check running, a second time
+- What went wrong: in RS-T-hang75, `dev/release-check.sh --sums --quick` was started in the background and stopped with TaskStop, so that `LESSONS.md` could be edited while nothing read it. Three `bash.exe` processes running `release-check.sh` were still there after the stop (pwsh `Get-CimInstance Win32_Process`). `taskkill /PID <first> /T /F` ended all three, and a second listing found none of them and no test `node.exe`.
+- Why: the same as "TaskStop did not stop a background harness, and its leftovers were reported unchecked" (2026-11-16): on Windows TaskStop ends the task's outer shell, and the script under it goes on.
+- Rule going forward: `PLAYBOOK.md` "Constraints and known limits", the TaskStop bullet.
+- Status: promoted to PLAYBOOK ("Constraints and known limits", the TaskStop bullet)
+
+## 2026-11-17: A fix of a summary sentence named one exception, and its list held three
+- What went wrong: in RS-T-hang75, round 3's fix of the round 2 sentence "each reproduced here by a case or mutation" named item 3 as its one exception; items 2 and 5 of the same list were deferred with no case here (round 4 finding 2, docs WRONG). The two lessons of the same batch cited "Testing" steps 11 and 15, which are in "Writing code and docs" (round 4 finding 1, docs WRONG).
+- Why: the fixed sentence was read against the finding that drew it, not against each item of its list. The section name was taken from older lessons that cite "Testing" for those numbers, not from `PLAYBOOK.md` as it is now.
+- Rule going forward: a fix of a summary sentence is read against every item it covers, as "Writing code and docs" step 15 says for the sentence itself. A lesson or note that cites a `PLAYBOOK.md` step names the section the step is under in the file at that commit (`grep -n "^## " PLAYBOOK.md`).
+- Status: open
+
+## 2026-11-17: A line-break fix escaped two of the four characters the reader splits at
+- What went wrong: in RS-T-hang75, round 2's fix for a stop message broken across stderr lines escaped the line feed and the carriage return. Node's test runner also splits stderr at U+2028 and U+2029, so a command holding either still lost its annotation (round 3 finding 1, CONFIRMED by the reviewer on Windows and in WSL). The same round found no case held a carriage return, so its mutation passed (finding 2).
+- Why: the fix was written from the reviewer's example, a line feed, and the class (every character the TAP reader splits a line at) was not listed before the fix.
+- Rule going forward: no new step. `PLAYBOOK.md` "Writing code and docs" step 11 says to write down the example's class and say for each member whether the fix and the test cover it.
+- Status: promoted to PLAYBOOK (a sighting after promotion; "Writing code and docs" step 11)
+
+## 2026-11-17: A note said each finding was reproduced here, and one was only the reviewers'
+- What went wrong: in RS-T-hang75, the round 2 bullet said each finding was reproduced here by a case or mutation that fails on 621a631. Item 3, the self-check's budget, had no case or mutation; its run on 621a631 was the reviewer's, and the run here was on the new files (round 3 finding 3, docs WRONG).
+- Why: the sentence was written for the four fixes that have a case, and item 3 was not read against it before the commit.
+- Rule going forward: no new step. `PLAYBOOK.md` "Writing code and docs" step 15 says a sentence that sums up several reports is read against every item it covers, and names the exceptions.
+- Status: promoted to PLAYBOOK (a sighting after promotion; "Writing code and docs" step 15)
+
+## 2026-11-17: A batch was staged before `--sums` rewrote SHA256SUMS, and went out with the old sums
+- What went wrong: in RS-T-hang75, round 2's batch was staged (`git add -A .github ...`) and then `--sums --quick` ran, which rewrote `SHA256SUMS` for the four changed `.github` files. The rewritten file was not staged again, so commit 4a69e2c was pushed with the old sums; `git status --short` right after the commit showed ` M SHA256SUMS`. Fixed forward in the next commit.
+- Why: the earlier commits of the item staged `SHA256SUMS` after the check; this time staging came first, for the dash scan, and the order was not checked again. A sibling of "New files were left out of SHA256SUMS" (2026-11-15).
+- Rule going forward: right before `git commit`, `git status --short` shows no line with a change in the work tree (a second column other than a space); `SHA256SUMS` is staged after the last `--sums`.
+- Status: open
+
+## 2026-11-17: Read-only checks went through `node -e` against the constraint
+- What went wrong: in RS-T-hang75, two read-only inspections (a job record's steps and its annotations, saved as JSON) ran as `node -e` one-liners, against the constraint in `CLAUDE.md` and the task's brief that scripts go to files with the Write tool, never heredocs or `node -e`. Nothing broke: no backslash was in them.
+- Why: the reads felt too small for a file, and the rule was read as being for scripts that change things.
+- Rule going forward: none new; the rule covers every script, read-only ones included. A one-off read uses `gh api --jq` or a saved script file.
+- Status: open
+
+## 2026-11-17: A source reading took a test's options from where it was built, not what it inherits
+- What went wrong: RS-T-hang75's notes and the lesson below said Node's runner gives the file-level test no timeout on v22.x, v24.x and v26.x, read from the options `runTestFile` passes. On v22.x the `Test` constructor copies the parent's timeout into every subtest (`test.js` line 554), so `--test-timeout` limited each test file as a whole; v24.x and v26.x set it to null afterward. CI's self-check on ddfd0a9 showed 2 of 6 on the three Node 22 jobs, and review round 1 found the cause.
+- Why: the reading stopped at the call that builds the object and did not follow what its constructor takes from the parent; Node 22 was not run here, and the claim was labelled CONFIRMED from that reading for all three branches.
+- Rule going forward: a claim about a value a runtime object gets is read through its constructor and any later assignment, on each version claimed; a version not run is named as read only, and a check that runs on it (here CI's self-check) is read before the claim goes into notes as CONFIRMED.
+- Status: open
+
+## 2026-11-17: A release check ran beside a probe started in the same message
+- What went wrong: in RS-T-hang75, `node .github/test-limits-check.js` (12 node processes, 3 s limits) and the background `dev/release-check.sh --sums --quick` were sent in one message, so the probe ran during the suite's first minute. The check failed 3 "git pointers" tests with RS-T-gitcfgload's sign (779 s against 411 s for the run before); they passed alone, the change touches no file under `plugins/`, and the next check, run alone, passed on every line.
+- Why: the two calls were sent together to save a turn, and the release check's sensitivity to load was not weighed.
+- Rule going forward: a release check runs alone: no probe, test or other check of the session is started in the same message or while it runs, and the node process count is logged at its start and end.
+- Status: open
+
+## 2026-11-17: Moving a step's lines into a script dropped the step shell's `-e`
+- What went wrong: in RS-T-hang75, the three test steps' inline `run:` lines moved into `.github/run-tests.sh`, written with `set -u` only. GitHub runs a `shell: bash` step with `-eo pipefail`, so before, a `tap-annotate.js` that threw failed the step; in the script, a passing run with a throwing `tap-annotate.js` exited 0 (CONFIRMED by a run on a copy). The line-by-line read of the staged diff caught it before the commit.
+- Why: the move copied the lines, not the shell options they ran under.
+- Rule going forward: when a workflow step's commands move into a script, the script starts with the options the step's shell had (`set -eo pipefail` for `shell: bash`), and a run with one command made to fail shows the step's exit status is the same as before.
+- Status: open
+
+## 2026-11-17: A stop by command-line pattern stopped the shell that ran it
+- What went wrong: in RS-T-hang75, a scratch script (`leftovers.ps1 -Stop`) stopped the `node` and `bash` processes whose command line named `limits-mut-` or `trailmark-limits-`. The Bash tool's own shell for that call held those words too (the `rm` of the same folders came next in the command), so the script stopped it, and the call ended with exit 255 (CONFIRMED: the next listing showed the six leftovers gone and only the current call's shells matching).
+- Why: the stop ran in the same call as text holding its own pattern; `CLAUDE.md`'s note that an inline command's text shows in the process list was read for `ps | grep` probes, not for a stop.
+- Rule going forward: a script that stops processes by a pattern lists them first, in one call, and stops them in a separate call whose command line holds none of the pattern's words; it leaves out the Bash tool's own shells (`bash.exe -c "source .../shell-snapshots/..."`).
+- Status: open
+
+## 2026-11-17: A control call hit a 5 s limit because process starts were slow
+- What went wrong: in RS-T-hang75's probe, the control case (`execFileSync` of `node --version` under the new preload with a 5 s limit) was stopped by the limit, and looked like a fault in the preload. Three plain `node --version` runs right after took 1,889, 4,763 and 628 ms at about 49% CPU load; two reruns of the control passed.
+- Why: the probe's limit was sized for the hangs it was meant to stop, not for the slowest start of a call meant to pass.
+- Rule going forward: a probe limit under 10 s on this PC is given only to calls meant to be stopped; a call meant to pass gets its own limit of minutes, or none.
+- Status: open
+
+## 2026-11-17: The planned fix was a flag that could not end the hang most of the tests can have
+- What went wrong: RS-T-hang75's plan was `node --test --test-timeout`. Node's runner gives the file-level test no timeout on v24.x and v26.x (on v22.x it does, which this entry first missed; see "A source reading took a test's options ..."), and the limit runs on the test's own thread (Node source, branches v22.x, v24.x, v26.x); a probe showed it never ends a busy loop or a `spawnSync` with no `timeout`, and with a timer left open the run went on past the limit until `--test-force-exit` was added. Most tests here wait in synchronous child calls (`grep -c` finds 110 lines of `handoff-checks.test.js` that name `spawnSync`, `execFileSync` or `execSync`).
+- Why: the plan named the flag from its docs, not from a run against each shape of hang.
+- Rule going forward: a limit is shown on each shape of hang it is meant for (an async wait, a block in the test's own code, a synchronous child call, a child that leaves a grandchild holding its pipe) before it goes into a check, beside a control that passes.
+- Status: open
+
+## 2026-11-17: A probe file was rewritten while a background run of it was going
+- What went wrong: in RS-T-hang75, the probe's test file was rewritten with new modes while the third configuration of `all.sh` was starting in the background, so that configuration's results could not count; it was run again after the first run ended.
+- Why: the run's end was not checked (its "all done" line) before the edit, against PLAYBOOK "Testing" step 16.
+- Rule going forward: before editing a probe's files, check that no background run that reads them is still going; new modes go into a copy.
+- Status: open
+
 ## 2026-11-17: The coordinator said a folder waited on the user after the user had answered elsewhere
 - What went wrong: the coordinator session told the user that the Codex scratch home `E:\DevTemp\h78x-919ZLG` (PR 78's host run) was "still waiting on your word", twice, and asked what to do with it. The user had already answered in the launchover session, signed out with `codex logout` there, and the folder was removed (CONFIRMED here on 2026-11-17: a listing of `E:\DevTemp` found no `h78x*`; CONFIRMED by the launchover session, not re-run: the user's answer, the logout and the removal, in that session's transcript and in its message to the coordinator, with its own listing at 20:31Z). The listing shows the folder gone when it was made, not when it went.
 - Why: the coordinator took the item's state from that session's earlier message and from its own handoff text, both older than the user's answer, and did not list the folder or read the session's latest turn before each mention.
@@ -42,7 +120,7 @@ Format:
 - What went wrong: for the reboot, `join-alt.sh` (RS-T-joinheadroom) was stopped with TaskStop at 19:05:43, and the stop was reported done with its clone "left behind". The harness kept running: it finished its last run, removed its clone itself and wrote its end line at 19:11:15 (`join-alt-1.out`). At 19:09:23, 48 node processes running `busy.js` were counted and the clone was still listed; `stop-busy.ps1` (its result at 19:11:18) found 11 and stopped them (left=0). That all 48 were the harness's (it starts 48) is INFERRED. The harness's own `kill` runs only after its last run (P run 3, started 19:05:38; its end line at 19:11:15), so it came after the count of 48 at 19:09:23 (INFERRED from those times); the files do not show whether it came before `stop-busy.ps1` counted 11 (its result at 19:11:18). If it did, 11 loops outlived it. The `--sums --quick` stopped at the same time (its bash started 18:46:59) was also still running at 19:09:23. A docs reviewer found it from the output file.
 - Why: on Windows TaskStop ended the task's outer shell, and the bash running `join-alt.sh` went on without it (CONFIRMED: the task's output reads `[killed]`, and `join-alt-1.out` lacks the `exit` line the outer shell would have appended after the script, yet ends with the script's own `end 19:11:15`). The clone was named from a listing at 19:09:23, made while the harness still ran, and not listed again after the loops were stopped.
 - Rule going forward: after stopping a task, look for the script itself by command line in the process list, not only its helpers, and wait for it to end or stop it by its PID. Name what is left only from a listing made after it ended.
-- Status: open
+- Status: promoted to PLAYBOOK ("Constraints and known limits", the TaskStop bullet, after a second sighting on 2026-11-17)
 
 ## 2026-11-16: A clock change passed three review rounds and broke two tests that stub the clock
 - What went wrong: RS-T-launchover moved the launcher's hook clock to `performance.timeOrigin`. Three review rounds found nothing wrong in the launcher, and then the owner's `--sums --quick` failed "git pointers: finding the repo for a hook stops with the hook's time (RS-A-firstcheck)" in both copies. It and a test in `context-watch.test.js` stand the clock still with a preload that replaces `Date.now`, frozen at a time taken after `timeOrigin`, and expect exact budgets: 1980 came for 2000, 3 of 3 at rest (`only-5.out` in `rs-t-launchover/` of the sessions' notes folder). The first reading of the failure was load; the numbers showed it was not.
