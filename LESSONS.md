@@ -14,6 +14,42 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-18: A result was moved onto a commit on a reviewer's word, without opening the files it cited
+- What went wrong: in RS-T-hang75-enforce, the notes at bd0a6c5 said the Node 22 stand-in's test, location, timeout and count lines equal native `--test-timeout`'s, "20 of 20 (`proto/control.sh`)". Round 2's docs reviewer asked to say it was measured on bd0a6c5's preload, and the batch wrote "bd0a6c5's stand-in (before round 1's fix)". Round 3's docs reviewer opened `proto/`: `control.sh` compared an early prototype, `each.js`, made before bd0a6c5, and the saved lines are 23 against 20, unequal at the tenth test (WRONG).
+- Why: the first note was written from the run as remembered, not read back from the saved lines, and the rewording took the reviewer's premise about which code ran without opening the script or its output. Two sentences of 2026-11-15's lesson would have caught both: "a record that gives one result for several cases checks it against each case's line in the output it cites" and "each case a repro names is found by a search in the file the repro cites". That lesson stays open for its other sentences.
+- Rule going forward: a result whose note names a probe and its saved output is read back from that output, and from what the probe ran (which file, which commit), when it is written and again when a batch rewords it, a reviewer's suggested wording included.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 15)
+
+## 2026-11-18: Another session stopped a release check it took for a hang
+- What went wrong: in RS-T-hang75-enforce, the first `--sums --quick` on bd0a6c5's tree (23:48 to 00:03 local) reported handoff-checks as "? failed of ?" after 876 s. Its TAP held 67 lines of git warnings and two "kept" lines, and no `ok`, `not ok` or `# tests` line (`rc1-kept/handoff-checks.tap`). The session "Desktop app performance" then wrote that it had stopped that `node --test` tree with the user's approval, reading low CPU and an exited shell as a hang (`perf-session-messages.md`); the notes give 400 to 700 s as the suite's usual time and record runs up to 894 s. The run again, with `probe/watch-rc.ps1` logging the suite's parent every 15 s, passed every line (`rc2.out`, `rc2.out.watch`).
+- Why: Node's runner printed no test line before the stop (INFERRED that it prints a file's test lines only when that file ends: an earlier failed run's kept TAP, `rs-t-hang75/sums-quick-5-handoff-checks.tap`, also has 72 lines of warnings and diagnostics before its first test line), so a parent stopped from outside leaves the children's stderr and nothing else. The machine is shared, and another session may stop processes it did not start.
+- Rule going forward: a suite whose TAP has no `# tests` line ended early. Before reading it as a test failure, look for an outside stop (messages from other sessions, the Application and System logs, leftover processes), then run again with a logger of the suite's parent beside it (`watch-rc.ps1` in the sessions' notes folder, `rs-t-hang75-enforce/probe/`), so the parent's end shows in the log.
+- Status: open
+
+## 2026-11-17: A log parser found no self-check result on heads that had one
+- What went wrong: in RS-T-hang75-enforce, `summarize.js` read each job log's lines as `<job>\t<step>\t<text>` and found the self-check's result by the step name. In 30 job logs (`gh run view --job <id> --log`), 8 of 621a631, 4 of 4a69e2c and all 9 of c20c9c0 and of 8174dc9 (`unknown-count.js` over `summary-1.out` in `rs-t-hang75-enforce/`), lines name their step "UNKNOWN STEP", so those jobs showed "(no result line)" and their slowest-test notices were missed, though PR 82's notes say c20c9c0 and 8174dc9 passed. Fixed: where the log gives no name, the step is taken from the last `##[group]Run <command>` line.
+- Why: the format was read from one job's log, and the parser was not checked against a head whose result was already known.
+- Rule going forward: a parser of CI logs prints, for each step it reads, how many jobs it found a result in, against the jobs whose record shows that step completed, and is run first on a head with a known result ("Testing" step 9).
+- Status: open
+
+## 2026-11-17: A step-time scan read 300 of 370 runs, and its sum took in steps the workflow no longer has
+- What went wrong: in RS-T-hang75-enforce, `steptimes.sh` (copied from RS-T-hang75) reads three pages of 100 runs, and GitHub listed 370 (`total_count`); its "every run still listed" was the newest 300. With a fourth page the window reached 2026-10-28, and `nest-check.js` then summed every step name in the data, `jb-memory tests` and `actions/checkout@v4` of the October workflows among them, and printed "9 places do not fit". Fixed: four pages, and the sum counts only the step names of the newest run, for each system (`nest-check.out`: every place fits).
+- Why: the page count was fixed when fewer runs were listed, and the sum was written when every listed run had the same steps.
+- Rule going forward: a script that claims every listed run prints the API's `total_count` beside the count it read. A sum over a workflow's steps takes the steps the workflow has now, not every name in the data.
+- Status: open
+
+## 2026-11-17: A WSL mutation run used the system's Node 18
+- What went wrong: in RS-T-hang75-enforce, `probe/wsl-run.sh` ran `node` from a plain `wsl.exe -e bash`, which found Ubuntu's Node v18.19.1, not nvm's 26.13.1 that PR #82's WSL runs used. 31 of the 32 entries ended in 1 s or less (`no-force-exit` ran 47 s), both controls failed, and a `grep -c` of the lines marked "-> caught" still gave 30 (`probe/wsl-mutate6-node18-norun.out`; the script prints no summary line). The script printed the version first, and the controls showed the run was not one; it was run again with nvm's 26.13.1.
+- Why: the script was written from the Windows run, where `node` is the one Node, and the WSL notes of PR #82 were not read for how they chose a version.
+- Rule going forward: a probe for another system selects its runtime by version in the script (here `nvm use 26.13.1`) and stops when it can't; a mutation tally counts only when its control passed in the same run ("Testing" step 16).
+- Status: open
+
+## 2026-11-17: An expected TAP column was written by hand, and the call was indented
+- What went wrong: in RS-T-hang75-enforce, the self-check's pattern for the async case's TAP location expected `:48:3`, a line and a column written by hand; the fixture's `test('case async', hang)` sits inside an `if` block at column 5 (line 49 at bd0a6c5), and the first run failed that case (`probe/check1-win26.out`, which does not print the location line, so whether the line number was right then is not known). Fixed: the check reads the line and the column from the fixture, and the next run passed (`probe/check2-win26.out`).
+- Why: the column was taken from the fixture's other `test(` calls, before the new ones were put inside the block.
+- Rule going forward: none new; "Writing code and docs" step 15 already says an expected value comes from a run or from the code, not from counting by hand.
+- Status: open
+
 ## 2026-11-17: TaskStop left a release check running, a second time
 - What went wrong: in RS-T-hang75, `dev/release-check.sh --sums --quick` was started in the background and stopped with TaskStop, so that `LESSONS.md` could be edited while nothing read it. Three `bash.exe` processes running `release-check.sh` were still there after the stop (pwsh `Get-CimInstance Win32_Process`). `taskkill /PID <first> /T /F` ended all three, and a second listing found none of them and no test `node.exe`.
 - Why: the same as "TaskStop did not stop a background harness, and its leftovers were reported unchecked" (2026-11-16): on Windows TaskStop ends the task's outer shell, and the script under it goes on.
