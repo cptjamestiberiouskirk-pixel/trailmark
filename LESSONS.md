@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-18: Round 1 of RS-T-sinceload found gaps that three playbook steps cover
+- What went wrong: the Opus round on 487107e found that no test reached `stampedHead`'s fail branch (the control with 30 s also gives no HEAD): dropping its assert passed 14/14, and my mutation list had no entry for it. It also found that the new write test passed the calls it did not stand in for to real git under the launcher's 5 s budget and ran outside `sinceTest`, and that "superprojects: many module gitdirs stay fast" gave `gitFacts` 60 s in all with 4 s a call, a caller my grep missed because it searched `scripts/` only.
+- Why: sightings of "Testing" step 8 (remove each part of a fix alone; the control assert is part of it), step 12 (give a new test's real-time calls a third of their budget) and "Planning a change" step 5 (grep every caller in every file, tests included).
+- Rule going forward: none new; those steps hold. A mutation list for a skip gate has one entry per assert in the gate, the control's included.
+- Status: open
+
 ## 2026-11-18: A report line's `hung` field was untested: the only late case had a call stopped
 - What went wrong: in RS-T-sinceload, the mutation `hungAlways` (the launcher's `trailmark head: late` line always says `hung=1`) passed the new test, whose one late case stopped a call at its timeout. `stampedHead` reads `hung` to decide whether the budget check applies, so a wrong field would let a skip through. A case with the budget spent and no call stopped (`hung=0`) was added, and the mutation then failed 2 of 4.
 - Why: a sighting of "Testing" step 8: each value a reader branches on needs a case where only that value gives the answer.

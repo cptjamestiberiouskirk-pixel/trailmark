@@ -880,29 +880,34 @@ test('commits since the handoff: the 30 s control gives one slow git call its ti
 // RS-T-sinceload: a handoff written while git ran out of time has no HEAD,
 // and the launcher says why in its JBMEM_SHOW_SINCE line for the write
 // (stampedHead reads it). A preload in the launcher's process stands in for
-// one git call, matched by every argument after git's fixed options and by
-// the folder: `branch --no-color --show-current` stopped at its timeout
-// (hung=1) or answering after 5 s (the budget spent, hung=0), or
-// `rev-parse --short HEAD` failing with exit 128 (not time). Every other
-// call is real git. With the stop or the 5 s, the write stamps no HEAD and
-// gives the line, and stampedHead skips once its control (the lookup with
-// 30 s) gives HEAD. With the failure, the write stamps no HEAD and gives no
-// line, and stampedHead fails.
-test('commits since the handoff: a handoff written with git out of time says so, and only then (RS-T-sinceload)', () => {
-  const s = sandbox();
-  const stub = path.join(s.base, 'git-call-stand-in.js');
-  const write = (call, kind) => {
+// the git calls of the write's lookup (branch, HEAD, top folder), matched by
+// every argument after git's fixed options and by the folder, so no real git
+// call there can run out of time on a busy machine (round 1 of review):
+// `branch --no-color --show-current` stopped at its timeout (hung=1), or
+// answering after 5 s (the budget spent, the other calls refused, hung=0),
+// or all three failing with exit 128 (not time). With the stop or the 5 s,
+// the write stamps no HEAD and gives the line, and stampedHead skips once
+// its control (the lookup with 30 s, real git) gives HEAD, and fails when
+// the control gives none (an unborn branch). With the failure, the write
+// stamps no HEAD and gives no line, and stampedHead fails. The last write is
+// real git: one out of time there skips (sinceTest).
+test('commits since the handoff: a handoff written with git out of time says so, and only then (RS-T-sinceload)', sinceTest(() => {
+  const BRANCH = ['branch', '--no-color', '--show-current'];
+  const HEAD = ['rev-parse', '--short', 'HEAD'];
+  const TOP = ['rev-parse', '--show-toplevel'];
+  const write = (s, plan, kind) => {
+    const stub = path.join(s.base, 'git-call-stand-in.js');
     fs.writeFileSync(stub, [
       "const cp = require('child_process');",
       'const real = cp.execFileSync;',
-      `const REPO = ${JSON.stringify(s.repo)}, CALL = ${JSON.stringify(call)}, KIND = ${JSON.stringify(kind)};`,
+      `const REPO = ${JSON.stringify(s.repo)}, PLAN = ${JSON.stringify(plan)};`,
       'cp.execFileSync = function (bin, args, opts) {',
       '  const a = Array.isArray(args) ? args : [];',
-      '  const i = a.indexOf(CALL[0]);',
-      '  if (i < 0 || JSON.stringify(a.slice(i)) !== JSON.stringify(CALL) || !opts || opts.cwd !== REPO) return real.apply(this, arguments);',
-      "  if (KIND === 'slow') { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000); return real.apply(this, arguments); }",
-      "  const e = new Error(KIND === 'time' ? 'spawnSync git ETIMEDOUT' : 'Command failed');",
-      "  if (KIND === 'time') e.code = 'ETIMEDOUT'; else e.status = 128;",
+      '  const p = opts && opts.cwd === REPO && PLAN.find(([call]) => { const i = a.indexOf(call[0]); return i >= 0 && JSON.stringify(a.slice(i)) === JSON.stringify(call); });',
+      '  if (!p) return real.apply(this, arguments);',
+      "  if (p[1] === 'slow') { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000); return p[2]; }",
+      "  const e = new Error(p[1] === 'time' ? 'spawnSync git ETIMEDOUT' : 'Command failed');",
+      "  if (p[1] === 'time') e.code = 'ETIMEDOUT'; else e.status = 128;",
       '  throw e;',
       '};',
     ].join('\n'));
@@ -913,26 +918,34 @@ test('commits since the handoff: a handoff written with git out of time says so,
     assert.match(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8'), new RegExp(`^- ${kind}$`, 'm'));
     return r;
   };
-  const late = write(['branch', '--no-color', '--show-current'], 'time');
+  const s = sandbox();
+  const late = write(s, [[BRANCH, 'time']], 'time');
   const m = SHOW_HEAD.exec(late.stderr);
   assert.ok(m, late.stderr);
   assert.deepStrictEqual([m[1], m[3]], ['5000', '1']);
   assert.throws(() => stampedHead(s), CommitsOutOfTime);
   // No call stopped, the budget spent: `branch` answers after 5 s, and the
   // calls after it are refused for lack of time (hung=0).
-  const spent = write(['branch', '--no-color', '--show-current'], 'slow');
+  const spent = write(s, [[BRANCH, 'slow', 'main\n']], 'slow');
   const n = SHOW_HEAD.exec(spent.stderr);
   assert.ok(n, spent.stderr);
   assert.deepStrictEqual([n[1], n[3]], ['5000', '0']);
   assert.ok(+n[2] >= 4700, n[0]);
   assert.throws(() => stampedHead(s), CommitsOutOfTime);
-  const failed = write(['rev-parse', '--short', 'HEAD'], 'error');
+  const failed = write(s, [[BRANCH, 'error'], [HEAD, 'error'], [TOP, 'error']], 'error');
   assert.doesNotMatch(failed.stderr, /^trailmark head:/m);
   assert.throws(() => stampedHead(s), (e) => e instanceof assert.AssertionError && /did not say git ran out of time/.test(e.message));
+  // The write ran out of time and git has no HEAD at all (an unborn branch):
+  // the control gives none, and stampedHead fails rather than skips.
+  const u = sandbox();
+  u.g('checkout', '-q', '--orphan', 'unborn');
+  const unborn = write(u, [[BRANCH, 'time']], 'unborn');
+  assert.match(unborn.stderr, SHOW_HEAD);
+  assert.throws(() => stampedHead(u), (e) => e instanceof assert.AssertionError && /so did the same lookup with 30 s/.test(e.message));
   // A write with git answering stamps HEAD, and stampedHead gives it.
   s.write('# H\n- plain\n');
   assert.strictEqual(stampedHead(s), s.g('rev-parse', '--short', 'HEAD'));
-});
+}));
 
 test('fit: a small injectChars holds with a commit list, a snapshot and warnings', sinceTest(() => {
   const s = sandbox();
@@ -5143,8 +5156,10 @@ test('superprojects: many module gitdirs stay fast, one on a share skips only st
   assert.ok(Date.now() - t0 < 2000, `farGitConfig took ${Date.now() - t0} ms`);
   fs.writeFileSync(path.join(sp, '.git', 'modules', 's7', 'objects', 'info', 'alternates'), '//evil.invalid/share/cache/objects\n');
   // A larger budget than a hook's: this test is about which module gitdir
-  // is found, and a busy machine ran the hook's 5 s out first (0.5.1).
-  const f = gitFacts(sp, ['branch', 'head', 'status'], { budgetMs: 60000 });
+  // is found, and a busy machine ran the hook's 5 s out first (0.5.1). The
+  // same for each call: with budgetMs alone a call still had at most 4 s
+  // (gitfacts.js runner, RS-T-sinceload).
+  const f = gitFacts(sp, ['branch', 'head', 'status'], { budgetMs: 60000, callMs: 60000 });
   assert.strictEqual(f.gitRefused, undefined, 'one module gitdir kept git out of the superproject');
   assert.ok(f.head, 'HEAD still read');
   assert.strictEqual(f.statusSkipped, 'submodule-pointer');
