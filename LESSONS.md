@@ -14,11 +14,23 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-18: "Not read" was concluded from one kind of read missing
+- What went wrong: the job-log lesson's first fix said the PLAYBOOK `gh` bullet "was not read" because no `dev/lessons.sh` ran before the fetch. The docs round on e0410f7 (`d84-docs.md`) found it WRONG: `dev/lessons.sh` prints `LESSONS.md` entries, never PLAYBOOK bullets, and the session had read PLAYBOOK in full at 03:32:03Z (CONFIRMED with `playbook-reads.js`).
+- Why: the claim was checked against the one read I had a script for, and the other ways the bullet could have been read (a `Read` of the file, a `sed` or `awk` of it) were not listed.
+- Rule going forward: a claim that something was not read or not run lists every way it could have been, and checks each before it is written.
+- Status: open
+
+## 2026-11-18: A time in a lesson came from a grep hit that was not a run
+- What went wrong: in the RS-D-n84docs fix, the lesson on the job-log fetch first said the last lessons check ran at 08:17:54Z, "the check for PR #84's push". That time was a transcript line whose text named `lessons.sh`, not a call of it. A script that lists only the tool calls (`lessons-runs.js` in the notes folder) showed the last call that printed rules at 07:42:17Z, and the calls at 07:43:38Z and 08:06:01Z ran `--check` only. Fixed before the commit.
+- Why: the time was taken from `grep -n` over the transcript, which matches quoted text as well as commands, and the purpose ("for the push") was written from memory. "At each milestone" step 7 asks for a time that a command printed, and "Writing code and docs" step 15 for a result read back from what the probe ran; a grep hit over quoted text is neither.
+- Rule going forward: none new for times, which step 7 covers. A time or count taken from a transcript comes from its tool calls (a parser of `tool_use` entries), never from a text grep.
+- Status: open (the transcript rule is not in PLAYBOOK; "At each milestone" step 7 and "Writing code and docs" step 15 cover the rest)
+
 ## 2026-11-18: A job log fetch saved gh's refusal as the log
 - What went wrong: after PR #84 merged, `gh api repos/<repo>/actions/jobs/<id>/logs > <file>` wrote one line to each of four files, "the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway", and the grep for the self-check's lines found nothing. The fetch was run again with `--allow-escape-sequences` and the codes stripped (`sed 's/\x1b\[[0-9;]*[A-Za-z]//g'`), giving 230 to 256 lines a job.
-- Why: this `gh` refuses to print a response that holds escape sequences, and the job logs hold color codes; with the output in a file, the refusal looked like a short log, and the line count was the only sign.
-- Rule going forward: a saved job log is checked for its size before it is read (a log of a few lines is a refusal or an error), and the fetch uses `--allow-escape-sequences` with the codes stripped.
-- Status: open
+- Why: this `gh` refuses to print a response that holds escape sequences, and the job logs hold color codes; with the output in a file, the refusal looked like a short log, and the line count was the only sign. It is the third sighting of a step PLAYBOOK already held (2026-11-09 and 2026-11-14 below; "Constraints and known limits", the `gh` bullet). PLAYBOOK, the bullet included, was read in full at the session's start (03:32:03Z) and in parts until 08:17:53Z, but not again before the fetch. Reading a merged PR's job logs is not on the lessons check's list of steps, and no check ran: the last `dev/lessons.sh` that printed rules ran at 07:42:17Z, before PR #84 was opened, and none ran between it and the first fetch of PR #84's logs at 15:45:06Z (this session's transcript, read with `lessons-runs.js` and `playbook-reads.js` in the notes folder). `dev/lessons.sh` prints `LESSONS.md` entries only, and with no words only the open ones; the two earlier entries are promoted, so only a words query such as `log` would have shown them. The call had the form `CLAUDE.md` gives, with no flag.
+- Rule going forward: a saved job log is checked for its line count before it is read (a log of a few lines is a refusal or an error), and the fetch uses `--allow-escape-sequences` with the codes stripped, or `gh run view --job <id> --log`.
+- Status: promoted to PLAYBOOK ("Constraints and known limits", the `gh` bullet, which now names the line-count check)
 
 ## 2026-11-18: A read-only listing of a run's events went through `node -p`
 - What went wrong: in RS-T-clockstep's Codex host run, a listing of the event types in `run.jsonl` ran as an inline `node -p` one-liner, against `PLAYBOOK.md` "Constraints and known limits", first bullet. It read one file and wrote nothing; the next read went through a script file (`read-codex-run.js`).
