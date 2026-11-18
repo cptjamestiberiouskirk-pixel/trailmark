@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-18: A job log fetch saved gh's refusal as the log
+- What went wrong: after PR #84 merged, `gh api repos/<repo>/actions/jobs/<id>/logs > <file>` wrote one line to each of four files, "the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway", and the grep for the self-check's lines found nothing. The fetch was run again with `--allow-escape-sequences` and the codes stripped (`sed 's/\x1b\[[0-9;]*[A-Za-z]//g'`), giving 230 to 256 lines a job.
+- Why: this `gh` refuses to print a response that holds escape sequences, and the job logs hold color codes; with the output in a file, the refusal looked like a short log, and the line count was the only sign.
+- Rule going forward: a saved job log is checked for its size before it is read (a log of a few lines is a refusal or an error), and the fetch uses `--allow-escape-sequences` with the codes stripped.
+- Status: open
+
 ## 2026-11-18: A result was moved onto a commit on a reviewer's word, without opening the files it cited
 - What went wrong: in RS-T-hang75-enforce, the notes at bd0a6c5 said the Node 22 stand-in's test, location, timeout and count lines equal native `--test-timeout`'s, "20 of 20 (`proto/control.sh`)". Round 2's docs reviewer asked to say it was measured on bd0a6c5's preload, and the batch wrote "bd0a6c5's stand-in (before round 1's fix)". Round 3's docs reviewer opened `proto/`: `control.sh` compared an early prototype, `each.js`, made before bd0a6c5, and the saved lines are 23 against 20, unequal at the tenth test (WRONG).
 - Why: the first note was written from the run as remembered, not read back from the saved lines, and the rewording took the reviewer's premise about which code ran without opening the script or its output. Two sentences of 2026-11-15's lesson would have caught both: "a record that gives one result for several cases checks it against each case's line in the output it cites" and "each case a repro names is found by a search in the file the repro cites". That lesson stays open for its other sentences.
