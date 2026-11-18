@@ -117,18 +117,36 @@ if (LIMIT > 0) {
       else if (typeof a[1] === 'function' && typeof a[0] !== 'function') a.splice(1, 0, { timeout: LIMIT });
       return a;
     };
+    // The place that called test(): the first stack frame in a .js file that
+    // is neither Node's own nor this file, read from V8's call sites rather
+    // than parsed from the stack's text, where a path may hold parentheses.
+    const callSite = () => {
+      const keep = Error.prepareStackTrace;
+      let sites = [];
+      try {
+        Error.prepareStackTrace = (_, s) => s;
+        sites = new Error().stack;
+      } finally { Error.prepareStackTrace = keep; }
+      for (const s of Array.isArray(sites) ? sites : []) {
+        const file = s.getFileName();
+        if (file && file.endsWith('.js') && !file.startsWith('node:') && file !== __filename) {
+          return { file, line: s.getLineNumber(), col: s.getColumnNumber() };
+        }
+      }
+      return null;
+    };
     // A function compiled at the test file's line and column of the call,
     // one for each place: it calls test(), so Node's getCallerLocation reads
     // that place. Null (the stand-in then calls test() itself) when the place
     // can't be read or is on the file's first line.
     const callers = new Map();
     const callerAt = () => {
-      const m = /\(?([^()]+):(\d+):(\d+)\)?$/.exec(frames()[0] || '');
-      if (!m || Number(m[2]) < 2) return null;
-      const key = `${m[1]}:${m[2]}:${m[3]}`;
+      const at = callSite();
+      if (!at || !(at.line >= 2) || !(at.col >= 1)) return null;
+      const key = `${at.file}:${at.line}:${at.col}`;
       if (!callers.has(key)) {
-        callers.set(key, vm.compileFunction(`return (\n${' '.repeat(Number(m[3]) - 1)}f(...a))`, ['f', 'a'],
-          { filename: m[1], lineOffset: Number(m[2]) - 2 }));
+        callers.set(key, vm.compileFunction(`return (\n${' '.repeat(at.col - 1)}f(...a))`, ['f', 'a'],
+          { filename: at.file, lineOffset: at.line - 2 }));
       }
       return callers.get(key);
     };

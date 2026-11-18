@@ -9,7 +9,8 @@
 // check still prints its result and stops what the cases left within its
 // step's limit of 3 min. On Node 22 run-tests.sh leaves --test-timeout out
 // and the preload gives each test() call the limit (see there): the async
-// case checks that, with the TAP's location line of its first test, and the
+// case checks that, with the TAP's location line of its first test (run from a
+// folder whose name holds parentheses), and the
 // longfile case checks that a file whose tests together run past the limit
 // still passes, which --test-timeout on Node 22 would fail. Its step fails
 // the job when a case does not give what it must (RS-T-hang75-enforce). It
@@ -29,18 +30,22 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trailmark-limits-'));
 const stopLine = /^::error title=calls stopped by the per-test limit \(1\)::/m;
 // The fixture's line and column of the async case's first test() call, which
 // its TAP location line must name (line 0 when the call is not found, which
-// no location matches).
-const fixture = fs.readFileSync('.github/test-limits-fixture.js', 'utf8').split('\n');
+// no location matches). The async case runs a copy of the fixture from a
+// folder whose name holds parentheses, and the location must keep that
+// folder's name.
+const FIXTURE = '.github/test-limits-fixture.js';
+const fixture = fs.readFileSync(FIXTURE, 'utf8').split('\n');
 const asyncLine = fixture.findIndex(l => l.includes("test('case async', hang)")) + 1;
 const asyncCol = asyncLine ? fixture[asyncLine - 1].indexOf('test(') + 1 : 0;
-const asyncAt = new RegExp(`^not ok \\d+ - case async\\n(?:  .*\\n)*?  location: '[^']*test-limits-fixture\\.js:${asyncLine}:${asyncCol}'$`, 'm');
+const asyncAt = new RegExp(`^not ok \\d+ - case async\\n(?:  .*\\n)*?  location: '[^']*limits \\(x\\)[\\\\/]+test-limits-fixture\\.js:${asyncLine}:${asyncCol}'$`, 'm');
+const parenCopy = path.join(dir, 'limits (x)', 'test-limits-fixture.js');
 
 // What each case must give: the run's exit status, patterns the TAP output
 // must match (holds) and patterns the annotations must match (says).
 const cases = [
   { name: 'pass', status: 0, holds: [/^ok \d+ - case pass$/m, /^# fail 0$/m], says: [] },
   { name: 'own', status: 0, holds: [/^ok \d+ - case own$/m, /^# fail 0$/m], says: [] },
-  { name: 'async', status: 1, holds: [/^not ok \d+ - case async$/m, /^not ok \d+ - case async with options$/m, /^not ok \d+ - case async with timeout Infinity$/m, /test timed out after 3000ms/, asyncAt], says: [] },
+  { name: 'async', file: parenCopy, status: 1, holds: [/^not ok \d+ - case async$/m, /^not ok \d+ - case async with options$/m, /^not ok \d+ - case async with timeout Infinity$/m, /test timed out after 3000ms/, asyncAt], says: [] },
   { name: 'longfile', status: 0, holds: [/^ok \d+ - case longfile 3$/m, /^# fail 0$/m, /^# cancelled 0$/m], says: [] },
   { name: 'spawnsync', status: 1, holds: [/^not ok \d+ - case spawnsync$/m, /spawnSync .*test-limits-fixture\.js stubborn was stopped by the test limit of 3000 ms .* at [^']*test-limits-fixture\.js:\d+/], says: [stopLine] },
   { name: 'orphan', status: 1, holds: [/^not ok \d+ - case orphan$/m, /execFileSync .*test-limits-fixture\.js orphan was stopped by the test limit of 3000 ms .* at [^']*test-limits-fixture\.js:\d+/], says: [stopLine] },
@@ -54,6 +59,8 @@ const left = [];
 try {
   const v = spawnSync('bash', ['--version'], { encoding: 'utf8' });
   console.log(`node ${process.version}, ${(v.stdout || String(v.error)).split('\n')[0]}`);
+  fs.mkdirSync(path.dirname(parenCopy));
+  fs.copyFileSync(FIXTURE, parenCopy);
   for (const c of cases) {
     ran++;
     if (Date.now() - start > BUDGET_MS - GUARD_MS) { bad++; console.log(`FAIL ${c.name}: not run, the check's ${BUDGET_MS / 1000} s budget is spent`); continue; }
@@ -61,7 +68,7 @@ try {
     const tap = path.join(dir, `${c.name}.tap`);
     fs.writeFileSync(pids, '');
     const t0 = Date.now();
-    const r = spawnSync('bash', ['.github/run-tests.sh', tap, '.github/test-limits-fixture.js'], {
+    const r = spawnSync('bash', ['.github/run-tests.sh', tap, c.file || FIXTURE], {
       encoding: 'utf8', timeout: GUARD_MS, killSignal: 'SIGKILL', windowsHide: true,
       env: { ...process.env, LIMITS_CASE: c.name, LIMITS_PIDS: pids, TRAILMARK_TEST_LIMIT_MS: String(LIMIT_MS), TRAILMARK_TEST_LIMITS: 'enforce' },
     });
