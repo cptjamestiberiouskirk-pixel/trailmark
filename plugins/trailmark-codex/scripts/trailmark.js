@@ -59,6 +59,14 @@ const { localPath, localPathFrom } = require('./lib/gitbin');
 // dev/release-state.md), so the time is not taken after them. The time before
 // Node records its start, and after the launcher exits, no limit here counts.
 const T0 = Math.floor(performance.timeOrigin);
+// The time since T0, in whole ms, on Node's monotonic clock (performance.now
+// counts from the process's start): every limit of a hook is read from it.
+// The system clock (Date.now) can be set back or forward during a hook; read
+// from it, a step back by X ms gave the script 9000 + X ms and the git work
+// 5000 + X, past the host's timeout, and a step forward left git no time
+// (RS-T-clockstep in dev/release-state.md). Whole ms: spawnSync refuses a
+// timeout that is not an integer.
+const sinceT0 = () => Math.floor(performance.now());
 const { isMilestoneCommand, commitSites } = require('./lib/commands');
 // A hook's script gets only the payload fields it reads (see hookio.js).
 const { hookInput, PAYLOAD_MAX } = require('./lib/hookio');
@@ -209,7 +217,7 @@ function run(script, args, { dir, method, root, cwd, stdin, from, payload, reads
   // A hook's script is killed before the host's own hook timeout, so it
   // can't be left running on its own if something blocks it.
   // (commit-start's own timeout is 5 s, the others' 10 s or more).
-  const spentMs = Date.now() - T0;
+  const spentMs = sinceT0();
   const timeout = HOOK_RUN ? Math.max(300, (HOOK_RUN === 'commit-start' ? 4500 : 9000) - spentMs) : 120000;
   // JBMEM_SHOW_CLOCK=1 (the tests): the time since the process started and
   // the time the hook's script gets, before it starts. It only reports.
@@ -592,11 +600,9 @@ function logShape(name, extra, p) {
 
 function hookMode(name, extraIn) {
   let extra = extraIn;
-  // The hook's time counts from the process's start (T0, above).
-  const started = T0;
-  // JBMEM_SHOW_CLOCK=1 (the tests): the two clocks, in ms since 1970. It only
-  // reports.
-  if (process.env.JBMEM_SHOW_CLOCK === '1') process.stderr.write(`trailmark clock: t0=${T0} started=${started}\n`);
+  // The hook's time counts from the process's start (T0 and sinceT0, above).
+  // JBMEM_SHOW_CLOCK=1 (the tests): T0, in ms since 1970. It only reports.
+  if (process.env.JBMEM_SHOW_CLOCK === '1') process.stderr.write(`trailmark clock: t0=${T0}\n`);
   const spec = HOOKS[name];
   if (!spec) process.exit(0);
   const raw = readAllStdin();
@@ -645,7 +651,7 @@ function hookMode(name, extraIn) {
   // (5 s, below), and inside 3 s for the PreToolUse hook, which Codex stops
   // after 5 s and which still has its record to write.
   const gitMs = name === 'commit-start' ? 3000 : 5000;
-  const loc = hookMemory(payload, cwd, name === 'commit-start' ? 1000 : undefined, () => gitMs - (Date.now() - started));
+  const loc = hookMemory(payload, cwd, name === 'commit-start' ? 1000 : undefined, () => gitMs - sinceT0());
   if (!loc) process.exit(0); // repo not set up: stay silent, and log nothing
   try { logShape(name, extra, rawPayload); } catch { /* diagnostics only */ }
   const opts = { dir: loc.dir, method: loc.method, root: loc.root, cwd, payload: hookInput(payload), reads: [PLUGIN_ROOT, loc.dir], writes: [loc.dir] };
@@ -682,7 +688,7 @@ function hookMode(name, extraIn) {
     // commits in: only the ones git printed for it count.
     const onlyPrinted = afterFailure && !start;
     const commit = onlyPrinted && !printed.size ? { folders: [], unresolved: [] } : commitFacts(found, from, {
-      budgetMs: Math.max(0, 5000 - (Date.now() - started)), durationMs: payload.duration_ms, homeCwd: home, procStart: performance.timeOrigin,
+      budgetMs: Math.max(0, 5000 - sinceT0()), durationMs: payload.duration_ms, homeCwd: home, procStart: performance.timeOrigin,
       startAt: start ? start.at : undefined, printed, concurrent, known, onlyPrinted,
     });
     // A failed command leaves the session where it started, whatever the
@@ -692,16 +698,16 @@ function hookMode(name, extraIn) {
     // procStart: the commit hook measures a folder's join time from it too.
     facts = { commit: fitCommitFacts(commit), procStart: performance.timeOrigin };
   } else {
-    facts = gitFacts(cwd, spec.facts, { budgetMs: Math.max(0, 5000 - (Date.now() - started)) });
+    facts = gitFacts(cwd, spec.facts, { budgetMs: Math.max(0, 5000 - sinceT0()) });
     // At session start, commits in this session's folders that no hook logged.
     if (name === 'session-start') {
       // Commits since the handoff was written, and which repo this memory
       // folder was first used for.
-      const since = sinceHandoff(loc, cwd, 5000 - (Date.now() - started) - 1500, started);
+      const since = sinceHandoff(loc, cwd, 5000 - sinceT0() - 1500);
       if (since) facts.since = since;
       const seen = rootSeen(loc, cwd);
       if (seen) facts.rootSeen = seen;
-      const sweep = sweepFacts(loc, S.cleanSession(payload.session_id), sessionHome(payload) || cwd, 5000 - (Date.now() - started));
+      const sweep = sweepFacts(loc, S.cleanSession(payload.session_id), sessionHome(payload) || cwd, 5000 - sinceT0());
       if (sweep) facts.sweep = sweep;
       // Read here, before the sandbox: the hook can't see Claude Code's
       // plugin cache. See lib/health.js.
@@ -725,8 +731,8 @@ function hookMode(name, extraIn) {
 
 // The commits on HEAD since the handoff's HEAD (its Updated line), read
 // before the sandbox since the hook can't run git.
-function sinceHandoff(loc, cwd, left, started) {
-  const elapsed = Date.now() - started;
+function sinceHandoff(loc, cwd, left) {
+  const elapsed = sinceT0();
   let text = null;
   try { text = S.readText(path.join(loc.dir, S.HANDOFF)); } catch { return null; }
   const st = S.handoffStamp(text || '');
@@ -743,10 +749,10 @@ function sinceHandoff(loc, cwd, left, started) {
   // sinceSection).
   if (left < 400) return show({ base: st.head, state: 'late' }, 0, 0);
   const budgetMs = Math.min(1200, left);
-  const t0 = Date.now();
+  const t0 = sinceT0();
   let r = null;
   try { r = commitsSince(cwd, st.head, { budgetMs }); } catch { return null; }
-  return show(r, budgetMs, Date.now() - t0);
+  return show(r, budgetMs, sinceT0() - t0);
 }
 
 // The repo root recorded in the state file, and, when it differs from this
@@ -803,7 +809,9 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   if (!session) return undefined;
   const low = Number(process.env.JBMEM_TEST_SWEEP_MS);
   if (low > 0) budgetMs = Math.min(budgetMs, low);
-  const deadline = Date.now() + budgetMs - 500;
+  // The sweep's limit on the monotonic clock (sinceT0, above); `now` is a
+  // time of day, compared with the commit times in the state file.
+  const deadline = sinceT0() + budgetMs - 500;
   let rec = null;
   try { rec = S.sessionRecord(loc.dir, session); } catch { rec = null; }
   if (!rec) return undefined;
@@ -867,12 +875,12 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
   const items = [];
   let short = false;
   for (const d of dirs.slice(0, 8)) {
-    const left = deadline - Date.now();
+    const left = deadline - sinceT0();
     if (left < 1300) { short = true; break; }
     let other = null;
     try {
       // The check before git runs in that folder stops with the sweep's time too.
-      const l2 = findMemoryDir({ cwd: d, gitTimeoutMs: Math.min(500, left - 800), noScan: true, left: () => deadline - Date.now() - 800 });
+      const l2 = findMemoryDir({ cwd: d, gitTimeoutMs: Math.min(500, left - 800), noScan: true, left: () => deadline - sinceT0() - 800 });
       if (l2 && l2.dir && !samePath(l2.dir, loc.dir) && S.isEnabled(l2.dir)) other = l2.dir;
     } catch { continue; } // not known: leave this folder for a later sweep
     const item = { dir: d, since: sinceFor(d), until: own.until };
@@ -884,7 +892,7 @@ function sweepFacts(loc, session, homeCwd, budgetMs) {
     items.push(item);
   }
   items.sort((a, b) => a.since - b.since);
-  const left = deadline - Date.now();
+  const left = deadline - sinceT0();
   if (left < 1000 || (!items.length && short)) return late();
   if (!items.length) return undefined;
   // rec.home comes from the state file, which a session can write: it is
