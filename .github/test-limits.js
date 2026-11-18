@@ -121,7 +121,10 @@ if (LIMIT > 0) {
     // is neither Node's own nor this file, read from V8's call sites rather
     // than parsed from the stack's text, where a path may hold parentheses.
     // Null when a test file made Error.prepareStackTrace read-only (the
-    // assignment throws in strict code) or replaced it with an accessor.
+    // assignment throws in strict code) or gave it an accessor that does not
+    // keep what is assigned (the stack is then no array). An accessor that
+    // keeps it gives the call site; a getter that throws still throws here
+    // (RS-T-pstaccessor).
     const callSite = () => {
       const keep = Error.prepareStackTrace;
       let sites = [];
@@ -129,7 +132,10 @@ if (LIMIT > 0) {
         Error.prepareStackTrace = (_, s) => s;
         sites = new Error().stack;
       } catch { return null; } finally {
-        try { Error.prepareStackTrace = keep; } catch { /* read-only: it was never changed */ }
+        // Throws when the assignment above did (read-only), or when the file's
+        // own setter refuses the old value, which then leaves the call-site
+        // array in place (RS-T-pstaccessor).
+        try { Error.prepareStackTrace = keep; } catch { /* see above */ }
       }
       for (const s of Array.isArray(sites) ? sites : []) {
         const file = s.getFileName();
