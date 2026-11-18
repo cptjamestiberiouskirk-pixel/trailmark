@@ -29,15 +29,17 @@ const cp = require('child_process');
 const IN_TEST_FILE = /^child/.test(process.env.NODE_TEST_CONTEXT || '');
 const LIMIT = IN_TEST_FILE ? Number(process.env.TRAILMARK_TEST_LIMIT_MS) || 0 : 0;
 const stopped = [];
+const ESCAPES = { '\n': '\\n', '\r': '\\r', '\u2028': '\\u2028', '\u2029': '\\u2029' };
 if (LIMIT > 0) {
   // The first three frames of the stack in a .js file other than this one
   // and Node's own (node:...): the test file's lines.
   const where = () => (new Error().stack || '').split('\n').map(l => l.trim().replace(/^at /, ''))
     .filter(l => /\.js:\d+:\d+\)?$/.test(l) && !/\(node:|^node:/.test(l) && !l.includes(__filename)).slice(0, 3).join(' < ');
   const stoppedError = (name, file, args) => {
-    // Line breaks in the command are written as \r and \n, so the message
+    // Each line terminator in the command (\n, \r, U+2028, U+2029: Node's
+    // runner splits stderr at each) is written as its escape, so the message
     // stays on one line of stderr, where tap-annotate.js finds it.
-    const cmd = [file, ...(args || [])].join(' ').replace(/\r/g, '\\r').replace(/\n/g, '\\n').slice(0, 300);
+    const cmd = [file, ...(args || [])].join(' ').replace(/[\n\r\u2028\u2029]/g, c => ESCAPES[c]).slice(0, 300);
     const e = new Error(`${name} ${cmd} was stopped by the test limit of ${LIMIT} ms (TRAILMARK_TEST_LIMIT_MS, .github/test-limits.js) at ${where() || 'an unknown line'}`);
     e.code = 'TRAILMARK_TEST_LIMIT';
     stopped.push(e.message);

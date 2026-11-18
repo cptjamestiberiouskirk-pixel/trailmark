@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-17: A line-break fix escaped two of the four characters the reader splits at
+- What went wrong: in RS-T-hang75, round 2's fix for a stop message broken across stderr lines escaped the line feed and the carriage return. Node's test runner also splits stderr at U+2028 and U+2029, so a command holding either still lost its annotation (round 3 finding 1, CONFIRMED by the reviewer on Windows and in WSL). The same round found no case held a carriage return, so its mutation passed (finding 2).
+- Why: the fix was written from the reviewer's example, a line feed, and the class (every character the TAP reader splits a line at) was not listed before the fix.
+- Rule going forward: no new step. `PLAYBOOK.md` "Testing" step 11 says to write down the example's class and say for each member whether the fix and the test cover it.
+- Status: promoted to PLAYBOOK (a sighting after promotion; "Testing" step 11)
+
+## 2026-11-17: A note said each finding was reproduced here, and one was only the reviewers'
+- What went wrong: in RS-T-hang75, the round 2 bullet said each finding was reproduced here by a case or mutation that fails on 621a631. Item 3, the self-check's budget, had no case or mutation; its run on 621a631 was the reviewer's, and the run here was on the new files (round 3 finding 3, docs WRONG).
+- Why: the sentence was written for the four fixes that have a case, and item 3 was not read against it before the commit.
+- Rule going forward: no new step. `PLAYBOOK.md` "Testing" step 15 says a sentence that sums up several reports is read against every item it covers, and names the exceptions.
+- Status: promoted to PLAYBOOK (a sighting after promotion; "Testing" step 15)
+
 ## 2026-11-17: A batch was staged before `--sums` rewrote SHA256SUMS, and went out with the old sums
 - What went wrong: in RS-T-hang75, round 2's batch was staged (`git add -A .github ...`) and then `--sums --quick` ran, which rewrote `SHA256SUMS` for the four changed `.github` files. The rewritten file was not staged again, so commit 4a69e2c was pushed with the old sums; `git status --short` right after the commit showed ` M SHA256SUMS`. Fixed forward in the next commit.
 - Why: the earlier commits of the item staged `SHA256SUMS` after the check; this time staging came first, for the dash scan, and the order was not checked again. A sibling of "New files were left out of SHA256SUMS" (2026-11-15).

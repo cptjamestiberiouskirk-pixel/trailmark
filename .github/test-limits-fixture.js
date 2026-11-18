@@ -6,8 +6,9 @@
 //              with `timeout: 0` (which Node reads as none)
 //   orphan     execFileSync of a child that exits at once and leaves a
 //              grandchild holding its output pipe, with `timeout: undefined`
-//   swallowed  the orphan case twice, with no timeout key and an argument
-//              with a line break, inside a try/catch that ignores the error
+//   swallowed  the orphan case twice, with no timeout key and then
+//              `timeout: null`, and an argument that holds each line
+//              terminator, inside a try/catch that ignores the error
 //   own        spawnSync with a timeout of its own, which it keeps, and one
 //              with a timeout Node refuses, which still throws
 // LIMITS_PIDS names a file where every process started here writes its pid,
@@ -46,10 +47,13 @@ if (process.argv[2] === 'sleep' || process.argv[2] === 'stubborn') {
     } else if (which === 'orphan') {
       execFileSync(process.execPath, [__filename, 'orphan'], { encoding: 'utf8', timeout: undefined });
     } else if (which === 'swallowed') {
-      // The same call twice, with an argument that holds a line break: each
-      // stop is counted, and its message stays on one line.
-      for (let i = 0; i < 2; i++) {
-        try { execFileSync(process.execPath, [__filename, 'orphan', 'line\nbreak'], { encoding: 'utf8' }); } catch { /* ignored on purpose */ }
+      // The same call twice, first with no timeout key and then with
+      // `timeout: null`, with an argument that holds each line terminator
+      // (\n, \r, U+2028, U+2029): each stop is counted, and its message stays
+      // on one line.
+      const arg = `a\nb\rc${String.fromCharCode(0x2028)}d${String.fromCharCode(0x2029)}e`;
+      for (const opts of [{ encoding: 'utf8' }, { encoding: 'utf8', timeout: null }]) {
+        try { execFileSync(process.execPath, [__filename, 'orphan', arg], opts); } catch { /* ignored on purpose */ }
       }
     } else if (which === 'own') {
       const r = spawnSync(process.execPath, [__filename, 'sleep'], { encoding: 'utf8', timeout: 1000 });

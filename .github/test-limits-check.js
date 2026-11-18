@@ -33,7 +33,7 @@ const cases = [
     skip: NODE_MAJOR < 24 && `Node ${NODE_MAJOR}: run-tests.sh gives no --test-timeout before Node 24` },
   { name: 'spawnsync', status: 1, holds: [/^not ok \d+ - case spawnsync$/m, /spawnSync .*test-limits-fixture\.js stubborn was stopped by the test limit of 3000 ms .* at [^']*test-limits-fixture\.js:\d+/], says: [stopLine] },
   { name: 'orphan', status: 1, holds: [/^not ok \d+ - case orphan$/m, /execFileSync .*test-limits-fixture\.js orphan was stopped by the test limit of 3000 ms .* at [^']*test-limits-fixture\.js:\d+/], says: [stopLine] },
-  { name: 'swallowed', status: 1, holds: [/^ok \d+ - case swallowed$/m, /2 call\(s\) stopped by the test limit; this file fails/], says: [/^::error title=calls stopped by the per-test limit \(2\)::execFileSync .*orphan line\\nbreak was stopped/m] },
+  { name: 'swallowed', status: 1, holds: [/^ok \d+ - case swallowed$/m, /2 call\(s\) stopped by the test limit; this file fails/], says: [/^::error title=calls stopped by the per-test limit \(2\)::execFileSync .*orphan a.nb.rc.u2028d.u2029e was stopped/m] },
 ];
 
 const start = Date.now();
