@@ -386,16 +386,18 @@ test('hook clock: a system clock set forward during the hook takes no time from 
 // RS-T-clockstep: the other budgets the launcher reads from its clock, at
 // session start (git's facts, the commit list and the sweep) and in the
 // commit hook (the commit's facts). A preload sets the system clock
-// CLOCK_STEP_MS forward before the launcher's first line, with no hold, and
-// notes the git facts the launcher hands its script (JBMEM_GIT) and the
-// timeout of each git call that asks for the repo's root (rev-parse
-// --git-common-dir, repoRoot in lib/paths.js). Read from Date.now, each
-// budget would be gone: the branch would be "unknown", the commit list and
-// the sweep would stop as out of time, the commit hook would leave its folder
-// to the sweep (git-timeout), and finding the memory folder would start no
-// git for the root (it then finds the root without git, so the hook still
-// runs: seen on 762b728). That call has 3000 ms with time to spare; the
-// sweep's own calls for its folders have at most 500. Each of those is
+// CLOCK_STEP_MS forward (or back, for session start) before the launcher's
+// first line, with no hold, and notes the git facts the launcher hands its
+// script (JBMEM_GIT) and the timeout of each git call that asks for the
+// repo's root (rev-parse --git-common-dir, repoRoot in lib/paths.js). Read
+// from Date.now, a budget would be gone after a step forward: the branch
+// would be "unknown", the commit list and the sweep would stop as out of
+// time, the commit hook would leave its folder to the sweep (git-timeout),
+// and finding the memory folder would start no git for the root (it then
+// finds the root without git, so the hook still runs: seen on 762b728). That
+// call has 3000 ms with time to spare, and the sweep's call for its folder
+// 500. A sweep deadline read from Date.now and compared with the monotonic
+// clock is gone after a step back instead. Each of those is
 // checked only when the launcher's time spent before its script (the
 // JBMEM_SHOW_CLOCK run line) is under STEP_QUICK_MS, so every step had more
 // than 3.5 s of its 5 s left: a busy machine skips the check, with a note,
@@ -404,14 +406,14 @@ test('hook clock: a system clock set forward during the hook takes no time from 
 // length (CLOCK_SLACK_MS more), as in hookClock.
 const STEP_QUICK_MS = 1500;
 let stepSeq = 0;
-function steppedHook(s, args, payload) {
+function steppedHook(s, args, payload, step = CLOCK_STEP_MS) {
   const log = path.join(s.base, `step-facts${++stepSeq}.jsonl`);
   const roots = path.join(s.base, `step-roots${stepSeq}.txt`);
   const stub = path.join(s.base, `step${stepSeq}.js`);
   fs.writeFileSync(stub, `const cp = require('child_process');
 const fs = require('fs');
 const real = Date.now;
-Date.now = () => real() + ${CLOCK_STEP_MS};
+Date.now = () => real() + ${step};
 const spawn = cp.spawnSync;
 cp.spawnSync = function (file, a, opts) {
   if (opts && opts.env && typeof opts.env.JBMEM_GIT === 'string') fs.appendFileSync(${JSON.stringify(log)}, opts.env.JBMEM_GIT + String.fromCharCode(10));
@@ -436,22 +438,25 @@ cp.execFileSync = function (file, a, opts) {
   let rootCalls = [];
   try { rootCalls = fs.readFileSync(roots, 'utf8').split('\n').filter(Boolean).map(Number); } catch { rootCalls = []; }
   if (spent < STEP_QUICK_MS) assert.ok(rootCalls.includes(3000), `finding the memory folder started no git for the root with its 3000 ms (root calls: ${JSON.stringify(rootCalls)})`);
-  return { r, spent, facts };
+  return { r, spent, facts, rootCalls };
 }
 
-test('hook clock: a system clock set forward during session start leaves git, the commit list and the sweep their time (RS-T-clockstep)', (t) => {
+const sessionStep = (step) => (t) => {
   const s = sandbox();
   s.write('# H\n## Next steps\n1. Fix the login redirect loop\n', SB);
   // A session start records the session, so the sweep has a start to read from.
   s.start(SB);
   s.g('commit', '-q', '--allow-empty', '-m', 'Fix login redirect loop');
-  const { r, spent, facts } = steppedHook(s, ['--hook', 'session-start'], { cwd: s.repo, source: 'startup', session_id: SB });
+  const { r, spent, facts, rootCalls } = steppedHook(s, ['--hook', 'session-start'], { cwd: s.repo, source: 'startup', session_id: SB }, step);
   if (facts.since && facts.since.state === 'late') ranOutOfTime(r);
   if (spent >= STEP_QUICK_MS) return t.diagnostic(`the launcher spent ${spent} ms before its script: the budgets were not checked`);
   assert.notStrictEqual(facts.branch, 'unknown', `git ran out of time for the branch: ${JSON.stringify(facts)}`);
   assert.ok(facts.since && facts.since.state !== 'late', `the commit list ran out of time: ${JSON.stringify(facts.since)}`);
   assert.ok(facts.sweep && facts.sweep.stopped !== 'out-of-time', `the sweep ran out of time: ${JSON.stringify(facts.sweep)}`);
-});
+  assert.ok(rootCalls.includes(500), `the sweep started no git for its folder's root with its 500 ms (root calls: ${JSON.stringify(rootCalls)})`);
+};
+test('hook clock: a system clock set forward during session start leaves git, the commit list and the sweep their time (RS-T-clockstep)', sessionStep(CLOCK_STEP_MS));
+test('hook clock: a system clock set back during session start leaves git, the commit list and the sweep their time (RS-T-clockstep)', sessionStep(-CLOCK_STEP_MS));
 
 test('hook clock: a system clock set forward during the commit hook leaves git its time (RS-T-clockstep)', (t) => {
   const s = sandbox();
