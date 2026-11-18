@@ -785,8 +785,16 @@ function handoffFacts(loc, cwd, session) {
     const d = rec && typeof rec.commitDir === 'string' ? rec.commitDir : '';
     if (d && path.isAbsolute(d) && !farNetwork(d, cwd) && localPathFrom(cwd, d) && fs.statSync(d).isDirectory()) target = d;
   } catch { /* the session's own folder */ }
-  let f = gitFacts(target, ['branch', 'head', 'toplevel']);
-  if (!f.head && target !== cwd) { target = cwd; f = gitFacts(cwd, ['branch', 'head', 'toplevel']); }
+  const budgetMs = 5000;
+  const seen = {};
+  let t0 = sinceT0();
+  let f = gitFacts(target, ['branch', 'head', 'toplevel'], { budgetMs, seen });
+  if (!f.head && target !== cwd) { target = cwd; t0 = sinceT0(); f = gitFacts(cwd, ['branch', 'head', 'toplevel'], { budgetMs, seen }); }
+  // JBMEM_SHOW_SINCE=1 (the tests): no HEAD for the Updated line because git
+  // ran out of time, so the next session start has no commits to list since
+  // it (sinceHandoff). The budget, what the last lookup spent and whether a
+  // call was stopped at its own timeout. It only reports.
+  if (!f.head && seen.late && process.env.JBMEM_SHOW_SINCE === '1') process.stderr.write(`trailmark head: late budget=${budgetMs} spent=${sinceT0() - t0} hung=${seen.hung ? 1 : 0}\n`);
   let top = path.resolve(target);
   if (f.toplevel) {
     const t = path.resolve(f.toplevel);

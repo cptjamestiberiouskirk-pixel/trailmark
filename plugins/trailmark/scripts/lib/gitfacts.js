@@ -33,14 +33,18 @@ function branchToken(text, max = 80) {
 
 // One time budget for a hook's git calls. After one call times out the rest
 // are skipped: a git that hung once will hang again.
-function runner(budgetMs) {
+// callMs: the most one call may take, 4 s. Only the tests' control (the same
+// lookup with 30 s, handoff-checks.test.js SINCE_CONTROL) gives a call more:
+// with 4 s a call, one call of over 4 s failed the control on a busy machine
+// (RS-T-sinceload).
+function runner(budgetMs, callMs = 4000) {
   const deadline = Date.now() + budgetMs;
   // late: a call was refused or stopped for lack of time.
   const r = { hung: false, late: false };
   r.left = () => deadline - Date.now();
   // input: text for git's stdin (check-attr --stdin).
   r.run = (cwd, args, input) => {
-    const left = Math.min(4000, deadline - Date.now());
+    const left = Math.min(callMs, deadline - Date.now());
     if (r.hung || left < 250) { r.late = true; return { ok: false, out: '', why: 'timeout' }; }
     // The check stops at the 250 ms this call needs, not at the status
     // check's 800: a runner with a second in all still gets its calls.
@@ -69,8 +73,15 @@ function runner(budgetMs) {
 // inside Claude Code's timeout when git is slow or hangs (a network drive, a
 // stuck credential helper). A fact that wasn't collected is left out, and the
 // hooks carry on without it.
-function gitFacts(cwd, wanted, { budgetMs = 5000 } = {}) {
-  const r = runner(budgetMs);
+// seen: an object the caller passes to learn whether git ran out of time
+// (seen.late, seen.hung), for the launcher's JBMEM_SHOW_SINCE line at a
+// handoff write. It only reports.
+function gitFacts(cwd, wanted, { budgetMs = 5000, callMs = 4000, seen } = {}) {
+  const r = runner(budgetMs, callMs);
+  if (seen && typeof seen === 'object') {
+    Object.defineProperty(seen, 'late', { get: () => r.late, configurable: true });
+    Object.defineProperty(seen, 'hung', { get: () => r.hung, configurable: true });
+  }
   const git = (args) => (wanted.length ? r.run(cwd, args).out.trim() : '');
   const f = {};
   // git kept out of this folder: no facts, and the reason (a fixed word).
@@ -866,11 +877,11 @@ function sweepCommits(folders, { homeCwd, budgetMs = 3000, now = Date.now() } = 
 // rewritten history), unknown-base (this checkout doesn't have it) or late
 // (git ran out of time before it could answer). With ok, unlisted is 'late'
 // or 'error' when the count came but git log didn't. null when git failed
-// otherwise. base is checked as hex before git sees it.
+// otherwise. base is checked as hex before git sees it. callMs: see runner.
 const SINCE_SHOW = 10;
-function commitsSince(cwd, base, { budgetMs = 1500 } = {}) {
+function commitsSince(cwd, base, { budgetMs = 1500, callMs = 4000 } = {}) {
   if (!/^[0-9a-f]{7,12}$/.test(String(base || ''))) return null;
-  const r = runner(budgetMs);
+  const r = runner(budgetMs, callMs);
   const none = () => (r.late ? { base, state: 'late' } : null);
   // Every object whose name starts with base, so a branch or tag that
   // happens to be named like the SHA can't stand in for it; then the one

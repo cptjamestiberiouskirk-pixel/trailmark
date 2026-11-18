@@ -14,6 +14,30 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-18: A commit's Verified line got a time range no run printed
+- What went wrong: in RS-T-sinceload, bf38e47's Verified line says `--sums --quick` ran "14:30 to 14:38". I wrote it with sed before reading any time: the output file prints none, and its mtime is 14:37:08. The commit was not amended (a history rewrite needs the user's word); the notes give the real time.
+- Why: a sighting of "Writing code and docs" step 15: a count or time comes from a run that printed it. The earlier Verified lines had times from `only-fix.sh`, which prints them; this check's wrapper did not.
+- Rule going forward: none new; step 15 holds. A wrapper whose time goes into a Verified line prints its start and end time.
+- Status: open
+
+## 2026-11-18: Round 1 of RS-T-sinceload found gaps that three playbook steps cover
+- What went wrong: the Opus round on 487107e found that no test reached `stampedHead`'s fail branch (the control with 30 s also gives no HEAD): dropping its assert passed 14/14, and my mutation list had no entry for it. It also found that the new write test passed the calls it did not stand in for to real git under the launcher's 5 s budget and ran outside `sinceTest`, and that "superprojects: many module gitdirs stay fast" gave `gitFacts` 60 s in all with 4 s a call, a caller my grep missed because it searched `scripts/` only.
+- Why: sightings of "Testing" step 8 (remove each part of a fix alone; the control assert is part of it), step 12 (give a new test's real-time calls a third of their budget) and "Planning a change" step 5 (grep every caller in every file, tests included).
+- Rule going forward: none new; those steps hold. A mutation list for a skip gate has one entry per assert in the gate, the control's included.
+- Status: open
+
+## 2026-11-18: A report line's `hung` field was untested: the only late case had a call stopped
+- What went wrong: in RS-T-sinceload, the mutation `hungAlways` (the launcher's `trailmark head: late` line always says `hung=1`) passed the new test, whose one late case stopped a call at its timeout. `stampedHead` reads `hung` to decide whether the budget check applies, so a wrong field would let a skip through. A case with the budget spent and no call stopped (`hung=0`) was added, and the mutation then failed 2 of 4.
+- Why: a sighting of "Testing" step 8: each value a reader branches on needs a case where only that value gives the answer.
+- Rule going forward: none new; "Testing" step 8 holds. A report field the test's own helper branches on gets a case for each value it can take.
+- Status: open
+
+## 2026-11-18: An insert script's String.replace pasted the file into the test it inserted
+- What went wrong: in RS-T-sinceload, `insert-tests.js` put two drafted tests into `handoff-checks.test.js` with `t.replace(marker, text)`. One test held `` `^- ${kind}$` ``, and `$`` in a replacement string means "the text before the match", so 51,750 characters of the file went into the test; `node --check` failed at once. `repair-insert.js` rebuilt the file from the parts outside the insert, checked one marker and no draft text in it, and inserted again with a function replacer.
+- Why: the script treated code as plain text in the one place JavaScript does not: a replacement string reads `$&`, `$``, `$'` and `$1`.
+- Rule going forward: a script that puts code or test text into a file uses a function replacer (`t.replace(marker, () => text)`) or slicing, never a replacement string, and checks the new length is the old plus the inserted text.
+- Status: open
+
 ## 2026-11-18: "Not read" was concluded from one kind of read missing
 - What went wrong: the job-log lesson's first fix said the PLAYBOOK `gh` bullet "was not read" because no `dev/lessons.sh` ran before the fetch. The docs round on e0410f7 (`d84-docs.md`) found it WRONG: `dev/lessons.sh` prints `LESSONS.md` entries, never PLAYBOOK bullets, and the session had read PLAYBOOK in full at 03:32:03Z (CONFIRMED with `playbook-reads.js`).
 - Why: the claim was checked against the one read I had a script for, and the other ways the bullet could have been read (a `Read` of the file, a `sed` or `awk` of it) were not listed.
