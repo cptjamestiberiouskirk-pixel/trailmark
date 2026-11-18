@@ -404,16 +404,21 @@ test('hook clock: a system clock set forward during the hook takes no time from 
 // and does not fail it. A commit list that ran out of time anyway must show
 // it really did (ranOutOfTime). The time spent is also at most the spawn's
 // length (CLOCK_SLACK_MS more), as in hookClock.
+// With atSweep, the clock is stepped later: at the sweep's first git call for
+// a folder's root (its 500 ms), so the step falls between the sweep setting
+// its deadline and reading it. A deadline set and read on Date.now alike sees
+// no step made before both (review round 1, F1).
 const STEP_QUICK_MS = 1500;
 let stepSeq = 0;
-function steppedHook(s, args, payload, step = CLOCK_STEP_MS) {
+function steppedHook(s, args, payload, step = CLOCK_STEP_MS, atSweep = false) {
   const log = path.join(s.base, `step-facts${++stepSeq}.jsonl`);
   const roots = path.join(s.base, `step-roots${stepSeq}.txt`);
   const stub = path.join(s.base, `step${stepSeq}.js`);
   fs.writeFileSync(stub, `const cp = require('child_process');
 const fs = require('fs');
 const real = Date.now;
-Date.now = () => real() + ${step};
+let off = ${atSweep ? 0 : step};
+Date.now = () => real() + off;
 const spawn = cp.spawnSync;
 cp.spawnSync = function (file, a, opts) {
   if (opts && opts.env && typeof opts.env.JBMEM_GIT === 'string') fs.appendFileSync(${JSON.stringify(log)}, opts.env.JBMEM_GIT + String.fromCharCode(10));
@@ -421,7 +426,10 @@ cp.spawnSync = function (file, a, opts) {
 };
 const exec = cp.execFileSync;
 cp.execFileSync = function (file, a, opts) {
-  if (Array.isArray(a) && a.includes('--git-common-dir')) fs.appendFileSync(${JSON.stringify(roots)}, String(opts && opts.timeout) + String.fromCharCode(10));
+  if (Array.isArray(a) && a.includes('--git-common-dir')) {
+    fs.appendFileSync(${JSON.stringify(roots)}, String(opts && opts.timeout) + String.fromCharCode(10));
+    if (${atSweep ? 'true' : 'false'} && opts && opts.timeout === 500) off = ${step};
+  }
   return exec.apply(this, arguments);
 };
 `);
@@ -441,13 +449,13 @@ cp.execFileSync = function (file, a, opts) {
   return { r, spent, facts, rootCalls };
 }
 
-const sessionStep = (step) => (t) => {
+const sessionStep = (step, atSweep = false) => (t) => {
   const s = sandbox();
   s.write('# H\n## Next steps\n1. Fix the login redirect loop\n', SB);
   // A session start records the session, so the sweep has a start to read from.
   s.start(SB);
   s.g('commit', '-q', '--allow-empty', '-m', 'Fix login redirect loop');
-  const { r, spent, facts, rootCalls } = steppedHook(s, ['--hook', 'session-start'], { cwd: s.repo, source: 'startup', session_id: SB }, step);
+  const { r, spent, facts, rootCalls } = steppedHook(s, ['--hook', 'session-start'], { cwd: s.repo, source: 'startup', session_id: SB }, step, atSweep);
   if (facts.since && facts.since.state === 'late') ranOutOfTime(r);
   if (spent >= STEP_QUICK_MS) return t.diagnostic(`the launcher spent ${spent} ms before its script: the budgets were not checked`);
   assert.notStrictEqual(facts.branch, 'unknown', `git ran out of time for the branch: ${JSON.stringify(facts)}`);
@@ -457,6 +465,9 @@ const sessionStep = (step) => (t) => {
 };
 test('hook clock: a system clock set forward during session start leaves git, the commit list and the sweep their time (RS-T-clockstep)', sessionStep(CLOCK_STEP_MS));
 test('hook clock: a system clock set back during session start leaves git, the commit list and the sweep their time (RS-T-clockstep)', sessionStep(-CLOCK_STEP_MS));
+// A step back during the sweep only gives it more time, which no fact shows:
+// only the step forward is checked there.
+test('hook clock: a system clock set forward during the sweep leaves the sweep its time (RS-T-clockstep)', sessionStep(CLOCK_STEP_MS, true));
 
 test('hook clock: a system clock set forward during the commit hook leaves git its time (RS-T-clockstep)', (t) => {
   const s = sandbox();

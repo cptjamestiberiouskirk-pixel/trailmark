@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-18: Each reader was mutated alone, and the sweep's old form as a whole passed every test
+- What went wrong: in RS-T-clockstep, the mutation list turned each reader of the launcher's clock back to `Date.now() - T0` one at a time, and each failed a test. Both reviewers of round 1 put the sweep's deadline and its three reads back to `Date.now()` together, the form on 762b728, and every test passed (F1, CONFIRMED here with `mutate.js sweepAllParent`, 10:05). Every stub stepped the clock before the launcher's first line, so a deadline set and read on the same clock never saw the step. A test that steps the clock at the sweep's first root call now fails that mutation.
+- Why: a single-reader mutation mixes the old clock with the new one, and the mixed form is what the tests caught. The parent's own form had a different shape, and the list never ran it. "Testing" step 8 says to remove each part of a fix alone; the parent's whole form of a function is a case of its own.
+- Rule going forward: a fix's mutation list also puts back the parent's whole form of each function it changed. A fix that moves a value to another clock gets a test that steps the clock between where the value is set and where it is read.
+- Status: open
+
 ## 2026-11-18: Two clock-step tests passed the old launcher, first on a wrong premise, then through their own skip gate
 - What went wrong: in RS-T-clockstep, the context-watch and pause-watch tests for a clock set 20 s forward expected the hook to say nothing on the old launcher, "with no time left it finds no memory folder". Run on the parent 762b728 they passed: with too little time, `repoRoot` (`lib/paths.js`) finds the root without git and the hook asks as usual (`fixparent-1.out`). Rewritten to check the root call's 3000 ms timeout, skipped when the launcher's reported time spent was 1500 ms or more, they passed the parent again: the old launcher reported the stepped 20,041 ms, so the gate skipped the check (`fixparent-2.out`).
 - Why: the first premise was written from what the code should do, not from a run of the old code. The gate then read its condition from the value under test.
