@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-18: A job log fetch saved gh's refusal as the log
+- What went wrong: after PR #84 merged, `gh api repos/<repo>/actions/jobs/<id>/logs > <file>` wrote one line to each of four files, "the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway", and the grep for the self-check's lines found nothing. The fetch was run again with `--allow-escape-sequences` and the codes stripped (`sed 's/\x1b\[[0-9;]*[A-Za-z]//g'`), giving 230 to 256 lines a job.
+- Why: this `gh` refuses to print a response that holds escape sequences, and the job logs hold color codes; with the output in a file, the refusal looked like a short log, and the line count was the only sign.
+- Rule going forward: a saved job log is checked for its size before it is read (a log of a few lines is a refusal or an error), and the fetch uses `--allow-escape-sequences` with the codes stripped.
+- Status: open
+
 ## 2026-11-18: A read-only listing of a run's events went through `node -p`
 - What went wrong: in RS-T-clockstep's Codex host run, a listing of the event types in `run.jsonl` ran as an inline `node -p` one-liner, against `PLAYBOOK.md` "Constraints and known limits", first bullet. It read one file and wrote nothing; the next read went through a script file (`read-codex-run.js`).
 - Why: the second sighting of the lesson of 2026-11-17 ("Read-only checks went through `node -e` against the constraint"): a quick look did not feel like a script, and the bullet did not name read-only scripts.
