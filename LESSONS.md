@@ -14,17 +14,29 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-17: TaskStop left a release check running, a second time
+- What went wrong: in RS-T-hang75, `dev/release-check.sh --sums --quick` was started in the background and stopped with TaskStop, so that `LESSONS.md` could be edited while nothing read it. Three `bash.exe` processes running `release-check.sh` were still there after the stop (pwsh `Get-CimInstance Win32_Process`). `taskkill /PID <first> /T /F` ended all three, and a second listing found none of them and no test `node.exe`.
+- Why: the same as "TaskStop did not stop a background harness, and its leftovers were reported unchecked" (2026-11-16): on Windows TaskStop ends the task's outer shell, and the script under it goes on.
+- Rule going forward: `PLAYBOOK.md` "Constraints and known limits", the TaskStop bullet.
+- Status: promoted to PLAYBOOK ("Constraints and known limits", the TaskStop bullet)
+
+## 2026-11-17: A fix of a summary sentence named one exception, and its list held three
+- What went wrong: in RS-T-hang75, round 3's fix of the round 2 sentence "each reproduced here by a case or mutation" named item 3 as its one exception; items 2 and 5 of the same list were deferred with no case here (round 4 finding 2, docs WRONG). The two lessons of the same batch cited "Testing" steps 11 and 15, which are in "Writing code and docs" (round 4 finding 1, docs WRONG).
+- Why: the fixed sentence was read against the finding that drew it, not against each item of its list. The section name was taken from older lessons that cite "Testing" for those numbers, not from `PLAYBOOK.md` as it is now.
+- Rule going forward: a fix of a summary sentence is read against every item it covers, as "Writing code and docs" step 15 says for the sentence itself. A lesson or note that cites a `PLAYBOOK.md` step names the section the step is under in the file at that commit (`grep -n "^## " PLAYBOOK.md`).
+- Status: open
+
 ## 2026-11-17: A line-break fix escaped two of the four characters the reader splits at
 - What went wrong: in RS-T-hang75, round 2's fix for a stop message broken across stderr lines escaped the line feed and the carriage return. Node's test runner also splits stderr at U+2028 and U+2029, so a command holding either still lost its annotation (round 3 finding 1, CONFIRMED by the reviewer on Windows and in WSL). The same round found no case held a carriage return, so its mutation passed (finding 2).
 - Why: the fix was written from the reviewer's example, a line feed, and the class (every character the TAP reader splits a line at) was not listed before the fix.
-- Rule going forward: no new step. `PLAYBOOK.md` "Testing" step 11 says to write down the example's class and say for each member whether the fix and the test cover it.
-- Status: promoted to PLAYBOOK (a sighting after promotion; "Testing" step 11)
+- Rule going forward: no new step. `PLAYBOOK.md` "Writing code and docs" step 11 says to write down the example's class and say for each member whether the fix and the test cover it.
+- Status: promoted to PLAYBOOK (a sighting after promotion; "Writing code and docs" step 11)
 
 ## 2026-11-17: A note said each finding was reproduced here, and one was only the reviewers'
 - What went wrong: in RS-T-hang75, the round 2 bullet said each finding was reproduced here by a case or mutation that fails on 621a631. Item 3, the self-check's budget, had no case or mutation; its run on 621a631 was the reviewer's, and the run here was on the new files (round 3 finding 3, docs WRONG).
 - Why: the sentence was written for the four fixes that have a case, and item 3 was not read against it before the commit.
-- Rule going forward: no new step. `PLAYBOOK.md` "Testing" step 15 says a sentence that sums up several reports is read against every item it covers, and names the exceptions.
-- Status: promoted to PLAYBOOK (a sighting after promotion; "Testing" step 15)
+- Rule going forward: no new step. `PLAYBOOK.md` "Writing code and docs" step 15 says a sentence that sums up several reports is read against every item it covers, and names the exceptions.
+- Status: promoted to PLAYBOOK (a sighting after promotion; "Writing code and docs" step 15)
 
 ## 2026-11-17: A batch was staged before `--sums` rewrote SHA256SUMS, and went out with the old sums
 - What went wrong: in RS-T-hang75, round 2's batch was staged (`git add -A .github ...`) and then `--sums --quick` ran, which rewrote `SHA256SUMS` for the four changed `.github` files. The rewritten file was not staged again, so commit 4a69e2c was pushed with the old sums; `git status --short` right after the commit showed ` M SHA256SUMS`. Fixed forward in the next commit.
@@ -108,7 +120,7 @@ Format:
 - What went wrong: for the reboot, `join-alt.sh` (RS-T-joinheadroom) was stopped with TaskStop at 19:05:43, and the stop was reported done with its clone "left behind". The harness kept running: it finished its last run, removed its clone itself and wrote its end line at 19:11:15 (`join-alt-1.out`). At 19:09:23, 48 node processes running `busy.js` were counted and the clone was still listed; `stop-busy.ps1` (its result at 19:11:18) found 11 and stopped them (left=0). That all 48 were the harness's (it starts 48) is INFERRED. The harness's own `kill` runs only after its last run (P run 3, started 19:05:38; its end line at 19:11:15), so it came after the count of 48 at 19:09:23 (INFERRED from those times); the files do not show whether it came before `stop-busy.ps1` counted 11 (its result at 19:11:18). If it did, 11 loops outlived it. The `--sums --quick` stopped at the same time (its bash started 18:46:59) was also still running at 19:09:23. A docs reviewer found it from the output file.
 - Why: on Windows TaskStop ended the task's outer shell, and the bash running `join-alt.sh` went on without it (CONFIRMED: the task's output reads `[killed]`, and `join-alt-1.out` lacks the `exit` line the outer shell would have appended after the script, yet ends with the script's own `end 19:11:15`). The clone was named from a listing at 19:09:23, made while the harness still ran, and not listed again after the loops were stopped.
 - Rule going forward: after stopping a task, look for the script itself by command line in the process list, not only its helpers, and wait for it to end or stop it by its PID. Name what is left only from a listing made after it ended.
-- Status: open
+- Status: promoted to PLAYBOOK ("Constraints and known limits", the TaskStop bullet, after a second sighting on 2026-11-17)
 
 ## 2026-11-16: A clock change passed three review rounds and broke two tests that stub the clock
 - What went wrong: RS-T-launchover moved the launcher's hook clock to `performance.timeOrigin`. Three review rounds found nothing wrong in the launcher, and then the owner's `--sums --quick` failed "git pointers: finding the repo for a hook stops with the hook's time (RS-A-firstcheck)" in both copies. It and a test in `context-watch.test.js` stand the clock still with a preload that replaces `Date.now`, frozen at a time taken after `timeOrigin`, and expect exact budgets: 1980 came for 2000, 3 of 3 at rest (`only-5.out` in `rs-t-launchover/` of the sessions' notes folder). The first reading of the failure was load; the numbers showed it was not.
