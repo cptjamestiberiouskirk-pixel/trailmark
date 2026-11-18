@@ -168,6 +168,8 @@ function sandbox() {
   delete env.JBMEM_DIR; delete env.CLAUDE_CODE_PROJECT_DIR_NAME; delete env.CLAUDE_CODE_ENTRYPOINT;
   const jbm = (args, input, cwd = repo) => spawnSync(process.execPath, [JBM, ...args], { cwd, env, input, encoding: 'utf8' });
   const memdir = path.join(projectDir, 'memory');
+  // What the last write-handoff wrote to stderr (stampedHead reads it).
+  const writes = [];
   const start = (sid = SA, cwd = repo) => {
     const payload = JSON.stringify({ cwd, source: 'startup', session_id: sid });
     const alone = () => spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'hook-session-start.js')], { cwd, env, input: payload, encoding: 'utf8', timeout: 30000 });
@@ -180,10 +182,11 @@ function sandbox() {
     const v = /^\[trailmark\] handoff version: (\S+)/m.exec(jbm(['handoff']).stdout)[1];
     const r = jbm(['write-handoff', `--base=${v}`, `--session=${sid}`], body);
     assert.ok(r.status === 0 || r.status === 2, r.stdout + r.stderr);
+    writes.splice(0, Infinity, r.stderr || '');
     return r;
   };
   assert.strictEqual(jbm(['init', '--force']).status, 0);
-  return { base, cfg, repo, env, jbm, memdir, start, write, g };
+  return { base, cfg, repo, env, jbm, memdir, start, write, writes, g };
 }
 
 // The check for other copies (otherCopies, lib/health.js) has 300 ms at
@@ -261,7 +264,39 @@ function ranOutOfTime(r) {
   assert.ok(left < 400 || git >= budget - 300, `git ran out of time, but not for lack of it: ${m[0]}`);
   return m[0].slice('trailmark since: late '.length);
 }
+// The control's options: the same lookup with 30 s in all and for each git
+// call. gitfacts.js's runner gives a call at most 4 s unless told (callMs),
+// and a control with budgetMs alone failed a test where one git call took
+// over 4 s, which the test means to skip ("every session start ran out of
+// time, and so did the same lookup with 30 s", 2026-11-15 and 2026-11-16;
+// RS-T-sinceload).
+const SINCE_CONTROL = { budgetMs: 30000, callMs: 30000 };
+// A handoff written while git ran out of time has no HEAD on its Updated
+// line (trailmark.js handoffFacts), so session start has no base to list
+// commits since: the section is left out with no sign (RS-T-sinceload, seen
+// under 16 and 48 busy loops). The launcher's JBMEM_SHOW_SINCE line for the
+// write says so: the budget, what the lookup spent and whether a call was
+// stopped at its own timeout. stampedHead gives the handoff's HEAD. With
+// none, the last write must have that line, with a call stopped or the
+// budget spent but 300 ms (a call is refused with under 250 ms left), and
+// the same lookup with 30 s, as a control, must give HEAD; then the test is
+// skipped. No HEAD and no line fails at once.
+const SHOW_HEAD = /^trailmark head: late budget=(\d+) spent=(\d+) hung=([01])$/m;
+function stampedHead(s) {
+  const head = S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8')).head;
+  if (head) return head;
+  const m = SHOW_HEAD.exec(s.writes.join('\n'));
+  assert.ok(m, `the handoff has no HEAD, and its write did not say git ran out of time (stderr: ${JSON.stringify(s.writes)})`);
+  const [budget, spent, hung] = m.slice(1).map(Number);
+  assert.strictEqual(budget, 5000, `the write's git budget isn't the launcher's: ${m[0]}`);
+  assert.ok(hung === 1 || spent >= budget - 300, `the handoff has no HEAD, but git had time left: ${m[0]}`);
+  const G = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const c = G.gitFacts(s.repo, ['branch', 'head', 'toplevel'], SINCE_CONTROL);
+  assert.ok(c.head, `the handoff's write ran out of time, and so did the same lookup with 30 s: ${JSON.stringify(c)}`);
+  throw new CommitsOutOfTime(`git ran out of time when the handoff was written (${m[0].slice('trailmark head: late '.length)}): the machine is too slow now`);
+}
 function sinceInTime(s, call, tries = 3) {
+  stampedHead(s);
   const seen = [];
   for (let i = 1; ; i++) {
     const r = call();
@@ -271,7 +306,7 @@ function sinceInTime(s, call, tries = 3) {
     // And git isn't stuck: the same lookup with 30 s answers.
     const G = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
     const base = S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8')).head;
-    const c = G.commitsSince(s.repo, base, { budgetMs: 30000 });
+    const c = G.commitsSince(s.repo, base, SINCE_CONTROL);
     assert.ok(c && c.state !== 'late' && !c.unlisted, `every session start ran out of time, and so did the same lookup with 30 s: ${JSON.stringify(c)}`);
     throw new CommitsOutOfTime(`git ran out of time at ${tries} session starts in a row (${seen.join('; ')}): the machine is too slow now`);
   }
@@ -287,7 +322,7 @@ test('commits since the handoff: listed at session start, with next steps they m
   const s = sandbox();
   s.write('# H\n## State\n- parser half done\n## Next steps\n1. Fix the login redirect loop\n2. Write the release notes\n');
   const stamp = S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8'));
-  assert.strictEqual(stamp.head, s.g('rev-parse', '--short', 'HEAD'));
+  assert.strictEqual(stampedHead(s), s.g('rev-parse', '--short', 'HEAD'));
   assert.strictEqual(stamp.agent, S.AGENT);
   // Nothing committed since: no section.
   assert.ok(!/COMMITS SINCE/.test(s.start().context));
@@ -519,7 +554,7 @@ test('checkSinceFacts keeps only well-formed facts', () => {
 
 // RS:634: when git ran out of time, session start read "HEAD has 1 newer
 // commit, the newest 0 shown:" over an empty list, or left the section out.
-test('commits since the handoff: git running out of time is said, never "the newest 0 shown" (next version)', () => {
+test('commits since the handoff: git running out of time is said, never "the newest 0 shown" (next version)', sinceTest(() => {
   const s = sandbox();
   s.write('# H\n## Next steps\n- one\n');
   const at = (since) => S.buildInjection(s.memdir, { since }).text;
@@ -549,10 +584,10 @@ test('commits since the handoff: git running out of time is said, never "the new
   }
   // commitsSince with no time left says so (before, null: no section).
   const G = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
-  const base = S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8')).head;
+  const base = stampedHead(s);
   assert.deepStrictEqual(G.commitsSince(s.repo, base, { budgetMs: 0 }), { base, state: 'late' });
-  assert.deepStrictEqual(G.commitsSince(s.repo, base, { budgetMs: 30000 }), { base, state: 'ok', count: 0, entries: [] });
-});
+  assert.deepStrictEqual(G.commitsSince(s.repo, base, SINCE_CONTROL), { base, state: 'ok', count: 0, entries: [] });
+}));
 
 // RS:645: over the injection budget, each note was cut to 300 and then 150
 // characters wherever the cut fell, so a note naming the launcher could name
@@ -757,7 +792,7 @@ test('store identity: dir says the recorded path is data before it prints it, on
 test('commits since the handoff: a branch named like the SHA does not stand in for it', sinceTest(() => {
   const s = sandbox();
   s.write('# H\n- state\n');
-  const base = S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8')).head;
+  const base = stampedHead(s);
   s.g('commit', '-q', '--allow-empty', '-m', 'after');
   // A branch whose name is the handoff's short SHA, pointing somewhere else.
   const main = s.g('branch', '--show-current');
@@ -766,6 +801,138 @@ test('commits since the handoff: a branch named like the SHA does not stand in f
   const one = /HEAD has 1 newer commit:\n- [0-9a-f]+ after/;
   assert.match(sinceInTime(s, () => s.start(SB)).context, one);
 }));
+
+// RS-T-sinceload: sinceInTime's control is the same lookup with 30 s, but
+// gitfacts.js's runner gave each git call at most 4 s, so where one git call
+// took over 4 s the control said `late` and failed the test, which means to
+// skip then ("every session start ran out of time, and so did the same
+// lookup with 30 s", seen 2026-11-15 and 2026-11-16). The control now gives
+// each call its whole budget (callMs). A stand-in for git, in a preload,
+// answers every call commitsSince makes from a table of the exact arguments
+// after git's fixed options (anything else is logged as `other` and fails),
+// in the repo's folder only, and logs each call's timeout. Its
+// `merge-base --is-ancestor` answers as a git that needs 4,500 ms: stopped at
+// once when its timeout is shorter, answered otherwise. No time passes in
+// the stand-in and no git runs, so load can't change what the test sees.
+test('commits since the handoff: the 30 s control gives one slow git call its time (RS-T-sinceload)', () => {
+  const base = realTemp('jbmem-since-');
+  const repo = path.join(base, 'repo');
+  const g = repoAt(repo);
+  const sha = g('rev-parse', '--short=7', 'HEAD');
+  const full = g('rev-parse', 'HEAD');
+  g('commit', '-q', '--allow-empty', '-m', 'after');
+  const fmt = '--format=%H%x1f%h%x1f%ct%x1f%x1f%s';
+  const table = [
+    [['rev-parse', `--disambiguate=${sha}`], `${full}\n`],
+    [['rev-parse', '--verify', '--quiet', `${full}^{commit}`], `${full}\n`],
+    [['merge-base', '--is-ancestor', full, 'HEAD'], '', 4500],
+    [['rev-list', '--count', `${full}..HEAD`], '1\n'],
+    [['log', '--no-show-signature', '--no-color', '--max-count=10', fmt, `${full}..HEAD`], `${g('log', '--no-color', '--max-count=10', fmt, `${full}..HEAD`)}\n`],
+  ].map(([args, out, needs = 0]) => [JSON.stringify(args), { verb: args[0], out, needs }]);
+  const log = path.join(base, 'calls.txt');
+  const stub = path.join(base, 'git-stand-in.js');
+  fs.writeFileSync(stub, [
+    "const cp = require('child_process'), fs = require('fs');",
+    `const LOG = ${JSON.stringify(log)}, REPO = ${JSON.stringify(repo)}, TABLE = new Map(${JSON.stringify(table)});`,
+    "const VERBS = ['rev-parse', 'merge-base', 'rev-list', 'log'];",
+    'cp.execFileSync = function (bin, args, opts) {',
+    '  const a = Array.isArray(args) ? args : [];',
+    '  const i = a.findIndex(x => VERBS.includes(x));',
+    '  const hit = i >= 0 && opts && opts.cwd === REPO ? TABLE.get(JSON.stringify(a.slice(i))) : undefined;',
+    "  fs.appendFileSync(LOG, `${hit ? hit.verb : 'other ' + JSON.stringify(a)} timeout=${opts && opts.timeout}\\n`);",
+    "  if (!hit) { const e = new Error('not in the table'); e.status = 128; throw e; }",
+    "  if (!(opts.timeout >= hit.needs)) { const e = new Error('spawnSync git ETIMEDOUT'); e.code = 'ETIMEDOUT'; throw e; }",
+    '  return hit.out;',
+    '};',
+  ].join('\n'));
+  const ask = path.join(base, 'ask.js');
+  fs.writeFileSync(ask, [
+    `const G = require(${JSON.stringify(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'))});`,
+    'process.stdout.write(JSON.stringify(G.commitsSince(process.argv[2], process.argv[3], JSON.parse(process.argv[4]))));',
+  ].join('\n'));
+  const since = (opts) => {
+    fs.rmSync(log, { force: true });
+    const r = spawnSync(process.execPath, ['-r', stub, ask, repo, sha, JSON.stringify(opts)], { cwd: base, encoding: 'utf8', timeout: 120000 });
+    assert.strictEqual(r.status, 0, r.stderr);
+    const calls = fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : [];
+    assert.ok(!calls.some(c => c.startsWith('other')), calls.join('; '));
+    return { out: JSON.parse(r.stdout), calls, timeouts: calls.map(c => +/ timeout=(\d+)$/.exec(c)[1]) };
+  };
+  // The stand-in works: with 30 s in all and 4 s a call (the control
+  // before), the lookup is stopped at merge-base.
+  const old = since({ budgetMs: 30000 });
+  assert.deepStrictEqual(old.out, { base: sha, state: 'late' });
+  assert.deepStrictEqual(old.calls, ['rev-parse timeout=4000', 'rev-parse timeout=4000', 'merge-base timeout=4000']);
+  // The control sinceInTime uses: every call gets what is left of the 30 s.
+  const now = since(SINCE_CONTROL);
+  assert.strictEqual(now.out.state, 'ok', JSON.stringify(now.out));
+  assert.strictEqual(now.out.count, 1);
+  assert.deepStrictEqual(now.out.entries.map(e => e.subject), ['after']);
+  assert.deepStrictEqual(now.calls.map(c => c.split(' ')[0]), ['rev-parse', 'rev-parse', 'merge-base', 'rev-list', 'log']);
+  assert.ok(now.timeouts.every(t => t >= 4500 && t <= SINCE_CONTROL.budgetMs), now.calls.join('; '));
+  // The launcher's lookup (at most 1,200 ms, trailmark.js sinceHandoff)
+  // keeps each call inside its budget, and the slow call stops it.
+  const hook = since({ budgetMs: 1200 });
+  assert.deepStrictEqual(hook.out, { base: sha, state: 'late' });
+  assert.ok(hook.timeouts.every(t => t <= 1200), hook.calls.join('; '));
+});
+
+// RS-T-sinceload: a handoff written while git ran out of time has no HEAD,
+// and the launcher says why in its JBMEM_SHOW_SINCE line for the write
+// (stampedHead reads it). A preload in the launcher's process stands in for
+// one git call, matched by every argument after git's fixed options and by
+// the folder: `branch --no-color --show-current` stopped at its timeout
+// (hung=1) or answering after 5 s (the budget spent, hung=0), or
+// `rev-parse --short HEAD` failing with exit 128 (not time). Every other
+// call is real git. With the stop or the 5 s, the write stamps no HEAD and
+// gives the line, and stampedHead skips once its control (the lookup with
+// 30 s) gives HEAD. With the failure, the write stamps no HEAD and gives no
+// line, and stampedHead fails.
+test('commits since the handoff: a handoff written with git out of time says so, and only then (RS-T-sinceload)', () => {
+  const s = sandbox();
+  const stub = path.join(s.base, 'git-call-stand-in.js');
+  const write = (call, kind) => {
+    fs.writeFileSync(stub, [
+      "const cp = require('child_process');",
+      'const real = cp.execFileSync;',
+      `const REPO = ${JSON.stringify(s.repo)}, CALL = ${JSON.stringify(call)}, KIND = ${JSON.stringify(kind)};`,
+      'cp.execFileSync = function (bin, args, opts) {',
+      '  const a = Array.isArray(args) ? args : [];',
+      '  const i = a.indexOf(CALL[0]);',
+      '  if (i < 0 || JSON.stringify(a.slice(i)) !== JSON.stringify(CALL) || !opts || opts.cwd !== REPO) return real.apply(this, arguments);',
+      "  if (KIND === 'slow') { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000); return real.apply(this, arguments); }",
+      "  const e = new Error(KIND === 'time' ? 'spawnSync git ETIMEDOUT' : 'Command failed');",
+      "  if (KIND === 'time') e.code = 'ETIMEDOUT'; else e.status = 128;",
+      '  throw e;',
+      '};',
+    ].join('\n'));
+    const v = /^\[trailmark\] handoff version: (\S+)/m.exec(s.jbm(['handoff']).stdout)[1];
+    const r = spawnSync(process.execPath, ['-r', stub, JBM, 'write-handoff', `--base=${v}`, `--session=${SA}`], { cwd: s.repo, env: s.env, input: `# H\n- ${kind}\n`, encoding: 'utf8', timeout: 120000 });
+    assert.ok(r.status === 0 || r.status === 2, r.stdout + r.stderr);
+    s.writes.splice(0, Infinity, r.stderr || '');
+    assert.match(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8'), new RegExp(`^- ${kind}$`, 'm'));
+    return r;
+  };
+  const late = write(['branch', '--no-color', '--show-current'], 'time');
+  const m = SHOW_HEAD.exec(late.stderr);
+  assert.ok(m, late.stderr);
+  assert.deepStrictEqual([m[1], m[3]], ['5000', '1']);
+  assert.throws(() => stampedHead(s), CommitsOutOfTime);
+  // No call stopped, the budget spent: `branch` answers after 5 s, and the
+  // calls after it are refused for lack of time (hung=0).
+  const spent = write(['branch', '--no-color', '--show-current'], 'slow');
+  const n = SHOW_HEAD.exec(spent.stderr);
+  assert.ok(n, spent.stderr);
+  assert.deepStrictEqual([n[1], n[3]], ['5000', '0']);
+  assert.ok(+n[2] >= 4700, n[0]);
+  assert.throws(() => stampedHead(s), CommitsOutOfTime);
+  const failed = write(['rev-parse', '--short', 'HEAD'], 'error');
+  assert.doesNotMatch(failed.stderr, /^trailmark head:/m);
+  assert.throws(() => stampedHead(s), (e) => e instanceof assert.AssertionError && /did not say git ran out of time/.test(e.message));
+  // A write with git answering stamps HEAD, and stampedHead gives it.
+  s.write('# H\n- plain\n');
+  assert.strictEqual(stampedHead(s), s.g('rev-parse', '--short', 'HEAD'));
+});
 
 test('fit: a small injectChars holds with a commit list, a snapshot and warnings', sinceTest(() => {
   const s = sandbox();

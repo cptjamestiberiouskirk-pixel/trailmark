@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-18: A report line's `hung` field was untested: the only late case had a call stopped
+- What went wrong: in RS-T-sinceload, the mutation `hungAlways` (the launcher's `trailmark head: late` line always says `hung=1`) passed the new test, whose one late case stopped a call at its timeout. `stampedHead` reads `hung` to decide whether the budget check applies, so a wrong field would let a skip through. A case with the budget spent and no call stopped (`hung=0`) was added, and the mutation then failed 2 of 4.
+- Why: a sighting of "Testing" step 8: each value a reader branches on needs a case where only that value gives the answer.
+- Rule going forward: none new; "Testing" step 8 holds. A report field the test's own helper branches on gets a case for each value it can take.
+- Status: open
+
+## 2026-11-18: An insert script's String.replace pasted the file into the test it inserted
+- What went wrong: in RS-T-sinceload, `insert-tests.js` put two drafted tests into `handoff-checks.test.js` with `t.replace(marker, text)`. One test held `` `^- ${kind}$` ``, and `$`` in a replacement string means "the text before the match", so 51,750 characters of the file went into the test; `node --check` failed at once. `repair-insert.js` rebuilt the file from the parts outside the insert, checked one marker and no draft text in it, and inserted again with a function replacer.
+- Why: the script treated code as plain text in the one place JavaScript does not: a replacement string reads `$&`, `$``, `$'` and `$1`.
+- Rule going forward: a script that puts code or test text into a file uses a function replacer (`t.replace(marker, () => text)`) or slicing, never a replacement string, and checks the new length is the old plus the inserted text.
+- Status: open
+
 ## 2026-11-18: A job log fetch saved gh's refusal as the log
 - What went wrong: after PR #84 merged, `gh api repos/<repo>/actions/jobs/<id>/logs > <file>` wrote one line to each of four files, "the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway", and the grep for the self-check's lines found nothing. The fetch was run again with `--allow-escape-sequences` and the codes stripped (`sed 's/\x1b\[[0-9;]*[A-Za-z]//g'`), giving 230 to 256 lines a job.
 - Why: this `gh` refuses to print a response that holds escape sequences, and the job logs hold color codes; with the output in a file, the refusal looked like a short log, and the line count was the only sign.
