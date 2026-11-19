@@ -621,19 +621,22 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   // (RS-T-longroot: with the path at 140, a note naming a launcher of 158 or
   // more was cut before it at 300, and the 150 cut was never reached). A
   // case's cut must fall inside the path, which the cuts before it keep
-  // whole: at 300 it starts before 297 and ends by 1,197 (the 1,200 cut); at
-  // 150 it starts before 147 and ends by 297, and also before 121 (150 less
-  // the 29 characters of "... (a path is left out here)"), so the cut goes
-  // back to the path's start, and a cut that ignores the start lands inside
-  // the path. At least 23 characters go before it (at 22 the padding
-  // is empty, and oneLine folds the double space). So the 300 case holds for
-  // any launcher usablePath writes (up to 1,024), and the 150 case for one
-  // of up to 274. A longer one is left out at 300 in every note, so no path
-  // reaches the 150 cut, and that case doesn't run: its notes, cut to about
-  // 50 characters, can fit with one still whole.
+  // whole. The path starts before the cut less the 29 characters of
+  // "... (a path is left out here)" (271 at 300, 121 at 150, 1,171 at
+  // 1,200), so the cut goes back to the path's start, and a cut that ignores
+  // the start lands inside the path. It ends at least 4 characters before
+  // the cut that comes earlier (by 1,196 for 1,200, by 296 for 300): a path
+  // that ends 3 before a cut loses its closing quote there and runs on into
+  // the "..." (RS-F-fusedtail, deferred), and the case would rely on that.
+  // At least 23 characters go before it (at 22 the padding is empty, and
+  // oneLine folds the double space). So the 300 case holds for any launcher
+  // usablePath writes (up to 1,024), and the 150 case for one of up to 273.
+  // A longer one is left out at 300 in every note, so no path reaches the
+  // 150 cut, and that case doesn't run: its notes, cut to about 50
+  // characters, can fit with one still whole.
   const L = launcher.length;
-  const at300 = Math.min(290, 1197 - L);
-  const at150 = Math.min(110, 297 - L);
+  const at300 = Math.min(260, 1196 - L);
+  const at150 = Math.min(110, 296 - L);
   const cases = [[300, at300, 3]];
   // 7 notes at 150: 7 x 300 is still over the budget, so the 150 cut is
   // reached, and 7 x 150 leaves room for the framing, whose cut note names
@@ -657,11 +660,11 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   // round 1, S2): that cut never lands inside the path either.
   const s2 = sandbox();
   s2.write('# H\n- state\n');
-  const long = noteAt(1190, 'n9');
-  assert.strictEqual(long.indexOf(launcher), 1190);
+  const long = noteAt(1160, 'n9');
+  assert.strictEqual(long.indexOf(launcher), 1160);
   const line = S.buildInjection(s2.memdir, { notes: [long] }).text.split('\n').find(l => l.startsWith('[trailmark] n9 '));
   assert.ok(line && line.length <= 1200, line);
-  assert.ok(wholeOrNone(line, 1190), `a note cut inside the path at 1,200: ${line.slice(-200)}`);
+  assert.ok(wholeOrNone(line, 1160), `a note cut inside the path at 1,200: ${line.slice(-200)}`);
   assert.ok(line.endsWith('... (a path is left out here)'), line.slice(-200));
 });
 
