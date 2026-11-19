@@ -621,23 +621,30 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   // (RS-T-longroot: with the path at 140, a note naming a launcher of 158 or
   // more was cut before it at 300, and the 150 cut was never reached). A
   // case's cut must fall inside the path, which the cuts before it keep
-  // whole. The path starts before the cut less the 29 characters of
-  // "... (a path is left out here)" (271 at 300, 121 at 150, 1,171 at
-  // 1,200), so the cut goes back to the path's start, and a cut that ignores
-  // the start lands inside the path. It ends at least 4 characters before
-  // the cut that comes earlier (by 1,196 for 1,200, by 296 for 300): a path
-  // that ends 3 before a cut loses its closing quote there and runs on into
-  // the "..." (RS-F-fusedtail, deferred), and the case would rely on that.
-  // At least 23 characters go before it (at 22 the padding is empty, and
-  // oneLine folds the double space). So the 300 case holds for any launcher
-  // usablePath writes (up to 1,024), and the 150 case for one of up to 273.
-  // A longer one is left out at 300 in every note, so no path reaches the
-  // 150 cut, and that case doesn't run: its notes, cut to about 50
-  // characters, can fit with one still whole.
+  // whole. shortNote then cuts at the path's start or at the cut less the 29
+  // characters of "... (a path is left out here)" (271 at 300, 121 at 150,
+  // 1,171 at 1,200), whichever comes first, so each of those cases starts
+  // a path before that point (a cut that ignores the start lands inside it),
+  // and the 300 and 1,200 cases also start one after it, at 290 and 1,190
+  // (review round 2: a cut that doesn't see a path starting there, or leaves
+  // no room for the tail; the real note for a copy check cut short starts
+  // its path at 292). Each path ends at least 4 characters before the cut
+  // that comes earlier (by 1,196 for 1,200, by 296 for 300): a path that
+  // ends 3 before a cut loses its closing quote there and runs on into the
+  // "..." (RS-F-fusedtail, deferred), and the case would rely on that. At
+  // least 23 characters go before it (at 22 the padding is empty, and
+  // oneLine folds the double space). So the 300 case at its first start
+  // holds for any launcher usablePath writes (up to 1,024), at 290 for one
+  // of up to 906, and the 150 case for one of up to 273. A longer one is
+  // left out at 300 in every note, so no path reaches the 150 cut, and that
+  // case doesn't run: its notes, cut to about 50 characters, can fit with
+  // one still whole.
   const L = launcher.length;
   const at300 = Math.min(260, 1196 - L);
   const at150 = Math.min(110, 296 - L);
   const cases = [[300, at300, 3]];
+  if (290 + L <= 1196) cases.push([300, 290, 3]);
+  else t.diagnostic(`a launcher of ${L} characters: a path at 290 is not whole at 1,200, so the 300 case does not start one there`);
   // 7 notes at 150: 7 x 300 is still over the budget, so the 150 cut is
   // reached, and 7 x 150 leaves room for the framing, whose cut note names
   // the full handoff path (9 notes went over on CI's longer temp paths).
@@ -660,12 +667,14 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   // round 1, S2): that cut never lands inside the path either.
   const s2 = sandbox();
   s2.write('# H\n- state\n');
-  const long = noteAt(1160, 'n9');
-  assert.strictEqual(long.indexOf(launcher), 1160);
-  const line = S.buildInjection(s2.memdir, { notes: [long] }).text.split('\n').find(l => l.startsWith('[trailmark] n9 '));
-  assert.ok(line && line.length <= 1200, line);
-  assert.ok(wholeOrNone(line, 1160), `a note cut inside the path at 1,200: ${line.slice(-200)}`);
-  assert.ok(line.endsWith('... (a path is left out here)'), line.slice(-200));
+  for (const at of [1160, 1190]) {
+    const long = noteAt(at, 'n9');
+    assert.strictEqual(long.indexOf(launcher), at);
+    const line = S.buildInjection(s2.memdir, { notes: [long] }).text.split('\n').find(l => l.startsWith('[trailmark] n9 '));
+    assert.ok(line && line.length <= 1200, line);
+    assert.ok(wholeOrNone(line, at), `a note cut inside the path at 1,200: ${line.slice(-200)}`);
+    assert.ok(line.endsWith('... (a path is left out here)'), line.slice(-200));
+  }
 });
 
 test('agent tag: the Updated line names the agent, and the next session is told who wrote it', () => {
