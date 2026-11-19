@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-18: A check run started before a batch had to be stopped, and its tree outlived TaskStop
+- What went wrong: in RS-P-codexpause I started `--sums --quick` on f51c2bf while round 2 of the docs review was still running. Round 2 found a WRONG in the notes, so the head would change and the run would not count for the PR's head. TaskStop ended the wrapper shell, but `release-check.sh` and its node suites kept running with no parent (found by command line, started 22:58:05). Stopping that tree by PID was refused by the session's permission check, so the run went on to its end, and the next check had to wait for it, because two runs clear each other's temp folder.
+- Why: the check was started to save time before the round that could change the head had reported.
+- Rule going forward: start the head's `--sums --quick` only after the last review round on that head has reported. To stop a check already running, ask the user first, or let it finish; don't start a second one meanwhile.
+- Status: open
+
 ## 2026-11-18: A second copy of the shared-file list was missed, and a trial's missing HEAD went unflagged
 - What went wrong: in RS-P-codexpause, `scripts/lib/pausewords.js` went into the `for f in` list of `tests.yml` but not into `CONTRIBUTING.md`'s copy of that list, which says to keep it in step; the regression reviewer found it (round 1). Separately, the host run's saved Updated line had no branch or HEAD and kept the template's placeholders. T4b of the Codex trials (2026-11-16) had already saved a line with no branch or HEAD, and its notes quoted the line without calling the gap out. Probes under `codex sandbox` then showed the cause (RS-F-codexsandboxgit).
 - Why: the list's other copy has no check, and I edited the one I knew. The trial notes read the line for what was there (the session ID), not for what the code should have put there.
@@ -21,7 +27,7 @@ Format:
 - Status: open
 
 ## 2026-11-18: A mutation script's line ends and a new test's first failure point
-- What went wrong: in RS-P-codexpause, the mutation entries were written with `\n`, and the work tree has CRLF line ends (autocrlf), so multi-line entries would not have matched; the script was changed to convert each entry to the file's own line end before the run. Two new tests first failed on the parent at a `require` of the new module (MODULE_NOT_FOUND), before their own check; a control call put first moved the failure to the check each test is written for.
+- What went wrong: in RS-P-codexpause, the mutation entries were written with `\n`, and the work tree has CRLF line ends (autocrlf), so multi-line entries would not have matched; the script was changed to convert each entry to the file's own line end before the run. Two new tests first failed on the parent at a `require` of the new module (MODULE_NOT_FOUND, in a run whose output was not saved), before their own check; a control call put first moved the failure to the check each test is written for.
 - Why: the file's line ends were not checked before the entries were written, and the tests loaded the new code before asserting anything.
 - Rule going forward: a mutation or rewrite script reads each file's line end and converts its entries to it, and asserts each entry applied once. A new test runs a control step that needs no new code first, so its failure on the parent is at its own assertion.
 - Status: open
