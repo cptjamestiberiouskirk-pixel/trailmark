@@ -592,7 +592,7 @@ test('commits since the handoff: git running out of time is said, never "the new
 // RS:645: over the injection budget, each note was cut to 300 and then 150
 // characters wherever the cut fell, so a note naming the launcher could name
 // a path that isn't there.
-test('injection: a note shortened to fit is never cut inside the launcher\'s path (next version)', () => {
+test('injection: a note shortened to fit is never cut inside the launcher\'s path (next version)', (t) => {
   const s = sandbox();
   const cfgFile = path.join(s.memdir, '.jbmem.json');
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
@@ -601,20 +601,41 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   const launcher = S.usablePath(path.join(ROOT, 'scripts', 'trailmark.js'));
   assert.ok(launcher.length > 20, 'the test install path is written as it is');
   // A note whose launcher path starts at character n, just before a cut.
+  // The text before the path takes 22 characters with a two-letter tag.
   const noteAt = (n, tag) => `[trailmark] ${tag} ${'a'.repeat(n - 13 - tag.length - 7)} node "${launcher}" --copies says why. ${'more words '.repeat(30)}`;
+  // Kept whole or left out: a line that keeps the path's first character
+  // (at n) keeps all of it.
+  const wholeOrNone = (l, n) => {
+    const kept = l.endsWith('... (a path is left out here)') ? l.slice(0, -29) : l.replace(/\.\.\.$/, '');
+    return kept.length <= n || kept.slice(n).startsWith(launcher);
+  };
+  // Where each case puts the path, from the launcher's length
+  // (RS-T-longroot: with the path at 140, a note naming a launcher of 158 or
+  // more was cut before it at 300, and the 150 cut was never reached). A
+  // case's cut must fall inside the path, which the cuts before it keep
+  // whole: at 300 it starts
+  // before 297 and ends by 1,197 (the 1,200 cut); at 150 it starts before 147
+  // and ends by 297. With 22 characters before it, that holds at 300 for
+  // any launcher usablePath writes (up to 1,024), and at 150 up to 275. A
+  // longer one is left out at 300 in every note, so no path reaches the 150
+  // cut, and that case checks the 300 cut instead.
+  const L = launcher.length;
+  const at300 = Math.min(290, 1197 - L);
+  const at150 = Math.max(22, Math.min(140, 297 - L));
+  if (297 - L < 22) t.diagnostic(`a launcher of ${L} characters: no path reaches the 150 cut, so that case checks the 300 cut`);
   // 7 notes at 150: 7 x 300 is still over the budget, so the 150 cut is
   // reached, and 7 x 150 leaves room for the framing, whose cut note names
   // the full handoff path (9 notes went over on CI's longer temp paths).
-  for (const [cut, count] of [[300, 3], [150, 7]]) {
-    const notes = Array.from({ length: count }, (_, i) => noteAt(cut - 10, `n${i}`));
-    assert.strictEqual(notes[0].indexOf(launcher), cut - 10);
+  for (const [cut, at, count] of [[300, at300, 3], [150, at150, 7]]) {
+    const notes = Array.from({ length: count }, (_, i) => noteAt(at, `n${i}`));
+    assert.strictEqual(notes[0].indexOf(launcher), at);
     const { text } = S.buildInjection(s.memdir, { notes });
     assert.ok(text.length <= 2000, `${text.length} chars`);
     const lines = text.split('\n').filter(l => /^\[trailmark\] n\d /.test(l));
     assert.strictEqual(lines.length, count, text);
     for (const l of lines) {
       assert.ok(l.length <= cut, `${l.length} > ${cut}`);
-      assert.ok(!l.includes(launcher.slice(0, 20)) || l.includes(launcher), `a note cut inside the path at ${cut}: ${l}`);
+      assert.ok(wholeOrNone(l, at), `a note cut inside the path at ${cut}: ${l}`);
       assert.ok(l.endsWith('... (a path is left out here)'), l);
     }
   }
@@ -626,7 +647,7 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   assert.strictEqual(long.indexOf(launcher), 1190);
   const line = S.buildInjection(s2.memdir, { notes: [long] }).text.split('\n').find(l => l.startsWith('[trailmark] n9 '));
   assert.ok(line && line.length <= 1200, line);
-  assert.ok(!line.includes(launcher.slice(0, 20)) || line.includes(launcher), `a note cut inside the path at 1,200: ${line.slice(-200)}`);
+  assert.ok(wholeOrNone(line, 1190), `a note cut inside the path at 1,200: ${line.slice(-200)}`);
   assert.ok(line.endsWith('... (a path is left out here)'), line.slice(-200));
 });
 
