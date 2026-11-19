@@ -21,7 +21,7 @@ Then read `PLAYBOOK.md` (checklists for this project's recurring work, with its 
 
 Run `dev/release-check.sh` (bash; Git Bash on Windows). It does everything CI's checks do locally (checksums, the shared-file list, install.sh and the migration script parse, both sandbox checks, all three suites, `claude plugin validate`) and prints one summary. `--quick` skips the two long suites; `--zip <dir>` also builds and verifies the release zip from HEAD.
 
-Don't drive those steps by hand one at a time, and don't paste full test output into the conversation: the summary is enough, and failures are listed under it. CI (`gh api repos/cptjamestiberiouskirk-pixel/trailmark/actions/runs?per_page=1`) covers Windows and macOS; a single failure there is often a slow runner, so read the job log before changing code (`gh api repos/<repo>/actions/jobs/<id>/logs`).
+Don't drive those steps by hand one at a time, and don't paste full test output into the conversation: the summary is enough, and failures are listed under it. CI (`gh api repos/cptjamestiberiouskirk-pixel/trailmark/actions/runs?per_page=1`) covers Windows and macOS; a single failure there is often a slow runner, so read the job log before changing code (`gh run view --job <id> --log`).
 
 - A failing suite's full TAP output, with the folders its failed tests kept, is copied to the folder named under the summary (`<temp>/trailmark-release-check/<run>`). Read a failure there first.
 - One test or one test file: `dev/release-check.sh --only '<name pattern>'` or `--only <file>`, never a plain `node --test`. A failing test keeps its folders, and a plain run leaves them in the system temp folder (`%TEMP%` held 3,071 `jbmem-*` folders on 2026-11-05). `--only` keeps its output even when it passes.
