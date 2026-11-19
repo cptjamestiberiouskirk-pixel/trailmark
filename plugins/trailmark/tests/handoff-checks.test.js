@@ -635,10 +635,13 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   // padding is empty, and oneLine folds the double space). So at 300 the
   // early start holds for any launcher usablePath writes (up to 1,024) and
   // the late one (272 or later) for one of up to 924; at 150 the early start
-  // holds up to 273 and the late one (122 or later) up to 174. Past 273
-  // every note is left out at 300, so no path reaches the 150 cut, and that
-  // case doesn't run: its notes, cut to about 50 characters, can fit with
-  // one still whole.
+  // holds up to 273 and the late one (122 or later) up to 174. These limits
+  // are for this test's notes, which always run past the earlier cut: a
+  // shorter note keeps its path whole up to 3 lengths further, and other
+  // starts and ends are not tried (RS-T-cutsweep, deferred). Past 273 the
+  // path is left out of each of this test's notes at 300, so no path
+  // reaches the 150 cut, and that case doesn't run: its notes, cut to about
+  // 50 characters, can fit with one still whole.
   const L = launcher.length;
   const at300 = Math.min(260, 1196 - L), late300 = Math.min(290, 1196 - L);
   const at150 = Math.min(110, 296 - L), late150 = Math.min(140, 296 - L);
@@ -649,7 +652,7 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   // reached, and 7 x 150 leaves room for the framing, whose cut note names
   // the full handoff path (9 notes went over on CI's longer temp paths).
   if (at150 >= 23) cases.push([150, at150, 7]);
-  else t.diagnostic(`a launcher of ${L} characters: no note keeps it whole at 300, so no path reaches the 150 cut, and that case does not run`);
+  else t.diagnostic(`a launcher of ${L} characters: none of this test's notes keeps it whole at 300, so no path reaches the 150 cut, and that case does not run`);
   if (late150 >= 122) cases.push([150, late150, 7]);
   else if (at150 >= 23) t.diagnostic(`a launcher of ${L} characters: no path that starts after 121 ends by 296, so the 150 case does not start one there`);
   for (const [cut, at, count] of cases) {
