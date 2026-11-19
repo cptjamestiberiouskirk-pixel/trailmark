@@ -613,20 +613,24 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   // (RS-T-longroot: with the path at 140, a note naming a launcher of 158 or
   // more was cut before it at 300, and the 150 cut was never reached). A
   // case's cut must fall inside the path, which the cuts before it keep
-  // whole: at 300 it starts
-  // before 297 and ends by 1,197 (the 1,200 cut); at 150 it starts before 147
-  // and ends by 297. With 22 characters before it, that holds at 300 for
-  // any launcher usablePath writes (up to 1,024), and at 150 up to 275. A
-  // longer one is left out at 300 in every note, so no path reaches the 150
-  // cut, and that case checks the 300 cut instead.
+  // whole: at 300 it starts before 297 and ends by 1,197 (the 1,200 cut); at
+  // 150 it starts before 147 and ends by 297. At least 23 characters go
+  // before it (at 22 the padding is empty, and oneLine folds the double
+  // space). So the 300 case holds for any launcher usablePath writes (up to
+  // 1,024), and the 150 case for one of up to 274. A longer one is left out
+  // at 300 in every note, so no path reaches the 150 cut, and that case
+  // doesn't run: its notes, cut to about 50 characters, can fit with one
+  // still whole.
   const L = launcher.length;
   const at300 = Math.min(290, 1197 - L);
-  const at150 = Math.max(22, Math.min(140, 297 - L));
-  if (297 - L < 22) t.diagnostic(`a launcher of ${L} characters: no path reaches the 150 cut, so that case checks the 300 cut`);
+  const at150 = Math.min(140, 297 - L);
+  const cases = [[300, at300, 3]];
   // 7 notes at 150: 7 x 300 is still over the budget, so the 150 cut is
   // reached, and 7 x 150 leaves room for the framing, whose cut note names
   // the full handoff path (9 notes went over on CI's longer temp paths).
-  for (const [cut, at, count] of [[300, at300, 3], [150, at150, 7]]) {
+  if (at150 >= 23) cases.push([150, at150, 7]);
+  else t.diagnostic(`a launcher of ${L} characters: no note keeps it whole at 300, so no path reaches the 150 cut, and that case does not run`);
+  for (const [cut, at, count] of cases) {
     const notes = Array.from({ length: count }, (_, i) => noteAt(at, `n${i}`));
     assert.strictEqual(notes[0].indexOf(launcher), at);
     const { text } = S.buildInjection(s.memdir, { notes });
