@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-19: A waiter for a quiet machine counted its own shells as a running check
+- What went wrong: `wait-checks-idle.ps1` waits until no process's command line matches `release-check\.sh`. Chained in one background command with the check it was to start (`pwsh ... wait-checks-idle.ps1 && ... bash dev/release-check.sh --sums --quick`), its own `bash -c` shells (PIDs 41728, 30604, 8760, from 11:11) held that text, so it never saw two quiet looks and waited about 95 minutes. The supervisor session found it (12:46); CONFIRMED by the RS-T-hang75-enforce session, which listed the matches, each holding `wait-checks-idle`. On 2026-11-18 it worked because it ran as a command by itself.
+- Why: a process filter on command-line text matches any shell whose command line names the thing, the waiter's own parents included.
+- Rule going forward: a waiter that looks for other processes by command line excludes its own process tree (or its own name), and is tried once in the same form it will run in, chained or alone.
+- Status: open
+
 ## 2026-11-19: Two review rounds each found a cut the test no longer covered
 - What went wrong: RS-T-longroot's 53ae230 moved the 150 case's path before 121, so a cut that ignores the path's start lands inside it. Review round 1 found the 300 and 1,200 cases had the same gap (paths at 290 and 1,190, after 271 and 1,171), so from a launcher of 275 to 926, where only those two ran, two such mutants passed. The 150 case's path also ended exactly where shipped `shortNote` fuses "..." onto a path (3 before the cut), so the case relied on a bug. The fix for that (182a79f) moved every path before the cut less 29, and round 2 found two mutants passing at every length: one that misses a path starting in those 29 characters, one that keeps no room for the tail. The real note for a copy check cut short starts its path there, at 292.
 - Why: the commit message named the problem for all cuts; the edit and the mutation list covered the one case where it had shown, at lengths where that case ran. Then each fix moved the fixture to the other side of `Math.min(s[0], max - tail.length)` instead of covering both.
