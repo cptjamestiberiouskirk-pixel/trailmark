@@ -622,16 +622,18 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   // more was cut before it at 300, and the 150 cut was never reached). A
   // case's cut must fall inside the path, which the cuts before it keep
   // whole: at 300 it starts before 297 and ends by 1,197 (the 1,200 cut); at
-  // 150 it starts before 147 and ends by 297. At least 23 characters go
-  // before it (at 22 the padding is empty, and oneLine folds the double
-  // space). So the 300 case holds for any launcher usablePath writes (up to
-  // 1,024), and the 150 case for one of up to 274. A longer one is left out
-  // at 300 in every note, so no path reaches the 150 cut, and that case
-  // doesn't run: its notes, cut to about 50 characters, can fit with one
-  // still whole.
+  // 150 it starts before 147 and ends by 297, and also before 121 (150 less
+  // the 29 characters of "... (a path is left out here)"), so the cut goes
+  // back to the path's start, and a cut that ignores the start lands inside
+  // the path. At least 23 characters go before it (at 22 the padding
+  // is empty, and oneLine folds the double space). So the 300 case holds for
+  // any launcher usablePath writes (up to 1,024), and the 150 case for one
+  // of up to 274. A longer one is left out at 300 in every note, so no path
+  // reaches the 150 cut, and that case doesn't run: its notes, cut to about
+  // 50 characters, can fit with one still whole.
   const L = launcher.length;
   const at300 = Math.min(290, 1197 - L);
-  const at150 = Math.min(140, 297 - L);
+  const at150 = Math.min(110, 297 - L);
   const cases = [[300, at300, 3]];
   // 7 notes at 150: 7 x 300 is still over the budget, so the 150 cut is
   // reached, and 7 x 150 leaves room for the framing, whose cut note names
