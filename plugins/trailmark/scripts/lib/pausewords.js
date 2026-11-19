@@ -5,8 +5,9 @@
 //
 // English only. A clause matches when it holds a trigger word and every other
 // word in it is on ALLOWED, so "restart the server" (server) and "don't
-// reboot" (don't) do not. The note this leads to asks Claude to judge, so the
-// lists lean to matching less. dev/pause-watch-design.md has the reasons.
+// reboot" (don't) do not. The note this leads to asks the model to judge, so
+// the lists lean to matching less. dev/pause-watch-design.md has the reasons.
+// The same file in both copies (the shared-file list in tests.yml).
 
 'use strict';
 

@@ -8,6 +8,7 @@ It's the Codex copy of [Trailmark](https://github.com/cptjamestiberiouskirk-pixe
 
 - Every new chat in a repo you've set up starts with that repo's handoff, kept under 8,500 characters so Codex doesn't move it out of the chat into a file.
 - After a commit or a merged PR, the agent is reminded to bring the note up to date.
+- When your prompt says you are about to reboot, restart, shut down or close the chat ("pause for reboot", "restarting now"), the agent is asked to run `tm-checkpoint` before the turn ends, and to ignore the request when the word was about something else, such as restarting a server. It reads English only and prompts of up to 2,000 characters, so some phrasings are missed. `"pauseWatch": {"on": false}` in `.jbmem.json` turns it off.
 - Every write is version-checked, so two chats, or a chat and a Claude Code session, can't overwrite each other's notes.
 - If you also use Claude Code with Trailmark in the same repo, both read and write the same note, so either agent can pick up where the other stopped. The note's `Updated:` line names the agent that wrote it last.
 
@@ -121,10 +122,13 @@ Outside the memory folder, this copy:
 | Commit sweep | A commit command whose hook never ran stops holding the sweep once the same thread (main conversation or subagent) finishes a later one | It holds the sweep until its 11 minutes pass, since Codex gives no subagent ID |
 | After a compaction | The SessionStart hook brings the handoff and the session's snapshot back | The same SessionStart hook, which the desktop app runs after a compaction. Codex's PostCompact hook can't add text to the chat, so this copy doesn't use it |
 | Commit-folder check | An `END_MISMATCH` diagnostic | None: each Codex command runs in a fresh shell and the chat's folder never moves |
+| Subagent results | A reminder after a subagent's result | None: the tool hooks start only on shell commands |
+| Context watch | Asks for a checkpoint as the context nears the point where Claude Code auto-compacts | None: where Codex compacts by default isn't established |
+| Pause watch | Asks Claude to checkpoint when a prompt says you are about to stop, and shows you `[trailmark] Your prompt may say you are about to stop ...` | The same words ask the agent, with no message shown, since Codex shows one as a warning |
 
 ## Checking how the hooks ran
 
-In a repo set up for Trailmark, each hook run that gets past its first checks (a chat start, a compaction, or a commit or PR merge command) adds one line to `payload-shapes.log` in the plugin's data folder (`PLUGIN_DATA`). The line has the event, the tool name, the payload's field names and types, the first word of the command when it's a common program name (git, gh, node, powershell and a few others; anything else shows as `other`), the exit code, and whether `CODEX_THREAD_ID` matches the session ID. It keeps no command text or output, nothing is logged for other repos, and the file stops growing at 256 KB. `JBMEM_SHAPES=off` turns it off. To find it:
+In a repo set up for Trailmark, each hook run that gets past its first checks (a chat start, a compaction, a commit or PR merge command, or a prompt the pause watch matched) adds one line to `payload-shapes.log` in the plugin's data folder (`PLUGIN_DATA`). The line has the event, the tool name, the payload's field names and types, the first word of the command when it's a common program name (git, gh, node, powershell and a few others; anything else shows as `other`), the exit code, and whether `CODEX_THREAD_ID` matches the session ID. It keeps no command text or output, nothing is logged for other repos, and the file stops growing at 256 KB. `JBMEM_SHAPES=off` turns it off. To find it:
 
 ```powershell
 Get-ChildItem "$env:USERPROFILE\.codex" -Recurse -Filter payload-shapes.log -ErrorAction SilentlyContinue | Select-Object FullName, Length, LastWriteTime
