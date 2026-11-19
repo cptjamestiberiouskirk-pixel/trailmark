@@ -623,33 +623,35 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   // case's cut must fall inside the path, which the cuts before it keep
   // whole. shortNote then cuts at the path's start or at the cut less the 29
   // characters of "... (a path is left out here)" (271 at 300, 121 at 150,
-  // 1,171 at 1,200), whichever comes first, so each of those cases starts
-  // a path before that point (a cut that ignores the start lands inside it),
-  // and the 300 and 1,200 cases also start one after it, at 290 and 1,190
-  // (review round 2: a cut that doesn't see a path starting there, or leaves
-  // no room for the tail; the real note for a copy check cut short starts
-  // its path at 292). Each path ends at least 4 characters before the cut
-  // that comes earlier (by 1,196 for 1,200, by 296 for 300): a path that
-  // ends 3 before a cut loses its closing quote there and runs on into the
-  // "..." (RS-F-fusedtail, deferred), and the case would rely on that. At
-  // least 23 characters go before it (at 22 the padding is empty, and
-  // oneLine folds the double space). So the 300 case at its first start
-  // holds for any launcher usablePath writes (up to 1,024), at 290 for one
-  // of up to 906, and the 150 case for one of up to 273. A longer one is
-  // left out at 300 in every note, so no path reaches the 150 cut, and that
+  // 1,171 at 1,200), whichever comes first, so each case starts a path
+  // before that point (a cut that ignores the start lands inside it), and
+  // one after it (review rounds 2 and 3: a cut that doesn't see a path
+  // starting there, or leaves no room for the tail; the real note for a
+  // copy check cut short starts its path at 292). Each path ends at least 4
+  // characters before the cut that comes earlier (by 1,196 for 1,200, by
+  // 296 for 300): a path that ends 3 before a cut loses its closing quote
+  // there and runs on into the "..." (RS-F-fusedtail, deferred), and the
+  // case would rely on that. At least 23 characters go before it (at 22 the
+  // padding is empty, and oneLine folds the double space). So at 300 the
+  // early start holds for any launcher usablePath writes (up to 1,024) and
+  // the late one (272 or later) for one of up to 924; at 150 the early start
+  // holds up to 273 and the late one (122 or later) up to 174. Past 273
+  // every note is left out at 300, so no path reaches the 150 cut, and that
   // case doesn't run: its notes, cut to about 50 characters, can fit with
   // one still whole.
   const L = launcher.length;
-  const at300 = Math.min(260, 1196 - L);
-  const at150 = Math.min(110, 296 - L);
+  const at300 = Math.min(260, 1196 - L), late300 = Math.min(290, 1196 - L);
+  const at150 = Math.min(110, 296 - L), late150 = Math.min(140, 296 - L);
   const cases = [[300, at300, 3]];
-  if (290 + L <= 1196) cases.push([300, 290, 3]);
-  else t.diagnostic(`a launcher of ${L} characters: a path at 290 is not whole at 1,200, so the 300 case does not start one there`);
+  if (late300 >= 272) cases.push([300, late300, 3]);
+  else t.diagnostic(`a launcher of ${L} characters: no path that starts after 271 ends by 1,196, so the 300 case does not start one there`);
   // 7 notes at 150: 7 x 300 is still over the budget, so the 150 cut is
   // reached, and 7 x 150 leaves room for the framing, whose cut note names
   // the full handoff path (9 notes went over on CI's longer temp paths).
   if (at150 >= 23) cases.push([150, at150, 7]);
   else t.diagnostic(`a launcher of ${L} characters: no note keeps it whole at 300, so no path reaches the 150 cut, and that case does not run`);
+  if (late150 >= 122) cases.push([150, late150, 7]);
+  else if (at150 >= 23) t.diagnostic(`a launcher of ${L} characters: no path that starts after 121 ends by 296, so the 150 case does not start one there`);
   for (const [cut, at, count] of cases) {
     const notes = Array.from({ length: count }, (_, i) => noteAt(at, `n${i}`));
     assert.strictEqual(notes[0].indexOf(launcher), at);
