@@ -14,6 +14,30 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-19: Two review rounds each found a cut the test no longer covered
+- What went wrong: RS-T-longroot's 53ae230 moved the 150 case's path before 121, so a cut that ignores the path's start lands inside it. Review round 1 found the 300 and 1,200 cases had the same gap (paths at 290 and 1,190, after 271 and 1,171), so from a launcher of 275 to 926, where only those two ran, two such mutants passed. The 150 case's path also ended exactly where shipped `shortNote` fuses "..." onto a path (3 before the cut), so the case relied on a bug. The fix for that (182a79f) moved every path before the cut less 29, and round 2 found two mutants passing at every length: one that misses a path starting in those 29 characters, one that keeps no room for the tail. The real note for a copy check cut short starts its path there, at 292.
+- Why: the commit message named the problem for all cuts; the edit and the mutation list covered the one case where it had shown, at lengths where that case ran. Then each fix moved the fixture to the other side of `Math.min(s[0], max - tail.length)` instead of covering both.
+- Rule going forward: when a fix names a problem, check every sibling case for it, and run the mutants at a length where each case is the only one that can catch them. A fixture moved to cover one arm of a min or max keeps a case for the other arm, and the mutation list keeps a mutant for each. A test's numbers stay clear of the code's own edges (a cut's tail length either side), not on them.
+- Status: open
+
+## 2026-11-19: A clone moved to a commit failed, and the "fix" runs ran the parent
+- What went wrong: in RS-T-longroot, `clones.sh` fetched the fix by SHA from the local repo, the fetch failed, `git checkout --detach` stopped, and the run script chained after it with `;` ran all seven `--only` runs on the parent. Each run line printed `head=ee262bd`, so the outputs were renamed `parent-rerun-*` and the runs were made again.
+- Why: the clone script did not check the HEAD it ended at, and the run script ran whatever the clone held.
+- Rule going forward: a script that moves a clone to a commit compares `git rev-parse HEAD` with the commit and stops on a mismatch; a script that runs tests in a clone takes the expected commit and refuses a clone at another. A run's own printed HEAD is read before its result counts.
+- Status: open
+
+## 2026-11-19: A test case for long paths was reasoned, not run, and failed on Linux
+- What went wrong: the first RS-T-longroot fix said that past 275 the 150 case "checks the 300 cut instead". A Linux run at a launcher of 281 failed `652 > 150`: with every note cut to about 50 characters, six cut notes left room for the seventh whole, and Linux's short `/tmp` framing made it fit. A sweep then found the opening assertion failing past 1,024 (usablePath's cap), and the mutation list found that no case reached `shortNote`'s step back to the path's start at the usual lengths (each path started after `max - 29`).
+- Why: the comment's claims for lengths the machine could not reach were written from arithmetic, and the fixture's numbers were chosen for one branch of the code without asking which branch each case takes.
+- Rule going forward: a test whose layout depends on an input the machine sets (a path's length) is swept over that input's whole range, on the system where the framing is shortest (WSL `/tmp`) as well as here, before its comment states a range. Each `Math.min`/`Math.max` arm of the code under test gets a case where that arm decides, checked by a mutant that drops it ("Testing" step 8).
+- Status: open
+
+## 2026-11-19: A mutant looped forever, and background notices came before the work ended
+- What went wrong: mutant M4 (`end = s[0] + 1`) made `shortNote`'s loop find the same span again forever; the run hung 8.5 minutes until its tree was stopped by PID. Separately, the app reported two background commands (a WSL sweep, a waiter) as completed while the WSL script was still writing; a read at that moment saw a partial file.
+- Why: the mutant was written for the line, not for the loop around it. The notice reflects the Windows-side shell, not the work it started.
+- Rule going forward: a mutant inside a loop is read against the loop's exit condition, and a mutation run bounds each run (`timeout 180`, which prints TIMEOUT). A background run's result is read only from its own closing line (`ran N`), not from the completion notice.
+- Status: open
+
 ## 2026-11-18: A check run started before a batch had to be stopped, and its tree outlived TaskStop
 - What went wrong: in RS-P-codexpause I started `--sums --quick` on f51c2bf while round 2 of the docs review was still running. Round 2 found a WRONG in the notes, so the head would change and the run would not count for the PR's head. TaskStop ended the wrapper shell, but `release-check.sh` and its node suites kept running with no parent (found by command line, started 22:58:05). Stopping that tree by PID was refused by the session's permission check, so the run went on to its end, and the next check had to wait for it, because two runs clear each other's temp folder.
 - Why: the check was started to save time before the round that could change the head had reported.
