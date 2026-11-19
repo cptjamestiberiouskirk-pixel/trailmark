@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-18: A second copy of the shared-file list was missed, and a trial's missing HEAD went unflagged
+- What went wrong: in RS-P-codexpause, `scripts/lib/pausewords.js` went into the `for f in` list of `tests.yml` but not into `CONTRIBUTING.md`'s copy of that list, which says to keep it in step; the regression reviewer found it (round 1). Separately, the host run's saved Updated line had no branch or HEAD and kept the template's placeholders. T4b of the Codex trials (2026-11-16) had already saved a line with no branch or HEAD, and its notes quoted the line without calling the gap out. Probes under `codex sandbox` then showed the cause (RS-F-codexsandboxgit).
+- Why: the list's other copy has no check, and I edited the one I knew. The trial notes read the line for what was there (the session ID), not for what the code should have put there.
+- Rule going forward: a change to a list that a doc mirrors (the shared files, the hooks, the settings) greps the repo for a neighbor entry of that list and updates every copy found. A host run's saved output is read field by field against what the code should write there; a field that is missing is a finding, written down with its repro.
+- Status: open
+
+## 2026-11-18: A mutation script's line ends and a new test's first failure point
+- What went wrong: in RS-P-codexpause, the mutation entries were written with `\n`, and the work tree has CRLF line ends (autocrlf), so multi-line entries would not have matched; the script was changed to convert each entry to the file's own line end before the run. Two new tests first failed on the parent at a `require` of the new module (MODULE_NOT_FOUND), before their own check; a control call put first moved the failure to the check each test is written for.
+- Why: the file's line ends were not checked before the entries were written, and the tests loaded the new code before asserting anything.
+- Rule going forward: a mutation or rewrite script reads each file's line end and converts its entries to it, and asserts each entry applied once. A new test runs a control step that needs no new code first, so its failure on the parent is at its own assertion.
+- Status: open
+
 ## 2026-11-18: A commit's Verified line got a time range no run printed
 - What went wrong: in RS-T-sinceload, bf38e47's Verified line says `--sums --quick` ran "14:30 to 14:38". I wrote it with sed before reading any time: the output file prints none, and its mtime is 14:37:08. The commit was not amended (a history rewrite needs the user's word); the notes give the real time.
 - Why: a sighting of "Writing code and docs" step 15: a count or time comes from a run that printed it. The earlier Verified lines had times from `only-fix.sh`, which prints them; this check's wrapper did not.
