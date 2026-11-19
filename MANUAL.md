@@ -172,7 +172,7 @@ Most of it happens on its own.
 | A subagent finishes | Reminds Claude to checkpoint if the result changed the state |
 | Before a compaction | Saves a snapshot of git state for that session |
 | The context nears auto-compaction (Claude Code only) | Asks Claude to checkpoint before Claude Code compacts the session, and shows `[trailmark] Context about ...` to you |
-| Your prompt says you are about to reboot, restart, shut down or close the session | Asks Claude to checkpoint before the turn ends, and shows `[trailmark] Your prompt may say you are about to stop ...` to you (in Codex, asks the agent and shows nothing) |
+| Your prompt says you are about to reboot, restart, shut down or close the session | Asks Claude to checkpoint before the turn ends, and shows `[trailmark] Your prompt may say you are about to stop ...` to you (in Codex, asks the agent and shows you no message) |
 
 After the handoff, session start also lists the commits made on HEAD since the handoff was written, and names any next step one of them may already cover. After a compaction it adds that session's snapshot. It names other sessions active in the repo in the last 3 hours, and warns if a second repo maps to the same memory folder.
 
