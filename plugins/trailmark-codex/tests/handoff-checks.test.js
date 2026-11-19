@@ -593,12 +593,20 @@ test('commits since the handoff: git running out of time is said, never "the new
 // characters wherever the cut fell, so a note naming the launcher could name
 // a path that isn't there.
 test('injection: a note shortened to fit is never cut inside the launcher\'s path (next version)', (t) => {
+  // The session-start hook names the launcher only as usablePath gives it,
+  // and that is no path over 1,024 characters: past that length no note
+  // holds the path, and there is nothing to check (RS-T-longroot).
+  const raw = path.join(ROOT, 'scripts', 'trailmark.js');
+  if (raw.length > 1024) {
+    assert.strictEqual(S.usablePath(raw), '');
+    return t.skip(`a launcher of ${raw.length} characters: usablePath writes no path over 1,024, so no note names it`);
+  }
   const s = sandbox();
   const cfgFile = path.join(s.memdir, '.jbmem.json');
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
   fs.writeFileSync(cfgFile, JSON.stringify({ ...cfg, budgets: { injectChars: 2000 } }));
   s.write('# H\n## State\n' + Array.from({ length: 60 }, (_, i) => `- item ${i} ${'x'.repeat(70)}`).join('\n') + '\n');
-  const launcher = S.usablePath(path.join(ROOT, 'scripts', 'trailmark.js'));
+  const launcher = S.usablePath(raw);
   assert.ok(launcher.length > 20, 'the test install path is written as it is');
   // A note whose launcher path starts at character n, just before a cut.
   // The text before the path takes 22 characters with a two-letter tag.
