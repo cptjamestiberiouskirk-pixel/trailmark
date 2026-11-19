@@ -1,6 +1,6 @@
 # Security
 
-Trailmark runs code as you at every Claude Code session start and compaction, and after every tool call and prompt. The Codex copy does the same at every Codex chat start and compaction, and around every shell command. This file says what that code can and can't do, what it trusts, and what's left to you.
+Trailmark runs code as you at every Claude Code session start and compaction, and after every tool call and prompt. The Codex copy does the same at every Codex chat start and compaction, around every shell command, and at every prompt. This file says what that code can and can't do, what it trusts, and what's left to you.
 
 The short version: the part that writes runs under Node's permission model and can write only in the repo's memory folder. git runs with every repo setting that could start a program switched off, and is kept away from network shares. Nothing in the release makes network requests. The limits that remain are listed under "Known limits".
 

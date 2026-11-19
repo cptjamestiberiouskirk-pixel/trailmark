@@ -63,6 +63,10 @@ const DEFAULTS = {
   },
   hints: { minMinutesBetween: 20, freshCheckpointMinutes: 3 },
   staleDays: 30,
+  // The pause watch (hook-pause-watch.js): a prompt that says the user is
+  // about to reboot or close the chat asks for a checkpoint. The Claude Code
+  // copy reads the same setting from the same .jbmem.json.
+  pauseWatch: { on: true },
   // The daily log (notes/): on unless "notes": false, and files older than
   // this many days are deleted when a new day's log starts.
   notesKeepDays: 90,
@@ -604,6 +608,7 @@ function loadConfig(dir) {
     staleDays: configInt(user.staleDays, CONFIG_RANGES.staleDays, DEFAULTS.staleDays),
     notes: user.notes !== false,
     notesKeepDays: configInt(user.notesKeepDays, CONFIG_RANGES.notesKeepDays, DEFAULTS.notesKeepDays),
+    pauseWatch: { on: !(isPlainObject(user.pauseWatch) && user.pauseWatch.on === false) },
   };
   // Kept only so session start can warn that it is ignored (trailmark.js: the
   // sandbox is turned off by JBMEM_SANDBOX=off alone, since 0.3.8).

@@ -18,7 +18,7 @@ const hookCmd = (ev) => JSON.parse(fs.readFileSync(HOOKS_JSON, 'utf8')).hooks[ev
 
 test('codex hooks.json: events, matchers and one command form for every shell', () => {
   const h = JSON.parse(fs.readFileSync(HOOKS_JSON, 'utf8')).hooks;
-  assert.deepStrictEqual(Object.keys(h).sort(), ['PostToolUse', 'PreCompact', 'PreToolUse', 'SessionStart']);
+  assert.deepStrictEqual(Object.keys(h).sort(), ['PostToolUse', 'PreCompact', 'PreToolUse', 'SessionStart', 'UserPromptSubmit']);
   assert.strictEqual(h.PreToolUse[0].matcher, '^Bash$');
   assert.strictEqual(h.PostToolUse[0].matcher, '^Bash$');
   for (const [ev, groups] of Object.entries(h)) {
