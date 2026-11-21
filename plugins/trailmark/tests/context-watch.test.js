@@ -402,14 +402,22 @@ test('context watch: finding the memory folder is inside the hook\'s 5 s for git
   // stands both clocks still at the process's start, where the launcher's
   // hook time counts from (T0 and sinceT0 in trailmark.js): the system clock
   // at T0 and Node's monotonic clock at 0. They move together only when the
-  // `at`th config file is read, by `by` ms.
+  // `at`th config file is read, by `by` ms. The hook's script, which the
+  // launcher then starts, gets the same care (RS-T-firstcheckload in
+  // dev/release-state.md): the preload notes the timeout the launcher gives
+  // it (the hook's limit less the time gone on the clocks) and runs it with
+  // 20 s. Started with the launcher's timeout, the script had that much real
+  // time less the time the clocks were moved by, and under load it could run
+  // past that and be stopped.
   let made = 0;
   const hook = (at, by) => {
     const log = path.join(c.s.base, `calls${++made}.txt`);
     const stub = path.join(c.s.base, `clock${made}.js`);
     fs.writeFileSync(stub, `const cp = require('child_process');
 const fs = require('fs');
+const path = require('path');
 const real = cp.execFileSync;
+const realSpawn = cp.spawnSync;
 const t0 = Math.floor(performance.timeOrigin);
 let moved = 0; let files = 0;
 Date.now = () => t0 + moved;
@@ -421,6 +429,11 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   if (kind === 'file' && ++files === ${at}) moved += ${by};
   return real.call(this, file, args, { ...opts, timeout: 20000 }, ...rest);
 };
+cp.spawnSync = function (file, args, opts, ...rest) {
+  if (!(Array.isArray(args) && args.some(a => !String(a).startsWith('-') && path.basename(String(a)) === 'hook-context-watch.js'))) return realSpawn.call(this, file, args, opts, ...rest);
+  fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(['script', opts.timeout]) + String.fromCharCode(10));
+  return realSpawn.call(this, file, args, { ...opts, timeout: 20000 }, ...rest);
+};
 `);
     const r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', 'context-watch'], { cwd: c.s.repo, env: c.s.env, encoding: 'utf8', input: JSON.stringify({
       session_id: SA, transcript_path: c.transcript, cwd: c.s.repo, hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_response: { stdout: '' },
@@ -429,19 +442,20 @@ cp.execFileSync = function (file, args, opts, ...rest) {
     let calls = [];
     try { calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { calls = []; }
     const of = (kind) => calls.filter(x => x[0] === kind).map(x => x[1]);
-    return { files: of('file'), root: of('root'), out: r.stdout.trim() ? JSON.parse(r.stdout) : null };
+    return { files: of('file'), root: of('root'), script: of('script'), out: r.stdout.trim() ? JSON.parse(r.stdout) : null };
   };
   c.usage(316000);
   // 3 s gone at the first file: the six after it get 2 s each, and so does
-  // the call for the root. The hook asks as usual.
+  // the call for the root. The hook asks as usual. The script gets the
+  // hook's 9 s less the time gone.
   let h = hook(1, 3000);
-  assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(2000)], root: [2000] });
+  assert.deepStrictEqual({ files: h.files, root: h.root, script: h.script }, { files: [3000, ...Array(6).fill(2000)], root: [2000], script: [6000] });
   assert.match(askText(h.out), /trailmark:checkpoint/);
   // 4.8 s gone at the second file: no third file is read, no git is started
   // for the root, and the memory folder is still found: the next step asks.
   c.usage(335000);
   h = hook(2, 4800);
-  assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, 3000], root: [] });
+  assert.deepStrictEqual({ files: h.files, root: h.root, script: h.script }, { files: [3000, 3000], root: [], script: [4200] });
   assert.match(askText(h.out), /has not written the handoff since the first request/);
 });
 
