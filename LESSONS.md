@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A reviewer's CONFIRMED reason went into a code comment, and the next round showed it wrong
+- What went wrong: in RS-T-startdirect's round 1, Opus F3 said a full run of the sweep test leaves its state as it was ("CONFIRMED", from a log it made). It went into the test's comment, a commit message and the notes as the reason the state is not rewritten between tries. Round 2 (Opus again, by a mutation that printed the record) saw a full try cut swept to 64. The change stayed safe for another reason.
+- Why: the claim was carried as "CONFIRMED by Opus, not re-run", which the notes allow, and then written into a code comment, which carries no label.
+- Rule going forward: a reason that goes into a code comment is one the owner has re-run, or the comment says it was not re-run. A reviewer's log of a state is read for which run and which point it was taken at before it stands for "a full run".
+- Status: open
+
+## 2026-11-22: A retry added for load could hide the regression its test was written for
+- What went wrong: RS-T-startdirect gave the sweep test startInTime's tries, which make a stop after a slow launcher again and then skip. The fault that test exists for (a real path per key) is itself a slow launcher, so under load it was stopped, made again and skipped (review round 1, Opus F1; reproduced with `sd-f1.sh`).
+- Why: startInTime's own comment lists "the slow launcher step itself" as not covered, and that line was not read against what this test measures.
+- Rule going forward: before a test gets a retry or a skip on a sign of load, check whether the fault the test exists for gives the same sign. If it does, the test checks its own assertion after every try, a stopped one too, before it tries again; and a mutation run puts the fault back under that load.
+- Status: open
+
 ## 2026-11-22: A reviewer loaded the library from the worktree while the owner edited it
 - What went wrong: the RS-A-missinglookups security reviewer (Fable) ran its probes against `gitfacts.js` at the worktree's path while the coordinator, in the same worktree, was making the docs-round and regression-round fixes (the files' modification times 01:51 to 02:03, as the reviewer's report gives them). The reviewer's report says it noticed and named which runs could have seen the edited file, and that its test runs were in its own clone at 97cb3ba. The edits in that window were the runner's buffer (32 to 34 MiB) and comments; `farWorktree`'s logic, which the probes exercised, was unchanged, so its result holds. A logic edit in that window would have mixed two versions into one review.
 - Why: the brief said to review `git diff cc92c9a..97cb3ba` and to test in a clone, but did not say that probes load the code from the clone too. The owner went on fixing other rounds' findings in the shared worktree.

@@ -317,6 +317,16 @@ const sinceTest = (fn) => (t) => {
     t.skip(e.message);
   }
 };
+// A test that starts the session-start hook itself, not through the
+// sandbox's start(), and gives that start startInTime's tries: three stops in
+// a row, each after a slow launcher, skip it with the reason
+// (RS-T-startdirect).
+const startTest = (fn) => (t) => {
+  try { fn(t); } catch (e) {
+    if (!(e instanceof HookOutOfTime)) throw e;
+    t.skip(e.message);
+  }
+};
 
 test('commits since the handoff: listed at session start, with next steps they may cover', sinceTest(() => {
   const s = sandbox();
@@ -7797,8 +7807,15 @@ test('0.6.0 hooks: the launcher hands a hook script every payload field the hook
 // RS-F-sinceFor: one real path per key and folder of swept and commitDirsAt
 // (and of a long commitDirs) took 20 s for 130,000 keys, and session start
 // was killed holding the lock. The count of the launcher's real-path calls
-// shows it without a clock, so load can't make this pass or fail.
-test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the launcher a pass by name, not a real path per key (next version)', () => {
+// shows it without a clock, so load can't change the count. Load can still
+// stop the hook (the spy's preload counts against the launcher's time), so
+// the start takes startInTime's tries (RS-T-startdirect). The count is
+// checked after every try, a stopped one too: the launcher's sweep ends
+// before the script starts, and the launcher writes the count as it exits.
+// Checked only at the end, a launcher slowed past its limit by the very
+// regression this test is for would be stopped, made again and skipped
+// (review round 1, F1).
+test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the launcher a pass by name, not a real path per key (next version)', startTest(() => {
   const s = sandbox();
   s.write('# H\n- state\n');
   s.g('commit', '-q', '--allow-empty', '-m', 'by a script');
@@ -7816,13 +7833,24 @@ test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the la
   // sweep starts past the commit above, so the commit isn't "found".
   swept[s.repo] = now + 60000;
   S.updateState(s.memdir, SA, (state, rec) => { rec.start = now - 60000; rec.home = s.repo; rec.swept = swept; rec.commitDirsAt = joined; rec.commitDirs = dirs; });
-  const r = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, NODE_OPTIONS: `--require ${JSON.stringify(spy)}` }, input: JSON.stringify({ cwd: s.repo, source: 'resume', session_id: SA }), encoding: 'utf8', timeout: 120000 });
+  const env = { ...s.env, NODE_OPTIONS: `--require ${JSON.stringify(spy)}` };
+  const input = JSON.stringify({ cwd: s.repo, source: 'resume', session_id: SA });
+  // The state is not rewritten between tries. A full try cuts swept to 64
+  // (the sweep counts the session's folder as read, with no commit in it),
+  // but the count is checked on the first try, which always has the whole
+  // state, and a try whose sweep ran out of time cuts nothing (review round
+  // 2 of RS-T-startdirect).
+  const r = startInTime(() => {
+    fs.rmSync(count, { force: true });
+    const one = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env, input, encoding: 'utf8', timeout: 120000 });
+    const calls = Number(fs.readFileSync(count, 'utf8'));
+    assert.ok(calls < 2000, `${calls} real-path calls in a try (status ${one.status})`);
+    return one;
+  }, () => spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'hook-session-start.js')], { cwd: s.repo, env, input, encoding: 'utf8', timeout: 30000 }));
   assert.strictEqual(r.status, 0, String(r.stderr).slice(0, 500));
-  const calls = Number(fs.readFileSync(count, 'utf8'));
-  assert.ok(calls < 2000, `${calls} real-path calls`);
   const notes = fs.readdirSync(path.join(s.memdir, 'notes')).map(f => fs.readFileSync(path.join(s.memdir, 'notes', f), 'utf8')).join('\n');
   assert.doesNotMatch(notes, /by a script \(found later\)/);
-});
+}));
 
 // RS-F2b: rec.swept kept 12 entries, so a folder dropped past six and joined
 // after 12 newer sweeps got its command's start and a commit made there in
@@ -7924,20 +7952,23 @@ test('health: a file where the plugins folder should be is nothing to search, on
 
 // RS:651: the Claude Code skills build their commands from
 // ${CLAUDE_PLUGIN_ROOT}, without usablePath. Session start tells the user when
-// usablePath refuses the install path. The Codex note already says so.
-test('session start: an install path usablePath refuses gets a warning with no path in it, a plain one none (next version)', { skip: S.AGENT === 'Codex' && 'the Codex note already says this' }, () => {
+// usablePath refuses the install path. The Codex note already says so. The
+// start from the odd copy takes startInTime's tries (RS-T-startdirect).
+test('session start: an install path usablePath refuses gets a warning with no path in it, a plain one none (next version)', { skip: S.AGENT === 'Codex' && 'the Codex note already says this' }, startTest(() => {
   const s = sandbox();
   s.write('# H\n- state\n');
   const odd = path.join(s.base, 'a!b');
   fs.cpSync(ROOT, odd, { recursive: true, filter: (src) => path.basename(src) !== 'tests' });
-  const r = spawnSync(process.execPath, [path.join(odd, 'scripts', 'trailmark.js'), '--hook', 'session-start'],
-    { cwd: s.repo, env: s.env, input: JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB }), encoding: 'utf8' });
+  const input = JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB });
+  const r = startInTime(
+    () => spawnSync(process.execPath, [path.join(odd, 'scripts', 'trailmark.js'), '--hook', 'session-start'], { cwd: s.repo, env: s.env, input, encoding: 'utf8' }),
+    () => spawnSync(process.execPath, [path.join(odd, 'scripts', 'hook-session-start.js')], { cwd: s.repo, env: s.env, input, encoding: 'utf8', timeout: 30000 }));
   assert.strictEqual(r.status, 0, r.stderr);
   const out = JSON.parse(r.stdout);
   assert.match(out.systemMessage, /WARNING: .*trailmark is installed in a folder whose path holds a character a shell can act on/);
   assert.ok(!out.systemMessage.includes('a!b'), out.systemMessage);
   assert.doesNotMatch(s.start().message, /installed in a folder whose path/);
-});
+}));
 
 // RS:658: where the drive has no hard links, createOnce wrote in place with
 // 'wx', and on Windows that goes through a junction whose target is missing
