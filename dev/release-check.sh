@@ -24,10 +24,18 @@
 # summary line gives the suite's own time.
 #
 # Each test has a limit, as in CI's test steps (enforce mode of
-# .github/run-tests.sh): a test that hangs fails with its name once the limit
-# is up, and the suite goes on. TRAILMARK_TEST_LIMIT_MS sets it in ms; the
-# default is 400000, CI's limit on Windows, its largest; 0 runs the suites
-# with no limit (RS-T-localhang, dev/release-state.md).
+# .github/run-tests.sh). It ends two kinds of hang as a failure that names the
+# test, and the suite goes on: a test that waits on something asynchronous,
+# and a synchronous child call with no timeout of its own (the call fails with
+# its command and line). Below Node 24 the first holds only for test() calls
+# of the require('node:test') form (see .github/test-limits.js). A test
+# blocked in its own code (a loop that never yields) is not ended: stop the
+# run. A file whose tests pass but leave something open (a timer, a child) is
+# let end, and its suite's line is followed by a WARN that names it.
+# TRAILMARK_TEST_LIMIT_MS sets the limit in ms, up to 2147483647; the default
+# is 400000, CI's limit on Windows, its largest; 0 runs the suites with no
+# limit. The summary's first line names the limit (RS-T-localhang,
+# dev/release-state.md).
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
 
@@ -111,11 +119,27 @@ if command -v cygpath >/dev/null 2>&1; then TW="$(cygpath -w "$T")"; export TEMP
 # timeout for each test() call in its place; --test-force-exit, so a file
 # whose test was ended doesn't wait on what that test left open; and the
 # preload, which limits each synchronous child call with no timeout of its own.
-LIMIT_MS="${TRAILMARK_TEST_LIMIT_MS-400000}"
-case "$LIMIT_MS" in
-  ''|*[!0-9]*) echo "TRAILMARK_TEST_LIMIT_MS must be a whole number of ms (0: no limit), not '$LIMIT_MS'"; exit 2 ;;
-esac
+# --zip-only runs no test, so it reads no limit and needs no node here.
 LIMIT_FLAGS=()
+LIMIT_SAID=''
+if [ "$ZIPONLY" = 1 ]; then
+  LIMIT_MS=0
+else
+  LIMIT_MS="${TRAILMARK_TEST_LIMIT_MS-400000}"
+  # Digits only, at most 10 of them after leading zeros, and at most
+  # 2147483647, the largest timeout Node takes (a larger one fails each test
+  # file with ERR_OUT_OF_RANGE). Read as decimal: 007 is 7.
+  limit_digits="${LIMIT_MS#"${LIMIT_MS%%[!0]*}"}"
+  case "$LIMIT_MS" in
+    ''|*[!0-9]*) limit_bad=1 ;;
+    *) limit_bad=0; [ ${#limit_digits} -gt 10 ] && limit_bad=1; [ $limit_bad = 0 ] && [ -n "$limit_digits" ] && [ "$limit_digits" -gt 2147483647 ] && limit_bad=1 ;;
+  esac
+  if [ $limit_bad = 1 ]; then
+    echo "TRAILMARK_TEST_LIMIT_MS must be a whole number of ms from 0 (no limit) to 2147483647, not '$LIMIT_MS'"; exit 2
+  fi
+  LIMIT_MS="${limit_digits:-0}"
+  if [ "$LIMIT_MS" -gt 0 ]; then LIMIT_SAID="per-test limit $LIMIT_MS ms"; else LIMIT_SAID='no per-test limit'; fi
+fi
 if [ "$LIMIT_MS" -gt 0 ]; then
   if [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 24 ]; then
     LIMIT_FLAGS=(--test-timeout="$LIMIT_MS"); export TRAILMARK_TEST_LIMIT_OPTION=0
@@ -135,7 +159,7 @@ record() { RESULTS+=("$(printf '%-4s  %s' "$1" "$2")"); if [ "$1" = FAIL ]; then
 shown() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
 
 heading() {
-  echo "release-check${ONLY:+ --only $ONLY} at $(git rev-parse --short HEAD)$( [ -n "$(git status --porcelain)" ] && echo ' (uncommitted changes)')"
+  echo "release-check${ONLY:+ --only $ONLY} at $(git rev-parse --short HEAD)$( [ -n "$(git status --porcelain)" ] && echo ' (uncommitted changes)')${LIMIT_SAID:+, $LIMIT_SAID}"
 }
 # This run's folder for kept output, made on first use, with what was run
 # where in run.txt. A passing --only run's folder is marked as it is made, so
@@ -228,6 +252,15 @@ report_suite() { # name, slug, the suite's folder, seconds
   elif [ "${tests:-}" = 0 ]; then record FAIL "$name: no test ran ($secs s)"
   else record FAIL "$name: ${fail:-?} failed of ${tests:-?}$( [ -n "$cancelled" ] && [ "$cancelled" != 0 ] && echo ", $cancelled of them cancelled (the per-test limit, or a test ended early)") ($secs s)"; fi
   [ $ok = 1 ] || grep -E '^not ok' <<<"$out" | head -5 | sed "s|^|      $slug: |" >> "$T/failures"
+  # --test-force-exit lets a file end with handles still open; the preload
+  # names them on stderr (.github/test-limits.js), which CI turns into a
+  # warning (tap-annotate.js). Here it is a WARN after the suite's line.
+  local open n
+  open="$(sed -n 's/^.*trailmark-test-limits: open at exit in //p' <<<"$out")"
+  if [ -n "$open" ]; then
+    n="$(grep -c . <<<"$open")"
+    record WARN "$name: $n test file(s) left something open at exit, first: $(head -1 <<<"$open" | sed 's|^.*[\\/]||' | cut -c1-90)"
+  fi
   # Kept when the suite failed, and always with --only: a skip's reason is in it too.
   if [ $ok = 0 ] || [ -n "$ONLY" ]; then keep_suite "$slug" "$out" "$dir" $ok; fi
   rm -rf "$dir" 2>/dev/null
