@@ -14,8 +14,14 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: Anchoring a match at a line's start dropped a joined line
+- What went wrong: RS-T-localhang round 2 anchored the WARN's match at the start of the TAP comment (`^# \\# trailmark-test-limits:`) so that a test's mention mid-line would not count. Round 3 (Opus, by a run) found that node --test joins a file's last stderr text with no newline in front of the preload's line (`# progress 50%\# trailmark-...`), so that file was dropped from the WARN; the looser match of round 1 had counted it.
+- Why: the tighter match was checked only against the cases it was meant to exclude, not against what the old match counted that the new one drops.
+- Rule going forward: before tightening a match, list each line form the old match counted and the new one drops, and run a real case of each (for TAP: a joined partial line, a CR line end, an escaped `#`).
+- Status: open
+
 ## 2026-11-22: A reviewer's --only runs pruned the shared kept folders
-- What went wrong: the RS-T-localhang regression reviewer ran `dev/release-check.sh --only` 23 times, and the script's `prune_kept` removed 22 older kept run folders under `E:/DevTemp/trailmark-release-check` (39 before its runs, 17 after it had removed the 23 folders its own runs made: 22 of the older ones were pruned; CONFIRMED by the reviewer's counts, not re-run). A note of this item named a count of those files, which can no longer be checked.
+- What went wrong: the RS-T-localhang regression reviewer ran `dev/release-check.sh --only` 23 times, and the script's `prune_kept` removed 22 older kept run folders under `E:/DevTemp/trailmark-release-check` (39 before its runs; 22 of those were pruned; 17 were left once the reviewer had removed the 23 its own runs made; CONFIRMED by the reviewer's counts, not re-run). A note of this item named a count of those files, which can no longer be checked.
 - Why: the kept folder is next to the run's temp folder (`KEEPROOT="$(dirname "$T")/trailmark-release-check"`, with `T` from `mktemp -d`, so under `TMPDIR`), and a reviewer's clone shares the owner's `TMPDIR`. Pruning is by design.
 - Rule going forward: a review brief that lets the reviewer run `dev/release-check.sh` tells it to set `TMPDIR` to its own temp folder for those runs, so its kept output and pruning stay there. A note cites copies in the notes folder, not a kept run folder.
 - Status: open

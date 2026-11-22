@@ -259,17 +259,22 @@ report_suite() { # name, slug, the suite's folder, seconds
   # --test-force-exit lets a file end with handles still open; the preload
   # names them on stderr (.github/test-limits.js), which CI turns into a
   # warning (tap-annotate.js). Here it is a WARN after the suite's line that
-  # names each such file and what it left. Only the preload's own line form
-  # counts: node --test writes a file's stderr line as a TAP comment with its
-  # `#` escaped (`# \# trailmark-test-limits: ...`); a test that prints that
-  # whole line itself would still be counted. Some test files leave a child
-  # or a write open today (CI names them on main too), so a passing full run
-  # can show this WARN.
+  # names each such file and what it left. node --test writes each line of a
+  # file's stderr as a TAP comment with its `#` escaped, so the preload's line
+  # is `# \# trailmark-test-limits: open at exit in ...`. When the file's last
+  # stderr write had no newline, node --test joins that text in front of it
+  # (`# progress\# trailmark-test-limits: ...`), so the escaped text counts
+  # anywhere in a comment line. A test's own output counts too when it prints
+  # the `#` before `trailmark-test-limits:` (CI's tap-annotate.js matches the
+  # text anywhere). Some test files leave a child or a write open today (CI
+  # on main names them too, run 45013849055), so a passing full run can show
+  # this WARN. awk joins the names (BSD paste -s needs a `-` operand), and a
+  # list over 300 characters is cut and ends in "...".
   local open n
-  open="$(sed -n 's/^# \\# trailmark-test-limits: open at exit in //p' <<<"$out" | sed 's|\\#|#|g; s|^.*[\\/]||')"
+  open="$(sed -n 's/^# .*\\# trailmark-test-limits: open at exit in //p' <<<"$out" | sed 's|\\#|#|g; s|^.*[\\/]||')"
   if [ -n "$open" ]; then
     n="$(grep -c . <<<"$open")"
-    record WARN "$name: $n test file(s) left something open at exit: $(paste -sd ';' <<<"$open" | sed 's/;/; /g' | cut -c1-300)"
+    record WARN "$name: $n test file(s) left something open at exit: $(awk 'NR > 1 { s = s "; " } { s = s $0 } END { if (length(s) > 300) s = substr(s, 1, 297) "..."; print s }' <<<"$open")"
   fi
   # Kept when the suite failed, and always with --only: a skip's reason is in it too.
   if [ $ok = 0 ] || [ -n "$ONLY" ]; then keep_suite "$slug" "$out" "$dir" $ok; fi
