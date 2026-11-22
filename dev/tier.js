@@ -22,10 +22,12 @@ function fileTier(name, rules) {
 // The line's code, read once from left to right, so its time grows with the
 // line: each quoted string becomes "", a // comment ends the line and a /* */
 // comment goes. A quote still open at the end gives the raw line back, so a
-// stray quote can't hide a skip from the key forms (`strict` gives the code
-// before the quote instead, for reading a condition). A `/*` with no end on
-// the line, after other code, may be a regex literal such as `/a\/*b/`, so it
-// gives the raw line back too; one that opens the line is a comment.
+// stray quote can't hide a skip from the key forms; `strict` (true) gives the
+// code before the quote instead, for reading a condition, and 'keep' gives the
+// code read so far plus the raw rest, so a closed comment before the quote is
+// still taken out of a skip (`{ skip /* x */ }`). A `/*` with no end on the
+// line, after other code, may be a regex literal such as `/a\/*b/`, so it does
+// the same; one that opens the line is a comment.
 function code(l, strict) {
   let out = '';
   for (let i = 0; i < l.length; i++) {
@@ -33,14 +35,14 @@ function code(l, strict) {
     if (ch === '"' || ch === "'" || ch === '`') {
       let j = i + 1;
       while (j < l.length && l[j] !== ch) j += l[j] === '\\' ? 2 : 1;
-      if (j >= l.length) return strict ? out : l;
+      if (j >= l.length) return strict === true ? out : strict === 'keep' ? out + l.slice(i) : l;
       out += '""';
       i = j;
     } else if (ch === '/' && l[i + 1] === '/') {
       break;
     } else if (ch === '/' && l[i + 1] === '*') {
       const end = l.indexOf('*/', i + 2);
-      if (end < 0) { if (/^\+?\s*$/.test(out) || strict) break; return l; }
+      if (end < 0) { if (/^\+?\s*$/.test(out) || strict === true) break; return strict === 'keep' ? out + l.slice(i) : l; }
       out += ' ';
       i = end + 1;
     } else {
@@ -83,7 +85,7 @@ function withoutDestructuring(c) {
 }
 const QUOTED = /['"](skip|todo|only)['"]\s*:/;
 const isSkip = (l) => {
-  const c = code(l);
+  const c = code(l, 'keep');
   return CALL.test(l) || KEY.test(c) || SHORT.test(withoutDestructuring(c)) || QUOTED.test(l);
 };
 // A skip that names its condition on the same line (a platform, root, a flag).
