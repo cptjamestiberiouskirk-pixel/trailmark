@@ -317,13 +317,18 @@ function testPause() {
 // returns leaves a lock dated in the future), and each age is read before
 // the clock is checked, so a step between the two reads counts as a move.
 // A lock and its .break file also carry a stamp on the monotonic clock
-// ("mono <ms> plat <platform>", process.hrtime, shared by every process of
-// one system and counted from its boot). A waiter on the same host and
-// platform ages a stamped file by that clock alone, so no change of the
-// system clock, and no platform caching of it, reaches that age
-// (RS-T-lockagemono). A stamp ahead of now is from an earlier boot and is
-// not trusted; a file without a trusted stamp (an older version's, another
-// host's or platform's, one not yet labeled) is aged by the rules above.
+// ("mono <ms> plat <platform>", process.hrtime: one clock for the processes
+// of a system, which does not follow the system clock). For a waiter on the
+// same host and platform a stamp can only lower an age: the age used is the
+// lower of the stamp's and the one the rules above give, so no change of
+// the system clock, and no platform caching of it, makes a live holder's
+// lock look older than its stamp says (RS-T-lockagemono). A stamp never
+// raises an age: a waiter whose monotonic clock runs ahead of the holder's
+// (a Linux time namespace, another machine with the same host name) reads
+// a fresh stamp as old (review round 1, F1). A stamp ahead of now (from an
+// earlier boot, or from such a clock) is not trusted; a file without a
+// trusted stamp (an older version's, another host's or platform's, one not
+// yet labeled) is aged by the rules above alone.
 const LOCK_DEAD_MIN_MS = 5 * 1000;
 const LOCK_UNLABELED_MS = 30 * 1000;
 const LOCK_MAX_MS = 60 * 1000;
@@ -370,7 +375,8 @@ function lockInfo(file) {
 // after info, as the default does).
 function lockBreakable(info, watchedMs = 0, moved = clockMoved()) {
   if (!info) return false;
-  const age = info.mono !== null && info.mono !== undefined ? info.mono : moved ? Math.min(info.age, watchedMs) : info.age;
+  const wall = moved ? Math.min(info.age, watchedMs) : info.age;
+  const age = info.mono !== null && info.mono !== undefined ? Math.min(info.mono, wall) : wall;
   if (age > LOCK_MAX_MS) return true;
   if (!info.pid) return age > LOCK_UNLABELED_MS;
   return info.host === HOST && age > LOCK_DEAD_MIN_MS && !pidAlive(info.pid);
@@ -424,12 +430,12 @@ function tryBreakLock(file, watch = { text: null, at: 0, moved: false }) {
     }
     // Its age is read from the system clock too: not trusted once that moved
     // (one that is not a plain file is still removed).
-    // A stamped one is aged by its stamp alone (RS-T-lockagemono).
+    // A trusted stamp can only lower its age (RS-T-lockagemono).
     let bMono = null;
     if (b && b.isFile()) { try { const bt = readPlain(brk, 512); const bh = / host (\S+)/.exec(bt); bMono = monoAge(bt, bh ? bh[1] : ''); } catch { /* gone */ } }
     const bAge = b ? Math.abs(Date.now() - b.mtimeMs) : 0;
     if (clockMoved()) watch.moved = true;
-    const bOld = bMono !== null ? bMono > LOCK_UNLABELED_MS : !watch.moved && bAge > LOCK_UNLABELED_MS;
+    const bOld = !watch.moved && (bMono !== null ? Math.min(bMono, bAge) : bAge) > LOCK_UNLABELED_MS;
     try { if (b && (!b.isFile() || bOld)) fs.unlinkSync(brk); } catch { /* gone */ }
     return false;
   }

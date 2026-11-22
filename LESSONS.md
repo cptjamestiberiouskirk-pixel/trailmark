@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A second clock replaced the first instead of bounding it
+- What went wrong: RS-T-lockagemono's first commit aged a stamped lock by its monotonic stamp alone and dropped the mtime age. Fable's round 1 run showed a waiter in a Linux time namespace, with the same host name and platform, reading a live holder's fresh stamp as 100 s old and going in beside it, where 5d202b2 kept the lock.
+- Why: the premise that one host name and platform mean one clock was checked in one namespace only, and the plan listed time namespaces as rare without asking what a wrong clock would do there.
+- Rule going forward: a new source for a safety value is combined with the old one in the safe direction (here the lower age) unless it is shown to hold everywhere the old one did. For each case the premise check did not reach, write down what a wrong value would do before trusting it.
+- Status: open
+
+## 2026-11-22: Two new tests passed on the parent, counted as a total
+- What went wrong: RS-T-lockagemono's first mutation pass gave "10 of 14 fail" on 5d202b2's `store.js`, and two of the four that passed were new tests that could not tell the fix apart: every clock they used was a move the waiter sees, so the parent's watch kept the lock (review round 1, Opus F1).
+- Why: the parent's result was read as a count, not test by test against what each new test is for.
+- Rule going forward: on the parent, list each new test that passes and give it a reason (a premise test, a case the parent already handled); one with no reason gets the case it is missing.
+- Status: open
+
 ## 2026-11-22: A test input far from its check's edge let a mutation pass
 - What went wrong: RS-T-lockagemono's first mutation pass showed that `monoAge`'s check that a stamp is not ahead of now could be replaced by `Math.abs(age)` with every test passing. The test's stamp was an hour ahead, so read as a distance it was an hour old, and the 60 s rule broke the lock either way.
 - Why: the case was picked to be clearly ahead, not near the edges that the check and its mutation draw. It is the class of "A threshold was mutated far from its value", seen a second time.
