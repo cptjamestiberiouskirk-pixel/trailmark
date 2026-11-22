@@ -14,6 +14,42 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: Auto-merge was turned off and the supervisor was not told
+- What went wrong: on PR #113 this session turned auto-merge off on Copilot's findings, as the deferred-item rule asks, but told the supervisor session only that it had been set. The supervisor then saw it off, took it for a drop, and asked for it to be set again on a head with two CONFIRMED races.
+- Why: the supervisor was to be told after a push or a merge; turning auto-merge off is neither, and was left out.
+- Rule going forward: a change to a PR's merge state (auto-merge set or off, a merge, a close) is reported to the supervisor in the same step, with the reason.
+- Status: open
+
+## 2026-11-22: A skip for a confounded result came before the asserts
+- What went wrong: in PR #113's round 4 batch, the check that skips a lock test when an ended holder's pid is in use again ran before the asserts, so a lock broken while a pid was in use showed as a skip, and in two tests an earlier assert failed on the very case the skip was for (review round 5, Fable F1 and F2, Opus F1, each CONFIRMED by its reviewer by a run).
+- Why: the skip was put where the doubt arises (the pid), not where it matters (a result the pid could explain). A live pid can only keep a lock, so only a kept lock is in doubt.
+- Rule going forward: a skip for a confound runs only after the asserts that the confound cannot explain, and only where the result is one it could explain; in a loop of cases it skips only its own case (round 6, F1); the class of "A retry added for load could hide the regression its test was written for", seen again.
+- Status: open
+
+## 2026-11-22: A line the fix added was never removed alone, and no test failed on it
+- What went wrong: in PR #113's Copilot fix, the mutation named for the `.break` file's clock check removed the `!watch.moved` term, not the added line `if (clockMoved()) watch.moved = true;` after the file's age (`store.js` line 407). Removed alone, that line failed no test (review round 4, F1, CONFIRMED by Opus by a run), since the new `.break` test stepped the clock only after the age was read, and the notes said each new part removed alone failed its test. The same held for the check before the second look (line 431).
+- Why: the mutation list was made from the fix's ideas (the kept move, the read order, the clock check), not from its added lines, so a line that an idea took for granted was left out. It is the class of "The lock fix's tests left its watch untested", seen again.
+- Rule going forward: a fix's mutation list is made from its diff: each added or changed line and each new term gets a mutation that removes just it, and a line no test fails on gets a test or a written reason (the 2026-11-09 lesson on a line no test needs).
+- Status: promoted to PLAYBOOK ("Testing" step 8)
+
+## 2026-11-22: Three review rounds stepped the clock once per wait, and Copilot found two races
+- What went wrong: RS-T-lockagestep passed three review rounds, and Copilot on PR #113 then found two clock-step races in the fix, each CONFIRMED here by a probe: a clock that steps and returns within one wait undid the fix's distrust, and a step between the clock check and the `.break` file's age read removed an active breaker's `.break`.
+- Why: every test and probe moved the clock once, for the whole wait. None stepped it between two reads of one try, or stepped it back during the wait.
+- Rule going forward: a change that compares two clock reads gets a case that steps the clock between each pair of reads (a hook that places the step there, as the `.break` test does: it arms on the file's `fs.lstatSync` and steps on a count of `Date.now` reads) and one that steps and returns within one wait; the order of the reads is written in a comment.
+- Status: open
+
+## 2026-11-22: A threshold was mutated far from its value, and a timing margin was checked on one side
+- What went wrong: RS-T-lockagestep's round 1 batch tested its 1 s threshold with a move of 6 s, and its mutation set the threshold to 30 s, which that test caught; a threshold of 5 s also passed every test (review round 2, Opus, by a run). The relabel test's child wrote at 1.5 s, leaving about 0.5 s of margin on one side and 3.3 s on the other (Opus's probe).
+- Why: the mutation value was picked to show a failure, not set just past the test's input, as `dev/testing-cases.md` asks of a test of a limit (one item at the limit and one just past it; PLAYBOOK "Testing" step 10 points there). The relabel test's timing was reasoned from the late side only.
+- Rule going forward: a timing test works out the time to each edge it must stay between and keeps them about equal, its comment giving both. A threshold's mutations sit just past the test's input, as `dev/testing-cases.md` already says.
+- Status: open
+
+## 2026-11-22: The lock fix's tests left its watch untested
+- What went wrong: RS-T-lockagestep's first four tests passed with the parent's whole `tryBreakLock` or `withLock` put back, with a watch that never started again, with the `.break` line put back and with a 30 s threshold (review round 1, Opus, by runs). Only the outcome of short waits was tested, not the watch that the comment names as the design.
+- Why: PLAYBOOK "Testing" step 8 (remove each part of a fix alone and check that a test fails) was not run before the first round; the round ran it.
+- Rule going forward: none new; step 8 is run on each part of a fix before the first round, its results in the notes.
+- Status: promoted to PLAYBOOK ("Testing" step 8, which already holds it)
+
 ## 2026-11-22: A clock-step test showed only that the work was not stopped early
 - What went wrong: RS-T-clocksteplibs's commit-sites test stepped `Date.now` and checked that the read was not cut short. Review round 1 (Opus, by a run) put `parse`'s deadline back on `Date.now` alone: the deadline then sat near 1.7e12 against `performance.now`, so the read never stopped for time, and the new test still passed. An older test caught it.
 - Why: the test checked one side of the deadline, that a step does not end it, and not that the deadline still ends the work.
