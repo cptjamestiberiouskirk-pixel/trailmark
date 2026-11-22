@@ -12,9 +12,11 @@
 //              test() call and removed after it: a getter that throws, a
 //              setter that refuses the old value, no property, and none of
 //              Error's own with an accessor on Function.prototype that keeps
-//              what is assigned. Each test must register, the stack must stay
-//              a string, and the file's own property or value must be as it
-//              set them (RS-T-pstaccessor; the stand-in runs on Node 22 only)
+//              what is assigned. Each test must register; with the refused
+//              setter and the inherited accessor the stack must stay a
+//              string and the value be the file's; with no property none
+//              must come back (RS-T-pstaccessor; the stand-in runs on
+//              Node 22 only)
 //   spawnsync  spawnSync of a child that never ends and ignores SIGTERM,
 //              with `timeout: 0` (which Node reads as none)
 //   orphan     execFileSync of a child that exits at once and leaves a
