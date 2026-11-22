@@ -695,7 +695,13 @@ run.stop();`;
     assert.ok(!list.includes('prune-case'), 'own worktree still registered');
     assert.ok(list.includes('other-tree'), 'the other worktree\'s record was dropped');
   } finally {
-    spawnSync('git', ['-C', root, 'worktree', 'prune'], { timeout: 60000 });
+    // Only this test's own record goes: `git worktree prune` is repo-wide and
+    // would drop the record of any unrelated worktree whose folder is away.
+    const common = path.resolve(root, gitq('rev-parse', '--git-common-dir').stdout.trim());
+    const rec = path.join(common, 'worktrees', 'other-tree');
+    try {
+      if (path.resolve(fs.readFileSync(path.join(rec, 'gitdir'), 'utf8').trim()) === path.resolve(other, '.git')) fs.rmSync(rec, { recursive: true, force: true });
+    } catch { /* no record: nothing to remove */ }
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
