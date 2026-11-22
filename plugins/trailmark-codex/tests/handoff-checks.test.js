@@ -686,8 +686,10 @@ test('lock: with the clock moved, a dead holder\'s lock is broken after 5 s of w
   const got = tryLock(dir, 61000, 7000);
   const took = performance.now() - t0;
   // A lock kept, as a pid in use again would keep it, is the one result to
-  // skip on (review round 6, F2: a throw was skipped too).
-  const kept = !got.ran && got.code === 'JBMEM_LOCKED' && fs.readFileSync(file, 'utf8').includes('token dddd');
+  // skip on (review round 6, F2: a throw was skipped too). A break that
+  // ends after the deadline leaves no lock to read, so its failure is the
+  // assertion's, not a raw ENOENT (RS-T-lockagekeptread).
+  const kept = !got.ran && got.code === 'JBMEM_LOCKED' && fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token dddd');
   const again = kept ? reusedPid(text) : 0;
   if (again) return t.skip(reusedSkip(again));
   assert.deepStrictEqual(got, { ran: true, code: '' });
