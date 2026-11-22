@@ -54,9 +54,14 @@ function runner(budgetMs, callMs = 4000) {
     if (far) { r.refused = r.refused || far; return { ok: false, out: '', why: far }; }
     const bin = gitPath(cwd);
     if (!bin) return { ok: false, out: '', why: 'no-git' };
+    // 34 MiB: the list of tracked files was read up to 32 MiB, and the tag
+    // that farWorktree asks for (ls-files -t) puts 2 more bytes on each of
+    // its lines, of 51 bytes or more. 32 MiB of lines without the tag are at
+    // most 33.3 MiB with it. An answer past this is cut off, and the call
+    // fails (RS-A-missinglookups, review round 1).
     try {
       const out = execFileSync(bin, [...GIT_GLOBAL, ...args], {
-        cwd, env: gitEnv(), encoding: 'utf8', timeout: left, maxBuffer: 32 * 1024 * 1024,
+        cwd, env: gitEnv(), encoding: 'utf8', timeout: left, maxBuffer: 34 * 1024 * 1024,
         stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'], windowsHide: true,
         ...(input === undefined ? {} : { input }),
       });
@@ -167,7 +172,7 @@ function farWorktree(r, cwd, caseless = CASELESS) {
   const entries = [];
   let read = 0;
   for (const e of ls.out.split('\0')) {
-    // The list can be 32 MB, and nothing below looks at the disk, so the
+    // The list can be 34 MiB, and nothing below looks at the disk, so the
     // time is looked at once for each LIST_STEP characters of it.
     if ((read += e.length + 1) >= LIST_STEP) { read -= LIST_STEP; if (r.left() < 800) return 'git-timeout'; }
     // With -t git puts a tag and a space before each line (`H 100644 ...`),
@@ -305,7 +310,7 @@ function farWorktree(r, cwd, caseless = CASELESS) {
         for (const nm of names) {
           if (held.has(nm)) continue;
           // Nor is a name git marks skip-worktree (`S`): git status passes
-          // over such an entry, and git has looked for it already. With
+          // over such an entry, a folder there or not. With
           // core.sparseCheckout on, git takes the mark off as it reads the
           // index when its own lookup finds something at the path, a folder
           // the drive finds under another case included, and -t then gives
