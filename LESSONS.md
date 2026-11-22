@@ -14,10 +14,16 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: Auto-merge was turned off and the supervisor was not told
+- What went wrong: on PR #113 this session turned auto-merge off on Copilot's findings, as the deferred-item rule asks, but told the supervisor session only that it had been set. The supervisor then saw it off, took it for a drop, and asked for it to be set again on a head with two CONFIRMED races.
+- Why: the supervisor was to be told after a push or a merge; turning auto-merge off is neither, and was left out.
+- Rule going forward: a change to a PR's merge state (auto-merge set or off, a merge, a close) is reported to the supervisor in the same step, with the reason.
+- Status: open
+
 ## 2026-11-22: A skip for a confounded result came before the asserts
 - What went wrong: in PR #113's round 4 batch, the check that skips a lock test when an ended holder's pid is in use again ran before the asserts, so a lock broken while a pid was in use showed as a skip, and in two tests an earlier assert failed on the very case the skip was for (review round 5, Fable F1 and F2, Opus F1, each CONFIRMED by its reviewer by a run).
 - Why: the skip was put where the doubt arises (the pid), not where it matters (a result the pid could explain). A live pid can only keep a lock, so only a kept lock is in doubt.
-- Rule going forward: a skip for a confound runs only after the asserts that the confound cannot explain, and only where the result is one it could explain; the class of "A retry added for load could hide the regression its test was written for", seen again.
+- Rule going forward: a skip for a confound runs only after the asserts that the confound cannot explain, and only where the result is one it could explain; in a loop of cases it skips only its own case (round 6, F1); the class of "A retry added for load could hide the regression its test was written for", seen again.
 - Status: open
 
 ## 2026-11-22: A line the fix added was never removed alone, and no test failed on it

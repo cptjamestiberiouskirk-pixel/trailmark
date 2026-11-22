@@ -685,7 +685,10 @@ test('lock: with the clock moved, a dead holder\'s lock is broken after 5 s of w
   const t0 = performance.now();
   const got = tryLock(dir, 61000, 7000);
   const took = performance.now() - t0;
-  const again = got.ran ? 0 : reusedPid(text);
+  // A lock kept, as a pid in use again would keep it, is the one result to
+  // skip on (review round 6, F2: a throw was skipped too).
+  const kept = !got.ran && got.code === 'JBMEM_LOCKED' && fs.readFileSync(file, 'utf8').includes('token dddd');
+  const again = kept ? reusedPid(text) : 0;
   if (again) return t.skip(reusedSkip(again));
   assert.deepStrictEqual(got, { ran: true, code: '' });
   assert.ok(took >= 5000, `broken after ${Math.round(took)} ms`);
@@ -724,7 +727,8 @@ test('lock: with the clock moved, a .break file is not removed for its age, and 
   // file is reached; by the moved clock it is over 30 s old.
   assert.deepStrictEqual(tryLock(dir, 61000, 7000), { ran: false, code: 'JBMEM_LOCKED' });
   assert.ok(fs.existsSync(brk), 'the .break file was removed');
-  // A pid in use again would also keep both, and the next try needs it free.
+  // A pid in use again would also keep the lock and the .break file, and the
+  // next try needs it free.
   const again = reusedPid(text);
   if (again) return t.skip(reusedSkip(again));
   assert.deepStrictEqual(tryLock(dir, 0), { ran: true, code: '' });
@@ -756,6 +760,7 @@ test('lock: a clock step at a .break file\'s age, or between it and the clock ch
   // read counted after the .break file's lstat: read 1 is the file's age,
   // read 2 the clock check after it (review round 4, F1: a step from read
   // 2 alone left that check untested).
+  let reused = 0;
   for (const from of [1, 2]) {
     const { dir, file } = deadLockAt(`jbmem-lockbrkstep${from}-`, 10000);
     const text = fs.readFileSync(file, 'utf8');
@@ -769,10 +774,13 @@ test('lock: a clock step at a .break file\'s age, or between it and the clock ch
     try { got = (() => { try { S.withLock(dir, () => {}, { waitMs: 600 }); return ''; } catch (e) { return e.code; } })(); } finally { fs.lstatSync = lstat; Date.now = now; }
     assert.strictEqual(got, 'JBMEM_LOCKED', `step from read ${from}`);
     assert.ok(fs.existsSync(brk), `step from read ${from}: the fresh .break file was removed`);
+    // A pid in use in one case leaves the other to run (review round 6, F1:
+    // only the step from read 2 catches the old read order).
     const again = reusedPid(text);
-    if (again) return t.skip(reusedSkip(again));
+    if (again) { reused = again; continue; }
     assert.ok(armed, `step from read ${from}: the .break file was never looked at`);
   }
+  if (reused) t.skip(reusedSkip(reused));
 });
 
 test('lock: a clock step after the .break file is taken keeps a dead holder\'s lock for its 5 s (RS-T-lockagestep)', (t) => {
