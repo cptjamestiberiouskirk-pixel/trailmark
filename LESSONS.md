@@ -14,6 +14,72 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A search capped at 5 hits was written down as finding nothing
+- What went wrong: in RS-D-enforcedocs, the notes said "a search of the session transcripts found only later copies of the notes" for the user's "Yes, if clean". The search had a limit of 5 and returned 5 hits, all copies; the docs reviewer found the user's turn in session 2781e549's transcript (line 3940, 2026-11-18 02:33:35Z), and the notes then labeled it from the wrong source (WRONG, docs round 1).
+- Why: a capped search that returns as many hits as its cap shows only that there are at least that many; it was read as the whole result.
+- Rule going forward: before writing that something is absent, the search that looked for it returned fewer hits than its limit, or the source named in the notes (here the session id) was searched directly.
+- Status: open
+
+## 2026-11-22: MSYS rewrote a `rev:path` argument, and a probe ran an empty file
+- What went wrong: the RS-T-limitscwd probe took the base commit's script with `git -C <repo> show "origin/main:.github/test-limits-check.js" > old.js`. Git Bash rewrote the argument as a path list (`origin\main;.github\test-limits-check.js`), git failed, `old.js` was empty, and the base half of `lc-probe-1.out` ran an empty file: exit 0, nothing left, which looked like the base had no bug. Setting `MSYS_NO_PATHCONV=1` then broke the `-C /e/...` path of the same call.
+- Why: the playbook's MSYS bullet names arguments that start with `/`; a `:` between two parts that hold `/` is read as a path list too. The probe did not check that its copy of the old script was there.
+- Rule going forward: a `rev:path` whose rev holds a `/` goes to git with `MSYS_NO_PATHCONV=1` and a Windows-form `-C` path (`cygpath -w`), or uses a commit id. A probe that runs an old copy checks that the copy is not empty before it runs it.
+- Status: promoted to PLAYBOOK ("Constraints and known limits", the MSYS bullet)
+
+## 2026-11-22: Anchoring a match at a line's start dropped a joined line
+- What went wrong: RS-T-localhang round 2 anchored the WARN's match at the start of the TAP comment (`^# \\# trailmark-test-limits:`) so that a test's mention mid-line would not count. Round 3 (Opus, by a run) found that node --test joins a file's last stderr text with no newline in front of the preload's line (`# progress 50%\# trailmark-...`), so that file was dropped from the WARN; the looser match of round 1 had counted it.
+- Why: the tighter match was checked only against the cases it was meant to exclude, not against what the old match counted that the new one drops.
+- Rule going forward: before tightening a match, list each line form the old match counted and the new one drops, and run a real case of each (for TAP: a joined partial line, a CR line end, an escaped `#`).
+- Status: open
+
+## 2026-11-22: A reviewer's --only runs pruned the shared kept folders
+- What went wrong: the RS-T-localhang regression reviewer ran `dev/release-check.sh --only` 23 times, and the script's `prune_kept` removed 22 older kept run folders under `E:/DevTemp/trailmark-release-check` (39 before its runs; 22 of those were pruned; 17 were left once the reviewer had removed the 23 its own runs made; CONFIRMED by the reviewer's counts, not re-run). A note of this item named a count of those files, which can no longer be checked.
+- Why: the kept folder is next to the run's temp folder (`KEEPROOT="$(dirname "$T")/trailmark-release-check"`, with `T` from `mktemp -d`, so under `TMPDIR`), and a reviewer's clone shares the owner's `TMPDIR`. Pruning is by design.
+- Rule going forward: a review brief that lets the reviewer run `dev/release-check.sh` tells it to set `TMPDIR` to its own temp folder for those runs, so its kept output and pruning stay there. A note cites copies in the notes folder, not a kept run folder.
+- Status: open
+
+## 2026-11-22: The local summary called a run with three hung tests PASS
+- What went wrong: with the per-test limit added to `dev/release-check.sh` (RS-T-localhang), the hang probe's `async` case printed `PASS ... 2/5 pass` and exit 0 while three tests had timed out. Node 26 counts a test that `--test-timeout` ends as cancelled (`# fail 0`, `# cancelled 3`), and `report_suite` read only `# fail`. The same probe's cleanup stopped none of the 16 pids the cases wrote, because MSYS `kill` cannot signal Windows pids, and two leftover node processes running the fixture's `sleep` (INFERRED to be its orphans) held the probe's folder.
+- Why: the summary's pass rule was written when nothing ended a test early, and the probe's cleanup was written from the CI self-check, which kills by `process.kill` in node, not from bash.
+- Rule going forward: a summary that turns TAP into pass or fail counts every line of the footer that can mean a test did not pass (`# fail`, `# cancelled`), and a probe of a new limit reads the run's own summary line, not only the TAP. From Git Bash, a Windows pid is stopped with `taskkill //F //PID`, and a probe checks after its cleanup that its folder is gone.
+- Status: open
+
+## 2026-11-22: A PR went up without its Lessons checked line, and a brief left out the lessons step
+- What went wrong: PR 103 (RS-A-missinglookups) was opened and set to auto-merge with a body that had no `Lessons checked:` line, and the round 4 docs brief did not ask the reviewer to run `dev/lessons.sh`. Both are PLAYBOOK step 6. The line was added to the body about two minutes after the PR was opened (opened 08:01:11Z, auto-merge set 08:01:34Z, the body with the line 08:03:10Z, from GitHub's edit history of the body).
+- Why: the PR body was written from the commit messages and the release-state record after a compaction, and the lessons check was run for the edits and the commit but not read again before the push and the brief.
+- Rule going forward: before `gh pr create` and before sending a review brief, read PLAYBOOK step 6 and check the text: the body's last line is `Lessons checked: ...`, and the brief names `dev/lessons.sh` as the reviewer's first step.
+- Status: open
+
+## 2026-11-22: A reviewer's CONFIRMED reason went into a code comment, and the next round showed it wrong
+- What went wrong: in RS-T-startdirect's round 1, Opus F3 said a full run of the sweep test leaves its state as it was ("CONFIRMED", from a log it made). It went into the test's comment, a commit message and the notes as the reason the state is not rewritten between tries. Round 2 (Opus again, by a mutation that printed the record) saw a full try cut swept to 64. The change stayed safe for another reason.
+- Why: the claim was carried as "CONFIRMED by Opus, not re-run", which the notes allow, and then written into a code comment, which carries no label.
+- Rule going forward: a reason that goes into a code comment is one the owner has re-run, or the comment says it was not re-run. A reviewer's log of a state is read for which run and which point it was taken at before it stands for "a full run".
+- Status: open
+
+## 2026-11-22: A retry added for load could hide the regression its test was written for
+- What went wrong: RS-T-startdirect gave the sweep test startInTime's tries, which make a stop after a slow launcher again and then skip. The fault that test exists for (a real path per key) is itself a slow launcher, so under load it was stopped, made again and skipped (review round 1, Opus F1; reproduced with `sd-f1.sh`).
+- Why: startInTime's own comment lists "the slow launcher step itself" as not covered, and that line was not read against what this test measures.
+- Rule going forward: before a test gets a retry or a skip on a sign of load, check whether the fault the test exists for gives the same sign. If it does, the test checks its own assertion after every try, a stopped one too, before it tries again; and a mutation run puts the fault back under that load.
+- Status: open
+
+## 2026-11-22: A reviewer loaded the library from the worktree while the owner edited it
+- What went wrong: the RS-A-missinglookups security reviewer (Fable) ran its probes against `gitfacts.js` at the worktree's path while the coordinator, in the same worktree, was making the docs-round and regression-round fixes (the files' modification times 01:51 to 02:03, as the reviewer's report gives them). The reviewer's report says it noticed and named which runs could have seen the edited file, and that its test runs were in its own clone at 97cb3ba. The edits in that window were the runner's buffer (32 to 34 MiB) and comments; `farWorktree`'s logic, which the probes exercised, was unchanged, so its result holds. A logic edit in that window would have mixed two versions into one review.
+- Why: the brief said to review `git diff cc92c9a..97cb3ba` and to test in a clone, but did not say that probes load the code from the clone too. The owner went on fixing other rounds' findings in the shared worktree.
+- Rule going forward: a review brief says that every run, probes included, loads the code from the reviewer's own clone at the reviewed commit, never from the owner's worktree. The owner makes no edits in the worktree while a reviewer may read it, or tells the reviewer the worktree is moving.
+- Status: open
+
+## 2026-11-22: A probe went in through a heredoc, and its first run lost its patterns to MSYS
+- What went wrong: the RS-A-missinglookups sparse probe (`ml-sparse.sh`) was written with a Bash heredoc, where "Constraints and known limits" says every script is written with the Write or Edit tool. Its first run in Git Bash passed `/d/a` and the other sparse patterns to Windows git without `MSYS_NO_PATHCONV=1`, which the same section names for `wsl.exe` only. MSYS rewrote them, so the patterns matched nothing, and the `wsl.exe` paths were rewritten too, so the WSL runs never started (CONFIRMED from that run's output as the session saw it: `after set:` listed nothing, and `sh` could not open `C:/Program Files/Git/mnt/c/...`; the output was not saved). The probe was run again with the variable set (`ml-sparse.out`).
+- Why: a harness reminder to work through Bash was followed over the project's rule. The patterns were not seen as path arguments because they were git patterns, not file names.
+- Rule going forward: "Constraints and known limits" holds over a harness reminder. New: any argument that starts with `/` and goes to a Windows program (git patterns, `wsl.exe` paths) runs with `MSYS_NO_PATHCONV=1`, not only `wsl.exe` calls.
+- Status: promoted to PLAYBOOK ("Constraints and known limits", the MSYS bullet)
+
+## 2026-11-22: A measured count was applied to a different distance than the one measured
+- What went wrong: the RS-T-hookcwd note (PR 101) said a hook working in a subfolder meets the "two folders down" count of 2,000 to 5,000 missing names. `probe-top.js` had put the process in the repo's top folder and the names two folders below it, and the corrected RS-A-missinglookups bullet already said the count depends on the distance from the process's working folder. Moving the hook's folder changes that distance instead of reproducing it. Codex's review found it (P2, CONFIRMED here by reading the bullet and the probe's description); the coordinator had written the sentence from the hook-folder result without re-reading what the count was measured against.
+- Why: two true facts (the hook works in the session's folder; the count depends on the distance from the working folder) were joined by the reading "session folder = repo root + two", which neither fact says.
+- Rule going forward: when a note carries a measured figure into a new case, first write down what the figure was measured against (which folder, which load, which size) and check that the new case has the same value there; otherwise say it was not measured.
+- Status: open
+
 ## 2026-11-22: A test failed on its parent only for want of its stand-in
 - What went wrong: the three tests of the runner's round 4 fixes failed on their parent commits, which was taken as the reproduction, but they failed there because the parent had no `opts.prText` or `opts.lsTree` (the real `gh` ran, or `writeHead` was not exported). Round 5 added only the stand-ins to the old code: two then failed for the fix's reason, and one passed.
 - Why: a test that adds a stand-in fails on any commit without it, whatever the fix does.
@@ -24,6 +90,30 @@ Format:
 - What went wrong: review rounds 2, 3 and 4 each found `dev/review-evals/run.js` able to delete a folder it had not made: first through an unchecked case id, then by force-removing any registered worktree, then by adopting an empty folder that appeared while `gh` ran. Each fix closed the reported path and claimed more than it proved ("never removes"), and round 3's change of approach still left a check-then-act gap. The brief's rule stopped the work.
 - Why: the safety rested on checks before an action that another process can race, and the claims were written from the design, not from a test that reaches the action (no test ran `git worktree add`).
 - Rule going forward: a tool that deletes what it made creates the folder itself with an exclusive create (`mkdir` that fails if it exists) and records it in the same step; a claim like "never deletes" needs a test that reaches the delete, including the race.
+- Status: open
+
+## 2026-11-21: A deferred item read a stop line against the wrong clock
+- What went wrong: RS-T-firstcheckload's bullet in `dev/release-state.md` said the real git calls after the test's fake 3 s step had to fit in the 3 s left. `trailmark.js` (`run`) says otherwise: the git calls ran with 20 s on a clock the preload held still, and the `spent=3000` of the stop line is that fake clock. The launcher then gave the hook's script 6,000 ms of real time, and the script ran past them. A load probe built on the old reading would have timed the git calls.
+- Why: the line was read for what it seemed to say, and the code that prints it, and the clock each of its numbers comes from, were not opened.
+- Rule going forward: before a failure's cause is written down, open the code that prints each number of its sign and name the clock or count each one comes from (fake or real, whose process).
+- Status: open
+
+## 2026-11-21: Busy loops did not slow a hook script past its window, and file churn did
+- What went wrong: with 48 busy loops the hook script took at most 1.7 s (`probe-2.out`), and the 6 s stop seemed out of reach. With the same loops and 16 processes writing, renaming and deleting small files in the temp drive, it took up to 12.1 s and 12 of 20 runs passed their window (`probe-io-1.out`).
+- Why: busy loops load the processor only. A test suite also loads the file system, and on Windows that slows process starts and file writes (Defender, retries on busy errors).
+- Rule going forward: a load repro that busy loops don't reproduce adds file churn in the temp folder (`io-churn.js` of `rs-t-firstcheckload/`) before the failure is called out of reach.
+- Status: open
+
+## 2026-11-21: The kept output a deferred item named was gone
+- What went wrong: RS-T-firstcheckload named `E:/DevTemp/trailmark-release-check/20261116-150241-1810` for its failure, and on 2026-11-19 the folder was gone, so the failed test's lines were not there to read.
+- Why: the lines were not copied into the notes folder when the failure was seen, as "Testing" step 4 asks.
+- Rule going forward: none new; "Testing" step 4 holds. A deferred item names a copy in the notes folder, not only a kept run folder.
+- Status: open
+
+## 2026-11-21: A cp onto a test file was refused that the Edit tool could write
+- What went wrong: `cp plugins/trailmark-codex/tests/handoff-checks.test.js plugins/trailmark/tests/handoff-checks.test.js` failed twice with "Permission denied" (Git Bash, 2026-11-21), where the same command had worked on 2026-11-19. The Edit tool then wrote the same change to that file, and `cmp` showed both copies equal.
+- Why: not known. The file had normal permissions (`-rw-r--r--`).
+- Rule going forward: when a copy between the two plugin copies is refused, make the same edit with the Edit tool and check the copies with `cmp`.
 - Status: open
 
 ## 2026-11-21: `--only '<name>'` passed a dev/ test that never ran
@@ -167,13 +257,13 @@ Format:
 
 ## 2026-11-18: A result was moved onto a commit on a reviewer's word, without opening the files it cited
 - What went wrong: in RS-T-hang75-enforce, the notes at bd0a6c5 said the Node 22 stand-in's test, location, timeout and count lines equal native `--test-timeout`'s, "20 of 20 (`proto/control.sh`)". Round 2's docs reviewer asked to say it was measured on bd0a6c5's preload, and the batch wrote "bd0a6c5's stand-in (before round 1's fix)". Round 3's docs reviewer opened `proto/`: `control.sh` compared an early prototype, `each.js`, made before bd0a6c5, and the saved lines are 23 against 20, unequal at the tenth test (WRONG).
-- Why: the first note was written from the run as remembered, not read back from the saved lines, and the rewording took the reviewer's premise about which code ran without opening the script or its output. Two sentences of 2026-11-15's lesson would have caught both: "a record that gives one result for several cases checks it against each case's line in the output it cites" and "each case a repro names is found by a search in the file the repro cites". That lesson stays open for its other sentences.
+- Why: the first note was written from the run as remembered, not read back from the saved lines, and the rewording took the reviewer's premise about which code ran without opening the script or its output. Two sentences of 2026-11-15's lesson would have caught both: "a record that gives one result for several cases checks it against each case's line in the output it cites" and "a reviewer's claim copied into the notes says 'not re-run' unless this session ran it". That lesson stays open for its other sentences.
 - Rule going forward: a result whose note names a probe and its saved output is read back from that output, and from what the probe ran (which file, which commit), when it is written and again when a batch rewords it, a reviewer's suggested wording included.
 - Status: promoted to PLAYBOOK ("Writing code and docs" step 15)
 
 ## 2026-11-18: Another session stopped a release check it took for a hang
 - What went wrong: in RS-T-hang75-enforce, the first `--sums --quick` on bd0a6c5's tree (23:48 to 00:03 local) reported handoff-checks as "? failed of ?" after 876 s. Its TAP held 67 lines of git warnings and two "kept" lines, and no `ok`, `not ok` or `# tests` line (`rc1-kept/handoff-checks.tap`). The session "Desktop app performance" then wrote that it had stopped that `node --test` tree with the user's approval, reading low CPU and an exited shell as a hang (`perf-session-messages.md`); the notes give 400 to 700 s as the suite's usual time and record runs up to 894 s. The run again, with `probe/watch-rc.ps1` logging the suite's parent every 15 s, passed every line (`rc2.out`, `rc2.out.watch`).
-- Why: Node's runner printed no test line before the stop (INFERRED that it prints a file's test lines only when that file ends: an earlier failed run's kept TAP, `rs-t-hang75/sums-quick-5-handoff-checks.tap`, also has 72 lines of warnings and diagnostics before its first test line), so a parent stopped from outside leaves the children's stderr and nothing else. The machine is shared, and another session may stop processes it did not start.
+- Why: Node's runner printed no test line before the stop (INFERRED that it prints a file's test lines only when that file ends: an earlier failed run's kept TAP, `rs-t-hang75/sums-quick-5-handoff-checks.tap`, also has a TAP header and 71 lines of warnings and diagnostics before its first test line; Node's v22.x `FileTest` holds a file's report items until `isClearToSend()`, `runner.js` lines 250 to 252, fetched 2026-11-18 UTC, and when that turns true was not traced; the local runs used another Node, whose version was not recorded), so a parent stopped from outside leaves the children's stderr and nothing else. The machine is shared, and another session may stop processes it did not start.
 - Rule going forward: a suite whose TAP has no `# tests` line ended early. Before reading it as a test failure, look for an outside stop (messages from other sessions, the Application and System logs, leftover processes), then run again with a logger of the suite's parent beside it (`watch-rc.ps1` in the sessions' notes folder, `rs-t-hang75-enforce/probe/`), so the parent's end shows in the log.
 - Status: open
 
@@ -184,7 +274,7 @@ Format:
 - Status: open
 
 ## 2026-11-17: A step-time scan read 300 of 370 runs, and its sum took in steps the workflow no longer has
-- What went wrong: in RS-T-hang75-enforce, `steptimes.sh` (copied from RS-T-hang75) reads three pages of 100 runs, and GitHub listed 370 (`total_count`); its "every run still listed" was the newest 300. With a fourth page the window reached 2026-10-28, and `nest-check.js` then summed every step name in the data, `jb-memory tests` and `actions/checkout@v4` of the October workflows among them, and printed "9 places do not fit". Fixed: four pages, and the sum counts only the step names of the newest run, for each system (`nest-check.out`: every place fits).
+- What went wrong: in RS-T-hang75-enforce, `steptimes.sh` (copied from RS-T-hang75) reads three pages of 100 runs, and GitHub listed 370 (`total_count`, not saved then; it reads 370 for the tests.yml runs when asked again on 2026-11-22 with the data's last step start, 2026-11-18 03:40:35Z, as the cutoff); its "every run still listed" was the newest 300. With a fourth page the window reached 2026-10-28, and `nest-check.js` then summed every step name in the data, `jb-memory tests` and `actions/checkout@v4` of the October workflows among them, and printed "9 places do not fit" (that output was not saved). Fixed: four pages, and the sum counts only the step names of the newest run, for each system (`nest-check.out`: every place fits).
 - Why: the page count was fixed when fewer runs were listed, and the sum was written when every listed run had the same steps.
 - Rule going forward: a script that claims every listed run prints the API's `total_count` beside the count it read. A sum over a workflow's steps takes the steps the workflow has now, not every name in the data.
 - Status: open
@@ -1283,6 +1373,7 @@ Format:
 - Why: every test looked at the answer, and the answer was the same with and without the line. What the line saved was time, which no test measured.
 - Rule going forward: a line that no test needs gets a look at what else it does (time, memory, what is handed to the next function) before it is removed, and if it stays it gets an assertion of its own. For time, count the work (calls, sizes) where that is possible, not seconds.
 - Status: open
+
 ## 2026-11-09: A test's expected count was worked out by hand and was one off
 
 - What went wrong: the RS-F-codexwalk test expected the search to look in 45 folders. It looks in 44, so the "one fewer" case passed where it should have been cut short, and the test failed with the fix in place.
@@ -1296,6 +1387,7 @@ Format:
 - Why: three layers of escaping (the shell, the template literal, the regex) and no look at what text the script would search for.
 - Rule going forward: for an edit whose old text holds backslashes, use the Edit tool on one copy and copy the file to the other, or anchor the pair on a nearby line without backslashes.
 - Status: promoted to PLAYBOOK (seen again the same day: a pair script for test code with `\n` in it stopped the same way)
+
 ## 2026-11-09: A review's commit was copied from another reviewer's
 
 - What went wrong: the release-state note for PR 33 said Copilot reviewed b37f215. GitHub records its review on e466077. Copilot found it on PR 34.

@@ -101,8 +101,8 @@ jobs:
       # Linux, 300 s on macOS and 400 s on Windows, under its step limit with
       # room for the steps after it (section "Next version: RS-T-hang75"; the
       # step's limit did not end the two hangs seen there). In enforce mode
-      # the limit ends a hung test as a failure that names it, and the step
-      # goes on to the next file (section "Next version: RS-T-hang75-enforce").
+      # the limit ends a hung test as a failure that names it (section "Next
+      # version: RS-T-hang75-enforce").
       - name: Checks added in 0.4.5 (both copies)
         timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 8 || matrix.os == 'macos-latest' && 12 || 25 }}
         shell: bash

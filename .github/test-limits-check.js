@@ -5,17 +5,17 @@
 // and reads the TAP output and the annotations: a hung case must end, fail
 // and name the case. Each run has a guard of 25 s, and the whole check a
 // budget of 160 s (no case starts after 135 s), so that a limit that can't
-// fire fails the check, and the
-// check still prints its result and stops what the cases left within its
-// step's limit of 3 min. On Node 22 run-tests.sh leaves --test-timeout out
-// and the preload gives each test() call the limit (see there): the async
-// case checks that, with the TAP's location line of its first test (run from a
-// folder whose name holds parentheses), and the
+// fire fails the check, and the check still prints its result and stops what
+// the cases left within its step's limit of 3 min. On Node 22 run-tests.sh
+// leaves --test-timeout out and the preload gives each test() call the limit
+// (see there): the async case checks that, with the TAP's location line of
+// its first test (run from a folder whose name holds parentheses), and the
 // longfile case checks that a file whose tests together run past the limit
 // still passes, which --test-timeout on Node 22 would fail. Its step fails
 // the job when a case does not give what it must (RS-T-hang75-enforce). It
-// runs from the repository's root, needs bash on PATH, and stops the
-// processes the cases leave.
+// runs from the repository's root (from a folder missing either the fixture
+// or run-tests.sh it exits 2 and makes nothing), needs bash on PATH, and
+// stops the processes the cases leave.
 // Usage: node .github/test-limits-check.js
 'use strict';
 const fs = require('fs');
@@ -26,18 +26,26 @@ const { spawnSync } = require('child_process');
 const LIMIT_MS = 3000;
 const GUARD_MS = 25000;
 const BUDGET_MS = 160000;
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trailmark-limits-'));
 const stopLine = /^::error title=calls stopped by the per-test limit \(1\)::/m;
+// The cases name the fixture and run-tests.sh by paths from the repository's
+// root. Started from a folder that lacks either file, the check says so and
+// exits 2, before it makes its temp folder; the fixture is read before that
+// folder too, so nothing is left when either step fails (RS-T-limitscwd,
+// dev/release-state.md).
+const FIXTURE = '.github/test-limits-fixture.js';
+for (const f of [FIXTURE, '.github/run-tests.sh']) {
+  if (!fs.existsSync(f)) { console.log(`run it from the repository's root: ${f} is not in ${process.cwd()}`); process.exit(2); }
+}
 // The fixture's line and column of the async case's first test() call, which
 // its TAP location line must name (line 0 when the call is not found, which
 // no location matches). The async case runs a copy of the fixture from a
 // folder whose name holds parentheses, and the location must keep that
 // folder's name.
-const FIXTURE = '.github/test-limits-fixture.js';
 const fixture = fs.readFileSync(FIXTURE, 'utf8').split('\n');
 const asyncLine = fixture.findIndex(l => l.includes("test('case async', hang)")) + 1;
 const asyncCol = asyncLine ? fixture[asyncLine - 1].indexOf('test(') + 1 : 0;
 const asyncAt = new RegExp(`^not ok \\d+ - case async\\n(?:  .*\\n)*?  location: '[^']*limits \\(x\\)[\\\\/]+test-limits-fixture\\.js:${asyncLine}:${asyncCol}'$`, 'm');
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trailmark-limits-'));
 const parenCopy = path.join(dir, 'limits (x)', 'test-limits-fixture.js');
 
 // What each case must give: the run's exit status, patterns the TAP output
@@ -48,6 +56,7 @@ const cases = [
   { name: 'async', file: parenCopy, status: 1, holds: [/^not ok \d+ - case async$/m, /^not ok \d+ - case async with options$/m, /^not ok \d+ - case async with timeout Infinity$/m, /test timed out after 3000ms/, asyncAt], says: [] },
   { name: 'longfile', status: 0, holds: [/^ok \d+ - case longfile 3$/m, /^# fail 0$/m, /^# cancelled 0$/m], says: [] },
   { name: 'readonly', status: 0, holds: [/^ok \d+ - case readonly$/m, /^ok \d+ - after the case$/m, /^# fail 0$/m], says: [] },
+  { name: 'stacktrace', status: 0, holds: [/^ok \d+ - case stacktrace getter$/m, /^ok \d+ - case stacktrace refused$/m, /^ok \d+ - case stacktrace deleted$/m, /^ok \d+ - case stacktrace inherited$/m, /^ok \d+ - case stacktrace$/m, /^ok \d+ - after the case$/m, /^# fail 0$/m], says: [] },
   { name: 'spawnsync', status: 1, holds: [/^not ok \d+ - case spawnsync$/m, /spawnSync .*test-limits-fixture\.js stubborn was stopped by the test limit of 3000 ms .* at [^']*test-limits-fixture\.js:\d+/], says: [stopLine] },
   { name: 'orphan', status: 1, holds: [/^not ok \d+ - case orphan$/m, /execFileSync .*test-limits-fixture\.js orphan was stopped by the test limit of 3000 ms .* at [^']*test-limits-fixture\.js:\d+/], says: [stopLine] },
   { name: 'swallowed', status: 1, holds: [/^ok \d+ - case swallowed$/m, /2 call\(s\) stopped by the test limit; this file fails/], says: [/^::error title=calls stopped by the per-test limit \(2\)::execFileSync .*orphan a.nb.rc.u2028d.u2029e was stopped/m] },

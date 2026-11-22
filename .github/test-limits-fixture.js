@@ -8,6 +8,15 @@
 //              no test does, so all pass
 //   readonly   Error.prepareStackTrace made read-only before a test() call,
 //              which must still register the test
+//   stacktrace four other shapes of Error.prepareStackTrace, each before a
+//              test() call and removed after it: a getter that throws, a
+//              setter that refuses the old value, no property, and none of
+//              Error's own with an accessor on Function.prototype that keeps
+//              what is assigned. Each test must register; with the refused
+//              setter and the inherited accessor the stack must stay a
+//              string and the value be the file's; with no property none
+//              must come back (RS-T-pstaccessor; the stand-in runs on
+//              Node 22 only)
 //   spawnsync  spawnSync of a child that never ends and ignores SIGTERM,
 //              with `timeout: 0` (which Node reads as none)
 //   orphan     execFileSync of a child that exits at once and leaves a
@@ -57,7 +66,39 @@ if (process.argv[2] === 'sleep' || process.argv[2] === 'stubborn') {
     Object.defineProperty(Error, 'prepareStackTrace', { value: Error.prepareStackTrace, writable: false, configurable: true });
     test('case readonly', () => {});
   }
-  if (which !== 'async' && which !== 'longfile' && which !== 'readonly') test(`case ${which}`, which === 'own' ? { timeout: 8000 } : {}, async () => {
+  if (which === 'stacktrace') {
+    const own = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace');
+    const mine = (e, s) => `mine ${Array.isArray(s)}`;
+    const bad = [];
+    const stack = () => { try { return typeof new Error('x').stack; } catch (e) { return `threw ${e.message}`; } };
+    // Sets a shape, registers a test, reads what is left, and puts Node's own
+    // property back before the next shape.
+    const shape = (name, set, left) => {
+      set();
+      try { test(`case stacktrace ${name}`, () => {}); } catch (e) { bad.push(`${name}: test() threw ${e.message}`); }
+      const got = left();
+      if (got) bad.push(`${name}: ${got}`);
+      delete Error.prepareStackTrace;
+      delete Function.prototype.prepareStackTrace;
+      if (own) Object.defineProperty(Error, 'prepareStackTrace', own);
+    };
+    shape('getter', () => Object.defineProperty(Error, 'prepareStackTrace', { get() { throw new Error('getter says no'); }, set() {}, configurable: true }), () => '');
+    let v;
+    shape('refused', () => {
+      v = undefined;
+      Object.defineProperty(Error, 'prepareStackTrace', { get: () => v, set: x => { if (typeof x !== 'function') throw new TypeError('must be a function'); v = x; }, configurable: true });
+    }, () => (v === undefined && stack() === 'string' ? '' : `holds ${typeof v}, stack ${stack()}`));
+    shape('deleted', () => { delete Error.prepareStackTrace; },
+      () => (Object.prototype.hasOwnProperty.call(Error, 'prepareStackTrace') ? 'an own property came back' : ''));
+    let held;
+    shape('inherited', () => {
+      held = mine;
+      delete Error.prepareStackTrace;
+      Object.defineProperty(Function.prototype, 'prepareStackTrace', { get: () => held, set: x => { held = x; }, configurable: true });
+    }, () => (held === mine && stack() === 'string' ? '' : `holds ${held === mine ? 'its own' : typeof held}, stack ${stack()}`));
+    test('case stacktrace', () => assert.deepStrictEqual(bad, []));
+  }
+  if (which !== 'async' && which !== 'longfile' && which !== 'readonly' && which !== 'stacktrace') test(`case ${which}`, which === 'own' ? { timeout: 8000 } : {}, async () => {
     if (which === 'spawnsync') {
       const r = spawnSync(process.execPath, [__filename, 'stubborn'], { encoding: 'utf8', timeout: 0 });
       assert.strictEqual(r.status, 0);

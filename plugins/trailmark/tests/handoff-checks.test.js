@@ -317,6 +317,16 @@ const sinceTest = (fn) => (t) => {
     t.skip(e.message);
   }
 };
+// A test that starts the session-start hook itself, not through the
+// sandbox's start(), and gives that start startInTime's tries: three stops in
+// a row, each after a slow launcher, skip it with the reason
+// (RS-T-startdirect).
+const startTest = (fn) => (t) => {
+  try { fn(t); } catch (e) {
+    if (!(e instanceof HookOutOfTime)) throw e;
+    t.skip(e.message);
+  }
+};
 
 test('commits since the handoff: listed at session start, with next steps they may cover', sinceTest(() => {
   const s = sandbox();
@@ -2430,9 +2440,11 @@ test('git pointers: a lookup that fails for another reason than "not there" keep
 const OFF_WIN = { skip: WIN && 'the system makes these failures outside Windows only' };
 const SHARE = '//evil.invalid/share/x';
 const BLOB = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
-// git's two answers for the folder `top`, made up: the tracked paths.
-const trackedIn = (top, rels, mode = '100644') => ({
-  run: (cwd, args) => (args[0] === 'rev-parse' ? { ok: true, out: `${top}\n` } : args[0] === 'ls-files' ? { ok: true, out: rels.map(p => `${mode} ${BLOB} 0\t${p}\0`).join('') } : { ok: false, out: '', why: 'error' }),
+// git's two answers for the folder `top`, made up: the tracked paths, each
+// with the tag ls-files -t gives it (`S`, skip-worktree, for those in
+// `skip`, else `H`).
+const trackedIn = (top, rels, mode = '100644', skip = []) => ({
+  run: (cwd, args) => (args[0] === 'rev-parse' ? { ok: true, out: `${top}\n` } : args[0] === 'ls-files' ? { ok: true, out: rels.map(p => `${skip.includes(p) ? 'S' : 'H'} ${mode} ${BLOB} 0\t${p}\0`).join('') } : { ok: false, out: '', why: 'error' }),
   left: () => 5000,
 });
 // A folder for one of these tests, with what makes repos and long paths in it.
@@ -2897,6 +2909,155 @@ test('git status: the time is looked at before each tracked name is looked up (R
   // The clock is the caller's, read anew each time: short from the fourth
   // look on, the answer comes at the fourth.
   assert.deepStrictEqual(check(n => (n >= 4 ? 0 : 5000)), { why: 'git-timeout', asks: 4, lookups: 2 });
+});
+
+// RS-A-missinglookups. A sparse checkout has one tracked name for each file
+// outside its patterns, and each one was looked up. git marks those entries
+// skip-worktree (`S` from ls-files -t), and git status passes over them;
+// with core.sparseCheckout on, git takes the mark off as it reads the index
+// where its own lookup finds something at the path. So a marked name is not
+// looked up where its folder's listing does not hold it, and one the listing
+// holds is checked as before.
+test('git status: a name git marks skip-worktree is not looked up where the listing does not hold it (RS-A-missinglookups)', () => {
+  const { farWorktree } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-skipwt-');
+  const t = path.join(base, 'made');
+  fs.mkdirSync(path.join(t, 'd', 'sub'), { recursive: true });
+  for (const n of ['a', 'b']) fs.writeFileSync(path.join(t, 'd', n), 'x');
+  const missing = ['d/m1', 'd/m2', 'd/m3'];
+  const rels = ['d/a', 'd/b', ...missing];
+  // seen: the tracked names looked up.
+  const ask = (names, skip) => {
+    const seen = [];
+    const real = fs.lstatSync;
+    fs.lstatSync = function (p, ...a) {
+      const rel = typeof p === 'string' ? path.relative(t, p).replace(/\\/g, '/') : '';
+      if (names.includes(rel)) seen.push(rel);
+      return real.call(this, p, ...a);
+    };
+    try { return { why: farWorktree(trackedIn(t, names, '100644', skip), t, false), seen: seen.sort() }; } finally { fs.lstatSync = real; }
+  };
+  // The control: with no mark, each name the listing does not hold is
+  // looked up.
+  assert.deepStrictEqual(ask(rels, []), { why: '', seen: missing });
+  // All three marked, none is; the middle one marked, the other two are.
+  assert.deepStrictEqual(ask(rels, missing), { why: '', seen: [] }, 'all three marked');
+  assert.deepStrictEqual(ask(rels, ['d/m2']), { why: '', seen: ['d/m1', 'd/m3'] }, 'd/m2 marked');
+  // The mark is a name's in its own folder: x/m1 marked stops no lookup of
+  // d/m1 (review round 1). And in the top folder, which holds d and x, a
+  // marked name is passed over as well.
+  fs.mkdirSync(path.join(t, 'x', 'sub'), { recursive: true });
+  for (const n of ['a', 'b']) { fs.writeFileSync(path.join(t, 'x', n), 'x'); fs.writeFileSync(path.join(t, n), 'x'); }
+  assert.deepStrictEqual(ask(['d/a', 'd/b', 'd/m1', 'x/a', 'x/b', 'x/m1'], ['x/m1']), { why: '', seen: ['d/m1'] }, 'x/m1 marked, d/m1 not');
+  assert.deepStrictEqual(ask(['a', 'b', 'm1'], []), { why: '', seen: ['m1'] }, 'm1 in the top folder, not marked');
+  assert.deepStrictEqual(ask(['a', 'b', 'm1'], ['m1']), { why: '', seen: [] }, 'm1 in the top folder, marked');
+  // A marked name that the listing holds is checked as before: a repo at
+  // d/f whose .git names a share.
+  AT_F.far(path.join(t, 'd', 'f'));
+  assert.strictEqual(ask(['d/a', 'd/b', 'd/f'], ['d/f']).why, 'submodule-pointer', 'd/f marked and listed');
+  // A submodule's line with its tag (`H 160000 ...`) is still read as a
+  // submodule's: past 2,000 of them status is not read, here below a folder
+  // that is not there.
+  const subs = Array.from({ length: 2001 }, (_, k) => `gone/s${k}`);
+  assert.strictEqual(farWorktree(trackedIn(t, subs, '160000'), t, false), 'many-submodules', '2,001 tagged submodules');
+  // With git itself. A sparse checkout leaves d/s (or d/S) out, and then a
+  // repo is made at d/s whose config git can't parse. Seen with git 2.56.1
+  // on Windows, on ext4 and on a Windows drive in WSL: git status fails on
+  // that config where ls-files -t tags the tracked name `H`, and passes it
+  // over where the tag is `S`. Wherever git status fails on it, the check
+  // has looked at d/s or d/S. `fold`: the name is d/S, which a drive that
+  // folds case finds as d/s. `kept`: sparse.expectFilesOutsideOfPatterns
+  // keeps the mark on whatever is there.
+  // git 2.35 is the first with `sparse-checkout set --no-cone`, and 2.36 the
+  // first to take the mark off for what it finds (CONFIRMED by Opus from
+  // git's source in review round 1, not re-run: no older git was run). With
+  // an older git this part is not run, and says so.
+  const ver = execFileSync('git', ['--version'], { encoding: 'utf8' }).trim();
+  const vm = /(\d+)\.(\d+)/.exec(ver);
+  if (!vm || +vm[1] < 2 || (+vm[1] === 2 && +vm[2] < 36)) { console.log(`# RS-A-missinglookups: the part with git itself needs git 2.36 or later, not run with ${ver}`); return; }
+  const realGit = { run: (cwd, args) => { const p = spawnSync('git', args, { cwd, encoding: 'utf8' }); return { ok: p.status === 0, out: p.stdout || '' }; }, left: () => 5000 };
+  const failed = {};
+  for (const [label, name, kept] of [['same', 'd/s', false], ['fold', 'd/S', false], ['kept', 'd/S', true]]) {
+    const dir = path.join(base, label);
+    const g = repoAt(dir);
+    fs.mkdirSync(path.join(dir, 'd', 'sub'), { recursive: true });
+    for (const n of ['a', 'b', 'c']) fs.writeFileSync(path.join(dir, 'd', n), n);
+    fs.writeFileSync(path.join(dir, name), 's');
+    fs.writeFileSync(path.join(dir, 'd', 'sub', 'x'), 'x');
+    g('add', '.'); g('commit', '-qm', 'sparse');
+    if (kept) g('config', 'sparse.expectFilesOutsideOfPatterns', 'true');
+    const set = spawnSync('git', ['sparse-checkout', 'set', '--no-cone', '/a', '/d/a', '/d/b', '/d/c', '/d/sub/'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(set.status, 0, `${label}: sparse-checkout set: ${set.stderr}`);
+    assert.ok(!fs.existsSync(path.join(dir, name)), `${label}: the sparse checkout took ${name} away`);
+    g('init', '-q', path.join(dir, 'd', 's'));
+    fs.appendFileSync(path.join(dir, 'd', 's', '.git', 'config'), '[core\n  broken = \n');
+    // In English whatever the machine's language: the message is read.
+    const st = spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: dir, encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', LANGUAGE: '' } });
+    failed[label] = /bad config/.test(st.stderr);
+    const tag = spawnSync('git', ['ls-files', '-t', '--', name], { cwd: dir, encoding: 'utf8' }).stdout.trim();
+    assert.strictEqual(failed[label], tag === `H ${name}`, `${label}: git status failed on the config where ${name} is tagged H (tag: ${tag}; status: ${st.stderr.trim()})`);
+    let looked = false;
+    const real = fs.lstatSync;
+    fs.lstatSync = function (p, ...a) {
+      if (typeof p === 'string' && /^d\/s(\/|$)/i.test(path.relative(dir, p).replace(/\\/g, '/'))) looked = true;
+      return real.call(this, p, ...a);
+    };
+    let why;
+    try { why = farWorktree(realGit, dir, false); } finally { fs.lstatSync = real; }
+    if (failed[label]) assert.ok(looked, `${label}: git status failed on d/s/.git/config, and the check did not look there (answer: ${why})`);
+    // And where the mark stays, the check takes it from git (it asks with
+    // -t): d/S is not looked up, and d/s is named like no tracked file.
+    if (tag === `S ${name}`) assert.deepStrictEqual({ looked, why }, { looked: false, why: '' }, `${label}: ${name} tagged S`);
+  }
+  // The shape git fails on everywhere, and the one it passes over everywhere.
+  assert.deepStrictEqual({ same: failed.same, kept: failed.kept }, { same: true, kept: false });
+});
+
+// RS-A-missinglookups, review round 1: the tag of ls-files -t puts 2 more
+// bytes on each line of the list of tracked files, and an answer past the
+// runner's buffer fails the call. A list that fits in 32 MiB without the
+// tags and not with them (N tracked names of 150 characters in a folder
+// that is not there, and `a`) is read, and status with it. N is worked out
+// from the length of an object's name, so the list fits with SHA-1 (166,936
+// names) and with SHA-256 (149,129) alike (review round 2). repoAt makes a
+// SHA-1 repo: the SHA-256 count is worked out, not run. The status count is
+// N: `a` is not changed.
+test('git status: a list of tracked files that fits in 32 MiB without the tags of -t is read with them (RS-A-missinglookups)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const dir = path.join(realTemp('jbmem-taglist-'), 'r');
+  repoAt(dir);
+  const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: dir, input: '', encoding: 'utf8' }).trim();
+  // A line: mode and space (7), the name, ` 0` and a tab (3), the path, NUL.
+  const N = Math.floor(((32 << 20) - 200) / (7 + blob.length + 3 + 150 + 1));
+  const names = Array.from({ length: N }, (_, k) => { const p = `d/${String(k).padStart(6, '0')}`; return p + 'x'.repeat(150 - p.length); });
+  const set = spawnSync('git', ['update-index', '--index-info'], { cwd: dir, input: names.map(p => `100644 ${blob}\t${p}\n`).join(''), encoding: 'utf8' });
+  assert.strictEqual(set.status, 0, set.stderr);
+  const size = (more) => spawnSync('git', ['ls-files', '--stage', ...more, '-z', '--full-name'], { cwd: dir, maxBuffer: 64 << 20 }).stdout.length;
+  const sizes = { without: size([]), with: size(['-t']) };
+  assert.ok(sizes.without <= 32 << 20 && sizes.with > 32 << 20, `the list fits in 32 MiB without the tags and not with them: ${JSON.stringify(sizes)}`);
+  const f = gitFacts(dir, ['status'], { budgetMs: 30000, callMs: 20000 });
+  assert.deepStrictEqual({ skipped: f.statusSkipped, count: f.statusCount }, { skipped: undefined, count: N });
+});
+
+// RS-A-missinglookups, review round 2: the larger buffer is for that list
+// alone. A commit subject of 33 MiB is not read (the call fails, and the
+// subject is empty). With 34 MiB for every call it was read. Cutting it to
+// one line is cheap for this test's `x` (about 50 ms), and took 4 s and 2 GB
+// for 33.5 MiB of `a \t`, a subject with many gaps (both CONFIRMED by Fable,
+// not re-run).
+test('git facts: a commit subject past 32 MiB is not read (RS-A-missinglookups)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-bigsubject-');
+  const dir = path.join(base, 'r');
+  const g = repoAt(dir);
+  const msg = path.join(base, 'msg');
+  fs.writeFileSync(msg, 'x'.repeat(33 << 20));
+  g('commit', '-q', '--allow-empty', '--cleanup=verbatim', '-F', msg);
+  // The control: git gives the whole subject, and a short one is read.
+  assert.strictEqual(spawnSync('git', ['log', '-1', '--format=%s'], { cwd: dir, maxBuffer: 64 << 20 }).stdout.length, (33 << 20) + 1);
+  assert.strictEqual(gitFacts(dir, ['subject'], { budgetMs: 20000, callMs: 15000 }).subject, '');
+  g('commit', '-q', '--allow-empty', '-m', 'short');
+  assert.strictEqual(gitFacts(dir, ['subject'], { budgetMs: 20000, callMs: 15000 }).subject, 'short');
 });
 
 // The same lookup where the system makes the failure itself. A tracked name
@@ -5072,6 +5233,14 @@ test('git pointers: finding the repo for a hook stops with the hook\'s time (RS-
   // Node's monotonic clock at 0. They move together only when the `at`th
   // config file is read, by `by` ms. So the timeouts noted say what the hook
   // had left, on any machine.
+  // The hook's script, which the launcher then starts, gets the same care
+  // (RS-T-firstcheckload in dev/release-state.md): the preload notes the
+  // timeout the launcher gives it (the hook's limit less the time gone on
+  // the clocks) and runs it with 20 s. Run with the launcher's timeout, the
+  // script had only that timeout in real time (6 s when 3 s are gone on the
+  // clocks), and under load it ran past that and was stopped. A stop now means
+  // the script ran past 20 s, though the launcher's JBMEM_SHOW_RUN line
+  // still names the timeout it gave.
   const s = sandbox();
   quoted(s.repo, path.join(s.base, 'inc'));
   let made = 0;
@@ -5080,7 +5249,9 @@ test('git pointers: finding the repo for a hook stops with the hook\'s time (RS-
     const stub = path.join(s.base, `clock${made}.js`);
     fs.writeFileSync(stub, `const cp = require('child_process');
 const fs = require('fs');
+const path = require('path');
 const real = cp.execFileSync;
+const realSpawn = cp.spawnSync;
 const t0 = Math.floor(performance.timeOrigin);
 let moved = 0; let files = 0;
 Date.now = () => t0 + moved;
@@ -5092,6 +5263,11 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   if (kind === 'file' && ++files === ${at}) moved += ${by};
   return real.call(this, file, args, { ...opts, timeout: 20000 }, ...rest);
 };
+cp.spawnSync = function (file, args, opts, ...rest) {
+  if (!(Array.isArray(args) && args.some(a => !String(a).startsWith('-') && path.basename(String(a)) === ${JSON.stringify(`hook-${name}.js`)}))) return realSpawn.call(this, file, args, opts, ...rest);
+  fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(['script', opts.timeout, '']) + String.fromCharCode(10));
+  return realSpawn.call(this, file, args, { ...opts, timeout: 20000 }, ...rest);
+};
 `);
     const cwd = payload.cwd || s.repo;
     const r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', name], { cwd, env: s.env, input: JSON.stringify({ cwd, session_id: SA, ...payload }), encoding: 'utf8' });
@@ -5099,13 +5275,14 @@ cp.execFileSync = function (file, args, opts, ...rest) {
     let calls = [];
     try { calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { calls = []; }
     const of = (kind, part = '') => calls.filter(x => x[0] === kind && String(x[2]).replace(/\\/g, '/').includes(part)).map(x => x[1]);
-    return { files: of('file'), root: of('root'), of, out: r.stdout + r.stderr };
+    return { files: of('file'), root: of('root'), script: of('script'), of, out: r.stdout + r.stderr };
   };
   // PreCompact: 5 s for git, and finding the memory folder is inside them.
   // 3 s gone at the first file: the six after it get 2 s each, and so does
-  // the call for the root.
+  // the call for the root. The script gets the hook's 9 s less the 3 s.
   let h = hook('precompact', { trigger: 'auto' }, 1, 3000);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(2000)], root: [2000] }, 'precompact, 3 s gone');
+  assert.deepStrictEqual(h.script, [6000], 'precompact, 3 s gone: the script\'s time');
   // 4.8 s gone at the second file: under 250 ms are left, so no third file
   // is read, by this check or the next, and no git is started for the root.
   // The hook still finds the memory folder and writes its snapshot there.
@@ -5114,19 +5291,23 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   fs.rmSync(snap);
   h = hook('precompact', { trigger: 'auto' }, 2, 4800);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, 3000], root: [] }, 'precompact, 4.8 s gone');
+  assert.deepStrictEqual(h.script, [4200], 'precompact, 4.8 s gone: the script\'s time');
   assert.match(fs.readFileSync(snap, 'utf8'), /^Uncommitted files: not read \(git-timeout\)$/m, 'the snapshot says the time ran out');
   // The PreToolUse hook: 3 s, of the 5 s Claude Code or Codex gives it, and
   // git calls of 1 s. 1.5 s gone at the first file: the files after it get
-  // 1.5 s each and the call for the root its 1 s.
+  // 1.5 s each and the call for the root its 1 s. The script gets the
+  // hook's 4.5 s less the 1.5 s.
   const pre = (id) => ({ tool_name: 'Bash', tool_input: { command: 'git commit -m x' }, tool_use_id: id, hook_event_name: 'PreToolUse' });
   const record = (id) => fs.existsSync(path.join(s.memdir, 'pending', `${id}.json`));
   h = hook('commit-start', pre('toolu_first1'), 1, 1500);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(1500)], root: [1000] }, 'commit-start, 1.5 s gone');
+  assert.deepStrictEqual(h.script, [3000], 'commit-start, 1.5 s gone: the script\'s time');
   assert.ok(record('toolu_first1'), 'no commit-start record: ' + h.out);
   // 2.8 s gone at the second file: no third file, no git for the root, and
   // the record is still written in the repo's memory folder.
   h = hook('commit-start', pre('toolu_first2'), 2, 2800);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, 3000], root: [] }, 'commit-start, 2.8 s gone');
+  assert.deepStrictEqual(h.script, [1700], 'commit-start, 2.8 s gone: the script\'s time');
   assert.ok(record('toolu_first2'), 'no commit-start record when the time ran out: ' + h.out);
   // The session's last command left it in another repo, one not set up: the
   // lookup from the folder the session started in has the same clock. 3 s
@@ -5139,6 +5320,7 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   fs.rmSync(snap);
   h = hook('precompact', { trigger: 'auto', cwd: path.join(away, 'in'), transcript_path: transcript }, 1, 3000);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(2000)], root: [3000, 2000] }, 'the lookup from the session\'s own folder');
+  assert.deepStrictEqual(h.script, [6000], 'the lookup from the session\'s own folder: the script\'s time');
   assert.ok(fs.existsSync(snap), 'no snapshot from another repo: ' + h.out);
   // Session start: the sweep looks up the memory folder of each folder the
   // session committed in, inside its own time. 2 s gone at the first file:
@@ -5150,20 +5332,21 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   const sweep = (at, by) => {
     S.updateState(s.memdir, SA, (state, rec) => { rec.start = Date.now() - 60000; rec.home = s.repo; rec.commitDirs = [other]; });
     const r = hook('session-start', { source: 'resume' }, at, by);
-    return { own: r.of('file', '/inc/'), other: r.of('file', '/inc-other/'), otherConfig: r.of('file', '/other/.git/config'), root: r.root };
+    return { own: r.of('file', '/inc/'), other: r.of('file', '/inc-other/'), otherConfig: r.of('file', '/other/.git/config'), root: r.root, script: r.script };
   };
+  // The script gets the hook's 9 s less the time gone in each case.
   assert.deepStrictEqual(sweep(1, 2000),
-    { own: Array(6).fill(3000), other: Array(6).fill(1700), otherConfig: [1700], root: [3000, 500, 500] }, 'the sweep\'s lookups');
+    { own: Array(6).fill(3000), other: Array(6).fill(1700), otherConfig: [1700], root: [3000, 500, 500], script: [7000] }, 'the sweep\'s lookups');
   // The sweep's clock runs while its lookup reads. With no time gone before
   // it, the sweep has 5 s and the lookup 3.7 s of them. The ninth file read
   // is the first one the other folder's config includes: 1 s gone there, and
   // the five files after it get 2.7 s each.
   assert.deepStrictEqual(sweep(9, 1000),
-    { own: Array(6).fill(3000), other: [3000, ...Array(5).fill(2700)], otherConfig: [3000], root: [3000, 500, 500] }, 'the sweep\'s clock runs during its lookup');
+    { own: Array(6).fill(3000), other: [3000, ...Array(5).fill(2700)], otherConfig: [3000], root: [3000, 500, 500], script: [8000] }, 'the sweep\'s clock runs during its lookup');
   // 3.6 s gone there: 0.1 s is left, so no further file is read and no git
   // is started for the other folder's root.
   assert.deepStrictEqual(sweep(9, 3600),
-    { own: Array(6).fill(3000), other: [3000], otherConfig: [3000], root: [3000, 500] }, 'the sweep\'s lookup stops with its clock');
+    { own: Array(6).fill(3000), other: [3000], otherConfig: [3000], root: [3000, 500], script: [5400] }, 'the sweep\'s lookup stops with its clock');
 });
 
 test('scan: only the folder a session started in counts; a memory folder named notes (loop round 7)', { skip: NO_LINKS }, () => {
@@ -7624,8 +7807,15 @@ test('0.6.0 hooks: the launcher hands a hook script every payload field the hook
 // RS-F-sinceFor: one real path per key and folder of swept and commitDirsAt
 // (and of a long commitDirs) took 20 s for 130,000 keys, and session start
 // was killed holding the lock. The count of the launcher's real-path calls
-// shows it without a clock, so load can't make this pass or fail.
-test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the launcher a pass by name, not a real path per key (next version)', () => {
+// shows it without a clock, so load can't change the count. Load can still
+// stop the hook (the spy's preload counts against the launcher's time), so
+// the start takes startInTime's tries (RS-T-startdirect). The count is
+// checked after every try, a stopped one too: the launcher's sweep ends
+// before the script starts, and the launcher writes the count as it exits.
+// Checked only at the end, a launcher slowed past its limit by the very
+// regression this test is for would be stopped, made again and skipped
+// (review round 1, F1).
+test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the launcher a pass by name, not a real path per key (next version)', startTest(() => {
   const s = sandbox();
   s.write('# H\n- state\n');
   s.g('commit', '-q', '--allow-empty', '-m', 'by a script');
@@ -7643,13 +7833,24 @@ test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the la
   // sweep starts past the commit above, so the commit isn't "found".
   swept[s.repo] = now + 60000;
   S.updateState(s.memdir, SA, (state, rec) => { rec.start = now - 60000; rec.home = s.repo; rec.swept = swept; rec.commitDirsAt = joined; rec.commitDirs = dirs; });
-  const r = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, NODE_OPTIONS: `--require ${JSON.stringify(spy)}` }, input: JSON.stringify({ cwd: s.repo, source: 'resume', session_id: SA }), encoding: 'utf8', timeout: 120000 });
+  const env = { ...s.env, NODE_OPTIONS: `--require ${JSON.stringify(spy)}` };
+  const input = JSON.stringify({ cwd: s.repo, source: 'resume', session_id: SA });
+  // The state is not rewritten between tries. A full try cuts swept to 64
+  // (the sweep counts the session's folder as read, with no commit in it),
+  // but the count is checked on the first try, which always has the whole
+  // state, and a try whose sweep ran out of time cuts nothing (review round
+  // 2 of RS-T-startdirect).
+  const r = startInTime(() => {
+    fs.rmSync(count, { force: true });
+    const one = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env, input, encoding: 'utf8', timeout: 120000 });
+    const calls = Number(fs.readFileSync(count, 'utf8'));
+    assert.ok(calls < 2000, `${calls} real-path calls in a try (status ${one.status})`);
+    return one;
+  }, () => spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'hook-session-start.js')], { cwd: s.repo, env, input, encoding: 'utf8', timeout: 30000 }));
   assert.strictEqual(r.status, 0, String(r.stderr).slice(0, 500));
-  const calls = Number(fs.readFileSync(count, 'utf8'));
-  assert.ok(calls < 2000, `${calls} real-path calls`);
   const notes = fs.readdirSync(path.join(s.memdir, 'notes')).map(f => fs.readFileSync(path.join(s.memdir, 'notes', f), 'utf8')).join('\n');
   assert.doesNotMatch(notes, /by a script \(found later\)/);
-});
+}));
 
 // RS-F2b: rec.swept kept 12 entries, so a folder dropped past six and joined
 // after 12 newer sweeps got its command's start and a commit made there in
@@ -7751,20 +7952,23 @@ test('health: a file where the plugins folder should be is nothing to search, on
 
 // RS:651: the Claude Code skills build their commands from
 // ${CLAUDE_PLUGIN_ROOT}, without usablePath. Session start tells the user when
-// usablePath refuses the install path. The Codex note already says so.
-test('session start: an install path usablePath refuses gets a warning with no path in it, a plain one none (next version)', { skip: S.AGENT === 'Codex' && 'the Codex note already says this' }, () => {
+// usablePath refuses the install path. The Codex note already says so. The
+// start from the odd copy takes startInTime's tries (RS-T-startdirect).
+test('session start: an install path usablePath refuses gets a warning with no path in it, a plain one none (next version)', { skip: S.AGENT === 'Codex' && 'the Codex note already says this' }, startTest(() => {
   const s = sandbox();
   s.write('# H\n- state\n');
   const odd = path.join(s.base, 'a!b');
   fs.cpSync(ROOT, odd, { recursive: true, filter: (src) => path.basename(src) !== 'tests' });
-  const r = spawnSync(process.execPath, [path.join(odd, 'scripts', 'trailmark.js'), '--hook', 'session-start'],
-    { cwd: s.repo, env: s.env, input: JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB }), encoding: 'utf8' });
+  const input = JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB });
+  const r = startInTime(
+    () => spawnSync(process.execPath, [path.join(odd, 'scripts', 'trailmark.js'), '--hook', 'session-start'], { cwd: s.repo, env: s.env, input, encoding: 'utf8' }),
+    () => spawnSync(process.execPath, [path.join(odd, 'scripts', 'hook-session-start.js')], { cwd: s.repo, env: s.env, input, encoding: 'utf8', timeout: 30000 }));
   assert.strictEqual(r.status, 0, r.stderr);
   const out = JSON.parse(r.stdout);
   assert.match(out.systemMessage, /WARNING: .*trailmark is installed in a folder whose path holds a character a shell can act on/);
   assert.ok(!out.systemMessage.includes('a!b'), out.systemMessage);
   assert.doesNotMatch(s.start().message, /installed in a folder whose path/);
-});
+}));
 
 // RS:658: where the drive has no hard links, createOnce wrote in place with
 // 'wx', and on Windows that goes through a junction whose target is missing

@@ -401,6 +401,7 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | No `[trailmark]` line at session start | The repo isn't set up; the plugin isn't enabled; Node isn't on PATH for that app; Claude Code is too old | Run `/trailmark:memory-setup`; check `claude plugin list`; run `node --version` in a new terminal; update Claude Code |
+| No `[trailmark]` line at session start, or `trailmark: <script> took too long and was stopped` (a machine whose CPU is near 100% with far more busy processes than cores) | Starting Node and git took longer than the hook's time, 10 seconds at session start. Claude Code stops the hook at 10 seconds, and the launcher gives its script 9 seconds minus the time already used (at least 0.3 seconds). Seen at about three busy processes per core, not at one per core | Nothing in Trailmark can shorten the machine's own start-up. Start a new session once the load drops, or run `/trailmark:recall` to read the handoff |
 | The line says `sandbox off` or warns about the sandbox | `JBMEM_SANDBOX=off` is set in user or repo settings | Remove it unless you set it on purpose |
 | "Sandbox check failed" or "SANDBOX UNAVAILABLE" | Node is too old or was built without the permission model | Install a current Node LTS and rerun the check. Only if that's impossible, set `JBMEM_SANDBOX=off` (section 7) |
 | Warning that Node is older than the security release | Node is below its line's floor | Update Node |
