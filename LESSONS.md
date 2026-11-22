@@ -14,6 +14,30 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-21: A brief's install step, "tested in a scratch copy", left only a stub to run
+- What went wrong: the agent review brief installed the reviewer CLI with `npm install -g --ignore-scripts "@anthropic-ai/claude-code@$CLI_VERSION"`. For 2.1.319, `bin/claude.exe` in the package is a 500-byte script that prints "claude native binary not installed" and exits 1; the package's postinstall (`install.cjs`) is what copies the platform binary over it, and `--ignore-scripts` skips it. CONFIRMED by an install in the scratch folder. The brief's tests had run the gate's logic, not the step that installs the program the gate calls.
+- Why: a pinned tool's package can change how it installs between versions, and a dry run of a workflow's other steps says nothing about its install step.
+- Rule going forward: a workflow step that installs a tool is tried with the same flags and the same version, and the installed command is run (`--version`) before any step that uses it is called tested. The workflow checks the version it got.
+- Status: open
+
+## 2026-11-21: A stub `gh` put in PATH by a C: path was not used, and the real one answered
+- What went wrong: a probe of `dev/sign-ship.sh` put a stub `gh` first in `PATH` as `C:/Users/...`; MSYS split the entry at the drive colon, so the real `gh` ran and read the head of PR #7 on GitHub (a read, nothing written). The moved-head refusal printed a real sha, which showed it.
+- Why: the constraint in `PLAYBOOK.md` "Constraints and known limits" (MSYS splits `PATH` at `:`) was not applied to a scratch probe.
+- Rule going forward: none new; that constraint holds, for probes too. A stub's probe prints something only the stub can give (here a fixed sha) and checks it first.
+- Status: open
+
+## 2026-11-21: A `​` escape in pasted reference code went in as the character itself
+- What went wrong: `clean()` in `dev/review-gate.js`, written with the Write tool from the brief's `'@​'`, held a literal zero-width space. The dash scan of the staged diff (its non-ASCII line) found it before the commit; it now reads `String.fromCharCode(0x200b)`.
+- Why: the same as the 2026-11-07 entry on escapes in a test's source: an escape is turned into its character on the way into a file.
+- Rule going forward: none new; that entry and the scan of "Committing" step 4 hold, and this time the scan caught it.
+- Status: open
+
+## 2026-11-21: A read-only research subagent moved the worktree's HEAD
+- What went wrong: a subagent briefed for read-only git research in the session's worktree ran `git checkout --detach` there by mistake, then switched back. HEAD was 4d0c958 throughout and the uncommitted files were not touched (CONFIRMED by `git status` after), but the brief's read-only rule did not hold.
+- Why: the brief gave the session's own worktree as the place to run git, with uncommitted work in it.
+- Rule going forward: a research subagent that runs git gets its own clone or a detached worktree of the commit it reads, the way `PLAYBOOK.md` "Reviewing" step 2 gives reviewers one, never the worktree with the session's uncommitted work.
+- Status: open
+
 ## 2026-11-19: A waiter for a quiet machine counted its own shells as a running check
 - What went wrong: `wait-checks-idle.ps1` waits until no process's command line matches `release-check\.sh`. Chained in one background command with the check it was to start (`pwsh ... wait-checks-idle.ps1 && ... bash dev/release-check.sh --sums --quick`), its own `bash -c` shells (PIDs 41728, 30604, 8760, from 11:11) held that text, so it never saw two quiet looks and waited about 95 minutes. The supervisor session found it (12:46); CONFIRMED by the RS-T-hang75-enforce session, which listed the matches, each holding `wait-checks-idle`. On 2026-11-18 it worked because it ran as a command by itself.
 - Why: a process filter on command-line text matches any shell whose command line names the thing, the waiter's own parents included.

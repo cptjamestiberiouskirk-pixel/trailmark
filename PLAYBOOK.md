@@ -43,6 +43,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 - Calling a failure "flaky", or adding a test to the load-sensitive list, without a reproduced cause.
 - Tagging, publishing, force pushing or anything else that rewrites history, deleting branches or data (not temporary files or temporary folders the session itself made), changing the PC or its settings or those of the GitHub repo or the user's accounts, or downloading anything without the user's word. The same holds for a push, a PR or a merge, except under the deferred-item rule of `CLAUDE.md` "Conventions". A merge, tag or publish that needs the user's word is asked for by name, as its own question. Every merge, tag or publish is run as its own command.
 - Attribution lines (`Co-Authored-By`, "Generated with") in commits, PRs, code or docs.
+- The owner's approval steps of `.github/workflows/auto-review.yml`: a session never posts `/ship`, never runs `dev/sign-ship.sh` or uses any of the user's keys, never changes a `tier:*` or `needs-owner` label, never resolves a review thread without a reply that gives the reason, and never merges past a failing `auto-review/gate`, as admin or otherwise.
 
 ## Planning a change
 
@@ -115,6 +116,8 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 4. A job that runs past three times its step's usual time is treated as hung: auto-merge off, cancel, read the log (`gh run view --job <id> --log`), and compare the step's time on other heads. A hang that the log does not explain is recorded as unexplained, with its evidence. A fresh head, a new push, whose 9 jobs pass may then auto-merge under the deferred-item rule without asking, with every other condition of that rule still in force; no three reruns are needed (the user, 2026-11-19). A watcher's own limit running out reads "still running", never "failed".
 
 ## Reviewing
+
+`REVIEW.md` carries this section's rules and `CLAUDE.md` "Reviews" over for the automated reviewer of `.github/workflows/auto-review.yml`: a change here is made there too.
 
 1. One reviewer per row the diff touches (model table in `CLAUDE.md`), on `git diff <last reviewed>..HEAD` only.
 2. The brief gives the goal, the files, what earlier rounds fixed, what the report holds (each finding first with its label and repro, then what was tried and found clean, and nothing that restates the diff), its own clone (detached at the head under review, with no remote) and its own empty temp folder outside that clone, and where the report lands (the owning branch's next batch push). It also says to use `pwsh`, never `powershell.exe`, and sets `TMPDIR=E:\DevTemp` itself when kept output should land on the Dev Drive (a subagent's Bash has TMPDIR on C:). It gives the test command as one line with `TMPDIR`, `TEMP` and `TMP` set to that temp folder in front of it, and says to run a test no other way; after the round, also one whose reviewer died, the owner lists `jbmem-*` in the temp folders and removes each clone and temp folder by its literal path.
