@@ -7658,8 +7658,12 @@ test('0.6.0 hooks: the launcher hands a hook script every payload field the hook
 // was killed holding the lock. The count of the launcher's real-path calls
 // shows it without a clock, so load can't change the count. Load can still
 // stop the hook (the spy's preload counts against the launcher's time), so
-// the start takes startInTime's tries, each from the same state file
-// (RS-T-startdirect).
+// the start takes startInTime's tries (RS-T-startdirect). The count is
+// checked after every try, a stopped one too: the launcher's sweep ends
+// before the script starts, and the launcher writes the count as it exits.
+// Checked only at the end, a launcher slowed past its limit by the very
+// regression this test is for would be stopped, made again and skipped
+// (review round 1, F1).
 test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the launcher a pass by name, not a real path per key (next version)', startTest(() => {
   const s = sandbox();
   s.write('# H\n- state\n');
@@ -7677,20 +7681,19 @@ test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the la
   // Where the session's folder is in the map, by name, it still counts: the
   // sweep starts past the commit above, so the commit isn't "found".
   swept[s.repo] = now + 60000;
-  // Each try starts from the full state file and no count: a stopped try may
-  // have written a smaller one, which would make the next try cheap.
-  const fresh = () => {
-    S.updateState(s.memdir, SA, (state, rec) => { rec.start = now - 60000; rec.home = s.repo; rec.swept = swept; rec.commitDirsAt = joined; rec.commitDirs = dirs; });
-    fs.rmSync(count, { force: true });
-  };
+  S.updateState(s.memdir, SA, (state, rec) => { rec.start = now - 60000; rec.home = s.repo; rec.swept = swept; rec.commitDirsAt = joined; rec.commitDirs = dirs; });
   const env = { ...s.env, NODE_OPTIONS: `--require ${JSON.stringify(spy)}` };
   const input = JSON.stringify({ cwd: s.repo, source: 'resume', session_id: SA });
-  const r = startInTime(
-    () => { fresh(); return spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env, input, encoding: 'utf8', timeout: 120000 }); },
-    () => { fresh(); return spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'hook-session-start.js')], { cwd: s.repo, env, input, encoding: 'utf8', timeout: 30000 }); });
+  // The state needs no rewrite between tries: the script trims swept only
+  // when the sweep read a folder, and this sweep starts past now.
+  const r = startInTime(() => {
+    fs.rmSync(count, { force: true });
+    const one = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env, input, encoding: 'utf8', timeout: 120000 });
+    const calls = Number(fs.readFileSync(count, 'utf8'));
+    assert.ok(calls < 2000, `${calls} real-path calls in a try (status ${one.status})`);
+    return one;
+  }, () => spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'hook-session-start.js')], { cwd: s.repo, env, input, encoding: 'utf8', timeout: 30000 }));
   assert.strictEqual(r.status, 0, String(r.stderr).slice(0, 500));
-  const calls = Number(fs.readFileSync(count, 'utf8'));
-  assert.ok(calls < 2000, `${calls} real-path calls`);
   const notes = fs.readdirSync(path.join(s.memdir, 'notes')).map(f => fs.readFileSync(path.join(s.memdir, 'notes', f), 'utf8')).join('\n');
   assert.doesNotMatch(notes, /by a script \(found later\)/);
 }));
