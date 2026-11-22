@@ -14,6 +14,30 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-21: A deferred item read a stop line against the wrong clock
+- What went wrong: RS-T-firstcheckload's bullet in `dev/release-state.md` said the real git calls after the test's fake 3 s step had to fit in the 3 s left. `trailmark.js` (`run`) says otherwise: the git calls ran with 20 s on a clock the preload held still, and the `spent=3000` of the stop line is that fake clock. The launcher then gave the hook's script 6,000 ms of real time, and the script ran past them. A load probe built on the old reading would have timed the git calls.
+- Why: the line was read for what it seemed to say, and the code that prints it, and the clock each of its numbers comes from, were not opened.
+- Rule going forward: before a failure's cause is written down, open the code that prints each number of its sign and name the clock or count each one comes from (fake or real, whose process).
+- Status: open
+
+## 2026-11-21: Busy loops did not slow a hook script past its window, and file churn did
+- What went wrong: with 48 busy loops the hook script took at most 1.7 s (`probe-2.out`), and the 6 s stop seemed out of reach. With the same loops and 16 processes writing, renaming and deleting small files in the temp drive, it took up to 12.1 s and 12 of 20 runs passed their window (`probe-io-1.out`).
+- Why: busy loops load the processor only. A test suite also loads the file system, and on Windows that slows process starts and file writes (Defender, retries on busy errors).
+- Rule going forward: a load repro that busy loops don't reproduce adds file churn in the temp folder (`io-churn.js` of `rs-t-firstcheckload/`) before the failure is called out of reach.
+- Status: open
+
+## 2026-11-21: The kept output a deferred item named was gone
+- What went wrong: RS-T-firstcheckload named `E:/DevTemp/trailmark-release-check/20261116-150241-1810` for its failure, and on 2026-11-19 the folder was gone, so the failed test's lines were not there to read.
+- Why: the lines were not copied into the notes folder when the failure was seen, as "Testing" step 4 asks.
+- Rule going forward: none new; "Testing" step 4 holds. A deferred item names a copy in the notes folder, not only a kept run folder.
+- Status: open
+
+## 2026-11-21: A cp onto a test file was refused that the Edit tool could write
+- What went wrong: `cp plugins/trailmark-codex/tests/handoff-checks.test.js plugins/trailmark/tests/handoff-checks.test.js` failed twice with "Permission denied" (Git Bash, 2026-11-21), where the same command had worked on 2026-11-19. The Edit tool then wrote the same change to that file, and `cmp` showed both copies equal.
+- Why: not known. The file had normal permissions (`-rw-r--r--`).
+- Rule going forward: when a copy between the two plugin copies is refused, make the same edit with the Edit tool and check the copies with `cmp`.
+- Status: open
+
 ## 2026-11-19: A waiter for a quiet machine counted its own shells as a running check
 - What went wrong: `wait-checks-idle.ps1` waits until no process's command line matches `release-check\.sh`. Chained in one background command with the check it was to start (`pwsh ... wait-checks-idle.ps1 && ... bash dev/release-check.sh --sums --quick`), its own `bash -c` shells (PIDs 41728, 30604, 8760, from 11:11) held that text, so it never saw two quiet looks and waited about 95 minutes. The supervisor session found it (12:46); CONFIRMED by the RS-T-hang75-enforce session, which listed the matches, each holding `wait-checks-idle`. On 2026-11-18 it worked because it ran as a command by itself.
 - Why: a process filter on command-line text matches any shell whose command line names the thing, the waiter's own parents included.

@@ -5072,6 +5072,14 @@ test('git pointers: finding the repo for a hook stops with the hook\'s time (RS-
   // Node's monotonic clock at 0. They move together only when the `at`th
   // config file is read, by `by` ms. So the timeouts noted say what the hook
   // had left, on any machine.
+  // The hook's script, which the launcher then starts, gets the same care
+  // (RS-T-firstcheckload in dev/release-state.md): the preload notes the
+  // timeout the launcher gives it (the hook's limit less the time gone on
+  // the clocks) and runs it with 20 s. Run with the launcher's timeout, the
+  // script had only that timeout in real time (6 s when 3 s are gone on the
+  // clocks), and under load it ran past that and was stopped. A stop now means
+  // the script ran past 20 s, though the launcher's JBMEM_SHOW_RUN line
+  // still names the timeout it gave.
   const s = sandbox();
   quoted(s.repo, path.join(s.base, 'inc'));
   let made = 0;
@@ -5080,7 +5088,9 @@ test('git pointers: finding the repo for a hook stops with the hook\'s time (RS-
     const stub = path.join(s.base, `clock${made}.js`);
     fs.writeFileSync(stub, `const cp = require('child_process');
 const fs = require('fs');
+const path = require('path');
 const real = cp.execFileSync;
+const realSpawn = cp.spawnSync;
 const t0 = Math.floor(performance.timeOrigin);
 let moved = 0; let files = 0;
 Date.now = () => t0 + moved;
@@ -5092,6 +5102,11 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   if (kind === 'file' && ++files === ${at}) moved += ${by};
   return real.call(this, file, args, { ...opts, timeout: 20000 }, ...rest);
 };
+cp.spawnSync = function (file, args, opts, ...rest) {
+  if (!(Array.isArray(args) && args.some(a => !String(a).startsWith('-') && path.basename(String(a)) === ${JSON.stringify(`hook-${name}.js`)}))) return realSpawn.call(this, file, args, opts, ...rest);
+  fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(['script', opts.timeout, '']) + String.fromCharCode(10));
+  return realSpawn.call(this, file, args, { ...opts, timeout: 20000 }, ...rest);
+};
 `);
     const cwd = payload.cwd || s.repo;
     const r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', name], { cwd, env: s.env, input: JSON.stringify({ cwd, session_id: SA, ...payload }), encoding: 'utf8' });
@@ -5099,13 +5114,14 @@ cp.execFileSync = function (file, args, opts, ...rest) {
     let calls = [];
     try { calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { calls = []; }
     const of = (kind, part = '') => calls.filter(x => x[0] === kind && String(x[2]).replace(/\\/g, '/').includes(part)).map(x => x[1]);
-    return { files: of('file'), root: of('root'), of, out: r.stdout + r.stderr };
+    return { files: of('file'), root: of('root'), script: of('script'), of, out: r.stdout + r.stderr };
   };
   // PreCompact: 5 s for git, and finding the memory folder is inside them.
   // 3 s gone at the first file: the six after it get 2 s each, and so does
-  // the call for the root.
+  // the call for the root. The script gets the hook's 9 s less the 3 s.
   let h = hook('precompact', { trigger: 'auto' }, 1, 3000);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(2000)], root: [2000] }, 'precompact, 3 s gone');
+  assert.deepStrictEqual(h.script, [6000], 'precompact, 3 s gone: the script\'s time');
   // 4.8 s gone at the second file: under 250 ms are left, so no third file
   // is read, by this check or the next, and no git is started for the root.
   // The hook still finds the memory folder and writes its snapshot there.
@@ -5114,19 +5130,23 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   fs.rmSync(snap);
   h = hook('precompact', { trigger: 'auto' }, 2, 4800);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, 3000], root: [] }, 'precompact, 4.8 s gone');
+  assert.deepStrictEqual(h.script, [4200], 'precompact, 4.8 s gone: the script\'s time');
   assert.match(fs.readFileSync(snap, 'utf8'), /^Uncommitted files: not read \(git-timeout\)$/m, 'the snapshot says the time ran out');
   // The PreToolUse hook: 3 s, of the 5 s Claude Code or Codex gives it, and
   // git calls of 1 s. 1.5 s gone at the first file: the files after it get
-  // 1.5 s each and the call for the root its 1 s.
+  // 1.5 s each and the call for the root its 1 s. The script gets the
+  // hook's 4.5 s less the 1.5 s.
   const pre = (id) => ({ tool_name: 'Bash', tool_input: { command: 'git commit -m x' }, tool_use_id: id, hook_event_name: 'PreToolUse' });
   const record = (id) => fs.existsSync(path.join(s.memdir, 'pending', `${id}.json`));
   h = hook('commit-start', pre('toolu_first1'), 1, 1500);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(1500)], root: [1000] }, 'commit-start, 1.5 s gone');
+  assert.deepStrictEqual(h.script, [3000], 'commit-start, 1.5 s gone: the script\'s time');
   assert.ok(record('toolu_first1'), 'no commit-start record: ' + h.out);
   // 2.8 s gone at the second file: no third file, no git for the root, and
   // the record is still written in the repo's memory folder.
   h = hook('commit-start', pre('toolu_first2'), 2, 2800);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, 3000], root: [] }, 'commit-start, 2.8 s gone');
+  assert.deepStrictEqual(h.script, [1700], 'commit-start, 2.8 s gone: the script\'s time');
   assert.ok(record('toolu_first2'), 'no commit-start record when the time ran out: ' + h.out);
   // The session's last command left it in another repo, one not set up: the
   // lookup from the folder the session started in has the same clock. 3 s
@@ -5139,6 +5159,7 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   fs.rmSync(snap);
   h = hook('precompact', { trigger: 'auto', cwd: path.join(away, 'in'), transcript_path: transcript }, 1, 3000);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(2000)], root: [3000, 2000] }, 'the lookup from the session\'s own folder');
+  assert.deepStrictEqual(h.script, [6000], 'the lookup from the session\'s own folder: the script\'s time');
   assert.ok(fs.existsSync(snap), 'no snapshot from another repo: ' + h.out);
   // Session start: the sweep looks up the memory folder of each folder the
   // session committed in, inside its own time. 2 s gone at the first file:
@@ -5150,20 +5171,21 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   const sweep = (at, by) => {
     S.updateState(s.memdir, SA, (state, rec) => { rec.start = Date.now() - 60000; rec.home = s.repo; rec.commitDirs = [other]; });
     const r = hook('session-start', { source: 'resume' }, at, by);
-    return { own: r.of('file', '/inc/'), other: r.of('file', '/inc-other/'), otherConfig: r.of('file', '/other/.git/config'), root: r.root };
+    return { own: r.of('file', '/inc/'), other: r.of('file', '/inc-other/'), otherConfig: r.of('file', '/other/.git/config'), root: r.root, script: r.script };
   };
+  // The script gets the hook's 9 s less the time gone in each case.
   assert.deepStrictEqual(sweep(1, 2000),
-    { own: Array(6).fill(3000), other: Array(6).fill(1700), otherConfig: [1700], root: [3000, 500, 500] }, 'the sweep\'s lookups');
+    { own: Array(6).fill(3000), other: Array(6).fill(1700), otherConfig: [1700], root: [3000, 500, 500], script: [7000] }, 'the sweep\'s lookups');
   // The sweep's clock runs while its lookup reads. With no time gone before
   // it, the sweep has 5 s and the lookup 3.7 s of them. The ninth file read
   // is the first one the other folder's config includes: 1 s gone there, and
   // the five files after it get 2.7 s each.
   assert.deepStrictEqual(sweep(9, 1000),
-    { own: Array(6).fill(3000), other: [3000, ...Array(5).fill(2700)], otherConfig: [3000], root: [3000, 500, 500] }, 'the sweep\'s clock runs during its lookup');
+    { own: Array(6).fill(3000), other: [3000, ...Array(5).fill(2700)], otherConfig: [3000], root: [3000, 500, 500], script: [8000] }, 'the sweep\'s clock runs during its lookup');
   // 3.6 s gone there: 0.1 s is left, so no further file is read and no git
   // is started for the other folder's root.
   assert.deepStrictEqual(sweep(9, 3600),
-    { own: Array(6).fill(3000), other: [3000], otherConfig: [3000], root: [3000, 500] }, 'the sweep\'s lookup stops with its clock');
+    { own: Array(6).fill(3000), other: [3000], otherConfig: [3000], root: [3000, 500], script: [5400] }, 'the sweep\'s lookup stops with its clock');
 });
 
 test('scan: only the folder a session started in counts; a memory folder named notes (loop round 7)', { skip: NO_LINKS }, () => {
