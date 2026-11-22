@@ -325,7 +325,7 @@ test('lock: broken only when its holder is gone, and never waited on past the de
   const lock = path.join(s.memdir, '.jbmem.lock');
   // A lock's stamp on the monotonic clock is its age where there is one
   // (RS-T-lockagemono), so it is moved back with the mtime.
-  const age = (ms) => { const t = new Date(Date.now() - ms); const txt = fs.readFileSync(lock, 'utf8'); const m = / mono (\d+) /.exec(txt); if (m) fs.writeFileSync(lock, txt.replace(m[0], ` mono ${Number(m[1]) - ms} `)); fs.utimesSync(lock, t, t); };
+  const age = (ms) => { assert.ok(fs.existsSync(lock), 'the lock was broken before its age was set'); const t = new Date(Date.now() - ms); const txt = fs.readFileSync(lock, 'utf8'); const m = / mono (\d+) /.exec(txt); if (m) fs.writeFileSync(lock, txt.replace(m[0], ` mono ${Number(m[1]) - ms} `)); fs.utimesSync(lock, t, t); };
   const tryLock = (waitMs) => { const t0 = Date.now(); try { S.withLock(s.memdir, () => {}, { waitMs }); return { ok: true, ms: Date.now() - t0 }; } catch (e) { return { ok: false, code: e.code, msg: e.message, ms: Date.now() - t0 }; } };
   const locked = (r) => !r.ok && r.code === 'JBMEM_LOCKED' && r.ms >= 250 && r.ms < 2500;
   // A command that crashes while holding the lock leaves it behind, labeled.

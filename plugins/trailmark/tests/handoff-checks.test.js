@@ -688,9 +688,9 @@ test('lock: with the clock moved, a dead holder\'s lock is broken after 5 s of w
   // A lock kept, as a pid in use again would keep it, is the one result to
   // skip on (review round 6, F2: a throw was skipped too). A break that
   // ends after the deadline leaves no lock to read, so its failure is the
-  // assertion's, not a raw ENOENT (RS-T-lockagekeptread; the other lock
-  // tests' checks that a lock was kept read it the same way: review round 1,
-  // F1).
+  // assertion's, not a raw ENOENT (RS-T-lockagekeptread). The other lock
+  // tests' checks that a lock was kept now check it exists the same way
+  // (review rounds 1 and 2).
   const kept = !got.ran && got.code === 'JBMEM_LOCKED' && fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token dddd');
   const again = kept ? reusedPid(text) : 0;
   if (again) return t.skip(reusedSkip(again));
@@ -7193,7 +7193,7 @@ test('lock: a link in place of the lock is removed under the .break lock (loop r
   // Another command is breaking the lock right now: the link must stay.
   fs.writeFileSync(lock + '.break', '');
   assert.throws(() => S.withLock(base, () => {}, { waitMs: 300 }));
-  assert.ok(fs.lstatSync(lock).isSymbolicLink(), 'a link was taken while another command held .break');
+  assert.ok((() => { try { return fs.lstatSync(lock).isSymbolicLink(); } catch { return false; } })(), 'a link was taken while another command held .break');
   fs.unlinkSync(lock + '.break');
   let ran = false;
   S.withLock(base, () => { ran = true; }, { waitMs: 1500 });
@@ -7419,7 +7419,7 @@ test('lock: a real lock taken before .break is held is never moved aside (loop r
   try {
     assert.throws(() => S.withLock(base, () => {}, { waitMs: 200 }), /another trailmark command/);
   } finally { fs.openSync = realOpen; fs.lstatSync = realLstat; }
-  assert.match(fs.readFileSync(lock, 'utf8'), /token BBBB/, 'a live lock was moved aside');
+  assert.match(fs.existsSync(lock) ? fs.readFileSync(lock, 'utf8') : '(no lock file)', /token BBBB/, 'a live lock was moved aside');
   assert.deepStrictEqual(fs.readdirSync(base).filter(f => f.endsWith('.gone')), []);
 });
 
