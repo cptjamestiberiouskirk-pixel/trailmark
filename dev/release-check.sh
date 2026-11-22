@@ -22,6 +22,12 @@
 # and the 20 newest passing --only runs' apart from them). It
 # makes no network requests. The test suites run at the same time, and each
 # summary line gives the suite's own time.
+#
+# Each test has a limit, as in CI's test steps (enforce mode of
+# .github/run-tests.sh): a test that hangs fails with its name once the limit
+# is up, and the suite goes on. TRAILMARK_TEST_LIMIT_MS sets it in ms; the
+# default is 400000, CI's limit on Windows, its largest; 0 runs the suites
+# with no limit (RS-T-localhang, dev/release-state.md).
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
 
@@ -99,6 +105,29 @@ KEEP=''
 export TMPDIR="$T"
 # Node on Windows takes its temp folder from TEMP and TMP, not TMPDIR.
 if command -v cygpath >/dev/null 2>&1; then TW="$(cygpath -w "$T")"; export TEMP="$TW" TMP="$TW"; fi
+# The per-test limit, given to node --test as run-tests.sh gives it in enforce
+# mode (see there for each part): --test-timeout on Node 24 and later, and on
+# Node 22, where it would limit each file as a whole, the preload's own
+# timeout for each test() call in its place; --test-force-exit, so a file
+# whose test was ended doesn't wait on what that test left open; and the
+# preload, which limits each synchronous child call with no timeout of its own.
+LIMIT_MS="${TRAILMARK_TEST_LIMIT_MS-400000}"
+case "$LIMIT_MS" in
+  ''|*[!0-9]*) echo "TRAILMARK_TEST_LIMIT_MS must be a whole number of ms (0: no limit), not '$LIMIT_MS'"; exit 2 ;;
+esac
+LIMIT_FLAGS=()
+if [ "$LIMIT_MS" -gt 0 ]; then
+  if [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 24 ]; then
+    LIMIT_FLAGS=(--test-timeout="$LIMIT_MS"); export TRAILMARK_TEST_LIMIT_OPTION=0
+  else
+    export TRAILMARK_TEST_LIMIT_OPTION=1
+  fi
+  LIMIT_FLAGS+=(--test-force-exit --require ./.github/test-limits.js)
+  export TRAILMARK_TEST_LIMIT_MS="$LIMIT_MS"
+else
+  # No limit: the preload is not loaded, and nothing passes one on.
+  unset TRAILMARK_TEST_LIMIT_MS TRAILMARK_TEST_LIMIT_OPTION
+fi
 RESULTS=()
 FAILED=0
 record() { RESULTS+=("$(printf '%-4s  %s' "$1" "$2")"); if [ "$1" = FAIL ]; then FAILED=1; fi; return 0; }
@@ -166,7 +195,7 @@ start_suite() { # name, slug for the kept output, then node --test arguments
     export TMPDIR="$d/tmp" TEMP="$dt" TMP="$dt"
     s=$(date +%s)
     # TAP named: newer Node prints the spec reporter even into a pipe.
-    node --test --test-reporter=tap "$@" > "$d/out" 2>&1
+    node --test --test-reporter=tap ${LIMIT_FLAGS[@]+"${LIMIT_FLAGS[@]}"} "$@" > "$d/out" 2>&1
     echo $(( $(date +%s) - s )) > "$d/secs"
   ) &
   set +m
