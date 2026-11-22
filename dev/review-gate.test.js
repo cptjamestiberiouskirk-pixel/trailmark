@@ -675,3 +675,32 @@ test('evals: a tree name with a backslash, colon or dotted part stops the case, 
     for (const n of good) assert.equal(fs.readFileSync(path.join(dir, n), 'utf8'), 'x', n);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
+test('evals: Ctrl+C removes the run\'s own worktree and keeps the record of another worktree whose folder is missing', () => {
+  const root = path.join(__dirname, '..');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evalprune-'));
+  const other = path.join(tmp, 'other-tree');
+  const own = path.join(tmp, 'work', 'prune-case');
+  const gitq = (...a) => spawnSync('git', ['-C', root, ...a], { encoding: 'utf8', timeout: 60000 });
+  try {
+    const head = gitq('rev-parse', 'HEAD').stdout.trim();
+    assert.equal(gitq('worktree', 'add', '--detach', other, head).status, 0);
+    fs.rmSync(other, { recursive: true, force: true });
+    const code = `const run = require(${JSON.stringify(path.join(__dirname, 'review-evals', 'run.js'))});
+run.prepare({ id: 'prune-case', causePr: 1, causeMerge: ${JSON.stringify(head)} }, ${JSON.stringify(path.join(tmp, 'work'))}, { prText: () => ({ title: 't', body: '' }) });
+run.stop();`;
+    const r = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 120000 });
+    assert.equal(r.status, 130, r.stderr);
+    assert.equal(fs.existsSync(own), false);
+    const list = gitq('worktree', 'list', '--porcelain').stdout.toLowerCase();
+    assert.ok(!list.includes('prune-case'), 'own worktree still registered');
+    assert.ok(list.includes('other-tree'), 'the other worktree\'s record was dropped');
+  } finally {
+    // Only this test's own record goes: `git worktree prune` is repo-wide and
+    // would drop the record of any unrelated worktree whose folder is away.
+    // `remove --force` of a missing, unlocked worktree drops just its record.
+    // The test's own worktree too, which stays only when an assertion failed first.
+    gitq('worktree', 'remove', '--force', own);
+    gitq('worktree', 'remove', '--force', other);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
