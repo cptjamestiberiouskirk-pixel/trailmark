@@ -406,9 +406,9 @@ test('context watch: finding the memory folder is inside the hook\'s 5 s for git
   // launcher then starts, gets the same care (RS-T-firstcheckload in
   // dev/release-state.md): the preload notes the timeout the launcher gives
   // it (the hook's limit less the time gone on the clocks) and runs it with
-  // 20 s. Started with the launcher's timeout, the script had that much real
-  // time less the time the clocks were moved by, and under load it could run
-  // past that and be stopped. A stop now means the script ran past 20 s,
+  // 20 s. Run with the launcher's timeout, the script had only that timeout
+  // in real time (6 s when 3 s are gone on the clocks), and under load it
+  // could run past that and be stopped. A stop now means the script ran past 20 s,
   // though the launcher's message is the same.
   let made = 0;
   const hook = (at, by) => {

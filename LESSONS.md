@@ -20,7 +20,7 @@ Format:
 - Rule going forward: before a failure's cause is written down, open the code that prints each number of its sign and name the clock or count each one comes from (fake or real, whose process).
 - Status: open
 
-## 2026-11-21: Busy loops did not slow a hook script that file churn slowed sixfold
+## 2026-11-21: Busy loops did not slow a hook script past its window, and file churn did
 - What went wrong: with 48 busy loops the hook script took at most 1.7 s (`probe-2.out`), and the 6 s stop seemed out of reach. With the same loops and 16 processes writing, renaming and deleting small files in the temp drive, it took up to 12.1 s and 12 of 20 runs passed their window (`probe-io-1.out`).
 - Why: busy loops load the processor only. A test suite also loads the file system, and on Windows that slows process starts and file writes (Defender, retries on busy errors).
 - Rule going forward: a load repro that busy loops don't reproduce adds file churn in the temp folder (`io-churn.js` of `rs-t-firstcheckload/`) before the failure is called out of reach.
