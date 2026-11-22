@@ -72,7 +72,7 @@ Format:
 - What went wrong: in RS-D-enforcedocs, the notes said "a search of the session transcripts found only later copies of the notes" for the user's "Yes, if clean". The search had a limit of 5 and returned 5 hits, all copies; the docs reviewer found the user's turn in session 2781e549's transcript (line 3940, 2026-11-18 02:33:35Z), and the notes then labeled it from the wrong source (WRONG, docs round 1).
 - Why: a capped search that returns as many hits as its cap shows only that there are at least that many; it was read as the whole result.
 - Rule going forward: before writing that something is absent, check that the search that looked for it returned fewer hits than its limit, or search the source named in the notes (here the session id) directly.
-- Status: promoted to PLAYBOOK ("Testing" step 9, which already holds it: a search that finds nothing proves nothing until it is shown to work; the class of the 2026-11-18 entry "'Not read' was concluded from one kind of read missing", seen again)
+- Status: promoted to PLAYBOOK ("Testing" step 9, its sentence on a search with a limit on its hits; the class of the 2026-11-18 entry "'Not read' was concluded from one kind of read missing", seen again)
 
 ## 2026-11-22: MSYS rewrote a `rev:path` argument, and a probe ran an empty file
 - What went wrong: the RS-T-limitscwd probe took the base commit's script with `git -C <repo> show "origin/main:.github/test-limits-check.js" > old.js`. Git Bash rewrote the argument as a path list (`origin\main;.github\test-limits-check.js`), git failed, `old.js` was empty, and the base half of `lc-probe-1.out` ran an empty file: exit 0, nothing left, which looked like the base had no bug. Setting `MSYS_NO_PATHCONV=1` then broke the `-C /e/...` path of the same call.
