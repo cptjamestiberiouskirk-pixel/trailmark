@@ -632,9 +632,17 @@ const withClock = (by, fn) => {
   Date.now = () => now() + by;
   try { return fn(); } finally { Date.now = now; }
 };
-const tryLock = (dir, by) => {
+const tryLock = (dir, by, waitMs = 600) => {
   let ran = false;
-  try { withClock(by, () => S.withLock(dir, () => { ran = true; }, { waitMs: 600 })); return { ran, code: '' }; } catch (e) { return { ran, code: e.code }; }
+  try { withClock(by, () => S.withLock(dir, () => { ran = true; }, { waitMs })); return { ran, code: '' }; } catch (e) { return { ran, code: e.code }; }
+};
+// A lock of a holder that has ended (a pid that ran and exited, this host).
+const deadLabel = (token) => `pid ${spawnSync(process.execPath, ['-e', '']).pid} host ${String(os.hostname() || 'unknown').replace(/\s+/g, '_').slice(0, 64)} since x token ${token}\n`;
+const deadLockAt = (prefix, ago) => {
+  const { dir, file } = lockAt(prefix, 0);
+  fs.writeFileSync(file, deadLabel('dddd'));
+  if (ago) { const t = (Date.now() - ago) / 1000; fs.utimesSync(file, t, t); }
+  return { dir, file };
 };
 
 test('lock: a system clock moved past 60 s leaves a live holder its fresh lock (RS-T-lockagestep)', () => {
@@ -657,6 +665,53 @@ test('lock: with the clock not moved, a lock over 60 s old is still broken at on
   const moved = lockAt('jbmem-lockage-oldmoved-', 120000);
   assert.deepStrictEqual(tryLock(moved.dir, 61000), { ran: false, code: 'JBMEM_LOCKED' });
   assert.deepStrictEqual(tryLock(moved.dir, 0), { ran: true, code: '' });
+});
+
+// Review round 1, F1 to F3: with the clock moved, the age is the time this
+// command has watched the same lock text.
+test('lock: with the clock moved, a dead holder\'s lock is broken after 5 s of watching it (RS-T-lockagestep)', () => {
+  const { dir } = deadLockAt('jbmem-lockwatch-', 10000);
+  const t0 = performance.now();
+  assert.deepStrictEqual(tryLock(dir, 61000, 7000), { ran: true, code: '' });
+  const took = performance.now() - t0;
+  assert.ok(took >= 5000, `broken after ${Math.round(took)} ms`);
+});
+
+test('lock: with the clock moved, the watch starts again when the lock changes (RS-T-lockagestep)', async () => {
+  const { dir, file } = deadLockAt('jbmem-lockrewatch-', 10000);
+  // Another ended holder's label at 1.5 s: watched from then, so not
+  // broken before 6.5 s, past the 6 s wait.
+  const label = deadLabel('eeee');
+  const child = require('child_process').spawn(process.execPath, ['-e', `setTimeout(() => require('fs').writeFileSync(${JSON.stringify(file)}, ${JSON.stringify(label)}), 1500)`], { stdio: 'ignore' });
+  try {
+    assert.deepStrictEqual(tryLock(dir, 61000, 6000), { ran: false, code: 'JBMEM_LOCKED' });
+    assert.ok(fs.readFileSync(file, 'utf8').includes('token eeee'), 'the relabeled lock was broken');
+  } finally {
+    // As in the lock test above: the exit, then the turn that closes the handle.
+    child.kill();
+    await require('events').once(child, 'exit');
+    await new Promise(r => setTimeout(r, 0));
+  }
+});
+
+test('lock: with the clock moved, a .break file is not removed for its age, and the next command clears it (RS-T-lockagestep)', () => {
+  const { dir, file } = deadLockAt('jbmem-lockbreak-', 10000);
+  const brk = `${file}.break`;
+  fs.writeFileSync(brk, '');
+  const t = (Date.now() - 40000) / 1000; fs.utimesSync(brk, t, t);
+  // Watched past 5 s the dead holder's lock is breakable, so the .break
+  // file is reached; by the moved clock it is over 30 s old.
+  assert.deepStrictEqual(tryLock(dir, 61000, 7000), { ran: false, code: 'JBMEM_LOCKED' });
+  assert.ok(fs.existsSync(brk), 'the .break file was removed');
+  assert.deepStrictEqual(tryLock(dir, 0), { ran: true, code: '' });
+  assert.ok(!fs.existsSync(brk), 'the .break file was left');
+});
+
+test('lock: a clock moved 6 s keeps a dead holder\'s fresh lock for its 5 s (RS-T-lockagestep)', () => {
+  // A move past 1 s counts; by the moved clock this fresh lock is 6 s old.
+  const { dir, file } = deadLockAt('jbmem-locksmall-', 0);
+  assert.deepStrictEqual(tryLock(dir, 6000), { ran: false, code: 'JBMEM_LOCKED' });
+  assert.ok(fs.readFileSync(file, 'utf8').includes('token dddd'), 'the fresh lock was broken');
 });
 
 // retryWin: Windows's transient codes are tried again for 2 s. The platform

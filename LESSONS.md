@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: The lock fix's tests left its watch untested
+- What went wrong: RS-T-lockagestep's first four tests passed with the parent's whole `tryBreakLock` or `withLock` put back, with a watch that never started again, with the `.break` line put back and with a 30 s threshold (review round 1, Opus, by runs). Only the outcome of short waits was tested, not the watch that the comment names as the design.
+- Why: PLAYBOOK "Testing" step 8 (remove each part of a fix alone and check that a test fails) was not run before the first round; the round ran it.
+- Rule going forward: none new; step 8 is run on each part of a fix before the first round, its results in the notes.
+- Status: promoted to PLAYBOOK ("Testing" step 8, which already holds it)
+
 ## 2026-11-22: A clock-step test showed only that the work was not stopped early
 - What went wrong: RS-T-clocksteplibs's commit-sites test stepped `Date.now` and checked that the read was not cut short. Review round 1 (Opus, by a run) put `parse`'s deadline back on `Date.now` alone: the deadline then sat near 1.7e12 against `performance.now`, so the read never stopped for time, and the new test still passed. An older test caught it.
 - Why: the test checked one side of the deadline, that a step does not end it, and not that the deadline still ends the work.

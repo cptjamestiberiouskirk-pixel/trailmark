@@ -318,8 +318,9 @@ const LOCK_UNLABELED_MS = 30 * 1000;
 const LOCK_MAX_MS = 60 * 1000;
 const HOST = String(os.hostname() || 'unknown').replace(/\s+/g, '_').slice(0, 64);
 // The wall clock less what it read at the process's start plus the monotonic
-// time since: within a few ms unless the clock was moved (or the machine
-// slept, where the monotonic clock may stop; then ages are only distrusted).
+// time since: within 2 ms on this PC unless the clock was moved, or the
+// machine slept, where the monotonic clock may stop (not run; then ages are
+// only distrusted).
 const CLOCK_MOVED_MS = 1000;
 function clockMoved() {
   return Math.abs(Date.now() - (performance.timeOrigin + performance.now())) > CLOCK_MOVED_MS;
@@ -395,7 +396,8 @@ function tryBreakLock(file, watch = { text: null, at: 0 }) {
       }
       return false;
     }
-    // Its age is read from the system clock too: not trusted once that moved.
+    // Its age is read from the system clock too: not trusted once that moved
+    // (one that is not a plain file is still removed).
     try { if (b && (!b.isFile() || (!clockMoved() && Math.abs(Date.now() - b.mtimeMs) > LOCK_UNLABELED_MS))) fs.unlinkSync(brk); } catch { /* gone */ }
     return false;
   }
