@@ -722,3 +722,19 @@ test('tier: a destructuring on the line, a slash-star in a regex and a stray quo
   assert.equal(e.tier, 'low');
   assert.equal(e.mustCheck.length, 1);
 });
+test('tier: a todo or focus stays high after a stray quote, and a nested destructuring is exempt whole', () => {
+  const f = (patch) => t.classify([file('plugins/trailmark/tests/a.test.js', `@@\n+${patch}`)], rules);
+  // PR 116, Codex: a condition with a stray quote before test.only or test.todo must not make it a must-check.
+  for (const l of ["if (WIN) { const re = /'/; test.only('x', fn); }", "if (WIN) { const re = /'/; test.todo('x'); }"]) {
+    const c = f(l);
+    assert.equal(c.tier, 'high', l);
+    assert.equal(c.mustCheck.length, 0, l);
+  }
+  // PR 116, Codex: a nested pattern or a default is part of the destructuring.
+  for (const l of ['const { a: { skip }, b } = opts;', 'const { skip = {}, todo } = opts;', 'let { a: { b: { todo } } } = opts;']) {
+    assert.equal(f(l).tier, 'low', l);
+  }
+  // What follows the destructuring still counts, and so does an assignment that is a comparison.
+  assert.equal(f("const { a: { skip }, b } = opts; test('x', { skip }, fn)").tier, 'high');
+  assert.equal(f("const { skip } == 1; test('x', { skip }, fn)").tier, 'high');
+});

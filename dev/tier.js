@@ -59,11 +59,27 @@ function code(l, strict) {
 const CALL = /\.\s*(skip|todo|only)\s*(\?\.\s*)?\(|\[\s*['"`](skip|todo|only)['"`]\s*\]/;
 const KEY = /\b(skip|todo)\s*:|\bonly\s*:\s*(true|[1-9])/;
 const SHORT = /[{,]\s*(skip|todo|only)\s*[,}]/;
-const DESTRUCT = /^\+?\s*(const|let|var)\s*\{[^}]*\}\s*=/;
+const DESTRUCT = /^\+?\s*(const|let|var)\s*\{/;
+// The line without a leading `const { ... } =`, the braces matched so a nested
+// pattern (`{ a: { skip }, b }`) or a default (`{ skip = {} }`) is removed whole;
+// a pattern that does not close and meet a single `=` on the line is kept.
+function withoutDestructuring(c) {
+  const m = DESTRUCT.exec(c);
+  if (!m) return c;
+  let depth = 0;
+  for (let i = m[0].length - 1; i < c.length; i++) {
+    if (c[i] === '{') depth++;
+    else if (c[i] === '}' && --depth === 0) {
+      const rest = /^\s*=(?!=)/.exec(c.slice(i + 1));
+      return rest ? c.slice(i + 1 + rest[0].length) : c;
+    }
+  }
+  return c;
+}
 const QUOTED = /['"](skip|todo|only)['"]\s*:/;
 const isSkip = (l) => {
   const c = code(l);
-  return CALL.test(l) || KEY.test(c) || SHORT.test(c.replace(DESTRUCT, '')) || QUOTED.test(l);
+  return CALL.test(l) || KEY.test(c) || SHORT.test(withoutDestructuring(c)) || QUOTED.test(l);
 };
 // A skip that names its condition on the same line (a platform, root, a flag).
 // Read in the code, so `t.skip('why?')` or a `// a && b` comment is not a
@@ -72,7 +88,9 @@ const isSkip = (l) => {
 // is never conditional.
 // A condition is read only from the code before a stray quote (`strict`).
 const constant = (l) => /\bskip\s*:\s*(true|[1-9]\d*|"")\s*(\|\||\?)/.test(code(l, true));
-const conditional = (l) => !/\b(todo|only)\b/i.test(code(l, true)) && !constant(l)
+// A todo or a focus is looked for in the whole line (the raw line after a stray
+// quote), so it stays high whatever a condition says.
+const conditional = (l) => !/\b(todo|only)\b/i.test(code(l)) && !constant(l)
   && /\?(?!\.)|&&|\|\||\bif\s*\(|process\.(platform|getuid)|\bWIN\b/.test(code(l, true));
 const added = (lines) => lines.filter((l) => l.startsWith('+') && !l.startsWith('+++'));
 const removed = (lines) => lines.filter((l) => l.startsWith('-') && !l.startsWith('---'));
