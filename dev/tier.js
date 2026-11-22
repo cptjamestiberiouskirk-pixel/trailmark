@@ -76,7 +76,9 @@ function withoutDestructuring(c) {
       return rest ? c.slice(i + 1 + rest[0].length) : c;
     }
   }
-  return '';
+  // A quote or a slash may hold a brace (`{ a = '{' }`, `/{/`) that unbalances the
+  // count, so only a plain opener is all pattern; anything else is kept (high).
+  return /['"`\/]/.test(c) ? c : '';
 }
 const QUOTED = /['"](skip|todo|only)['"]\s*:/;
 const isSkip = (l) => {

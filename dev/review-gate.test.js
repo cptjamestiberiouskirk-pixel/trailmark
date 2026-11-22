@@ -740,5 +740,9 @@ test('tier: a todo or focus stays high after a stray quote, and a nested destruc
   // PR 116, Opus: the first line of a multi-line destructuring is all pattern, and a
   // `skip: true ||` after a stray quote still keeps the line high.
   assert.equal(f('const { skip,').tier, 'low');
+  // PR 116, Opus round 2: a brace in a string or regex of the pattern must not hide what follows.
+  for (const l of ["const { a = '{' } = o; test('x', { skip }, /'/)", "const { a = '{' } = o; test('x', { only }, /'/)", "const { a = /{/ } = o; test('x', { skip }, fn)", "const { a /* { */ } = o; test('x', { skip }, /'/)"]) {
+    assert.equal(f(l).tier, 'high', l);
+  }
   assert.equal(f("test('x', { skip: WIN }, /'/, { skip: true || x })").tier, 'high');
 });
