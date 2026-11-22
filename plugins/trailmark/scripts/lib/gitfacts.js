@@ -151,7 +151,7 @@ const WIN = process.platform === 'win32';
 function farWorktree(r, cwd, caseless = CASELESS) {
   const top = topLevel(r, cwd);
   if (!top.ok) return top.why === 'timeout' ? 'git-timeout' : 'git-error';
-  const ls = r.run(cwd, ['ls-files', '--stage', '-z', '--full-name']);
+  const ls = r.run(cwd, ['ls-files', '--stage', '-t', '-z', '--full-name']);
   if (!ls.ok) return ls.why === 'timeout' ? 'git-timeout' : 'git-error';
   // A path that isn't valid UTF-8 reads back here with U+FFFD in it, so
   // every lookup below would name a file git doesn't use: not checked, so
@@ -170,6 +170,10 @@ function farWorktree(r, cwd, caseless = CASELESS) {
     // The list can be 32 MB, and nothing below looks at the disk, so the
     // time is looked at once for each LIST_STEP characters of it.
     if ((read += e.length + 1) >= LIST_STEP) { read -= LIST_STEP; if (r.left() < 800) return 'git-timeout'; }
+    // With -t git puts a tag and a space before each line (`H 100644 ...`),
+    // `S` for an entry marked skip-worktree. A line with no tag is taken as
+    // one without the mark, so nothing is passed over for it.
+    const tag = /^[A-Za-z?] /.test(e) ? e[0] : '';
     const rel = e.slice(e.indexOf('\t') + 1);
     if (!rel || e.indexOf('\t') < 0) continue;
     // A tracked path of more than MAX_GIT_PATH characters is longer than a
@@ -222,7 +226,7 @@ function farWorktree(r, cwd, caseless = CASELESS) {
       }
       at = next;
     }
-    entries.push({ rel, link: e.startsWith('160000 '), in: at });
+    entries.push({ rel, link: e.startsWith('160000 ', tag ? 2 : 0), in: at, skip: tag === 'S' });
   }
   // The folders first, parents before their subfolders: nothing below looks
   // into one until it is known not to be a link to a network path.
@@ -259,12 +263,14 @@ function farWorktree(r, cwd, caseless = CASELESS) {
   // with one listing per folder of tracked files rather than a lookup per
   // file.
   const byFolder = new Map();
-  for (const { rel, link, in: at } of entries) {
+  const skips = new Set();
+  for (const { rel, link, in: at, skip } of entries) {
     if (link || at.gone) continue;
     const i = rel.lastIndexOf('/');
     const dir = i < 0 ? '' : rel.slice(0, i);
     if (!byFolder.has(dir)) byFolder.set(dir, []);
     byFolder.get(dir).push(rel.slice(i + 1));
+    if (skip) skips.add(rel);
   }
   const fold = (x) => (caseless ? x.toLowerCase() : x);
   for (const [dir, names] of byFolder) {
@@ -298,6 +304,19 @@ function farWorktree(r, cwd, caseless = CASELESS) {
         const held = new Set(list.map(x => x.name));
         for (const nm of names) {
           if (held.has(nm)) continue;
+          // Nor is a name git marks skip-worktree (`S`): git status passes
+          // over such an entry, and git has looked for it already. With
+          // core.sparseCheckout on, git takes the mark off as it reads the
+          // index when its own lookup finds something at the path, a folder
+          // the drive finds under another case included, and -t then gives
+          // `H`. With a repo at `d/s` whose config git can't parse, `git
+          // status` failed on it where `d/s` (or `d/S`, on a drive that
+          // folds case) was tagged `H`, and passed it over where it was
+          // tagged `S` (git 2.56.1 on Windows, on ext4 and on a Windows
+          // drive in WSL; RS-A-missinglookups). A sparse checkout has one
+          // such name for each file outside its patterns. One the listing
+          // holds is checked as before.
+          if (skips.has(dir ? `${dir}/${nm}` : nm)) continue;
           if (r.left() < 800) return 'git-timeout';
           const one = path.join(whole, nm);
           // "No such name" is the usual answer here, and is taken without

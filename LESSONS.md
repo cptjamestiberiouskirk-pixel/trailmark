@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A probe went in through a heredoc, and its first run lost its patterns to MSYS
+- What went wrong: the RS-A-missinglookups sparse probe (`ml-sparse.sh`) was written with a Bash heredoc, where "Constraints and known limits" says every script is written with the Write or Edit tool. Its first run in Git Bash passed `/d/a` and the other sparse patterns to Windows git without `MSYS_NO_PATHCONV=1`, which the same section names. MSYS rewrote them, so the patterns matched nothing, and the `wsl.exe` paths were rewritten too, so the WSL runs never started. That run's output was dropped and the probe run again with the variable set (`ml-sparse.out`).
+- Why: a harness reminder to work through Bash was followed over the project's rule. The patterns were not seen as path arguments because they were git patterns, not file names.
+- Rule going forward: none new; "Constraints and known limits" holds over a harness reminder. Any argument that starts with `/` and goes to a Windows program (git patterns, refspecs, `wsl.exe` paths) runs with `MSYS_NO_PATHCONV=1`.
+- Status: open
+
 ## 2026-11-22: A measured count was applied to a different distance than the one measured
 - What went wrong: the RS-T-hookcwd note (PR 101) said a hook working in a subfolder meets the "two folders down" count of 2,000 to 5,000 missing names. `probe-top.js` had put the process in the repo's top folder and the names two folders below it, and the corrected RS-A-missinglookups bullet already said the count depends on the distance from the process's working folder. Moving the hook's folder changes that distance instead of reproducing it. Codex's review found it (P2, CONFIRMED here by reading the bullet and the probe's description); the coordinator had written the sentence from the hook-folder result without re-reading what the count was measured against.
 - Why: two true facts (the hook works in the session's folder; the count depends on the distance from the working folder) were joined by the reading "session folder = repo root + two", which neither fact says.
