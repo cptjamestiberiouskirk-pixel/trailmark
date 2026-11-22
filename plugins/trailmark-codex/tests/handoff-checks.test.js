@@ -2959,8 +2959,9 @@ test('git status: a name git marks skip-worktree is not looked up where the list
   // folds case finds as d/s. `kept`: sparse.expectFilesOutsideOfPatterns
   // keeps the mark on whatever is there.
   // git 2.35 is the first with `sparse-checkout set --no-cone`, and 2.36 the
-  // first to take the mark off for what it finds (review round 1, from
-  // git's source). With an older git this part is not run, and says so.
+  // first to take the mark off for what it finds (CONFIRMED by Opus from
+  // git's source in review round 1, not re-run: no older git was run). With
+  // an older git this part is not run, and says so.
   const ver = execFileSync('git', ['--version'], { encoding: 'utf8' }).trim();
   const vm = /(\d+)\.(\d+)/.exec(ver);
   if (!vm || +vm[1] < 2 || (+vm[1] === 2 && +vm[2] < 36)) { console.log(`# RS-A-missinglookups: the part with git itself needs git 2.36 or later, not run with ${ver}`); return; }
@@ -3005,14 +3006,18 @@ test('git status: a name git marks skip-worktree is not looked up where the list
 // RS-A-missinglookups, review round 1: the tag of ls-files -t puts 2 more
 // bytes on each line of the list of tracked files, and an answer past the
 // runner's buffer fails the call. A list that fits in 32 MiB without the
-// tags and not with them (166,900 tracked names of 150 characters in a
-// folder that is not there, and `a`) is read, and status with it.
+// tags and not with them (N tracked names of 150 characters in a folder
+// that is not there, and `a`) is read, and status with it. N is worked out
+// from the length of an object's name, so the list fits with SHA-1 (166,926
+// names) and with SHA-256 (149,128) alike (review round 2). The status
+// count is N: `a` is not changed.
 test('git status: a list of tracked files that fits in 32 MiB without the tags of -t is read with them (RS-A-missinglookups)', () => {
   const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const dir = path.join(realTemp('jbmem-taglist-'), 'r');
   repoAt(dir);
   const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: dir, input: '', encoding: 'utf8' }).trim();
-  const N = 166900;
+  // A line: mode and space (7), the name, ` 0` and a tab (3), the path, NUL.
+  const N = Math.floor(((32 << 20) - 200) / (7 + blob.length + 3 + 150 + 1));
   const names = Array.from({ length: N }, (_, k) => { const p = `d/${String(k).padStart(6, '0')}`; return p + 'x'.repeat(150 - p.length); });
   const set = spawnSync('git', ['update-index', '--index-info'], { cwd: dir, input: names.map(p => `100644 ${blob}\t${p}\n`).join(''), encoding: 'utf8' });
   assert.strictEqual(set.status, 0, set.stderr);
@@ -3021,6 +3026,25 @@ test('git status: a list of tracked files that fits in 32 MiB without the tags o
   assert.ok(sizes.without <= 32 << 20 && sizes.with > 32 << 20, `the list fits in 32 MiB without the tags and not with them: ${JSON.stringify(sizes)}`);
   const f = gitFacts(dir, ['status'], { budgetMs: 30000, callMs: 20000 });
   assert.deepStrictEqual({ skipped: f.statusSkipped, count: f.statusCount }, { skipped: undefined, count: N });
+});
+
+// RS-A-missinglookups, review round 2: the larger buffer is for that list
+// alone. A commit subject of 33 MiB is not read (the call fails, and the
+// subject is empty). With 34 MiB for every call it was, and cutting such a
+// subject to one line took 4 s and 2 GB (CONFIRMED by Fable, not re-run).
+test('git facts: a commit subject past 32 MiB is not read (RS-A-missinglookups)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-bigsubject-');
+  const dir = path.join(base, 'r');
+  const g = repoAt(dir);
+  const msg = path.join(base, 'msg');
+  fs.writeFileSync(msg, 'x'.repeat(33 << 20));
+  g('commit', '-q', '--allow-empty', '--cleanup=verbatim', '-F', msg);
+  // The control: git gives the whole subject, and a short one is read.
+  assert.strictEqual(spawnSync('git', ['log', '-1', '--format=%s'], { cwd: dir, maxBuffer: 64 << 20 }).stdout.length, (33 << 20) + 1);
+  assert.strictEqual(gitFacts(dir, ['subject'], { budgetMs: 20000, callMs: 15000 }).subject, '');
+  g('commit', '-q', '--allow-empty', '-m', 'short');
+  assert.strictEqual(gitFacts(dir, ['subject'], { budgetMs: 20000, callMs: 15000 }).subject, 'short');
 });
 
 // The same lookup where the system makes the failure itself. A tracked name

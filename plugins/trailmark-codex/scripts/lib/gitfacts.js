@@ -42,8 +42,10 @@ function runner(budgetMs, callMs = 4000) {
   // late: a call was refused or stopped for lack of time.
   const r = { hung: false, late: false };
   r.left = () => deadline - Date.now();
-  // input: text for git's stdin (check-attr --stdin).
-  r.run = (cwd, args, input) => {
+  // input: text for git's stdin (check-attr --stdin). buffer: the most of
+  // git's answer that is read; past it the call fails. 32 MiB for every
+  // call but farWorktree's list (LIST_BUFFER).
+  r.run = (cwd, args, input, buffer = 32 * 1024 * 1024) => {
     const left = Math.min(callMs, deadline - Date.now());
     if (r.hung || left < 250) { r.late = true; return { ok: false, out: '', why: 'timeout' }; }
     // The check stops at the 250 ms this call needs, not at the status
@@ -54,14 +56,9 @@ function runner(budgetMs, callMs = 4000) {
     if (far) { r.refused = r.refused || far; return { ok: false, out: '', why: far }; }
     const bin = gitPath(cwd);
     if (!bin) return { ok: false, out: '', why: 'no-git' };
-    // 34 MiB: the list of tracked files was read up to 32 MiB, and the tag
-    // that farWorktree asks for (ls-files -t) puts 2 more bytes on each of
-    // its lines, of 51 bytes or more. 32 MiB of lines without the tag are at
-    // most 33.3 MiB with it. An answer past this is cut off, and the call
-    // fails (RS-A-missinglookups, review round 1).
     try {
       const out = execFileSync(bin, [...GIT_GLOBAL, ...args], {
-        cwd, env: gitEnv(), encoding: 'utf8', timeout: left, maxBuffer: 34 * 1024 * 1024,
+        cwd, env: gitEnv(), encoding: 'utf8', timeout: left, maxBuffer: buffer,
         stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'], windowsHide: true,
         ...(input === undefined ? {} : { input }),
       });
@@ -148,6 +145,13 @@ const MAX_TREE_FOLDERS = 20000;
 // How much of git's list of tracked files is gone through between two looks
 // at the time (characters).
 const LIST_STEP = 1 << 20;
+// The most of the list of tracked files that is read, 34 MiB. It was read
+// up to 32 MiB, and the tag of ls-files -t puts 2 more bytes on each of its
+// lines, of 52 bytes or more: 32 MiB of lines without the tag are at most
+// 33.3 MiB with it. Every other call keeps 32 MiB: with 34 for all of them,
+// a commit subject of 33.5 MiB was read, and cutting it to one line then
+// took 4 s and 2 GB (review round 2; RS-A-missinglookups).
+const LIST_BUFFER = 34 * 1024 * 1024;
 // Windows and macOS find a file whatever the case of its name.
 const CASELESS = process.platform === 'win32' || process.platform === 'darwin';
 const WIN = process.platform === 'win32';
@@ -156,7 +160,7 @@ const WIN = process.platform === 'win32';
 function farWorktree(r, cwd, caseless = CASELESS) {
   const top = topLevel(r, cwd);
   if (!top.ok) return top.why === 'timeout' ? 'git-timeout' : 'git-error';
-  const ls = r.run(cwd, ['ls-files', '--stage', '-t', '-z', '--full-name']);
+  const ls = r.run(cwd, ['ls-files', '--stage', '-t', '-z', '--full-name'], undefined, LIST_BUFFER);
   if (!ls.ok) return ls.why === 'timeout' ? 'git-timeout' : 'git-error';
   // A path that isn't valid UTF-8 reads back here with U+FFFD in it, so
   // every lookup below would name a file git doesn't use: not checked, so
@@ -172,7 +176,7 @@ function farWorktree(r, cwd, caseless = CASELESS) {
   const entries = [];
   let read = 0;
   for (const e of ls.out.split('\0')) {
-    // The list can be 34 MiB, and nothing below looks at the disk, so the
+    // The list can be LIST_BUFFER long, and nothing below looks at the disk, so the
     // time is looked at once for each LIST_STEP characters of it.
     if ((read += e.length + 1) >= LIST_STEP) { read -= LIST_STEP; if (r.left() < 800) return 'git-timeout'; }
     // With -t git puts a tag and a space before each line (`H 100644 ...`),
