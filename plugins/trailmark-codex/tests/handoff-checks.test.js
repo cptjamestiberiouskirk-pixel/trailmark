@@ -644,6 +644,12 @@ const deadLockAt = (prefix, ago) => {
   if (ago) { const t = (Date.now() - ago) / 1000; fs.utimesSync(file, t, t); }
   return { dir, file };
 };
+// The ended holder's pid must still be free: a pid given to a live process
+// would keep the lock for another reason (review round 2, security F1).
+const assertDead = (text) => {
+  const pid = Number(/^pid (\d+)/.exec(text)[1]);
+  assert.throws(() => process.kill(pid, 0), (e) => e.code === 'ESRCH', `pid ${pid} is in use again`);
+};
 
 test('lock: a system clock moved past 60 s leaves a live holder its fresh lock (RS-T-lockagestep)', () => {
   for (const by of [61000, -3600000]) {
@@ -679,12 +685,18 @@ test('lock: with the clock moved, a dead holder\'s lock is broken after 5 s of w
 
 test('lock: with the clock moved, the watch starts again when the lock changes (RS-T-lockagestep)', async () => {
   const { dir, file } = deadLockAt('jbmem-lockrewatch-', 10000);
-  // Another ended holder's label at 1.5 s: watched from then, so not
-  // broken before 6.5 s, past the 6 s wait.
+  // Another ended holder's label at about 3 s: watched from then, so not
+  // broken before about 8 s, past the 6 s wait. The first label is
+  // breakable at 5 s, so the child has about 2 s either way (review round
+  // 2, F2: at 1.5 s a stall of 0.5 s failed it).
+  const first = fs.readFileSync(file, 'utf8');
   const label = deadLabel('eeee');
-  const child = require('child_process').spawn(process.execPath, ['-e', `setTimeout(() => require('fs').writeFileSync(${JSON.stringify(file)}, ${JSON.stringify(label)}), 1500)`], { stdio: 'ignore' });
+  const child = require('child_process').spawn(process.execPath, ['-e', `setTimeout(() => require('fs').writeFileSync(${JSON.stringify(file)}, ${JSON.stringify(label)}), 3000)`], { stdio: 'ignore' });
   try {
-    assert.deepStrictEqual(tryLock(dir, 61000, 6000), { ran: false, code: 'JBMEM_LOCKED' });
+    const got = tryLock(dir, 61000, 6000);
+    assertDead(first);
+    assertDead(label);
+    assert.deepStrictEqual(got, { ran: false, code: 'JBMEM_LOCKED' });
     assert.ok(fs.readFileSync(file, 'utf8').includes('token eeee'), 'the relabeled lock was broken');
   } finally {
     // As in the lock test above: the exit, then the turn that closes the handle.
@@ -707,11 +719,15 @@ test('lock: with the clock moved, a .break file is not removed for its age, and 
   assert.ok(!fs.existsSync(brk), 'the .break file was left');
 });
 
-test('lock: a clock moved 6 s keeps a dead holder\'s fresh lock for its 5 s (RS-T-lockagestep)', () => {
-  // A move past 1 s counts; by the moved clock this fresh lock is 6 s old.
-  const { dir, file } = deadLockAt('jbmem-locksmall-', 0);
-  assert.deepStrictEqual(tryLock(dir, 6000), { ran: false, code: 'JBMEM_LOCKED' });
-  assert.ok(fs.readFileSync(file, 'utf8').includes('token dddd'), 'the fresh lock was broken');
+test('lock: a clock moved 2 s keeps a dead holder\'s lock 4 s old for its 5 s (RS-T-lockagestep)', () => {
+  // A move past 1 s counts (review round 2, F1: a move of 6 s held the
+  // threshold only below 6 s). By the moved clock this lock is 6 s old.
+  const { dir, file } = deadLockAt('jbmem-locksmall-', 4000);
+  const text = fs.readFileSync(file, 'utf8');
+  const got = tryLock(dir, 2000);
+  assertDead(text);
+  assert.deepStrictEqual(got, { ran: false, code: 'JBMEM_LOCKED' });
+  assert.ok(fs.readFileSync(file, 'utf8').includes('token dddd'), 'the lock was broken');
 });
 
 // retryWin: Windows's transient codes are tried again for 2 s. The platform

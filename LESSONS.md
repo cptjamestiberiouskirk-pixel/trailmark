@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A threshold was mutated far from its value, and a timing margin was checked on one side
+- What went wrong: RS-T-lockagestep's round 1 batch tested its 1 s threshold with a move of 6 s, and its mutation set the threshold to 30 s, which that test caught; a threshold of 5 s also passed every test (review round 2, Opus, by a run). The relabel test's child wrote at 1.5 s, leaving about 0.5 s of margin on one side and 3.3 s on the other (Opus's probe).
+- Why: the mutation value was picked to show a failure, not set just past the test's input, as PLAYBOOK "Testing" step 10 asks for a compare. The relabel test's timing was reasoned from the late side only.
+- Rule going forward: a timing test works out the time to each edge it must stay between and keeps them about equal, its comment giving both. A threshold's mutations sit just past the test's input, as step 10 already says.
+- Status: open
+
 ## 2026-11-22: The lock fix's tests left its watch untested
 - What went wrong: RS-T-lockagestep's first four tests passed with the parent's whole `tryBreakLock` or `withLock` put back, with a watch that never started again, with the `.break` line put back and with a 30 s threshold (review round 1, Opus, by runs). Only the outcome of short waits was tested, not the watch that the comment names as the design.
 - Why: PLAYBOOK "Testing" step 8 (remove each part of a fix alone and check that a test fails) was not run before the first round; the round ran it.
