@@ -7684,8 +7684,11 @@ test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the la
   S.updateState(s.memdir, SA, (state, rec) => { rec.start = now - 60000; rec.home = s.repo; rec.swept = swept; rec.commitDirsAt = joined; rec.commitDirs = dirs; });
   const env = { ...s.env, NODE_OPTIONS: `--require ${JSON.stringify(spy)}` };
   const input = JSON.stringify({ cwd: s.repo, source: 'resume', session_id: SA });
-  // The state needs no rewrite between tries: the script trims swept only
-  // when the sweep read a folder, and this sweep starts past now.
+  // The state is not rewritten between tries. A full try cuts swept to 64
+  // (the sweep counts the session's folder as read, with no commit in it),
+  // but the count is checked on the first try, which always has the whole
+  // state, and a try whose sweep ran out of time cuts nothing (review round
+  // 2 of RS-T-startdirect).
   const r = startInTime(() => {
     fs.rmSync(count, { force: true });
     const one = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env, input, encoding: 'utf8', timeout: 120000 });

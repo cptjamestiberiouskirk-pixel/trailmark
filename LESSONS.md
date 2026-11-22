@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A reviewer's CONFIRMED reason went into a code comment, and the next round showed it wrong
+- What went wrong: in RS-T-startdirect's round 1, Opus F3 said a full run of the sweep test leaves its state as it was ("CONFIRMED", from a log it made). It went into the test's comment, a commit message and the notes as the reason the state is not rewritten between tries. Round 2 (Opus again, by a mutation that printed the record) saw a full try cut swept to 64. The change stayed safe for another reason.
+- Why: the claim was carried as "CONFIRMED by Opus, not re-run", which the notes allow, and then written into a code comment, which carries no label.
+- Rule going forward: a reason that goes into a code comment is one the owner has re-run, or the comment says it was not re-run. A reviewer's log of a state is read for which run and which point it was taken at before it stands for "a full run".
+- Status: open
+
 ## 2026-11-22: A retry added for load could hide the regression its test was written for
 - What went wrong: RS-T-startdirect gave the sweep test startInTime's tries, which make a stop after a slow launcher again and then skip. The fault that test exists for (a real path per key) is itself a slow launcher, so under load it was stopped, made again and skipped (review round 1, Opus F1; reproduced with `sd-f1.sh`).
 - Why: startInTime's own comment lists "the slow launcher step itself" as not covered, and that line was not read against what this test measures.
