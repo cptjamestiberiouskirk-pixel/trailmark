@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A rule kept for two kinds of input was mutated for both at once
+- What went wrong: RS-T-lockagemono keeps RS-T-lockagestep's watch cap and its `.break` moved-clock check for a stamped file. Mutation pass 4 removed each for every file at once, and the unstamped tests failed; removed for a stamped file only, both passed all 34 tests (review round 2, Opus F1 and F2, CONFIRMED by Opus by runs, not re-run here).
+- Why: the mutation list was made from the lines the diff touched, and the kept rules sat on lines it did not touch, so a rule's new branch got no mutation of its own.
+- Rule going forward: where a fix keeps an old rule for a new kind of input, the mutation list removes that rule for each kind alone, and a test of the new kind fails on it.
+- Status: open
+
 ## 2026-11-22: A second clock replaced the first instead of bounding it
 - What went wrong: RS-T-lockagemono's first commit aged a stamped lock by its monotonic stamp alone and dropped the mtime age. Fable's round 1 run showed a waiter in a Linux time namespace, with the same host name and platform, reading a live holder's fresh stamp as 100 s old and going in beside it, where 5d202b2 kept the lock.
 - Why: the premise that one host name and platform mean one clock was checked in one namespace only, and the plan listed time namespaces as rare without asking what a wrong clock would do there.
@@ -21,7 +27,7 @@ Format:
 - Status: open
 
 ## 2026-11-22: Two new tests passed on the parent, counted as a total
-- What went wrong: RS-T-lockagemono's first mutation pass gave "10 of 14 fail" on 5d202b2's `store.js`, and two of the four that passed were new tests that could not tell the fix apart: every clock they used was a move the waiter sees, so the parent's watch kept the lock (review round 1, Opus F1).
+- What went wrong: RS-T-lockagemono's first mutation pass gave "10 of 14 fail" on 5d202b2's `store.js`. The four that passed were two new tests in both copies: the one-clock test, a premise, and the live holder's stamped lock test, which could not tell the fix apart: every clock it used was a move the waiter sees, so the parent's watch kept the lock (review round 1, Opus F1).
 - Why: the parent's result was read as a count, not test by test against what each new test is for.
 - Rule going forward: on the parent, list each new test that passes and give it a reason (a premise test, a case the parent already handled); one with no reason gets the case it is missing.
 - Status: open
@@ -47,8 +53,8 @@ Format:
 ## 2026-11-22: A skip for a confounded result came before the asserts
 - What went wrong: in PR #113's round 4 batch, the check that skips a lock test when an ended holder's pid is in use again ran before the asserts, so a lock broken while a pid was in use showed as a skip, and in two tests an earlier assert failed on the very case the skip was for (review round 5, Fable F1 and F2, Opus F1, each CONFIRMED by its reviewer by a run).
 - Why: the skip was put where the doubt arises (the pid), not where it matters (a result the pid could explain). A live pid can only keep a lock, so only a kept lock is in doubt.
-- Rule going forward: a skip for a confound runs only after the asserts that the confound cannot explain, and only where the result is one it could explain; in a loop of cases it skips only its own case (round 6, F1); the class of "A retry added for load could hide the regression its test was written for", seen again.
-- Status: open
+- Rule going forward: a skip for a confound runs only after the asserts that the confound cannot explain, and only where the result is one it could explain; in a loop of cases it skips only its own case (round 6, F1); the class of "A retry added for load could hide the regression its test was written for", seen again. Seen again in RS-T-lockagemono's `.break` test (review round 2, Opus F3, CONFIRMED by Opus by a probe, not re-run here): one loop had no skip, the other asserted before it.
+- Status: promoted to PLAYBOOK ("Testing" step 7)
 
 ## 2026-11-22: A line the fix added was never removed alone, and no test failed on it
 - What went wrong: in PR #113's Copilot fix, the mutation named for the `.break` file's clock check removed the `!watch.moved` term, not the added line `if (clockMoved()) watch.moved = true;` after the file's age (`store.js` line 407). Removed alone, that line failed no test (review round 4, F1, CONFIRMED by Opus by a run), since the new `.break` test stepped the clock only after the age was read, and the notes said each new part removed alone failed its test. The same held for the check before the second look (line 431).

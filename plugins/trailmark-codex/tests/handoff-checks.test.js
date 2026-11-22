@@ -916,17 +916,62 @@ test('lock: a dead holder\'s lock is broken after 5 s by the lower of its stamp\
   if (reused) t.skip(reusedSkip(reused));
 });
 
-test('lock: a stamp from a monotonic clock behind the waiter\'s does not make a live holder\'s fresh lock old (RS-T-lockagemono, review round 1, F1)', (t) => {
-  // A waiter whose monotonic clock runs 61 s ahead of the holder's reads the
-  // holder's fresh stamp as 61 s old, past the 60 s rule; the fresh mtime
-  // keeps the lock. The stamp needs 61 s of uptime to be a number.
+test('lock: a stamp from a monotonic clock behind the waiter\'s does not make a fresh lock old, whatever the wall clock says (RS-T-lockagemono, review round 1, F1)', (t) => {
+  // A waiter whose monotonic clock runs ahead of the holder's reads the
+  // holder's stamp as older than it is. A live holder's fresh lock with a
+  // stamp 61 s old is kept under each clock (the mtime's age, capped by the
+  // watch once the clock moved, is the lower one), and a dead holder's lock
+  // 6 s old by its stamp and its mtime is kept under each moved clock, by
+  // the watch (review round 2, F1: the watch cap for a stamped lock had no
+  // test). The stamp needs 61 s of uptime to be a number.
   const stamp = stampAt(61000);
   if (!/ mono \d+ /.test(stamp)) return t.skip('the system has been up less than 61 s');
-  const dir = realTemp('jbmem-lockmonoahead-');
-  const file = path.join(dir, S.LOCK);
-  fs.writeFileSync(file, `pid ${process.pid} host ${HOSTNAME} since x token aaaa${stamp}\n`);
-  assert.deepStrictEqual(tryLockNow(dir, (n) => n), { ran: false, code: 'JBMEM_LOCKED' });
-  assert.ok(fs.readFileSync(file, 'utf8').includes('token aaaa'), 'the live lock was broken');
+  let reused = 0;
+  for (const [name, f] of Object.entries(CLOCKS)) {
+    const dir = realTemp('jbmem-lockmonoahead-');
+    const file = path.join(dir, S.LOCK);
+    fs.writeFileSync(file, `pid ${process.pid} host ${HOSTNAME} since x token aaaa${stamp}\n`);
+    assert.deepStrictEqual(tryLockNow(dir, f), { ran: false, code: 'JBMEM_LOCKED' }, name);
+    assert.ok(fs.readFileSync(file, 'utf8').includes('token aaaa'), `${name}: the live lock was broken`);
+    if (name === 'unmoved') continue;
+    const ddir = realTemp('jbmem-lockmonoaheaddead-');
+    const dfile = path.join(ddir, S.LOCK);
+    const text = deadLabel('dddd').replace(/\n$/, `${stampAt(6000)}\n`);
+    fs.writeFileSync(dfile, text);
+    setMtime(dfile, 6000);
+    assert.deepStrictEqual(tryLockNow(ddir, f), { ran: false, code: 'JBMEM_LOCKED' }, `${name}, dead holder`);
+    assert.ok(fs.readFileSync(dfile, 'utf8').includes('token dddd'), `${name}: the dead holder's lock was broken inside the watch`);
+    // A pid in use again keeps it too, so that case can't tell.
+    const again = reusedPid(text);
+    if (again) reused = again;
+  }
+  if (reused) t.skip(reusedSkip(reused));
+});
+
+test('lock: a clock step at a stamped .break file\'s age leaves the .break (RS-T-lockagemono, review round 2, F2)', (t) => {
+  // As the RS-T-lockagestep step test, with a .break 31 s old by its stamp
+  // and 40 s by its mtime, which an unmoved clock removes: once the clock is
+  // seen to move, no .break is removed for its age, stamped or not.
+  let reused = 0;
+  for (const from of [1, 2]) {
+    const { dir, file } = deadLockAt(`jbmem-lockmonobrkstep${from}-`, 10000);
+    const text = fs.readFileSync(file, 'utf8');
+    const brk = `${file}.break`;
+    fs.writeFileSync(brk, `pid 1 host ${HOSTNAME}${stampAt(31000)}\n`);
+    setMtime(brk, 40000);
+    const lstat = fs.lstatSync, now = Date.now;
+    let armed = false, reads = 0;
+    fs.lstatSync = function (p, ...rest) { if (String(p) === brk) armed = true; return lstat.call(this, p, ...rest); };
+    Date.now = () => { if (armed) reads++; return now() + (armed && reads >= from ? 61000 : 0); };
+    let got;
+    try { got = (() => { try { S.withLock(dir, () => {}, { waitMs: 600 }); return ''; } catch (e) { return e.code; } })(); } finally { fs.lstatSync = lstat; Date.now = now; }
+    assert.strictEqual(got, 'JBMEM_LOCKED', `step from read ${from}`);
+    assert.ok(fs.existsSync(brk), `step from read ${from}: the stamped .break file was removed`);
+    const again = reusedPid(text);
+    if (again) { reused = again; continue; }
+    assert.ok(armed, `step from read ${from}: the .break file was never looked at`);
+  }
+  if (reused) t.skip(reusedSkip(reused));
 });
 
 test('lock: a stamp of another platform or host, ahead of now, or not at the end of the label is not trusted (RS-T-lockagemono)', () => {
@@ -949,10 +994,16 @@ test('lock: a stamp of another platform or host, ahead of now, or not at the end
   }
 });
 
-test('lock: a stamped .break file is aged by the lower of its stamp\'s age and its file time\'s, and a breaker stamps its own (RS-T-lockagemono)', () => {
+test('lock: a stamped .break file is aged by the lower of its stamp\'s age and its file time\'s, and a breaker stamps its own (RS-T-lockagemono)', (t) => {
   // A dead holder's lock 10 s old by its stamp and its mtime is breakable at
   // once, so the .break file is reached each time. The clock unmoved.
   const mk = () => { const dir = realTemp('jbmem-lockmonobrk-'); const file = path.join(dir, S.LOCK); const text = deadLabel('dddd').replace(/\n$/, stampAt(10000) + '\n'); fs.writeFileSync(file, text); setMtime(file, 10000); return { dir, file, brk: file + '.break', text }; };
+  // got: the try's result; armed: whether it looked at the .break file.
+  const tryLooked = (c, waitMs) => { const lstat = fs.lstatSync; let armed = false; fs.lstatSync = function (p, ...rest) { if (String(p) === c.brk) armed = true; return lstat.call(this, p, ...rest); }; try { return { got: tryLockNow(c.dir, (n) => n, waitMs), armed }; } finally { fs.lstatSync = lstat; } };
+  const keptLock = (c, got) => !got.ran && got.code === 'JBMEM_LOCKED' && fs.existsSync(c.file) && fs.readFileSync(c.file, 'utf8').includes('token dddd');
+  // A pid in use again keeps the lock before its .break file is looked at:
+  // that case is skipped, and the others still run (review round 2, F3).
+  let reused = 0;
   // Kept: a fresh stamp with a 40 s mtime (the stamp lowers the age), a
   // fresh stamp with an mtime 61 s in the future (a live breaker's, the
   // clock since stepped back: RS-T-lockagereturn F2), and a 31 s stamp with
@@ -963,8 +1014,12 @@ test('lock: a stamped .break file is aged by the lower of its stamp\'s age and i
     const label = `stamp ${ago} ms, mtime ${mtimeAgo} ms old`;
     fs.writeFileSync(c.brk, `pid 1 host ${HOSTNAME}${stampAt(ago)}\n`);
     setMtime(c.brk, mtimeAgo);
-    assert.deepStrictEqual(tryLockNow(c.dir, (n) => n), { ran: false, code: 'JBMEM_LOCKED' }, label);
+    const { got, armed } = tryLooked(c);
+    assert.deepStrictEqual(got, { ran: false, code: 'JBMEM_LOCKED' }, label);
     assert.ok(fs.existsSync(c.brk), `${label}: the .break file was removed`);
+    const again = reusedPid(c.text);
+    if (again) { reused = again; continue; }
+    assert.ok(armed, `${label}: the .break file was never looked at`);
   }
   // Removed, each 40 s old by its mtime, and the next try breaks the lock:
   // 31 s old by its stamp; a fresh stamp of another host (the host is read
@@ -980,18 +1035,21 @@ test('lock: a stamped .break file is aged by the lower of its stamp\'s age and i
     c = mk();
     fs.writeFileSync(c.brk, text);
     setMtime(c.brk, 40000);
-    const got = tryLockNow(c.dir, (n) => n, 600);
+    const { got } = tryLooked(c, 600);
+    if (keptLock(c, got)) { const again = reusedPid(c.text); if (again) { reused = again; continue; } }
     assert.ok(!fs.existsSync(c.brk), `${name}: an old .break file was left`);
-    const kept = !got.ran && got.code === 'JBMEM_LOCKED' && fs.existsSync(c.file) && fs.readFileSync(c.file, 'utf8').includes('token dddd');
-    if (!(kept && reusedPid(c.text))) assert.deepStrictEqual(got, { ran: true, code: '' }, name);
+    assert.deepStrictEqual(got, { ran: true, code: '' }, name);
   }
   // The .break file this command writes while it breaks carries the stamp.
   c = mk();
   const write = fs.writeSync;
   const seen = [];
   fs.writeSync = function (fd, data, ...rest) { if (typeof data === 'string') seen.push(data); return write.call(this, fd, data, ...rest); };
-  try { tryLockNow(c.dir, (n) => n); } finally { fs.writeSync = write; }
+  let got;
+  try { got = tryLockNow(c.dir, (n) => n); } finally { fs.writeSync = write; }
+  if (keptLock(c, got) && reusedPid(c.text)) return t.skip(reusedSkip(reusedPid(c.text)));
   assert.ok(seen.some((s) => new RegExp(`^pid ${process.pid} host \\S+ mono \\d+ plat ${process.platform}\\n$`).test(s)), `no stamped .break text in ${JSON.stringify(seen)}`);
+  if (reused) t.skip(reusedSkip(reused));
 });
 
 // retryWin: Windows's transient codes are tried again for 2 s. The platform
