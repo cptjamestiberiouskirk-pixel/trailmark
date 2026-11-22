@@ -14,6 +14,42 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A reviewer's suggested wording went into the notes unchecked
+- What went wrong: RS-T-lockagemono's round 2 docs point 4 said a waiter whose monotonic clock runs behind by D keeps a lock "until its true age is D plus 60 s". It went into `dev/release-state.md` as written. Round 3 (Sonnet, by a probe, not re-run here) showed it true only for D under 60 s: a larger D makes the stamp of a younger lock ahead of now, not trusted, and the file time decides (CONFIRMED in code here, `monoAge`).
+- Why: a COULD BE CLEARER point was read as wording to copy, not as a claim to check; the code was not read for each case of its terms. The class of "A reviewer's CONFIRMED reason went into a code comment, and the next round showed it wrong", seen again.
+- Rule going forward: a wording a reviewer suggests is a claim like the owner's own: before it goes in, read it against the code for each case its terms cover (a value under and over each limit the code checks).
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 11)
+
+## 2026-11-22: A rule kept for two kinds of input was mutated for both at once
+- What went wrong: RS-T-lockagemono keeps RS-T-lockagestep's watch cap and its `.break` moved-clock check for a stamped file. Mutation pass 4 removed each for every file at once, and the unstamped tests failed; removed for a stamped file only, both passed all 34 tests (review round 2, Opus F1 and F2, CONFIRMED by Opus by runs, not re-run here).
+- Why: the mutation list was made from the lines the diff touched, and the kept rules sat on lines it did not touch, so a rule's new branch got no mutation of its own.
+- Rule going forward: where a fix keeps an old rule for a new kind of input, the mutation list removes that rule for each kind alone, and a test of the new kind fails on it.
+- Status: open
+
+## 2026-11-22: A second clock replaced the first instead of bounding it
+- What went wrong: RS-T-lockagemono's first commit aged a stamped lock by its monotonic stamp alone and dropped the mtime age. Fable's round 1 run showed a waiter in a Linux time namespace, with the same host name and platform, reading a live holder's fresh stamp as 100 s old and going in beside it, where 5d202b2 kept the lock.
+- Why: the premise that one host name and platform mean one clock was checked in one namespace only, and the plan listed time namespaces as rare without asking what a wrong clock would do there.
+- Rule going forward: a new source for a safety value is combined with the old one in the safe direction (here the lower age) unless it is shown to hold everywhere the old one did. For each case the premise check did not reach, write down what a wrong value would do before trusting it.
+- Status: open
+
+## 2026-11-22: Two new tests passed on the parent, counted as a total
+- What went wrong: RS-T-lockagemono's first mutation pass gave "10 of 14 fail" on 5d202b2's `store.js`. The four that passed were two new tests in both copies: the one-clock test, a premise, and the live holder's stamped lock test, which could not tell the fix apart: every clock it used was a move the waiter sees, so the parent's watch kept the lock (review round 1, Opus F1).
+- Why: the parent's result was read as a count, not test by test against what each new test is for.
+- Rule going forward: on the parent, list each new test that passes and give it a reason (a premise test, a case the parent already handled); one with no reason gets the case it is missing.
+- Status: open
+
+## 2026-11-22: A test input far from its check's edge let a mutation pass
+- What went wrong: RS-T-lockagemono's first mutation pass showed that `monoAge`'s check that a stamp is not ahead of now could be replaced by `Math.abs(age)` with every test passing. The test's stamp was an hour ahead, so read as a distance it was an hour old, and the 60 s rule broke the lock either way.
+- Why: the case was picked to be clearly ahead, not near the edges that the check and its mutation draw. It is the class of "A threshold was mutated far from its value", seen a second time.
+- Rule going forward: a case for a check takes an input where the check and each of its mutations give different answers (here a stamp 10 s ahead: trusted as a distance it keeps the lock, untrusted the 120 s mtime breaks it).
+- Status: promoted to PLAYBOOK ("Testing" step 8)
+
+## 2026-11-22: A stray `&` ran a mutation script a second time
+- What went wrong: a Bash call that set a variable and then read a doc ended its first line with `&`, so the mutation script, which rewrites both `store.js` copies while it runs, started again in the background. Nothing edited those files before it ended and restored them (no `Math.abs(age)` left in either copy, by grep, and the next `--only` run passed).
+- Why: the line was copied from a command that ran the script, and its `&` was left on it.
+- Rule going forward: a script that rewrites files in a worktree runs alone in its call (in the tool's background mode when it is long), never chained with other commands. Before the next edit of those files, check that its process is gone (`Get-CimInstance Win32_Process` by its command line).
+- Status: open
+
 ## 2026-11-22: Auto-merge was turned off and the supervisor was not told
 - What went wrong: on PR #113 this session turned auto-merge off on Copilot's findings, as the deferred-item rule asks, but told the supervisor session only that it had been set. The supervisor then saw it off, took it for a drop, and asked for it to be set again on a head with two CONFIRMED races.
 - Why: the supervisor was to be told after a push or a merge; turning auto-merge off is neither, and was left out.
@@ -23,8 +59,8 @@ Format:
 ## 2026-11-22: A skip for a confounded result came before the asserts
 - What went wrong: in PR #113's round 4 batch, the check that skips a lock test when an ended holder's pid is in use again ran before the asserts, so a lock broken while a pid was in use showed as a skip, and in two tests an earlier assert failed on the very case the skip was for (review round 5, Fable F1 and F2, Opus F1, each CONFIRMED by its reviewer by a run).
 - Why: the skip was put where the doubt arises (the pid), not where it matters (a result the pid could explain). A live pid can only keep a lock, so only a kept lock is in doubt.
-- Rule going forward: a skip for a confound runs only after the asserts that the confound cannot explain, and only where the result is one it could explain; in a loop of cases it skips only its own case (round 6, F1); the class of "A retry added for load could hide the regression its test was written for", seen again.
-- Status: open
+- Rule going forward: a skip for a confound runs only after the asserts that the confound cannot explain, and only where the result is one it could explain; in a loop of cases it skips only its own case (round 6, F1); the class of "A retry added for load could hide the regression its test was written for", seen again. Seen again in RS-T-lockagemono's `.break` test (review round 2, Opus F3, CONFIRMED by Opus by a probe, not re-run here): one loop had no skip, the other asserted before it.
+- Status: promoted to PLAYBOOK ("Testing" step 7)
 
 ## 2026-11-22: A line the fix added was never removed alone, and no test failed on it
 - What went wrong: in PR #113's Copilot fix, the mutation named for the `.break` file's clock check removed the `!watch.moved` term, not the added line `if (clockMoved()) watch.moved = true;` after the file's age (`store.js` line 407). Removed alone, that line failed no test (review round 4, F1, CONFIRMED by Opus by a run), since the new `.break` test stepped the clock only after the age was read, and the notes said each new part removed alone failed its test. The same held for the check before the second look (line 431).
@@ -48,7 +84,7 @@ Format:
 - What went wrong: RS-T-lockagestep's round 1 batch tested its 1 s threshold with a move of 6 s, and its mutation set the threshold to 30 s, which that test caught; a threshold of 5 s also passed every test (review round 2, Opus, by a run). The relabel test's child wrote at 1.5 s, leaving about 0.5 s of margin on one side and 3.3 s on the other (Opus's probe).
 - Why: the mutation value was picked to show a failure, not set just past the test's input, as `dev/testing-cases.md` asks of a test of a limit (one item at the limit and one just past it; PLAYBOOK "Testing" step 10 points there). The relabel test's timing was reasoned from the late side only.
 - Rule going forward: a timing test works out the time to each edge it must stay between and keeps them about equal, its comment giving both. A threshold's mutations sit just past the test's input, as `dev/testing-cases.md` already says.
-- Status: open
+- Status: promoted to PLAYBOOK ("Testing" step 8; seen again in RS-T-lockagemono, 2026-11-22)
 
 ## 2026-11-22: The lock fix's tests left its watch untested
 - What went wrong: RS-T-lockagestep's first four tests passed with the parent's whole `tryBreakLock` or `withLock` put back, with a watch that never started again, with the `.break` line put back and with a 30 s threshold (review round 1, Opus, by runs). Only the outcome of short waits was tested, not the watch that the comment names as the design.
