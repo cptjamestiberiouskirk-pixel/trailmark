@@ -263,13 +263,17 @@ report_suite() { # name, slug, the suite's folder, seconds
   # file's stderr as a TAP comment with its `#` escaped, so the preload's line
   # is `# \# trailmark-test-limits: open at exit in ...`. When the file's last
   # stderr write had no newline, node --test joins that text in front of it
-  # (`# progress\# trailmark-test-limits: ...`), so the escaped text counts
-  # anywhere in a comment line. A test's own output counts too when it prints
-  # the `#` before `trailmark-test-limits:` (CI's tap-annotate.js matches the
-  # text anywhere). Some test files leave a child or a write open today (CI
-  # on main names them too, run 45013849055), so a passing full run can show
-  # this WARN. awk joins the names (BSD paste -s needs a `-` operand), and a
-  # list over 300 characters is cut and ends in "...".
+  # (`# progress 50%\# trailmark-test-limits: ...`), so the escaped text
+  # counts anywhere in a top-level comment line. Any such line that holds the
+  # escaped text counts too: a test's output, a top-level test's name (its
+  # `# Subtest:` line) or a t.diagnostic() text. A plain mention of
+  # `trailmark-test-limits:`, with no `\#` before it, does not count, nor does
+  # an indented line (CI's tap-annotate.js counts the text anywhere). Some test
+  # files leave a child or a write open today (CI on main names them too, run
+  # 45013849055), so a passing full run can show this WARN. awk joins the
+  # names, so a `;` in a name is kept, and a list over 300 characters is cut
+  # and ends in "..." (under a C locale gawk counts bytes, and the cut can
+  # split a UTF-8 character).
   local open n
   open="$(sed -n 's/^# .*\\# trailmark-test-limits: open at exit in //p' <<<"$out" | sed 's|\\#|#|g; s|^.*[\\/]||')"
   if [ -n "$open" ]; then
