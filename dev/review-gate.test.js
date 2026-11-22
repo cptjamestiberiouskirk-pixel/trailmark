@@ -698,6 +698,8 @@ run.stop();`;
     // Only this test's own record goes: `git worktree prune` is repo-wide and
     // would drop the record of any unrelated worktree whose folder is away.
     // `remove --force` of a missing, unlocked worktree drops just its record.
+    // The test's own worktree too, which stays only when an assertion failed first.
+    gitq('worktree', 'remove', '--force', own);
     gitq('worktree', 'remove', '--force', other);
     fs.rmSync(tmp, { recursive: true, force: true });
   }
