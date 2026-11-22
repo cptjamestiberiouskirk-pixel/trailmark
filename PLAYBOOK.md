@@ -22,7 +22,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 
 - Windows, Git Bash: the Bash tool collapses `\\` in an inline command, a quoted heredoc included. No script goes in inline (`node -e`, a heredoc): every script, a scratch one, a read-only one and a small rewrite of one included, and every text for a command (a handoff, a PR body) is written to a file with the Write or Edit tool, whether or not a backslash is expected in it, and the file is run.
 - Python writes cp1252 into a pipe: set `PYTHONIOENCODING=utf-8`.
-- MSYS splits `PATH` at `:`, so a `C:/...` entry breaks: put `cygpath -u` paths in `PATH`. It also rewrites path arguments to Windows programs: call `wsl.exe` with `MSYS_NO_PATHCONV=1`. WSL's git can't read a worktree's Windows `gitdir`: clone for WSL from the main repository's `.git`.
+- MSYS splits `PATH` at `:`, so a `C:/...` entry breaks: put `cygpath -u` paths in `PATH`. It also rewrites arguments that start with `/` for Windows programs: call `wsl.exe`, and git with a pattern such as `/d/a`, with `MSYS_NO_PATHCONV=1`. WSL's git can't read a worktree's Windows `gitdir`: clone for WSL from the main repository's `.git`.
 - A `cd` in one Bash call moves the calls after it: use absolute paths or `git -C`, and `cd` only to the worktree's root.
 - An inline command's text shows in the process list, so `ps | grep` probes match themselves: write probes to script files.
 - This `gh` refuses output that holds escape sequences: a plain `gh api .../jobs/<id>/logs` exited 1 for each job with a log that it was tried on. Read a job's log with `gh run view --job <id> --log`, or pass `--allow-escape-sequences`. A saved log is checked for its line count before it is read: a few lines are a refusal or an error, not the log.
