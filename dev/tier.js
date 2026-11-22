@@ -19,15 +19,27 @@ function fileTier(name, rules) {
   return 'medium';
 }
 
-// t.skip(), t.skip (), t['skip'](), test.only(), { skip: ... }, { only: true }, { skip }.
-const SKIP = /\.\s*(skip|todo|only)\s*\(|\[\s*['"`](skip|todo|only)['"`]\s*\]|\b(skip|todo)\s*:|\bonly\s*:\s*true\b|[{,]\s*(skip|todo|only)\s*[,}]/;
+// The line's code: quoted text becomes "" and a // comment goes, so words
+// there count for nothing. Each quote kind is matched on its own, so the
+// match stays linear on a line with an unclosed quote.
+const code = (l) => l.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g, '""').replace(/\/\/.*$/, '');
+// t.skip(), t.skip (), t.skip?.(), test.only(), { skip: ... }, { only: true },
+// (..., { skip }), and the quoted forms t['skip']() and { 'skip': true }.
+// Other forms (an alias, a key set later, a call split over lines) are left
+// to the reviewer.
+const CALL = /\.\s*(skip|todo|only)\s*(\?\.\s*)?\(/;
+const KEY = /\b(skip|todo)\s*:|\bonly\s*:\s*(true|[1-9])/;
+const SHORT = /[(,]\s*\{\s*(skip|only)\s*\}/;
+const QUOTED = /\[\s*['"`](skip|todo|only)['"`]\s*\]|['"](skip|todo|only)['"]\s*:/;
+const isSkip = (l) => { const c = code(l); return CALL.test(c) || KEY.test(c) || SHORT.test(c) || QUOTED.test(l); };
 // A skip that names its condition on the same line (a platform, root, a flag).
-// Text inside quotes doesn't count, so `t.skip('why?')` is not a condition,
-// and neither does a constant that decides it (`true || x`, `1 ? 'a' : b`).
-const code = (l) => l.replace(/(['"`])(?:\\.|(?!\1).)*\1/g, '""');
+// Text in quotes or comments doesn't count, so `t.skip('why?')` is not a
+// condition, and neither does a constant that decides it (`true || x`,
+// `1 ? 'a' : b`), nor is an optional call (`?.(`). A todo or a focus (only)
+// is never conditional.
 const constant = (l) => /\bskip\s*:\s*(true|[1-9]\d*|"")\s*(\|\||\?)/.test(code(l));
 const conditional = (l) => !/\b(todo|only)\b/i.test(code(l)) && !constant(l)
-  && /\?|&&|\|\||\bif\s*\(|process\.(platform|getuid)|\bWIN\b/.test(code(l));
+  && /\?(?!\.)|&&|\|\||\bif\s*\(|process\.(platform|getuid)|\bWIN\b/.test(code(l));
 const added = (lines) => lines.filter((l) => l.startsWith('+') && !l.startsWith('+++'));
 const removed = (lines) => lines.filter((l) => l.startsWith('-') && !l.startsWith('---'));
 
@@ -50,7 +62,7 @@ function weakened(f, rules) {
   // With strictSkips off, a conditional skip goes to the reviewer as a
   // must-check item instead of lifting the tier. Any other skip, and any todo,
   // lifts it.
-  const skips = added(lines).filter((l) => SKIP.test(l));
+  const skips = added(lines).filter((l) => isSkip(l));
   const hard = rules.strictSkips ? skips : skips.filter((l) => !conditional(l));
   if (hard.length > 0) out.push(`skip, todo or only added (${hard.length})`);
   return out;
@@ -58,7 +70,7 @@ function weakened(f, rules) {
 
 function mustCheck(f, rules) {
   if (rules.strictSkips || f.patch == null || !re(rules.weakenedTests).test(f.filename)) return [];
-  return added(f.patch.split('\n')).filter((l) => SKIP.test(l) && conditional(l))
+  return added(f.patch.split('\n')).filter((l) => isSkip(l) && conditional(l))
     .map(() => `conditional skip in ${f.filename}: confirm the condition names the only systems it can't run on`);
 }
 

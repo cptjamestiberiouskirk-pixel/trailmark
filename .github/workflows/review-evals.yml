@@ -20,6 +20,8 @@ on:
 
 permissions:
   contents: read
+  # dev/review-evals/run.js reads each case's PR text with gh pr view.
+  pull-requests: read
 
 env:
   CLI_VERSION: 2.1.319
@@ -33,7 +35,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     # The token secret lives in this environment. The owner limits it to main
-    # before adding the secret: GitHub makes a missing one with no limit.
+    # before adding the secret: by GitHub's docs, a job that names a missing
+    # one makes it with no limit (not tried here).
     environment: auto-review
     concurrency:
       group: review-evals

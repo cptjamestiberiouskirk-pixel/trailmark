@@ -83,13 +83,25 @@ function mergeFindings(cands, voteOutputs) {
   return { blocking, notes, dropped, verifiers: perVerifier.length };
 }
 
-// A section counts when it holds a letter or digit. Comments are read as
-// GitHub shows them (an unclosed one hides the rest of the body), and headings
-// inside a fenced code block don't count.
+// A section counts when it holds a letter or digit, fenced text included.
+// Comments are read as GitHub shows them (an unclosed one hides the rest of
+// the body), and headings inside a fenced code block don't count.
 function sections(body) {
-  const text = String(body || '').replace(/\r\n/g, '\n')
-    .replace(/<!--[\s\S]*?(-->|(?![\s\S]))/g, '')
-    .replace(/^```[\s\S]*?(^```[^\n]*$|(?![\s\S]))/gm, '');
+  // Inside a ``` or ~~~ fence (up to 3 spaces in), a line is content: a
+  // leading space keeps it from reading as a heading, and its comment opener
+  // is broken so it can't hide what follows.
+  let fence = null;
+  const lines = String(body || '').replace(/\r\n/g, '\n').split('\n').map((l) => {
+    const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(l);
+    const opens = m && !(m[1][0] === '`' && m[2].includes('`'));
+    if (fence) {
+      if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !m[2].trim()) fence = null;
+      return ' ' + l.replace(/<!--/g, '<! --');
+    }
+    if (opens) { fence = m[1]; return ' ' + l; }
+    return l;
+  });
+  const text = lines.join('\n').replace(/<!--[\s\S]*?(-->|(?![\s\S]))/g, '');
   const missing = [];
   for (const h of ['Testing', 'Risk', 'How to revert']) {
     const re = new RegExp(`^#{2,3}[ \\t]*${h}\\b[^\\n]*\\n([\\s\\S]*?)(?=^#{1,3}[ \\t]|(?![\\s\\S]))`, 'm');
@@ -161,14 +173,16 @@ function shipped(d) {
 
 // Breaker: of the last `window` merged PRs labeled tier:low or tier:medium,
 // how many does a merged PR name in a "Regression-of:" line. The line may be
-// a list item, in any case, and name several PRs ("#10, #11").
+// a list item (-, *, + or 1.), a quote or bold, in any case, and name several
+// PRs ("#10, #11", "#10 and #11"). Other forms ("PR #10") are not counted.
 function breaker(merged, rules) {
   const b = { window: 20, trip: 2, resetAfter: 0, ...(rules.breaker || {}) };
   const auto = merged.filter((p) => p.number > b.resetAfter && p.labels.some((l) => /^tier:(low|medium)$/.test(l)))
     .sort((x, y) => y.number - x.number).slice(0, b.window);
   const named = new Set();
   for (const p of merged) {
-    for (const m of String(p.body || '').matchAll(/^[ \t]*(?:[-*+][ \t]+)?regression-of:[ \t]*([#\d ,\t]+)/gim)) {
+    // After the first PR, only "#N" counts, so "#10 2 tests failed" names 10.
+    for (const m of String(p.body || '').matchAll(/^[ \t>]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?(?:\*\*)?regression-of:(?:\*\*)?[ \t]*(#?\d+(?:[ \t]*(?:,|and)?[ \t]*#\d+)*)/gim)) {
       for (const n of m[1].matchAll(/#?(\d+)/g)) named.add(Number(n[1]));
     }
   }
@@ -196,7 +210,7 @@ function decide(d, rules) {
   if (open.length) reasons.push(`${open.length} open finding${open.length > 1 ? 's' : ''}`);
   // Only the owner's login answers a finding (sessions act through it too);
   // on a public repo anyone else can reply.
-  const human = (t) => (t.replies || []).filter((r) => r.author === d.owner && String(r.body).trim().length >= 10);
+  const human = (t) => (t.replies || []).filter((r) => String(r.author).toLowerCase() === String(d.owner).toLowerCase() && String(r.body).trim().length >= 10);
   const bare = threads.filter((t) => t.isResolved && human(t).length === 0);
   if (bare.length) reasons.push(`${bare.length} finding${bare.length > 1 ? 's' : ''} resolved with no reply from the owner`);
   // "fixed in" on a finding raised on this very head names a fix nobody has

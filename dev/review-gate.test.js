@@ -60,10 +60,13 @@ test('tier: weakened tests lift to high; a conditional skip only adds a must-che
 test('tier: lenses follow the security and docs lists', () => {
   const c = t.classify([file('plugins/trailmark/scripts/lib/gitbin.js'), file('dev/x.js')], rules);
   assert.deepEqual(c.lenses, { regression: true, security: true, docs: false });
-  // CLAUDE.md "Reviews": the docs row covers every doc, the notes in dev/ and
-  // the instruction files included.
-  for (const f of ['README.md', 'PLAYBOOK.md', 'dev/release-state.md', 'CLAUDE.md']) {
+  // CLAUDE.md "Reviews": the docs row joins when a shipped doc changed
+  // (anything outside dev/ and CLAUDE.md).
+  for (const f of ['README.md', 'PLAYBOOK.md', 'LESSONS.md', 'REVIEW.md', 'docs/how-it-works.md']) {
     assert.equal(t.classify([file(f)], rules).lenses.docs, true, f);
+  }
+  for (const f of ['dev/release-state.md', 'CLAUDE.md', 'claude.md']) {
+    assert.equal(t.classify([file(f)], rules).lenses.docs, false, f);
   }
 });
 
@@ -428,4 +431,91 @@ test('evals: with no PR text a case does not run, so its own title is never the 
   const code = `try { require(${runJs}).prText({ causePr: 1, title: 'the bug' }); console.log('returned'); } catch (e) { console.log('threw: ' + e.message); }`;
   const r = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 20000, env: { ...process.env, PATH: '' } });
   assert.match(r.stdout, /^threw: no PR text for #1/);
+});
+test('tier: a line with an unclosed quote and many backslash pairs is read in linear time', () => {
+  const tierJs = JSON.stringify(path.join(__dirname, 'tier.js'));
+  const rulesJs = JSON.stringify(path.join(__dirname, 'risk-tiers.json'));
+  // An unclosed quote, then 40 backslash pairs: exponential for a regex that
+  // can split each pair two ways. On a skip call (the old reader ran there
+  // only) and on a plain line (the new one reads every line).
+  const pairs = '\\\\'.repeat(40);
+  const line = "+t.skip('" + pairs + "y\n+x('" + pairs + 'y';
+  const code = `const t = require(${tierJs}); const r = require(${rulesJs});
+    const s = Date.now(); t.classify([{ filename: 'plugins/trailmark/tests/a.test.js', status: 'modified', patch: '@@\\n' + ${JSON.stringify(line)} }], r);
+    console.log(Date.now() - s);`;
+  const r = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 20000 });
+  assert.equal(r.signal, null, 'classify did not finish in 20 s');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(Number(r.stdout) < 2000, `took ${r.stdout.trim()} ms`);
+});
+test('tier: skip words in prose stay low; quoted keys, ?.() and only: 1 lift; a conditional skip with a comment is a must-check', () => {
+  const f = (patch) => t.classify([file('plugins/trailmark/tests/a.test.js', `@@\n+${patch}`)], rules);
+  for (const l of ['const x = parse("a, only, b");', 'const { skip, todo } = opts;', '  // reads it, only, then stops',
+    "assert.equal(mode, 'skip');"]) {
+    assert.equal(f(l).tier, 'low', l);
+  }
+  for (const l of ["test('a', { 'skip': true }, () => {})", "t.skip?.('x');", "test('a', { only: 1 }, () => {})",
+    "if (WIN) test.only('a', () => {})", "WIN && t.todo('later')"]) {
+    assert.equal(f(l).tier, 'high', l);
+  }
+  const c = f("test('a', { skip: WIN && 'no' }, () => {}) // Windows only");
+  assert.equal(c.tier, 'low');
+  assert.equal(c.mustCheck.length, 1);
+});
+test('breaker: after the first PR only #N counts; quote, numbered and bold lines count', () => {
+  const auto = (n) => ({ number: n, body: '', labels: ['tier:low'] });
+  const by = (b) => g.breaker([auto(10), auto(11), auto(12), { number: 20, body: b, labels: [] }], rules).hits.sort();
+  assert.deepEqual(by('Regression-of: #10 11 tests failed'), [10]);
+  assert.deepEqual(by('Regression-of: #10 and #11'), [10, 11]);
+  assert.deepEqual(by('> Regression-of: #10'), [10]);
+  assert.deepEqual(by('1. Regression-of: #11'), [11]);
+  assert.deepEqual(by('**Regression-of:** #12'), [12]);
+  assert.deepEqual(by('Regression-of: 12'), [12]);
+});
+test('sections: fenced text fills a section; any fence keeps its headings and comment openers from counting', () => {
+  const ok = '## Testing\nran it\n## Risk\nlow\n## How to revert\ngit revert';
+  const none = ['Testing', 'Risk', 'How to revert'];
+  assert.deepEqual(g.sections(ok.replace('ran it', '```\nnpm test\n```')), []);
+  assert.deepEqual(g.sections(ok.replace('ran it', '```\n<!-- x\n```')), []);
+  assert.deepEqual(g.sections(ok.replace('ran it', '```x``` ran')), []);
+  for (const fence of ['~~~', '   ```', '````']) {
+    assert.deepEqual(g.sections(`${fence}\n${ok}\n${fence}`), none, fence);
+  }
+  // A shorter fence does not close a longer one.
+  assert.deepEqual(g.sections(`\`\`\`\`\n${ok}\n\`\`\`\n`), none);
+});
+test('decide: the owner\'s login matches in any case', () => {
+  const r = [{ author: 'jim', body: 'the reason it holds is here' }];
+  assert.equal(g.decide(base({ owner: 'Jim', threads: [thread(true, r)] }), rules).state, 'success');
+});
+test('evals: the workflow runs the regression reviewer on MODEL_REGRESSION, which review-evals.yml sets once', () => {
+  const wf = (n) => fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', n), 'utf8');
+  assert.ok(wf('auto-review.yml').split('\n').some((l) => l.trim() === 'run regression "$MODEL_REGRESSION" &'));
+  assert.equal(wf('review-evals.yml').match(/MODEL_REGRESSION:/g).length, 1);
+});
+test('evals: case ids are plain names; a folder the run did not make is never deleted', () => {
+  const run = require('./review-evals/run.js');
+  for (const id of ['..', '.', '', 'A', 'a/b', 'a\\b', '-a', 'a'.repeat(61), undefined]) {
+    assert.throws(() => run.checkId({ id }), /bad case id/, String(id));
+  }
+  run.checkId({ id: 'longroot-note-cut-test' });
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evalids-'));
+  try {
+    const work = path.join(tmp, 'work');
+    const mine = path.join(work, 'some-case');
+    fs.mkdirSync(mine, { recursive: true });
+    fs.writeFileSync(path.join(mine, 'keep.txt'), 'x');
+    assert.throws(() => run.prepare({ id: '..', causePr: 1, causeMerge: 'HEAD' }, work), /bad case id/);
+    assert.throws(() => run.prepare({ id: 'some-case', causePr: 1, causeMerge: 'HEAD' }, work), /not a worktree of this repo/);
+    run.dropWorktree(mine);
+    assert.ok(fs.existsSync(path.join(mine, 'keep.txt')));
+    assert.ok(fs.existsSync(work));
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+test('evals: exit 2 when any case has no result or there are none, else 0 at the floor and 1 below', () => {
+  const { exitCode } = require('./review-evals/run.js');
+  assert.equal(exitCode([], 0.5), 2);
+  assert.equal(exitCode([{ caught: true }, { noResult: true }], 0.5), 2);
+  assert.equal(exitCode([{ caught: true }, { caught: false }], 0.5), 0);
+  assert.equal(exitCode([{ caught: false }, { caught: false }], 0.5), 1);
 });

@@ -59,7 +59,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     # The token secret lives in this environment. The owner limits it to main
-    # before adding the secret: GitHub makes a missing one with no limit.
+    # before adding the secret: by GitHub's docs, a job that names a missing
+    # one makes it with no limit (not tried here).
     environment: auto-review
     concurrency:
       group: auto-review-${{ github.event.pull_request.number }}
@@ -122,9 +123,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # The file list of this exact head (a push after the event can't swap
-          # it). Compare gives up to 300 files; a longer PR fails the count check
-          # in dev/tier.js and is high tier.
+          # The file list of this exact head: compare is pinned to the event's
+          # two shas, and $CHANGED comes from the same event. Compare lists up to
+          # 300 files, so a longer PR fails the count check in dev/tier.js and is
+          # high tier.
           gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq '.files[]' > .review/files.jsonl
           node dev/tier.js dev/risk-tiers.json .review/files.jsonl "$CHANGED" > .review/tier.json
           tier=$(jq -r .tier .review/tier.json)
@@ -198,7 +200,7 @@ jobs:
           node dev/review-gate.js merge "$VERIFIERS" .review
           # Rounds are read from the last line of each bot review only, as the gate reads them.
           others=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" \
-            --jq '.[] | select(.user.login == "github-actions[bot]") | .body | sub("\\s+$"; "") | split("\n") | last' \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | (.body // "") | sub("\\s+$"; "") | split("\n") | last' \
             | grep -oE '^<!-- auto-review round=[0-9]+ sha=[0-9a-f]{40}' | awk '{print $4}' | sort -u \
             | grep -vc "sha=$HEAD_SHA" || true)
           jq -n --arg head "$HEAD_SHA" --arg base "$BASE_REF" --argjson round "$(( ${others:-0} + 1 ))" \
@@ -261,15 +263,16 @@ jobs:
           if [ -n "$EVENT_HEAD" ] && [ "$EVENT_HEAD" != "$head" ]; then
             echo "a newer push exists; its own run sets the gate"; echo "SKIP=1" >> "$GITHUB_ENV"; exit 0
           fi
-          # The file list of this exact head; a push between the two calls gives
-          # a count that doesn't match, which dev/tier.js makes high tier.
+          # The file list of this exact head: head, base.sha and changed_files
+          # all come from the one pulls/$PR response above. Compare lists up to
+          # 300 files, so a longer PR fails the count check in dev/tier.js.
           gh api "repos/$REPO/compare/$(jq -r .base.sha .review/pull.json)...$head" --jq '.files[]' > .review/files.jsonl
           node dev/tier.js dev/risk-tiers.json .review/files.jsonl "$(jq -r .changed_files .review/pull.json)" > .review/tier.json
           gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" \
             --jq '[.[] | {body, user: .user.login}]' \
             | jq -s 'add // []' > .review/comments.json
           gh api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" \
-            --jq '[.[] | select(.user.login == "github-actions[bot]") | {body}]' | jq -s 'add // []' > .review/bot.json
+            --jq '[.[] | select(.user.login == "github-actions[bot]") | {body: (.body // "")}]' | jq -s 'add // []' > .review/bot.json
           # The query's $names are GraphQL variables, not shell ones.
           # shellcheck disable=SC2016
           gh api graphql -F owner="${REPO%/*}" -F name="${REPO#*/}" -F n="$PR" -f query='

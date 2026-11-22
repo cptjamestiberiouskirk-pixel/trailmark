@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-21: `--only '<name>'` passed a dev/ test that never ran
+- What went wrong: to check that a new test in `dev/review-gate.test.js` fails on the parent commit, `dev/release-check.sh --only 'linear time'` printed "PASS ... 2/2 pass" on the parent. The 2 tests were in the plugin suites: a name pattern runs the plugin test files only (`HC`, `TCC`, `TCX` in `release-check.sh`), so the dev/ test was never run. The file form, `--only dev/review-gate.test.js`, showed it failing (CONFIRMED, both runs kept under `trailmark-release-check/`).
+- Why: "every test file" in the summary line reads as every file, and a pass count that is not zero looked like the test had run.
+- Rule going forward: a test in `dev/` runs with `--only <its file>`; when a pattern run is used, check the TAP names the test before reading its result.
+- Status: open
+
 ## 2026-11-21: A brief's install step, "tested in a scratch copy", left only a stub to run
 - What went wrong: the agent review brief installed the reviewer CLI with `npm install -g --ignore-scripts "@anthropic-ai/claude-code@$CLI_VERSION"`. For 2.1.319, `bin/claude.exe` in the package is a 500-byte script that prints "claude native binary not installed" and exits 1; the package's postinstall (`install.cjs`) is what copies the platform binary over it, and `--ignore-scripts` skips it. CONFIRMED by an install in the scratch folder. The brief's tests had run the gate's logic, not the step that installs the program the gate calls.
 - Why: a pinned tool's package can change how it installs between versions, and a dry run of a workflow's other steps says nothing about its install step.
