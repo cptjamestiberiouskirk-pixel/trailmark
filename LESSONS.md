@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A killed child's handle outlived its exit event
+- What went wrong: the new RS-T-clocksteplibs lock test started a child to free the lock and killed it in `finally`. The `--only` run gave the WARN "left something open at exit: ProcessWrap" for both copies, and waiting for the child's `exit` event did not clear it.
+- Why: under `--test-force-exit` a file ends as soon as its tests do, and a child's handle is closed a loop turn after its `exit` event, so it was still listed at exit (`cl-wrap-probe.js` in the notes folder `rs-t-clocksteplibs/`: listed after `exit` and after a `setImmediate`, gone after a `setTimeout(0)`).
+- Rule going forward: a test that starts a child process awaits its `exit` event and then one timer turn before it ends. Read an `--only` run's WARN for a new test before the push.
+- Status: open
+
 ## 2026-11-22: MSYS rewrote a `rev:path` argument, and a probe ran an empty file
 - What went wrong: the RS-T-limitscwd probe took the base commit's script with `git -C <repo> show "origin/main:.github/test-limits-check.js" > old.js`. Git Bash rewrote the argument as a path list (`origin\main;.github\test-limits-check.js`), git failed, `old.js` was empty, and the base half of `lc-probe-1.out` ran an empty file: exit 0, nothing left, which looked like the base had no bug. Setting `MSYS_NO_PATHCONV=1` then broke the `-C /e/...` path of the same call.
 - Why: the playbook's MSYS bullet names arguments that start with `/`; a `:` between two parts that hold `/` is read as a path list too. The probe did not check that its copy of the old script was there.

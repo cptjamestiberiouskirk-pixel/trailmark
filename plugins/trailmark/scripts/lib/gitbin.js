@@ -230,6 +230,12 @@ let LSTAT_SEEN = null;
 // the caller's own loops stop at 800 (the status check); the check before a
 // git call hands in the 250 that call itself needs, so a caller with a second
 // in all (the look into another session's folder) still gets its call.
+// monoNow: the time in whole ms on Node's monotonic clock (performance.now
+// counts from the process's start), for the libraries' own deadlines. The
+// system clock (Date.now) can be set back or forward while one runs, which
+// moved such a deadline (RS-T-clocksteplibs, dev/release-state.md). Whole
+// ms: execFileSync refuses a timeout that is not an integer.
+const monoNow = () => Math.floor(performance.now());
 let TIME_LEFT = null;
 let TIME_FLOOR = 800;
 function withTime(left, fn, floor = 800) {
@@ -1692,4 +1698,4 @@ function farLfsEntries(entries, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };
+module.exports = { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };

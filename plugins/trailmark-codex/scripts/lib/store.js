@@ -201,11 +201,14 @@ function readTextStrict(file) {
 // Windows these few error codes are retried for up to about 2 s before giving
 // up. Anywhere else they mean a real permission problem and fail at once.
 const TRANSIENT_WIN = new Set(['EPERM', 'EACCES', 'EBUSY']);
+// The 2 s, and withLock's wait below, are on Node's monotonic clock: read from
+// Date.now, a system clock set forward between tries ended them at once
+// (RS-T-clocksteplibs).
 function retryWin(fn, platform = process.platform) {
-  const deadline = Date.now() + 2000;
+  const deadline = performance.now() + 2000;
   for (let wait = 10; ; wait = Math.min(wait * 2, 200)) {
     try { return fn(); } catch (e) {
-      if (platform !== 'win32' || !TRANSIENT_WIN.has(e.code) || Date.now() > deadline) throw e;
+      if (platform !== 'win32' || !TRANSIENT_WIN.has(e.code) || performance.now() > deadline) throw e;
       sleepMs(wait);
     }
   }
@@ -411,7 +414,7 @@ function tryBreakLock(file) {
 function withLock(dir, fn, { waitMs = 10000, holder = '' } = {}) {
   const file = path.join(dir, LOCK);
   const token = crypto.randomBytes(8).toString('hex');
-  const deadline = Date.now() + waitMs;
+  const deadline = performance.now() + waitMs;
   let fd = null;
   let lastCode = '';
   for (;;) {
@@ -423,7 +426,7 @@ function withLock(dir, fn, { waitMs = 10000, holder = '' } = {}) {
       if (e.code === 'EEXIST') broke = tryBreakLock(file);
       else if (!(process.platform === 'win32' && TRANSIENT_WIN.has(e.code))) throw e;
     }
-    if (Date.now() > deadline) {
+    if (performance.now() > deadline) {
       const info = lockInfo(file);
       const err = new Error(info || lastCode === 'EEXIST'
         ? `another trailmark command is using the memory folder (lock: ${info ? oneLine(info.text || 'no label yet', 160) : 'released just now'}); wait a few seconds and run the command again`
