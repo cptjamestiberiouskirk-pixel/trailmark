@@ -116,6 +116,10 @@ function dropWorktree(ws) {
   try {
     execFileSync('git', ['-C', ROOT, 'worktree', 'remove', '--force', ws], { stdio: 'ignore' });
   } catch { /* git has not made it a worktree: the folder alone goes */ }
+  // No `git worktree prune` here or at the end of a run: it is repo-wide and
+  // would drop the record of any other worktree whose folder is missing at that
+  // moment (an unplugged drive). A record left by a failed remove is for the
+  // user to prune knowingly.
   fs.rmSync(ws, { recursive: true, force: true });
   live.delete(ws);
 }
@@ -197,7 +201,6 @@ function stop() {
   for (const ws of [...live]) {
     try { dropWorktree(ws); } catch (e) { console.error(`worktree ${ws} not removed: ${e.message}`); }
   }
-  try { git('worktree', 'prune'); } catch (e) { console.error(`git worktree prune failed: ${e.message}`); }
   process.exit(130);
 }
 
@@ -241,7 +244,6 @@ async function main() {
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, Number(env.EVAL_JOBS) || 3) }, one));
-  git('worktree', 'prune');
   results.sort((a, b) => a.id.localeCompare(b.id));
   const hits = results.filter((r) => r.caught).length;
   const rate = hits / results.length;
@@ -254,6 +256,6 @@ async function main() {
   process.exit(exitCode(results, floor));
 }
 
-module.exports = { reviewerPrompt, reviewerArgs, caught, normPath, parseResult, prText, prepare, dropWorktree, live, checkId, exitCode, writeHead };
+module.exports = { reviewerPrompt, reviewerArgs, caught, normPath, parseResult, prText, prepare, dropWorktree, live, checkId, exitCode, writeHead, stop };
 
 if (require.main === module) main().catch((e) => { console.error(e.stack || e.message); process.exit(2); });
