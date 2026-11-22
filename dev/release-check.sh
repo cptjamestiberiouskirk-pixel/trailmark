@@ -29,12 +29,15 @@
 # and a synchronous child call with no timeout of its own (the call fails with
 # its command and line). Below Node 24 the first holds only for test() calls
 # of the require('node:test') form (see .github/test-limits.js). A test
-# blocked in its own code (a loop that never yields) is not ended: stop the
-# run. A file whose tests pass but leave something open (a timer, a child) is
-# let end, and its suite's line is followed by a WARN that names it.
+# blocked in its own code (a loop that never yields) is not ended, nor is a
+# run whose test file has ended while a child it started still holds the
+# file's output (stdio inherited): stop the run. A file whose tests pass but
+# leave something open (a timer, a child) is let end, and its suite's line is
+# followed by a WARN that names it.
 # TRAILMARK_TEST_LIMIT_MS sets the limit in ms, up to 2147483647; the default
 # is 400000, CI's limit on Windows, its largest; 0 runs the suites with no
-# limit. The summary's first line names the limit (RS-T-localhang,
+# limit, with neither --test-force-exit nor the preload, so with no WARN
+# either. The summary's first line names the limit (RS-T-localhang,
 # dev/release-state.md).
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
@@ -127,8 +130,9 @@ if [ "$ZIPONLY" = 1 ]; then
 else
   LIMIT_MS="${TRAILMARK_TEST_LIMIT_MS-400000}"
   # Digits only, at most 10 of them after leading zeros, and at most
-  # 2147483647, the largest timeout Node takes (a larger one fails each test
-  # file with ERR_OUT_OF_RANGE). Read as decimal: 007 is 7.
+  # 2147483647, the largest timeout Node takes (with a larger one node --test
+  # throws ERR_OUT_OF_RANGE before any test file starts, on Node 26). Read as
+  # decimal: 007 is 7.
   limit_digits="${LIMIT_MS#"${LIMIT_MS%%[!0]*}"}"
   case "$LIMIT_MS" in
     ''|*[!0-9]*) limit_bad=1 ;;
@@ -254,12 +258,18 @@ report_suite() { # name, slug, the suite's folder, seconds
   [ $ok = 1 ] || grep -E '^not ok' <<<"$out" | head -5 | sed "s|^|      $slug: |" >> "$T/failures"
   # --test-force-exit lets a file end with handles still open; the preload
   # names them on stderr (.github/test-limits.js), which CI turns into a
-  # warning (tap-annotate.js). Here it is a WARN after the suite's line.
+  # warning (tap-annotate.js). Here it is a WARN after the suite's line that
+  # names each such file and what it left. Only the preload's own line form
+  # counts: node --test writes a file's stderr line as a TAP comment with its
+  # `#` escaped (`# \# trailmark-test-limits: ...`); a test that prints that
+  # whole line itself would still be counted. Some test files leave a child
+  # or a write open today (CI names them on main too), so a passing full run
+  # can show this WARN.
   local open n
-  open="$(sed -n 's/^.*trailmark-test-limits: open at exit in //p' <<<"$out")"
+  open="$(sed -n 's/^# \\# trailmark-test-limits: open at exit in //p' <<<"$out" | sed 's|\\#|#|g; s|^.*[\\/]||')"
   if [ -n "$open" ]; then
     n="$(grep -c . <<<"$open")"
-    record WARN "$name: $n test file(s) left something open at exit, first: $(head -1 <<<"$open" | sed 's|^.*[\\/]||' | cut -c1-90)"
+    record WARN "$name: $n test file(s) left something open at exit: $(paste -sd ';' <<<"$open" | sed 's/;/; /g' | cut -c1-300)"
   fi
   # Kept when the suite failed, and always with --only: a skip's reason is in it too.
   if [ $ok = 0 ] || [ -n "$ONLY" ]; then keep_suite "$slug" "$out" "$dir" $ok; fi

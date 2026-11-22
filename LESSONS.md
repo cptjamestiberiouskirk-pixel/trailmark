@@ -15,7 +15,7 @@ Format:
 ```
 
 ## 2026-11-22: A reviewer's --only runs pruned the shared kept folders
-- What went wrong: the RS-T-localhang regression reviewer ran `dev/release-check.sh --only` 23 times, and the script's `prune_kept` removed 22 older kept run folders under `E:/DevTemp/trailmark-release-check` (39 before, 17 after, CONFIRMED by the reviewer's counts, not re-run). A note of this item named a count of those files, which can no longer be checked.
+- What went wrong: the RS-T-localhang regression reviewer ran `dev/release-check.sh --only` 23 times, and the script's `prune_kept` removed 22 older kept run folders under `E:/DevTemp/trailmark-release-check` (39 before its runs, 17 after it had removed the 23 folders its own runs made: 22 of the older ones were pruned; CONFIRMED by the reviewer's counts, not re-run). A note of this item named a count of those files, which can no longer be checked.
 - Why: the kept folder is next to the run's temp folder (`KEEPROOT="$(dirname "$T")/trailmark-release-check"`, with `T` from `mktemp -d`, so under `TMPDIR`), and a reviewer's clone shares the owner's `TMPDIR`. Pruning is by design.
 - Rule going forward: a review brief that lets the reviewer run `dev/release-check.sh` tells it to set `TMPDIR` to its own temp folder for those runs, so its kept output and pruning stay there. A note cites copies in the notes folder, not a kept run folder.
 - Status: open
