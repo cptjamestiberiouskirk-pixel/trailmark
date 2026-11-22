@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { oneLine, displayPath, inside } = require('./store');
-const { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, notThere, nothingIn, allSeen } = require('./gitbin');
+const { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, notThere, nothingIn, allSeen } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
 // and Linux caps a variable at 128 KiB (the comment on PAYLOAD_MAX in
@@ -37,16 +37,19 @@ function branchToken(text, max = 80) {
 // lookup with 30 s, handoff-checks.test.js SINCE_CONTROL) gives a call more:
 // with 4 s a call, one call of over 4 s failed the control on a busy machine
 // (RS-T-sinceload).
+// The deadline is on Node's monotonic clock, in whole ms (monoNow, gitbin.js):
+// read from Date.now, a system clock set forward after the runner was made
+// left its git calls no time (RS-T-clocksteplibs, dev/release-state.md).
 function runner(budgetMs, callMs = 4000) {
-  const deadline = Date.now() + budgetMs;
+  const deadline = monoNow() + budgetMs;
   // late: a call was refused or stopped for lack of time.
   const r = { hung: false, late: false };
-  r.left = () => deadline - Date.now();
+  r.left = () => deadline - monoNow();
   // input: text for git's stdin (check-attr --stdin). buffer: the most of
   // git's answer that is read; past it the call fails. 32 MiB for every
   // call but farWorktree's list (LIST_BUFFER).
   r.run = (cwd, args, input, buffer = 32 * 1024 * 1024) => {
-    const left = Math.min(callMs, deadline - Date.now());
+    const left = Math.min(callMs, deadline - monoNow());
     if (r.hung || left < 250) { r.late = true; return { ok: false, out: '', why: 'timeout' }; }
     // The check stops at the 250 ms this call needs, not at the status
     // check's 800: a runner with a second in all still gets its calls.

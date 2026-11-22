@@ -88,8 +88,10 @@ function isGitName(word, platform) {
   return platform === 'win32' ? /^git(?:\.exe)?$/i.test(b) : b === 'git';
 }
 
+// The deadline is on Node's monotonic clock: read from Date.now, a system
+// clock set forward while a command was read gave up on it (RS-T-clocksteplibs).
 function tick(ctx) {
-  if ((++ctx.steps & 511) === 0 && Date.now() > ctx.deadline) throw TOO_LONG;
+  if ((++ctx.steps & 511) === 0 && performance.now() > ctx.deadline) throw TOO_LONG;
 }
 
 // Absolute folder from a path written in the command, or null when it can't
@@ -2107,7 +2109,7 @@ function pwshCommandLine(args, from, ctx, inLoop) {
 function parse(text, shell, start, platform, home, deadlineMs) {
   const out = { sites: [], loops: [], unresolved: [] };
   const ctx = {
-    platform, home, out, level: 0, steps: 0, deadline: Date.now() + deadlineMs,
+    platform, home, out, level: 0, steps: 0, deadline: performance.now() + deadlineMs,
     funcs: new Map(), psFuncs: new Map(), psBlocks: new Map(), psAliases: new Map(), files: new Map(), fargs: null,
     gitVars: new Set(), cdpath: false, lastpipe: false, startLoc: loc0(start), topMoved: false,
   };

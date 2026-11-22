@@ -220,6 +220,13 @@ function withShare(cwd, fn) {
 // about 15 times. Dropped when that check returns, since a folder can be
 // swapped for a link between two checks.
 let LSTAT_SEEN = null;
+// monoNow: the time in whole ms on Node's monotonic clock (performance.now
+// counts from performance.timeOrigin, about when the process started), for
+// the libraries' own deadlines. The system clock (Date.now) can be set back
+// or forward while one runs, which moved such a deadline (RS-T-clocksteplibs,
+// dev/release-state.md). Whole ms: execFileSync refuses a timeout that is not
+// an integer.
+const monoNow = () => Math.floor(performance.now());
 // What is left of the caller's time for git, in ms, while fn runs: a function,
 // or null where the caller has no limit (the launcher). The reading of config
 // files looks at it (farConfig, configEntries): a file with a quote in it is
@@ -1692,4 +1699,4 @@ function farLfsEntries(entries, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };
+module.exports = { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };

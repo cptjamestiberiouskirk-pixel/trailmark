@@ -527,6 +527,101 @@ test('hook clock: a system clock set forward during the commit hook leaves git i
   assert.ok((c.folders || []).length, `no folder was read: ${JSON.stringify(c)}`);
 });
 
+// RS-T-clocksteplibs: the libraries' own deadlines are on Node's monotonic
+// clock too. gitfacts.js's runner set its deadline from Date.now, so a clock
+// set forward after the runner was made left its git calls no time (Fable,
+// RS-T-clockstep round 1: `git-timeout` for the commit's folder). The step,
+// an hour, is made at the first execFileSync, after the runner is made. The
+// two libraries are loaded again so that the stub is the execFileSync they
+// call.
+test('git facts: a system clock set forward during the git calls leaves them their time (RS-T-clocksteplibs)', () => {
+  const dir = path.join(realTemp('jbmem-runstep-'), 'r');
+  repoAt(dir);
+  const branch = execFileSync('git', ['branch', '--show-current'], { cwd: dir, encoding: 'utf8' }).trim();
+  const cp = require('child_process');
+  const keys = ['gitfacts.js', 'gitbin.js'].map(n => require.resolve(path.join(ROOT, 'scripts', 'lib', n)));
+  const kept = keys.map(k => require.cache[k]);
+  const realRun = cp.execFileSync; const now = Date.now;
+  let calls = 0;
+  cp.execFileSync = function (...a) { if (++calls === 1) Date.now = () => now() + 3600000; return realRun.apply(this, a); };
+  const seen = {};
+  let f;
+  try {
+    for (const k of keys) delete require.cache[k];
+    f = require(keys[0]).gitFacts(dir, ['branch', 'status'], { budgetMs: 5000, seen });
+  } finally {
+    cp.execFileSync = realRun; Date.now = now;
+    keys.forEach((k, i) => { if (kept[i]) require.cache[k] = kept[i]; else delete require.cache[k]; });
+  }
+  assert.deepStrictEqual({ late: seen.late, hung: seen.hung, branch: f.branch, status: f.statusSkipped }, { late: false, hung: false, branch, status: undefined });
+  assert.ok(calls > 1, `the git calls did not run: ${calls}`);
+});
+
+// RS-T-clocksteplibs, the other libraries: each kept a deadline on Date.now.
+// stepAfterFirst: Date.now gives the real time at its first read (where the
+// old code set the deadline) and `by` ms more after it.
+const stepAfterFirst = (by, fn) => {
+  const now = Date.now; let reads = 0;
+  Date.now = () => (++reads === 1 ? now() : now() + by);
+  try { return fn(); } finally { Date.now = now; }
+};
+
+test('health: a system clock set forward during the check for other copies leaves it its time (RS-T-clocksteplibs)', () => {
+  const H = require(path.join(ROOT, 'scripts', 'lib', 'health'));
+  const base = realTemp('jbmem-copystep-');
+  for (const v of ['0.1.0', '0.2.0']) {
+    const d = path.join(base, 'cfg', 'plugins', 'cache', 'mkt', 'trailmark', v, 'scripts');
+    fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'trailmark.js'), '// stand-in');
+  }
+  const r = stepAfterFirst(3600000, () => H.otherCopies(path.join(base, 'cfg'), path.join(base, 'mine'), { budgetMs: 60000 }));
+  assert.deepStrictEqual({ incomplete: r.incomplete, found: r.copies.length }, { incomplete: '', found: 2 });
+});
+
+test('commit sites: a system clock set forward while a command is read leaves it its time (RS-T-clocksteplibs)', () => {
+  const { commitSites } = require(path.join(ROOT, 'scripts', 'lib', 'commands.js'));
+  // 2000 commands: past the 512 steps between looks at the time.
+  const r = stepAfterFirst(3600000, () => commitSites('true; '.repeat(2000) + 'git commit -m x', { platform: 'linux', cwd: '/r', home: '/h', deadlineMs: 60000 }));
+  assert.deepStrictEqual({ sites: r.sites.length, unresolved: r.unresolved }, { sites: 1, unresolved: [] });
+  // A deadline already past, on the real clocks: the read stops. A deadline
+  // set from Date.now and read against performance.now never would (review
+  // round 1, F1).
+  const late = commitSites('true; '.repeat(2000) + 'git commit -m x', { platform: 'linux', cwd: '/r', home: '/h', deadlineMs: -1 });
+  assert.ok(late.unresolved.includes('too-long'), JSON.stringify(late.unresolved));
+});
+
+// The lock is this process's, on this host, so it is never broken as dead.
+// The step is 40 s: past the 30 s wait, short of the 60 s after which any
+// lock is taken as left behind (LOCK_MAX_MS, store.js), which lockInfo reads
+// from the system clock and the file's time. A child removes the lock after
+// 300 ms, and the wait then takes it.
+test('lock: a system clock set forward during the wait for the lock leaves the wait its time (RS-T-clocksteplibs)', async () => {
+  const dir = realTemp('jbmem-lockstep-');
+  const file = path.join(dir, S.LOCK);
+  const host = String(os.hostname() || 'unknown').replace(/\s+/g, '_').slice(0, 64);
+  fs.writeFileSync(file, `pid ${process.pid} host ${host} test token 00\n`);
+  const freed = require('child_process').spawn(process.execPath, ['-e', `setTimeout(() => { try { require('fs').unlinkSync(${JSON.stringify(file)}); } catch {} }, 300)`], { stdio: 'ignore' });
+  let ran = false;
+  try {
+    stepAfterFirst(40000, () => S.withLock(dir, () => { ran = true; }, { waitMs: 30000 }));
+  } finally {
+    // The wait above is synchronous, so the child's exit can't have been
+    // seen yet. Wait for it, then for the timer turn that closes its handle
+    // (the exit event comes first), or the handle is open when the file ends.
+    freed.kill();
+    await require('events').once(freed, 'exit');
+    await new Promise(r => setTimeout(r, 0));
+  }
+  assert.strictEqual(ran, true);
+});
+
+// retryWin: Windows's transient codes are tried again for 2 s. The platform
+// is handed in, so this runs on every system.
+test('retry: a system clock set forward between tries leaves the 2 s of tries their time (RS-T-clocksteplibs)', () => {
+  let tries = 0;
+  const out = stepAfterFirst(3600000, () => S.retryWin(() => { if (++tries < 3) { const e = new Error('busy'); e.code = 'EBUSY'; throw e; } return 'done'; }, 'win32'));
+  assert.deepStrictEqual({ out, tries }, { out: 'done', tries: 3 });
+});
+
 test('commits since the handoff: a commit subject posing as markup is escaped', sinceTest(() => {
   const s = sandbox();
   s.write('# H\n## Next\n- nothing yet\n');
@@ -4013,10 +4108,10 @@ test('git status: the time is looked at before each folder with a .git is checke
   // aren't measured: the looks at those files are counted.
   const run = (name, left, plain = false) => {
     const r = repo(name, plain);
-    const now = Date.now; const lstat = fs.lstatSync;
-    const start = now();
+    const lstat = fs.lstatSync;
+    const start = performance.now();
     let clock = start; let looks = 0;
-    Date.now = () => clock;
+    performance.now = () => clock;
     fs.lstatSync = (p, ...a) => {
       if (typeof p === 'string' && path.basename(p) === '.git' && /^sub\d$/.test(path.basename(path.dirname(p)))) {
         if (!looks++ && left !== null) clock = start + 5000 - left;
@@ -4028,7 +4123,7 @@ test('git status: the time is looked at before each folder with a .git is checke
       }
       return lstat(p, ...a);
     };
-    try { return { skipped: gitFacts(r, ['status'], { budgetMs: 5000 }).statusSkipped, looks }; } finally { Date.now = now; fs.lstatSync = lstat; }
+    try { return { skipped: gitFacts(r, ['status'], { budgetMs: 5000 }).statusSkipped, looks }; } finally { delete performance.now; fs.lstatSync = lstat; }
   };
   // 500 ms left when the first one is reached: it isn't checked, and the
   // other three aren't looked at.
@@ -4069,10 +4164,10 @@ test('git status: the time is looked at before each folder of tracked files (RS-
   // aren't measured: the folders looked at are counted.
   const run = (name, left, links = true) => {
     const r = repo(name, links);
-    const now = Date.now; const lstat = fs.lstatSync;
-    const start = now();
+    const lstat = fs.lstatSync;
+    const start = performance.now();
     let clock = start; let back = false; const seen = new Set();
-    Date.now = () => clock;
+    performance.now = () => clock;
     fs.lstatSync = (p, ...a) => {
       // By the path from this repo: a part of the temp folder's own path
       // may be named like one of the four (`d7`).
@@ -4088,7 +4183,7 @@ test('git status: the time is looked at before each folder of tracked files (RS-
       }
       return lstat(p, ...a);
     };
-    try { return { skipped: gitFacts(r, ['status'], { budgetMs: 5000 }).statusSkipped, folders: seen.size, back }; } finally { Date.now = now; fs.lstatSync = lstat; }
+    try { return { skipped: gitFacts(r, ['status'], { budgetMs: 5000 }).statusSkipped, folders: seen.size, back }; } finally { delete performance.now; fs.lstatSync = lstat; }
   };
   // 500 ms left once the first folder is reached: the other three aren't
   // looked at, and nothing after the folders is.
@@ -5002,9 +5097,9 @@ test('git pointers: the caller\'s time is looked at before each config file is r
     // stands still, so the 700 ms never run out.
     const quick = plain();
     shortBranch = quick.g('branch', '--show-current');
-    const now = Date.now; const t0 = now();
-    Date.now = () => t0;
-    try { short = GF.gitFacts(quick.r, ['branch'], { budgetMs: 700 }); } finally { Date.now = now; }
+    const t0 = performance.now();
+    performance.now = () => t0;
+    try { short = GF.gitFacts(quick.r, ['branch'], { budgetMs: 700 }); } finally { delete performance.now; }
     // The lines: one repo with a tracked file turned folder, a submodule and
     // a gitdir in .git/modules.
     const all = plain();
@@ -5017,8 +5112,8 @@ test('git pointers: the caller\'s time is looked at before each config file is r
     lines.length = 0;
     // The clock stands still here too: which line a check names doesn't
     // depend on how long the checks before it took.
-    Date.now = () => t0;
-    try { GF.gitFacts(all.r, ['status'], { budgetMs: 5000 }); } finally { Date.now = now; }
+    performance.now = () => t0;
+    try { GF.gitFacts(all.r, ['status'], { budgetMs: 5000 }); } finally { delete performance.now; }
   } finally {
     cp.execFileSync = realRun;
     require.cache[key] = kept; require.cache[factsKey] = keptFacts;
@@ -5050,10 +5145,10 @@ test('git pointers: the caller\'s time is looked at before each config file is r
   // gone through, 2 the second time.
   // `to`: the ms left after the jump.
   const clocked = (dir, pass, to, fn) => {
-    const now = Date.now; const lstat = fs.lstatSync;
-    const start = now();
+    const lstat = fs.lstatSync;
+    const start = performance.now();
     let clock = start; let ends = 0; let jumped = false;
-    Date.now = () => clock;
+    performance.now = () => clock;
     fs.lstatSync = (p, ...a) => {
       const rel = typeof p === 'string' ? path.relative(dir, p) : '';
       if (rel === 'i1' && ends >= pass - 1 && !jumped) { jumped = true; clock = start + 5000 - to; }
@@ -5061,7 +5156,7 @@ test('git pointers: the caller\'s time is looked at before each config file is r
       if (rel === 'i5') ends++;
       return st;
     };
-    try { const out = fn(); return { out, jumped, read: ends }; } finally { Date.now = now; fs.lstatSync = lstat; }
+    try { const out = fn(); return { out, jumped, read: ends }; } finally { delete performance.now; fs.lstatSync = lstat; }
   };
   const facts = (cwd, dir, pass = 1, to = 500, wanted = ['status']) => {
     const c = clocked(dir, pass, to, () => gitFacts(cwd, wanted, { budgetMs: 5000 }));

@@ -178,9 +178,11 @@ const showName = n => (SAFE_NAME.test(n) ? n : '<unusual name>');
 // incomplete names why the walk stopped early ('' when it saw everything).
 // <marketplace>/trailmark is looked at first in every marketplace, so the
 // copies most likely to be run are found even when the walk stops early.
+// The limit is on Node's monotonic clock: read from Date.now, a system clock
+// set forward during the walk stopped it (RS-T-clocksteplibs).
 function otherCopies(configDir, ownRoot, { maxCopies = 10, budgetMs = 300, maxEntries = 200 } = {}) {
   const copies = [];
-  const until = Date.now() + budgetMs;
+  const until = performance.now() + budgetMs;
   const why = new Set();
   const cache = path.join(configDir, 'plugins', 'cache');
   const inst = installPaths(configDir);
@@ -217,7 +219,7 @@ function otherCopies(configDir, ownRoot, { maxCopies = 10, budgetMs = 300, maxEn
     const display = ['plugins', 'cache', showName(mkt), showName(plugin), showName(ver)].join('/');
     copies.push({ path: root, display, version: version || '<unusual name>' });
   };
-  const late = () => { if (Date.now() > until) { why.add('it took too long'); return true; } return false; };
+  const late = () => { if (performance.now() > until) { why.add('it took too long'); return true; } return false; };
   const mkts = list(cache, maxEntries);
   if (mkts.net) why.add('the plugin cache leads to a network path');
   else if (!mkts.full) why.add(shortBy(mkts, 'the plugin cache'));
