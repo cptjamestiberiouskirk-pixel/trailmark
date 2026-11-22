@@ -5,18 +5,17 @@
 // and reads the TAP output and the annotations: a hung case must end, fail
 // and name the case. Each run has a guard of 25 s, and the whole check a
 // budget of 160 s (no case starts after 135 s), so that a limit that can't
-// fire fails the check, and the
-// check still prints its result and stops what the cases left within its
-// step's limit of 3 min. On Node 22 run-tests.sh leaves --test-timeout out
-// and the preload gives each test() call the limit (see there): the async
-// case checks that, with the TAP's location line of its first test (run from a
-// folder whose name holds parentheses), and the
+// fire fails the check, and the check still prints its result and stops what
+// the cases left within its step's limit of 3 min. On Node 22 run-tests.sh
+// leaves --test-timeout out and the preload gives each test() call the limit
+// (see there): the async case checks that, with the TAP's location line of
+// its first test (run from a folder whose name holds parentheses), and the
 // longfile case checks that a file whose tests together run past the limit
 // still passes, which --test-timeout on Node 22 would fail. Its step fails
 // the job when a case does not give what it must (RS-T-hang75-enforce). It
-// runs from the repository's root (from a folder without the fixture or
-// run-tests.sh it exits 2 and makes nothing), needs bash on PATH, and stops
-// the processes the cases leave.
+// runs from the repository's root (from a folder missing either the fixture
+// or run-tests.sh it exits 2 and makes nothing), needs bash on PATH, and
+// stops the processes the cases leave.
 // Usage: node .github/test-limits-check.js
 'use strict';
 const fs = require('fs');

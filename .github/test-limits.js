@@ -26,7 +26,7 @@
 // hands each call with no timeout of its own (no `timeout` key, or null,
 // undefined or Infinity, which Node reads as none) the limit as its `timeout`
 // option, and calls node:test's test() with it. Node applies that option to
-// the one test, and its subtests copy it (v22.x
+// the one test, and its subtests copy it (v22.x, fetched 2026-11-18 UTC,
 // lib/internal/test_runner/test.js, lines 554 and 608), so a test that waits
 // on something asynchronous fails with its name after the limit, as with
 // --test-timeout on Node 24. Node takes a test's location from the function
