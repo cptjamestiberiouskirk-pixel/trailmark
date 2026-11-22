@@ -62,7 +62,9 @@ const SHORT = /[{,]\s*(skip|todo|only)\s*[,}]/;
 const DESTRUCT = /^\+?\s*(const|let|var)\s*\{/;
 // The line without a leading `const { ... } =`, the braces matched so a nested
 // pattern (`{ a: { skip }, b }`) or a default (`{ skip = {} }`) is removed whole;
-// a pattern that does not close and meet a single `=` on the line is kept.
+// a pattern that does not close on the line (the first line of a multi-line
+// destructuring) is all pattern and leaves nothing; one that closes but is not
+// followed by a single `=` is kept.
 function withoutDestructuring(c) {
   const m = DESTRUCT.exec(c);
   if (!m) return c;
@@ -74,7 +76,7 @@ function withoutDestructuring(c) {
       return rest ? c.slice(i + 1 + rest[0].length) : c;
     }
   }
-  return c;
+  return '';
 }
 const QUOTED = /['"](skip|todo|only)['"]\s*:/;
 const isSkip = (l) => {
@@ -86,8 +88,10 @@ const isSkip = (l) => {
 // condition, and neither does a constant that decides it (`true || x`,
 // `1 ? 'a' : b`), nor is an optional call (`?.(`). A todo or a focus (only)
 // is never conditional.
-// A condition is read only from the code before a stray quote (`strict`).
-const constant = (l) => /\bskip\s*:\s*(true|[1-9]\d*|"")\s*(\|\||\?)/.test(code(l, true));
+// A constant skip is looked for in the whole line (raw after a stray quote), so
+// a `skip: true ||` after the quote keeps the line high; only the condition
+// test below reads the code before the quote (`strict`).
+const constant = (l) => /\bskip\s*:\s*(true|[1-9]\d*|"")\s*(\|\||\?)/.test(code(l));
 // A todo or a focus is looked for in the whole line (the raw line after a stray
 // quote), so it stays high whatever a condition says.
 const conditional = (l) => !/\b(todo|only)\b/i.test(code(l)) && !constant(l)

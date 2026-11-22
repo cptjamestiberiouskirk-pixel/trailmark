@@ -737,4 +737,8 @@ test('tier: a todo or focus stays high after a stray quote, and a nested destruc
   // What follows the destructuring still counts, and so does an assignment that is a comparison.
   assert.equal(f("const { a: { skip }, b } = opts; test('x', { skip }, fn)").tier, 'high');
   assert.equal(f("const { skip } == 1; test('x', { skip }, fn)").tier, 'high');
+  // PR 116, Opus: the first line of a multi-line destructuring is all pattern, and a
+  // `skip: true ||` after a stray quote still keeps the line high.
+  assert.equal(f('const { skip,').tier, 'low');
+  assert.equal(f("test('x', { skip: WIN }, /'/, { skip: true || x })").tier, 'high');
 });
