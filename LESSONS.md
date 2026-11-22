@@ -14,7 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
-## 2026-11-22: A line the fix added was never removed alone, and no test needed it
+## 2026-11-22: A skip for a confounded result came before the asserts
+- What went wrong: in PR #113's round 4 batch, the check that skips a lock test when an ended holder's pid is in use again ran before the asserts, so a lock broken while a pid was in use showed as a skip, and in two tests an earlier assert failed on the very case the skip was for (review round 5, Fable F1 and F2, Opus F1, each CONFIRMED by its reviewer by a run).
+- Why: the skip was put where the doubt arises (the pid), not where it matters (a result the pid could explain). A live pid can only keep a lock, so only a kept lock is in doubt.
+- Rule going forward: a skip for a confound runs only after the asserts that the confound cannot explain, and only where the result is one it could explain; the class of "A retry added for load could hide the regression its test was written for", seen again.
+- Status: open
+
+## 2026-11-22: A line the fix added was never removed alone, and no test failed on it
 - What went wrong: in PR #113's Copilot fix, the mutation named for the `.break` file's clock check removed the `!watch.moved` term, not the added line `if (clockMoved()) watch.moved = true;` after the file's age (`store.js` line 407). Removed alone, that line failed no test (review round 4, F1, CONFIRMED by Opus by a run), since the new `.break` test stepped the clock only after the age was read, and the notes said each new part removed alone failed its test. The same held for the check before the second look (line 431).
 - Why: the mutation list was made from the fix's ideas (the kept move, the read order, the clock check), not from its added lines, so a line that an idea took for granted was left out. It is the class of "The lock fix's tests left its watch untested", seen again.
 - Rule going forward: a fix's mutation list is made from its diff: each added or changed line and each new term gets a mutation that removes just it, and a line no test fails on gets a test or a written reason (the 2026-11-09 lesson on a line no test needs).
