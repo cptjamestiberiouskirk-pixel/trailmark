@@ -745,8 +745,10 @@ test('tier: a todo or focus stays high after a stray quote, and a nested destruc
   assert.equal(o.tier, 'low');
   assert.equal(o.mustCheck.length, 1);
   assert.equal(f("test('x', { skip: WIN }, fn); /* todo later").tier, 'high');
+  // The strict read stops at the `/*`, so a `&&` in the comment is not a condition.
+  assert.equal(f("test('x', { skip: true }, fn); /* a && b").tier, 'high');
   // PR 116, Opus round 2: a brace in a string or regex of the pattern must not hide what follows.
-  for (const l of ["const { a = '{' } = o; test('x', { skip }, /'/)", "const { a = '{' } = o; test('x', { only }, /'/)", "const { a = /{/ } = o; test('x', { skip }, fn)", "const { a /* { */ } = o; test('x', { skip }, /'/)"]) {
+  for (const l of ["const { a = '{' } = o; test('x', { skip }, /'/)", "const { a = '{' } = o; test('x', { only }, /'/)", "const { a = /{/ } = o; test('x', { skip }, fn)", "const { a /* { */ } = o; test('x', { skip }, /'/)", 'const { a = /{/ } = o; test(x, { skip }, fn)']) {
     assert.equal(f(l).tier, 'high', l);
   }
   assert.equal(f("test('x', { skip: WIN }, /'/, { skip: true || x })").tier, 'high');

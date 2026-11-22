@@ -63,8 +63,9 @@ const DESTRUCT = /^\+?\s*(const|let|var)\s*\{/;
 // The line without a leading `const { ... } =`, the braces matched so a nested
 // pattern (`{ a: { skip }, b }`) or a default (`{ skip = {} }`) is removed whole;
 // a pattern that does not close on the line (the first line of a multi-line
-// destructuring) is all pattern and leaves nothing; one that closes but is not
-// followed by a single `=` is kept.
+// destructuring) leaves nothing when the line has no quote or slash, else it is
+// kept (a brace in a string or regex may unbalance the count); one that closes
+// but is not followed by a single `=` is kept.
 function withoutDestructuring(c) {
   const m = DESTRUCT.exec(c);
   if (!m) return c;
