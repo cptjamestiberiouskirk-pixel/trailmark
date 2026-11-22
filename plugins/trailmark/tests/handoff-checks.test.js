@@ -614,6 +614,51 @@ test('lock: a system clock set forward during the wait for the lock leaves the w
   assert.strictEqual(ran, true);
 });
 
+// RS-T-lockagestep: a lock's age is the system clock against the file's
+// mtime, so a clock set forward or back made a live holder's fresh lock look
+// over 60 s old, and the waiter broke it and went in beside the holder.
+// lockAt: a lock labeled with this process (alive, this host) and its token,
+// its mtime `ago` ms back. withClock: Date.now moved by `by` while fn runs.
+const lockAt = (prefix, ago, label = true) => {
+  const dir = realTemp(prefix);
+  const file = path.join(dir, S.LOCK);
+  const host = String(os.hostname() || 'unknown').replace(/\s+/g, '_').slice(0, 64);
+  fs.writeFileSync(file, label ? `pid ${process.pid} host ${host} since x token aaaa\n` : '');
+  if (ago) { const t = (Date.now() - ago) / 1000; fs.utimesSync(file, t, t); }
+  return { dir, file };
+};
+const withClock = (by, fn) => {
+  const now = Date.now;
+  Date.now = () => now() + by;
+  try { return fn(); } finally { Date.now = now; }
+};
+const tryLock = (dir, by) => {
+  let ran = false;
+  try { withClock(by, () => S.withLock(dir, () => { ran = true; }, { waitMs: 600 })); return { ran, code: '' }; } catch (e) { return { ran, code: e.code }; }
+};
+
+test('lock: a system clock moved past 60 s leaves a live holder its fresh lock (RS-T-lockagestep)', () => {
+  for (const by of [61000, -3600000]) {
+    const { dir, file } = lockAt('jbmem-lockage-', 0);
+    assert.deepStrictEqual(tryLock(dir, by), { ran: false, code: 'JBMEM_LOCKED' }, `clock moved ${by} ms`);
+    assert.ok(fs.readFileSync(file, 'utf8').includes('token aaaa'), `clock moved ${by} ms: the holder's lock was broken`);
+  }
+  // Unlabeled (made, not yet labeled): over 30 s by the moved clock, still kept.
+  const bare = lockAt('jbmem-lockage-bare-', 0, false);
+  assert.deepStrictEqual(tryLock(bare.dir, 31000), { ran: false, code: 'JBMEM_LOCKED' });
+  assert.ok(fs.existsSync(bare.file), 'the unlabeled lock was broken');
+});
+
+test('lock: with the clock not moved, a lock over 60 s old is still broken at once (RS-T-lockagestep)', () => {
+  const { dir } = lockAt('jbmem-lockage-old-', 120000);
+  assert.deepStrictEqual(tryLock(dir, 0), { ran: true, code: '' });
+  // With the clock moved, the same old lock is kept: this command has watched
+  // it for 600 ms, not 60 s. The next command, its clock unmoved, breaks it.
+  const moved = lockAt('jbmem-lockage-oldmoved-', 120000);
+  assert.deepStrictEqual(tryLock(moved.dir, 61000), { ran: false, code: 'JBMEM_LOCKED' });
+  assert.deepStrictEqual(tryLock(moved.dir, 0), { ran: true, code: '' });
+});
+
 // retryWin: Windows's transient codes are tried again for 2 s. The platform
 // is handed in, so this runs on every system.
 test('retry: a system clock set forward between tries leaves the 2 s of tries their time (RS-T-clocksteplibs)', () => {

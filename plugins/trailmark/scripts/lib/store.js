@@ -306,10 +306,24 @@ function testPause() {
 //   - it is over 60 s old whatever the pid says (a hung holder, a holder on
 //     another host, or a dead holder's pid reused by another program).
 // Ages are absolute, so a lock dated in the future (clock change) still ages.
+// A system clock set forward or back while this command runs moves every
+// age read from it, so a live holder's fresh lock looked over 60 s old and
+// was broken (RS-T-lockagestep). Once the clock has moved, a lock's age is
+// at most the time this command itself has watched that same lock, on the
+// monotonic clock (lockBreakable): a short wait then breaks nothing and
+// ends with JBMEM_LOCKED, and the next command, with a clock that has not
+// moved under it, can break a lock that is really left behind.
 const LOCK_DEAD_MIN_MS = 5 * 1000;
 const LOCK_UNLABELED_MS = 30 * 1000;
 const LOCK_MAX_MS = 60 * 1000;
 const HOST = String(os.hostname() || 'unknown').replace(/\s+/g, '_').slice(0, 64);
+// The wall clock less what it read at the process's start plus the monotonic
+// time since: within a few ms unless the clock was moved (or the machine
+// slept, where the monotonic clock may stop; then ages are only distrusted).
+const CLOCK_MOVED_MS = 1000;
+function clockMoved() {
+  return Math.abs(Date.now() - (performance.timeOrigin + performance.now())) > CLOCK_MOVED_MS;
+}
 
 // Dead only on ESRCH ("no such process"). EPERM means it exists; anything
 // else is unknown, so it counts as alive.
@@ -327,11 +341,13 @@ function lockInfo(file) {
   return { text, pid: pid ? Number(pid[1]) : 0, host: host ? host[1] : '', age: Math.abs(Date.now() - st.mtimeMs) };
 }
 
-function lockBreakable(info) {
+// watchedMs: how long this command has seen this same lock (its text).
+function lockBreakable(info, watchedMs = 0) {
   if (!info) return false;
-  if (info.age > LOCK_MAX_MS) return true;
-  if (!info.pid) return info.age > LOCK_UNLABELED_MS;
-  return info.host === HOST && info.age > LOCK_DEAD_MIN_MS && !pidAlive(info.pid);
+  const age = clockMoved() ? Math.min(info.age, watchedMs) : info.age;
+  if (age > LOCK_MAX_MS) return true;
+  if (!info.pid) return age > LOCK_UNLABELED_MS;
+  return info.host === HOST && age > LOCK_DEAD_MIN_MS && !pidAlive(info.pid);
 }
 
 // Removes a lock whose holder is gone. Breaking takes a second lock
@@ -345,7 +361,8 @@ function lockBreakable(info) {
 // releases in the instant between the check and the delete, after which a new
 // holder's lock could be the one deleted. A holder 60 s into a millisecond job
 // is already a fault; this is noted rather than handled.
-function tryBreakLock(file) {
+// watch: { text, at } kept by the caller across its tries, for lockBreakable.
+function tryBreakLock(file, watch = { text: null, at: 0 }) {
   // A lock is only ever created as a plain file. A link there is not one of
   // ours and is removed (the link, never what it points to); a folder is
   // reported, since what it holds isn't ours to delete.
@@ -360,7 +377,9 @@ function tryBreakLock(file) {
     else if (l.isDirectory()) { const e = new Error(`${LOCK} in the memory folder is a folder, not a lock file; remove it and run the command again`); e.code = 'JBMEM_LOCKED'; throw e; }
   } catch (e) { if (e && e.code === 'JBMEM_LOCKED') throw e; }
   const info = nonFile ? null : lockInfo(file);
-  if (!nonFile && !lockBreakable(info)) return false;
+  if (info && info.text !== watch.text) { watch.text = info.text; watch.at = performance.now(); }
+  const watched = info ? performance.now() - watch.at : 0;
+  if (!nonFile && !lockBreakable(info, watched)) return false;
   const brk = `${file}.break`;
   let bfd;
   try { bfd = openNew(brk); } catch {
@@ -376,7 +395,8 @@ function tryBreakLock(file) {
       }
       return false;
     }
-    try { if (b && (!b.isFile() || Math.abs(Date.now() - b.mtimeMs) > LOCK_UNLABELED_MS)) fs.unlinkSync(brk); } catch { /* gone */ }
+    // Its age is read from the system clock too: not trusted once that moved.
+    try { if (b && (!b.isFile() || (!clockMoved() && Math.abs(Date.now() - b.mtimeMs) > LOCK_UNLABELED_MS))) fs.unlinkSync(brk); } catch { /* gone */ }
     return false;
   }
   try {
@@ -399,7 +419,7 @@ function tryBreakLock(file) {
       return true;
     }
     const again = lockInfo(file);
-    if (again && again.text === info.text && lockBreakable(again)) { retryWin(() => fs.unlinkSync(file)); return true; }
+    if (again && again.text === info.text && lockBreakable(again, watched)) { retryWin(() => fs.unlinkSync(file)); return true; }
     return false;
   } catch {
     return false;
@@ -417,13 +437,14 @@ function withLock(dir, fn, { waitMs = 10000, holder = '' } = {}) {
   const deadline = performance.now() + waitMs;
   let fd = null;
   let lastCode = '';
+  const watch = { text: null, at: 0 };
   for (;;) {
     let broke = false;
     try { fd = openNew(file); break; } catch (e) {
       lastCode = e.code;
       // On Windows a lock that was just deleted while something still had it
       // open refuses to be created again for a moment: same as "taken".
-      if (e.code === 'EEXIST') broke = tryBreakLock(file);
+      if (e.code === 'EEXIST') broke = tryBreakLock(file, watch);
       else if (!(process.platform === 'win32' && TRANSIENT_WIN.has(e.code))) throw e;
     }
     if (performance.now() > deadline) {
