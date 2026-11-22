@@ -211,9 +211,14 @@ finish_suites() {
 }
 report_suite() { # name, slug, the suite's folder, seconds
   local name="$1" slug="$2" dir="$3" secs="${4:-?}" out; out="$(cat "$dir/out")"
-  local tests pass fail skip
+  local tests pass fail skip cancelled
   tests="$(sed -n 's/^# tests //p' <<<"$out" | tail -1)"; pass="$(sed -n 's/^# pass //p' <<<"$out" | tail -1)"
   fail="$(sed -n 's/^# fail //p' <<<"$out" | tail -1)"; skip="$(sed -n 's/^# skipped //p' <<<"$out" | tail -1)"
+  # A test the limit ended is counted as cancelled, not failed (Node 26 with
+  # --test-timeout: "# fail 0", "# cancelled 3"), so a cancelled test fails
+  # the suite too (RS-T-localhang).
+  cancelled="$(sed -n 's/^# cancelled //p' <<<"$out" | tail -1)"
+  if [ -n "$cancelled" ] && [ "$cancelled" != 0 ]; then fail=$(( ${fail:-0} + cancelled )); fi
   # A file in which no test ran (--only with a name) is listed as one passing
   # test named by the file's path: not a test.
   local empty; empty="$(grep -cE '^ok [0-9]+ - .*\.test\.js$' <<<"$out")"
@@ -221,7 +226,7 @@ report_suite() { # name, slug, the suite's folder, seconds
   local ok=0
   if [ "${fail:-1}" = 0 ] && [ "${tests:-0}" != 0 ]; then ok=1; record PASS "$name: $pass/$tests pass, $skip skipped ($secs s)"
   elif [ "${tests:-}" = 0 ]; then record FAIL "$name: no test ran ($secs s)"
-  else record FAIL "$name: ${fail:-?} failed of ${tests:-?} ($secs s)"; fi
+  else record FAIL "$name: ${fail:-?} failed of ${tests:-?}$( [ -n "$cancelled" ] && [ "$cancelled" != 0 ] && echo ", $cancelled of them cancelled (the per-test limit, or a test ended early)") ($secs s)"; fi
   [ $ok = 1 ] || grep -E '^not ok' <<<"$out" | head -5 | sed "s|^|      $slug: |" >> "$T/failures"
   # Kept when the suite failed, and always with --only: a skip's reason is in it too.
   if [ $ok = 0 ] || [ -n "$ONLY" ]; then keep_suite "$slug" "$out" "$dir" $ok; fi
