@@ -1,0 +1,77 @@
+{
+  "comment": "Past bugs for dev/review-evals/run.js. Each case: the merge commit of the PR that brought the bug in, and the file and lines in that commit's copy that a later fix changed. attribution: notes (a note or commit names the cause) or blame (git blame of the fix's old lines). Gathered 2026-11-21 from dev/release-state.md, LESSONS.md and git; lines spot-checked for pathkey-quadratic-trim, enotdir-read-as-unread and only-default-concurrency.",
+  "cases": [
+    {
+      "id": "foldletters-test-paths",
+      "title": "The redirect decision test tries characters that fold onto ASCII, but its paths hold no s, K or I, so a folding compare passes",
+      "causePr": 56, "causeMerge": "6cfb0e003d0e50d0ee9681bcd85ec8af09ce2f62",
+      "fixCommit": "9f3d84e59b3b7d785a4efa4829da83b16b03253e", "fixPr": 73,
+      "file": "plugins/trailmark/tests/handoff-checks.test.js", "lines": [2763, 2764],
+      "attribution": "notes"
+    },
+    {
+      "id": "longroot-note-cut-test",
+      "title": "The note-cut test puts the launcher path at fixed offsets, so from a checkout whose launcher path is 158 characters or more it fails",
+      "causePr": 19, "causeMerge": "e5f5f7f016c00dd464ac1cd4029b71145209f0a7",
+      "fixCommit": "7b4222f9df40c0dccead7fb3ed32cb2be86f79b7", "fixPr": 95,
+      "file": "plugins/trailmark/tests/handoff-checks.test.js", "lines": [331, 344, 345, 346, 353, 365],
+      "attribution": "blame"
+    },
+    {
+      "id": "ctrlc-exit130",
+      "title": "release-check.sh traps INT, TERM and HUP and exits 130, 143 or 129 instead of raising the signal again, so a calling shell loop goes on",
+      "causePr": 10, "causeMerge": "556601011041d54bebb83e4ab98d4fa94fab7304",
+      "fixCommit": "f0300876991c83868079695a8bbb415b60ad25b1", "fixPr": 17,
+      "file": "dev/release-check.sh", "lines": [59, 79, 80, 81],
+      "attribution": "notes"
+    },
+    {
+      "id": "only-default-concurrency",
+      "title": "--only with a name pattern runs every test file at Node's default concurrency instead of two at a time",
+      "causePr": 10, "causeMerge": "556601011041d54bebb83e4ab98d4fa94fab7304",
+      "fixCommit": "f0300876991c83868079695a8bbb415b60ad25b1", "fixPr": 17,
+      "file": "dev/release-check.sh", "lines": [190],
+      "attribution": "notes"
+    },
+    {
+      "id": "kept-runs-pushed-out",
+      "title": "Only the 20 newest kept run folders stay and every --only run keeps one, so passing --only runs delete a failed run's output",
+      "causePr": 5, "causeMerge": "d230681118182c42a831f486a011a85862a0c3ce",
+      "fixCommit": "f0300876991c83868079695a8bbb415b60ad25b1", "fixPr": 17,
+      "file": "dev/release-check.sh", "lines": [18, 59, 60, 66, 67],
+      "attribution": "blame"
+    },
+    {
+      "id": "since-control-4s-per-call",
+      "title": "The commit-list tests' 30 s control passes budgetMs 30000, but each git call is still capped at 4 s, so one slow call fails the test",
+      "causePr": 19, "causeMerge": "e5f5f7f016c00dd464ac1cd4029b71145209f0a7",
+      "fixCommit": "487107eda42ebdad7db5d284e63bdbc5e756936d", "fixPr": 89,
+      "file": "plugins/trailmark/tests/handoff-checks.test.js", "lines": [222, 325],
+      "attribution": "blame"
+    },
+    {
+      "id": "pathkey-quadratic-trim",
+      "title": "pathKey trims trailing separators with a regex that is quadratic on a long run of backslashes on Linux and macOS",
+      "causePr": 24, "causeMerge": "14ff2435920aea33e1f6e970de753992de00f24f",
+      "fixCommit": "fab3b248d7c65cfdde9db845f52c8694a06afbaf", "fixPr": 28,
+      "file": "plugins/trailmark/scripts/lib/paths.js", "lines": [47],
+      "attribution": "blame"
+    },
+    {
+      "id": "enotdir-read-as-unread",
+      "title": "list() treats only ENOENT as gone when it adds the unread flag, so ENOTDIR on Linux and macOS reports the Codex cache as unreadable",
+      "causePr": 19, "causeMerge": "e5f5f7f016c00dd464ac1cd4029b71145209f0a7",
+      "fixCommit": "047dab707841aa4069c950f88ae32d781f87ae70", "fixPr": 24,
+      "file": "plugins/trailmark/scripts/lib/health.js", "lines": [134],
+      "attribution": "blame"
+    },
+    {
+      "id": "nestedone-check-unbounded",
+      "title": "The hook's time is checked before each nested repo's check but not inside one, so one check reading many config files runs past 5 s",
+      "causePr": 47, "causeMerge": "8fd6b841e73f399f06c595ff1adf257be1ff274b",
+      "fixCommit": "238995534466ec0af28a013e87b182da02db6804", "fixPr": 50,
+      "file": "plugins/trailmark/scripts/lib/gitfacts.js", "lines": [220, 228],
+      "attribution": "notes"
+    }
+  ]
+}

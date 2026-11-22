@@ -128,6 +128,18 @@ Format:
 - Rule going forward: when a note carries a measured figure into a new case, first write down what the figure was measured against (which folder, which load, which size) and check that the new case has the same value there; otherwise say it was not measured.
 - Status: open
 
+## 2026-11-22: A test failed on its parent only for want of its stand-in
+- What went wrong: the three tests of the runner's round 4 fixes failed on their parent commits, which was taken as the reproduction, but they failed there because the parent had no `opts.prText` or `opts.lsTree` (the real `gh` ran, or `writeHead` was not exported). Round 5 added only the stand-ins to the old code: two then failed for the fix's reason, and one passed.
+- Why: a test that adds a stand-in fails on any commit without it, whatever the fix does.
+- Rule going forward: when a fix's test adds a stand-in or an export, the fails-on-parent check runs on the parent with only that stand-in added, and the failure message is read to see that it is the fix's.
+- Status: open
+
+## 2026-11-22: The eval runner's folder safety was patched three rounds running
+- What went wrong: review rounds 2, 3 and 4 each found `dev/review-evals/run.js` able to delete a folder it had not made: first through an unchecked case id, then by force-removing any registered worktree, then by adopting an empty folder that appeared while `gh` ran. Each fix closed the reported path and claimed more than it proved ("never removes"), and round 3's change of approach still left a check-then-act gap. The brief's rule stopped the work.
+- Why: the safety rested on checks before an action that another process can race, and the claims were written from the design, not from a test that reaches the action (no test ran `git worktree add`).
+- Rule going forward: a tool that deletes what it made creates the folder itself with an exclusive create (`mkdir` that fails if it exists) and records it in the same step; a claim like "never deletes" needs a test that reaches the delete, including the race.
+- Status: open
+
 ## 2026-11-21: A deferred item read a stop line against the wrong clock
 - What went wrong: RS-T-firstcheckload's bullet in `dev/release-state.md` said the real git calls after the test's fake 3 s step had to fit in the 3 s left. `trailmark.js` (`run`) says otherwise: the git calls ran with 20 s on a clock the preload held still, and the `spent=3000` of the stop line is that fake clock. The launcher then gave the hook's script 6,000 ms of real time, and the script ran past them. A load probe built on the old reading would have timed the git calls.
 - Why: the line was read for what it seemed to say, and the code that prints it, and the clock each of its numbers comes from, were not opened.
@@ -150,6 +162,37 @@ Format:
 - What went wrong: `cp plugins/trailmark-codex/tests/handoff-checks.test.js plugins/trailmark/tests/handoff-checks.test.js` failed twice with "Permission denied" (Git Bash, 2026-11-21), where the same command had worked on 2026-11-19. The Edit tool then wrote the same change to that file, and `cmp` showed both copies equal.
 - Why: not known. The file had normal permissions (`-rw-r--r--`).
 - Rule going forward: when a copy between the two plugin copies is refused, make the same edit with the Edit tool and check the copies with `cmp`.
+- Status: open
+
+## 2026-11-21: `--only '<name>'` passed a dev/ test that never ran
+- What went wrong: to check that a new test in `dev/review-gate.test.js` fails on the parent commit, `dev/release-check.sh --only 'linear time'` printed "PASS ... 2/2 pass" on the parent. The 2 tests were in the plugin suites: a name pattern runs the plugin test files only (`HC`, `TCC`, `TCX` in `release-check.sh`), so the dev/ test was never run. The file form, `--only dev/review-gate.test.js`, showed it failing (CONFIRMED, both runs kept under `trailmark-release-check/`).
+- Why: "every test file" in the summary line reads as every file, and a pass count that is not zero looked like the test had run.
+- Rule going forward: a test in `dev/` runs with `--only <its file>`; when a pattern run is used, check the TAP names the test before reading its result.
+- Status: open
+
+## 2026-11-21: A brief's install step, "tested in a scratch copy", left only a stub to run
+- What went wrong: the agent review brief installed the reviewer CLI with `npm install -g --ignore-scripts "@anthropic-ai/claude-code@$CLI_VERSION"`. For 2.1.319, `bin/claude.exe` in the package is a 500-byte script that prints "claude native binary not installed" and exits 1; the package's postinstall (`install.cjs`) is what copies the platform binary over it, and `--ignore-scripts` skips it. CONFIRMED by an install in the scratch folder. The brief's tests had run the gate's logic, not the step that installs the program the gate calls.
+- Why: a pinned tool's package can change how it installs between versions, and a dry run of a workflow's other steps says nothing about its install step.
+- Rule going forward: a workflow step that installs a tool is tried with the same flags and the same version, and the installed command is run (`--version`) before any step that uses it is called tested. The workflow checks the version it got.
+- Status: open
+
+## 2026-11-21: A stub `gh` put in PATH by a C: path was not used, and the real one answered
+- What went wrong: a probe of `dev/sign-ship.sh` put a stub `gh` first in `PATH` as `C:/Users/...`; MSYS split the entry at the drive colon, so the real `gh` ran and read the head of PR #7 on GitHub (a read, nothing written). The moved-head refusal printed a real sha, which showed it.
+- Why: the constraint in `PLAYBOOK.md` "Constraints and known limits" (MSYS splits `PATH` at `:`) was not applied to a scratch probe.
+- Rule going forward: that constraint holds for probes too, and a stub's probe prints something only the stub can give (here a fixed sha) and checks it first.
+- Seen again 2026-11-21: a bash script named `gh` was skipped by `execFileSync('gh')` in Node on Windows, which runs only `gh.exe`, and the real `gh` answered (a read). The probe's own output showed it.
+- Status: promoted (`PLAYBOOK.md` "Constraints and known limits")
+
+## 2026-11-21: A zero-width-space escape in pasted reference code went in as the character itself
+- What went wrong: `clean()` in `dev/review-gate.js`, written with the Write tool from the brief's escaped zero-width space after `@`, held a literal zero-width space. The dash scan of the staged diff (its non-ASCII line) found it before the commit; it now reads `String.fromCharCode(0x200b)`.
+- Why: the same as the 2026-11-07 entry on escapes in a test's source: an escape is turned into its character on the way into a file.
+- Rule going forward: none new; that entry and the scan of "Committing" step 4 hold, and this time the scan caught it.
+- Status: open
+
+## 2026-11-21: A read-only research subagent moved the worktree's HEAD
+- What went wrong: a subagent briefed for read-only git research in the session's worktree ran `git checkout --detach` there by mistake, then switched back. HEAD was back at 4d0c958 and the uncommitted files were unchanged afterwards (CONFIRMED by `git status` and `git rev-parse HEAD` after; what ran while it was detached is not known), but the brief's read-only rule did not hold.
+- Why: the brief gave the session's own worktree as the place to run git, with uncommitted work in it.
+- Rule going forward: a research subagent that runs git gets its own clone or a detached worktree of the commit it reads, the way `PLAYBOOK.md` "Reviewing" step 2 gives reviewers one, never the worktree with the session's uncommitted work.
 - Status: open
 
 ## 2026-11-19: A waiter for a quiet machine counted its own shells as a running check
@@ -1378,6 +1421,7 @@ Format:
 - Why: every test looked at the answer, and the answer was the same with and without the line. What the line saved was time, which no test measured.
 - Rule going forward: a line that no test needs gets a look at what else it does (time, memory, what is handed to the next function) before it is removed, and if it stays it gets an assertion of its own. For time, count the work (calls, sizes) where that is possible, not seconds.
 - Status: open
+
 ## 2026-11-09: A test's expected count was worked out by hand and was one off
 
 - What went wrong: the RS-F-codexwalk test expected the search to look in 45 folders. It looks in 44, so the "one fewer" case passed where it should have been cut short, and the test failed with the fix in place.
@@ -1391,6 +1435,7 @@ Format:
 - Why: three layers of escaping (the shell, the template literal, the regex) and no look at what text the script would search for.
 - Rule going forward: for an edit whose old text holds backslashes, use the Edit tool on one copy and copy the file to the other, or anchor the pair on a nearby line without backslashes.
 - Status: promoted to PLAYBOOK (seen again the same day: a pair script for test code with `\n` in it stopped the same way)
+
 ## 2026-11-09: A review's commit was copied from another reviewer's
 
 - What went wrong: the release-state note for PR 33 said Copilot reviewed b37f215. GitHub records its review on e466077. Copilot found it on PR 34.

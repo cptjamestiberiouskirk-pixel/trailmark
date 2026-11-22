@@ -1,0 +1,337 @@
+name: auto-review
+
+# Reviews each push to a PR against main with reviewers the PR can't edit,
+# then decides whether it may merge without the owner. GitHub runs this file's
+# copy on main (pull_request_target), so the reviewer, its rules (REVIEW.md,
+# dev/risk-tiers.json) and the gate all come from main. The PR's files are
+# written into .review/head as plain data, one blob at a time with no git
+# attributes applied: nothing from the PR is installed or run, and the
+# reviewers are given file reads only, no shell. That --restricted keeps those
+# reads inside the working folder is what its help says; no run has tested it.
+#
+# In observe mode (dev/risk-tiers.json "mode") the gate writes the status
+# "auto-review/observe", always success, saying what it would have done. In
+# enforce mode it writes "auto-review/gate", which branch protection is set to
+# require at the switch (one of the owner's steps). Open
+# PRs carry no "auto-review/gate" status at the switch, so none of them passes
+# on an old observe result.
+#
+# dev/review-evals/run.js and .github/workflows/review-evals.yml run the same
+# reviewer with the same CLI, model and tools; dev/review-gate.test.js checks
+# that the values below match there. CI does not run that test:
+# dev/release-check.sh --only dev/review-gate.test.js does.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  issue_comment:
+    types: [created, edited, deleted]
+
+permissions:
+  contents: read
+
+env:
+  # Pin to an exact version. A new version is a high-tier change like any other.
+  CLI_VERSION: 2.1.319
+  MODEL_REGRESSION: claude-opus-5-5
+  MODEL_SECURITY: claude-fable-5-2
+  MODEL_DOCS: claude-sonnet-5-5
+  MODEL_VERIFY: claude-opus-5-5
+  VERIFIERS: '2'
+  # Reviewers read the workspace only. These may be made stricter, never looser.
+  # TOOLS is the whole built-in set the CLI loads (--tools); --restricted is
+  # meant to keep the file tools inside the working folder (untested on a run),
+  # and --strict-mcp-config loads no MCP server.
+  TOOLS: 'Read,Glob,Grep'
+  READ_TOOLS: 'Read(./**),Glob,Grep'
+  DENY_TOOLS: 'Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Task,Agent,Skill,Read(//proc/**),Read(//sys/**),Read(//etc/**),Read(//tmp/**),Read(~/.*/**)'
+
+jobs:
+  review:
+    # Same-repo PRs only (a fork PR gets no secrets and no review). An edit
+    # runs a review only when it moved the PR to another base.
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      (github.event.action != 'edited' || github.event.changes.base) &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    # A fixed image: the ubuntu-latest label moves to a new release in 2026-11.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # The token secret lives in this environment. The owner limits it to main
+    # before adding the secret: by GitHub's docs, a job that names a missing
+    # one makes it with no limit (not tried here).
+    environment: auto-review
+    concurrency:
+      group: auto-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    env:
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+      CHANGED: ${{ github.event.pull_request.changed_files }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Mark the gate pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ctx=auto-review/observe; [ "$(jq -r .mode dev/risk-tiers.json)" = enforce ] && ctx=auto-review/gate
+          gh api "repos/$REPO/statuses/$HEAD_SHA" -f state=pending -f context="$ctx" -f description="review running" > /dev/null
+      - name: Write the PR's files as data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The checkout kept no credentials; this one fetch sends the job token
+          # as a header, so it works on a private repo and is not saved.
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+            fetch --no-tags origin "+refs/pull/$PR/head:refs/remotes/pr/head"
+          test "$(git rev-parse refs/remotes/pr/head)" = "$HEAD_SHA" || { echo "head moved; a newer run reviews it"; exit 1; }
+          mkdir -p .review/head
+          # Regular files only: links and submodules are listed, not written,
+          # and a path with a ".." part or a leading "/" stops the run.
+          git ls-tree -r -z --full-tree "$HEAD_SHA" | while IFS= read -r -d '' entry; do
+            p=${entry#*$'\t'}; read -r mode _ obj <<< "${entry%%$'\t'*}"
+            case "/$p/" in */../*|//*) echo "unsafe path in the PR"; exit 1 ;; esac
+            if [ "$mode" = 100644 ] || [ "$mode" = 100755 ]; then
+              mkdir -p ".review/head/$(dirname -- "$p")"
+              git cat-file blob "$obj" > ".review/head/$p"
+            else
+              printf '%s %s\n' "$mode" "$p" >> .review/not-written.txt
+            fi
+          done
+          # No instruction or server files the reviewer would load as its own.
+          # They stay readable in the diff.
+          find .review/head \( -iname 'claude*.md' -o -iname 'agents*.md' -o -name '.claude' -o -name '.mcp.json' \) -prune -exec rm -rf -- {} +
+          chmod -R a-w .review/head
+          # --text: a NUL byte in a source file would otherwise hide its change.
+          git diff --text --no-ext-diff --no-textconv "$BASE_SHA...$HEAD_SHA" > .review/diff.patch
+          git log --no-ext-diff --format='%h %s%n%b' "$BASE_SHA..$HEAD_SHA" > .review/commits.txt
+      - name: Sort into a tier
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The file list of this exact head: compare is pinned to the event's
+          # two shas, and $CHANGED comes from the same event. Compare lists up to
+          # 300 files, so a longer PR fails the count check in dev/tier.js and is
+          # high tier.
+          gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq '.files[]' > .review/files.jsonl
+          node dev/tier.js dev/risk-tiers.json .review/files.jsonl "$CHANGED" > .review/tier.json
+          tier=$(jq -r .tier .review/tier.json)
+          for t in low medium high; do
+            [ "$t" = "$tier" ] || gh pr edit "$PR" --repo "$REPO" --remove-label "tier:$t" > /dev/null 2>&1 || true
+          done
+          gh pr edit "$PR" --repo "$REPO" --add-label "tier:$tier" > /dev/null || echo "::warning::label tier:$tier is missing"
+          gh pr view "$PR" --repo "$REPO" --json title,body > .review/pr.json
+          # The query's $names are GraphQL variables, not shell ones.
+          # shellcheck disable=SC2016
+          gh api graphql -F owner="${REPO%/*}" -F name="${REPO#*/}" -F n="$PR" -f query='
+            query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){
+              reviewThreads(first:100){nodes{isResolved path comments(first:50){nodes{author{login} body}}}}}}}' \
+            --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
+                   | select(.comments.nodes[0].author.login == "github-actions")
+                   | {resolved: .isResolved, path, finding: .comments.nodes[0].body,
+                      replies: [.comments.nodes[1:][] | {author: .author.login, body}]}]' \
+            | jq --arg o "${REPO%/*}" 'map(.replies |= map(select(.author == $o)))' > .review/prior.json
+          jq -c '{tier, reasons, mustCheck}' .review/tier.json
+      - name: Install the reviewer CLI
+        run: |
+          set -euo pipefail
+          # --ignore-scripts keeps every install script from running, the CLI's
+          # own included. Its postinstall only copies the platform binary over a
+          # stub at bin/claude.exe that exits 1, so the binary is called from
+          # its platform package instead.
+          npm install --prefix "$RUNNER_TEMP/cli" --ignore-scripts --no-audit --no-fund "@anthropic-ai/claude-code@$CLI_VERSION"
+          bin="$RUNNER_TEMP/cli/node_modules/@anthropic-ai/claude-code-linux-x64/claude"
+          v=$("$bin" --version)
+          case "$v" in "$CLI_VERSION "*) ;; *) echo "expected CLI $CLI_VERSION, got: $v"; exit 1 ;; esac
+          echo "CLAUDE_BIN=$bin" >> "$GITHUB_ENV"
+      - name: Find problems, one reviewer per lens, in parallel
+        timeout-minutes: 25
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.REVIEW_OAUTH_TOKEN }}
+        run: |
+          set -uo pipefail
+          run() { # lens model
+            "$CLAUDE_BIN" -p "You are the $1 reviewer for PR $PR. Follow REVIEW.md sections \"Every reviewer\" and \"Lens: $1\" exactly. Your final message is the JSON object REVIEW.md describes and nothing else." \
+              --model "$2" --tools "$TOOLS" --restricted --strict-mcp-config \
+              --allowedTools "$READ_TOOLS" --disallowedTools "$DENY_TOOLS" --max-turns 80 --output-format json \
+              > ".review/raw-$1.json" 2> ".review/err-$1.txt"
+            jq -r '.result // ""' ".review/raw-$1.json" | sed -e '/^```/d' > ".review/find-$1.json"
+          }
+          run regression "$MODEL_REGRESSION" &
+          if [ "$(jq -r .lenses.security .review/tier.json)" = true ]; then run security "$MODEL_SECURITY" & fi
+          if [ "$(jq -r .lenses.docs .review/tier.json)" = true ]; then run docs "$MODEL_DOCS" & fi
+          wait
+          node dev/review-gate.js candidates .review || exit 1
+          jq -c 'group_by(.severity) | map({(.[0].severity): length}) | add // {}' .review/candidates.json
+      - name: Verifiers vote on each blocking finding
+        timeout-minutes: 25
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.REVIEW_OAUTH_TOKEN }}
+        run: |
+          set -uo pipefail
+          [ "$(jq '[.[] | select(.severity == "blocking")] | length' .review/candidates.json)" -gt 0 ] || { echo "nothing to vote on"; exit 0; }
+          for i in $(seq 1 "$VERIFIERS"); do
+            ( "$CLAUDE_BIN" -p "You are verifier $i for PR $PR. Follow REVIEW.md section \"Verifier\" exactly, for each blocking finding in .review/candidates.json. Your final message is the JSON object that section describes and nothing else." \
+                --model "$MODEL_VERIFY" --tools "$TOOLS" --restricted --strict-mcp-config \
+                --allowedTools "$READ_TOOLS" --disallowedTools "$DENY_TOOLS" \
+                --max-turns 80 --output-format json > ".review/rawvote-$i.json" 2> ".review/errvote-$i.txt"
+              jq -r '.result // ""' ".review/rawvote-$i.json" | sed -e '/^```/d' > ".review/vote-$i.json" ) &
+          done
+          wait
+      - name: Combine, post each finding, then the round
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node dev/review-gate.js merge "$VERIFIERS" .review
+          # Rounds are read from the last line of each bot review only, as the gate reads them.
+          others=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | (.body // "") | sub("\\s+$"; "") | split("\n") | last' \
+            | grep -oE '^<!-- auto-review round=[0-9]+ sha=[0-9a-f]{40}' | awk '{print $4}' | sort -u \
+            | grep -vc "sha=$HEAD_SHA" || true)
+          jq -n --arg head "$HEAD_SHA" --arg base "$BASE_REF" --argjson round "$(( ${others:-0} + 1 ))" \
+            --slurpfile tier .review/tier.json --slurpfile f .review/findings.json --slurpfile files .review/files.jsonl \
+            '{head: $head, base: $base, round: $round, tier: $tier[0], findings: $f[0],
+              changed: (($files | map(select(.status != "removed") | .filename)) as $k
+                        | if ($k | length) > 0 then $k else ($files | map(.filename)) end)}' > .review/payload-input.json
+          node dev/review-gate.js payload .review
+          # A line outside the diff makes GitHub refuse an inline comment; it
+          # goes again as a file-level one. If that fails too, the round is not
+          # posted, and the gate reads "review did not finish".
+          while IFS= read -r c; do
+            printf '%s' "$c" | gh api "repos/$REPO/pulls/$PR/comments" --input - > /dev/null \
+              || printf '%s' "$c" | jq -c 'del(.line, .side) + {subject_type: "file"}' \
+                 | gh api "repos/$REPO/pulls/$PR/comments" --input - > /dev/null
+          done < .review/comments.jsonl
+          gh api "repos/$REPO/pulls/$PR/reviews" --input .review/review.json > /dev/null
+          jq -r '"blocking \(.blocking | length), notes \(.notes | length), dropped by vote \(.dropped | length)"' .review/findings.json >> "$GITHUB_STEP_SUMMARY"
+
+  gate:
+    needs: review
+    if: >-
+      always() && (
+        (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository) ||
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+         (github.event.action != 'created' ||
+          startsWith(github.event.comment.body, '/ship') || startsWith(github.event.comment.body, '/recheck'))))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: auto-review-gate-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      statuses: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+      EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+      REVIEW_RESULT: ${{ needs.review.result }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+          # main's copy of the rules on every event, a comment event included.
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Gather what the gate reads
+        run: |
+          set -euo pipefail
+          mkdir -p .review
+          gh api "repos/$REPO/pulls/$PR" > .review/pull.json
+          head=$(jq -r .head.sha .review/pull.json)
+          if [ "$(jq -r .base.ref .review/pull.json)" != "$DEFAULT_BRANCH" ] || [ "$(jq -r .state .review/pull.json)" != open ]; then
+            echo "not an open PR against $DEFAULT_BRANCH"; echo "SKIP=1" >> "$GITHUB_ENV"; exit 0
+          fi
+          if [ -n "$EVENT_HEAD" ] && [ "$EVENT_HEAD" != "$head" ]; then
+            echo "a newer push exists; its own run sets the gate"; echo "SKIP=1" >> "$GITHUB_ENV"; exit 0
+          fi
+          # The file list of this exact head: head, base.sha and changed_files
+          # all come from the one pulls/$PR response above. Compare lists up to
+          # 300 files, so a longer PR fails the count check in dev/tier.js.
+          gh api "repos/$REPO/compare/$(jq -r .base.sha .review/pull.json)...$head" --jq '.files[]' > .review/files.jsonl
+          node dev/tier.js dev/risk-tiers.json .review/files.jsonl "$(jq -r .changed_files .review/pull.json)" > .review/tier.json
+          gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" \
+            --jq '[.[] | {body, user: .user.login}]' \
+            | jq -s 'add // []' > .review/comments.json
+          gh api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" \
+            --jq '[.[] | select(.user.login == "github-actions[bot]") | {body: (.body // "")}]' | jq -s 'add // []' > .review/bot.json
+          # The query's $names are GraphQL variables, not shell ones.
+          # shellcheck disable=SC2016
+          gh api graphql -F owner="${REPO%/*}" -F name="${REPO#*/}" -F n="$PR" -f query='
+            query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){
+              reviewThreads(first:100){pageInfo{hasNextPage} nodes{isResolved comments(first:50){nodes{author{login} body}}}}}}}' \
+            --jq '.data.repository.pullRequest.reviewThreads
+                  | {truncated: .pageInfo.hasNextPage,
+                     threads: [.nodes[] | select(.comments.nodes[0].author.login == "github-actions")
+                               | {isResolved, firstBody: .comments.nodes[0].body,
+                                  replies: [.comments.nodes[1:][] | {author: .author.login, body}]}]}' > .review/threads.json
+          gh api "repos/$REPO/pulls?state=closed&base=$DEFAULT_BRANCH&sort=updated&direction=desc&per_page=100" \
+            --jq '[.[] | select(.merged_at != null) | {number, body, labels: [.labels[].name]}]' > .review/merged.json
+          jq -n --arg head "$head" --arg owner "${REPO%/*}" --arg repo "$REPO" --argjson pr "$PR" \
+            --slurpfile pull .review/pull.json --slurpfile tier .review/tier.json \
+            --slurpfile c .review/comments.json --slurpfile b .review/bot.json \
+            --slurpfile t .review/threads.json --slurpfile m .review/merged.json \
+            '{head: $head, base: $pull[0].base.ref, owner: $owner, repo: $repo, pr: $pr, botLogin: "github-actions", tier: $tier[0],
+              prBody: ($pull[0].body // ""), draft: $pull[0].draft,
+              comments: $c[0], botComments: $b[0], threads: $t[0].threads, threadsTruncated: $t[0].truncated,
+              merged: $m[0]}' > .review/gate-input.json
+          echo "HEAD=$head" >> "$GITHUB_ENV"
+      - name: Check signed approvals
+        if: env.SKIP != '1'
+        run: |
+          set -euo pipefail
+          # dev/ship-signers comes from main's checkout, so a PR can't add a key.
+          ok=true; node dev/review-gate.js signers dev/ship-signers || ok=false
+          : > .review/ship-ok.txt
+          if [ "$ok" = true ]; then
+            node dev/review-gate.js ship-candidates .review > /dev/null
+            for m in .review/ship/*.msg; do
+              [ -e "$m" ] || continue
+              if ssh-keygen -Y verify -f dev/ship-signers -I owner -n trailmark-ship -s "${m%.msg}.sig" < "$m" > /dev/null 2>&1; then
+                jq -r .head .review/gate-input.json >> .review/ship-ok.txt
+              fi
+            done
+          fi
+          jq --argjson ok "$ok" --rawfile v .review/ship-ok.txt \
+            '. + {signersValid: $ok, shipVerified: ($v | split("\n") | map(select(length == 40)) | unique)}' \
+            .review/gate-input.json > .review/gate-input.tmp && mv .review/gate-input.tmp .review/gate-input.json
+      - name: Decide and set the status
+        if: env.SKIP != '1'
+        run: |
+          set -euo pipefail
+          node dev/review-gate.js decide dev/risk-tiers.json .review
+          state=$(jq -r .state .review/gate.json)
+          desc=$(jq -r .description .review/gate.json)
+          if [ "$REVIEW_RESULT" = failure ] || [ "$REVIEW_RESULT" = cancelled ]; then
+            state=failure; desc="review did not finish; push again or re-run the failed job"
+          fi
+          jq -r '"would pass: \(.wouldPass)\n" + (.reasons | map("- " + .) | join("\n"))' .review/gate.json | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$(jq -r .mode dev/risk-tiers.json)" = enforce ]; then
+            gh api "repos/$REPO/statuses/$HEAD" -f state="$state" -f context=auto-review/gate -f description="${desc:0:140}" > /dev/null
+            if [ "$(jq -r '.needsOwner and (.wouldPass | not)' .review/gate.json)" = true ]; then
+              gh pr edit "$PR" --repo "$REPO" --add-label needs-owner > /dev/null || echo "::warning::label needs-owner is missing"
+            else
+              gh pr edit "$PR" --repo "$REPO" --remove-label needs-owner > /dev/null 2>&1 || true
+            fi
+          else
+            gh api "repos/$REPO/statuses/$HEAD" -f state=success -f context=auto-review/observe \
+              -f description="would $( [ "$state" = success ] && echo pass || echo block ): ${desc:0:110}" > /dev/null
+          fi

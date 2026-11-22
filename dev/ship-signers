@@ -1,0 +1,4 @@
+# Keys whose signature counts as the owner's /ship. Security keys only, one per
+# line, in this form (from your .pub file):
+#   owner namespaces="trailmark-ship" sk-ssh-ed25519@openssh.com AAAA... comment
+# Until a key is listed here, every PR that needs the owner fails the gate.
