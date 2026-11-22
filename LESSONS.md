@@ -14,10 +14,16 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: Three review rounds stepped the clock once per wait, and Copilot found two races
+- What went wrong: RS-T-lockagestep passed three review rounds, and Copilot on PR #113 then found two clock-step races in the fix, each CONFIRMED here by a probe: a clock that steps and returns within one wait undid the fix's distrust, and a step between the clock check and the `.break` file's age read removed an active breaker's `.break`.
+- Why: every test and probe moved the clock once, for the whole wait. None stepped it between two reads of one try, or stepped it back during the wait.
+- Rule going forward: a change that compares two clock reads gets a case that steps the clock between each pair of reads (a hook on the call between them, as the `.break` test's `fs.lstatSync` does) and one that steps and returns within one wait; the order of the reads is written in a comment.
+- Status: open
+
 ## 2026-11-22: A threshold was mutated far from its value, and a timing margin was checked on one side
 - What went wrong: RS-T-lockagestep's round 1 batch tested its 1 s threshold with a move of 6 s, and its mutation set the threshold to 30 s, which that test caught; a threshold of 5 s also passed every test (review round 2, Opus, by a run). The relabel test's child wrote at 1.5 s, leaving about 0.5 s of margin on one side and 3.3 s on the other (Opus's probe).
-- Why: the mutation value was picked to show a failure, not set just past the test's input, as PLAYBOOK "Testing" step 10 asks for a compare. The relabel test's timing was reasoned from the late side only.
-- Rule going forward: a timing test works out the time to each edge it must stay between and keeps them about equal, its comment giving both. A threshold's mutations sit just past the test's input, as step 10 already says.
+- Why: the mutation value was picked to show a failure, not set just past the test's input, as `dev/testing-cases.md` asks of a test of a limit (one item at the limit and one just past it; PLAYBOOK "Testing" step 10 points there). The relabel test's timing was reasoned from the late side only.
+- Rule going forward: a timing test works out the time to each edge it must stay between and keeps them about equal, its comment giving both. A threshold's mutations sit just past the test's input, as `dev/testing-cases.md` already says.
 - Status: open
 
 ## 2026-11-22: The lock fix's tests left its watch untested
