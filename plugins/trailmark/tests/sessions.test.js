@@ -331,7 +331,7 @@ test('lock: broken only when its holder is gone, and never waited on past the de
   // A command that crashes while holding the lock leaves it behind, labeled.
   const crash = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(path.join(ROOT, 'scripts', 'lib', 'store.js'))}).withLock(${JSON.stringify(s.memdir)}, () => process.exit(7))`]);
   assert.strictEqual(crash.status, 7);
-  assert.match(fs.readFileSync(lock, 'utf8'), new RegExp(`^pid \\d+ host ${HOST.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} since .* token [0-9a-f]+ mono \\d+ plat ${process.platform}\\n$`));
+  assert.match(fs.existsSync(lock) ? fs.readFileSync(lock, 'utf8') : '(no lock file)', new RegExp(`^pid \\d+ host ${HOST.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} since .* token [0-9a-f]+ mono \\d+ plat ${process.platform}\\n$`));
   // Dead holder, under 5 s old: not broken yet. Over 5 s: broken at once.
   let r = tryLock(300);
   assert.ok(locked(r), JSON.stringify(r));

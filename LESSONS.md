@@ -15,8 +15,8 @@ Format:
 ```
 
 ## 2026-11-22: A fix took the one read its item named, not the class
-- What went wrong: RS-T-lockagekeptread named one check that read the lock file with no exists check, and its first commit fixed that one. Review round 1 (Opus, F1, CONFIRMED by Opus by a run, not re-run here) found nine more in the RS-T-lockagestep and RS-T-lockagemono tests, plus one `assert.strictEqual`, that give a raw `ENOENT` when the lock is gone (five CONFIRMED by Opus by a run, not re-run here, five INFERRED). Round 2 (Opus) found three more, in `sessions.test.js` and two link tests (one CONFIRMED by Opus by a run, not re-run here, two INFERRED).
-- Why: PLAYBOOK "Writing code and docs" step 11 (write down a reviewer's example's class first) was not run; the item's text was read as the whole of it.
+- What went wrong: RS-T-lockagekeptread named one check that read the lock file with no exists check, and its first commit fixed that one. Review round 1 (Opus, F1) found nine more in the RS-T-lockagestep and RS-T-lockagemono tests, plus one `assert.strictEqual`, that give a raw `ENOENT` when the lock is gone (five CONFIRMED by Opus by a run, not re-run here, five INFERRED). Round 2 (Opus) found three more, in `sessions.test.js` and two link tests (one CONFIRMED by Opus by a run, not re-run here, two INFERRED), and its sweep, a reading of the code, went into the notes as finding no more. Round 3 (Opus) found one more that the sweep had passed (CONFIRMED by Opus by a run, not re-run here).
+- Why: PLAYBOOK "Writing code and docs" step 11 (write down a reviewer's example's class first) was not run; the item's text was read as the whole of it. Then a reviewer's sweep stood in for the owner's own search.
 - Rule going forward: step 11 is run on a deferred item's example too, and its class is found by a search for the example's pattern across every test and source file, each hit listed.
 - Status: promoted to PLAYBOOK ("Writing code and docs" step 11, its sentence on a search for the pattern)
 

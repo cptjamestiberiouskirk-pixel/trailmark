@@ -690,7 +690,7 @@ test('lock: with the clock moved, a dead holder\'s lock is broken after 5 s of w
   // ends after the deadline leaves no lock to read, so its failure is the
   // assertion's, not a raw ENOENT (RS-T-lockagekeptread). The other lock
   // tests' checks that a lock was kept now check it exists the same way
-  // (review rounds 1 and 2).
+  // (review rounds 1 to 3).
   const kept = !got.ran && got.code === 'JBMEM_LOCKED' && fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token dddd');
   const again = kept ? reusedPid(text) : 0;
   if (again) return t.skip(reusedSkip(again));
