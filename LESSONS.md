@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: The local summary called a run with three hung tests PASS
+- What went wrong: with the per-test limit added to `dev/release-check.sh` (RS-T-localhang), the hang probe's `async` case printed `PASS ... 2/5 pass` and exit 0 while three tests had timed out. Node 26 counts a test that `--test-timeout` ends as cancelled (`# fail 0`, `# cancelled 3`), and `report_suite` read only `# fail`. The same probe's cleanup stopped none of the 16 pids the cases wrote, because MSYS `kill` cannot signal Windows pids, and two orphans held the probe's folder.
+- Why: the summary's pass rule was written when nothing ended a test early, and the probe's cleanup was written from the CI self-check, which kills by `process.kill` in node, not from bash.
+- Rule going forward: a summary that turns TAP into pass or fail counts every line of the footer that can mean a test did not pass (`# fail`, `# cancelled`), and a probe of a new limit reads the run's own summary line, not only the TAP. From Git Bash, a Windows pid is stopped with `taskkill //F //PID`, and a probe checks after its cleanup that its folder is gone.
+- Status: open
+
 ## 2026-11-22: A reviewer's CONFIRMED reason went into a code comment, and the next round showed it wrong
 - What went wrong: in RS-T-startdirect's round 1, Opus F3 said a full run of the sweep test leaves its state as it was ("CONFIRMED", from a log it made). It went into the test's comment, a commit message and the notes as the reason the state is not rewritten between tries. Round 2 (Opus again, by a mutation that printed the record) saw a full try cut swept to 64. The change stayed safe for another reason.
 - Why: the claim was carried as "CONFIRMED by Opus, not re-run", which the notes allow, and then written into a code comment, which carries no label.
