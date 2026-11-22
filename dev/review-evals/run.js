@@ -14,7 +14,7 @@
 // Exit 0 at or above "evalFloor" of dev/risk-tiers.json, 1 below it, 2 when
 // any case could not run (no PR text, no usable output): a partial run is no
 // score. It removes each worktree it made, and on Ctrl+C stops the reviewers
-// first (not run by a test). It makes each case's folder itself with a create
+// first (a test runs the worktree part of that, not the stop of the reviewers). It makes each case's folder itself with a create
 // that fails if the folder is there, and removes only folders it made that
 // way: a folder of a case's name made by anything else, an earlier run's
 // worktree included, stops that case. The score is the reviewer's alone: in the workflow two
@@ -118,8 +118,9 @@ function dropWorktree(ws) {
   } catch { /* git has not made it a worktree: the folder alone goes */ }
   // No `git worktree prune` here or at the end of a run: it is repo-wide and
   // would drop the record of any other worktree whose folder is missing at that
-  // moment (an unplugged drive). A record left by a failed remove is for the
-  // user to prune knowingly.
+  // moment (an unplugged drive). A record left by a failed remove (a locked
+  // worktree, say) stays and nothing is printed; git names it when a later run
+  // adds a worktree at the same path, and the user clears it knowingly.
   fs.rmSync(ws, { recursive: true, force: true });
   live.delete(ws);
 }
