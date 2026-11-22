@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: MSYS rewrote a `rev:path` argument, and a probe ran an empty file
+- What went wrong: the RS-T-limitscwd probe took the base commit's script with `git -C <repo> show "origin/main:.github/test-limits-check.js" > old.js`. Git Bash rewrote the argument as a path list (`origin\main;.github\test-limits-check.js`), git failed, `old.js` was empty, and the base half of `lc-probe-1.out` ran an empty file: exit 0, nothing left, which looked like the base had no bug. Setting `MSYS_NO_PATHCONV=1` then broke the `-C /e/...` path of the same call.
+- Why: the playbook's MSYS bullet names arguments that start with `/`; a `:` between two parts that hold `/` is read as a path list too. The probe did not check that its copy of the old script was there.
+- Rule going forward: a `rev:path` whose rev holds a `/` goes to git with `MSYS_NO_PATHCONV=1` and a Windows-form `-C` path (`cygpath -w`), or uses a commit id. A probe that runs an old copy checks that the copy is not empty before it runs it.
+- Status: promoted to PLAYBOOK ("Constraints and known limits", the MSYS bullet)
+
 ## 2026-11-22: A PR went up without its Lessons checked line, and a brief left out the lessons step
 - What went wrong: PR 103 (RS-A-missinglookups) was opened and set to auto-merge with a body that had no `Lessons checked:` line, and the round 4 docs brief did not ask the reviewer to run `dev/lessons.sh`. Both are PLAYBOOK step 6. The line was added to the body about two minutes after the PR was opened (opened 08:01:11Z, auto-merge set 08:01:34Z, the body with the line 08:03:10Z, from GitHub's edit history of the body).
 - Why: the PR body was written from the commit messages and the release-state record after a compaction, and the lessons check was run for the edits and the commit but not read again before the push and the brief.
