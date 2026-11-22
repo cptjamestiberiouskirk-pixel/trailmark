@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A reviewer's suggested wording went into the notes unchecked
+- What went wrong: RS-T-lockagemono's round 2 docs point 4 said a waiter whose monotonic clock runs behind by D keeps a lock "until its true age is D plus 60 s". It went into `dev/release-state.md` as written. Round 3 (Sonnet, by a probe, not re-run here) showed it true only for D under 60 s: a larger D makes the stamp of a younger lock ahead of now, not trusted, and the file time decides (CONFIRMED in code here, `monoAge`).
+- Why: a COULD BE CLEARER point was read as wording to copy, not as a claim to check; the code was not read for each case of its terms. The class of "A reviewer's CONFIRMED reason went into a code comment, and the next round showed it wrong", seen again.
+- Rule going forward: a wording a reviewer suggests is a claim like the owner's own: before it goes in, read it against the code for each case its terms cover (a value under and over each limit the code checks).
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 11)
+
 ## 2026-11-22: A rule kept for two kinds of input was mutated for both at once
 - What went wrong: RS-T-lockagemono keeps RS-T-lockagestep's watch cap and its `.break` moved-clock check for a stamped file. Mutation pass 4 removed each for every file at once, and the unstamped tests failed; removed for a stamped file only, both passed all 34 tests (review round 2, Opus F1 and F2, CONFIRMED by Opus by runs, not re-run here).
 - Why: the mutation list was made from the lines the diff touched, and the kept rules sat on lines it did not touch, so a rule's new branch got no mutation of its own.
