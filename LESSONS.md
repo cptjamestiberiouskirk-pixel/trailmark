@@ -32,6 +32,12 @@ Format:
 - Rule going forward: a summary that turns TAP into pass or fail counts every line of the footer that can mean a test did not pass (`# fail`, `# cancelled`), and a probe of a new limit reads the run's own summary line, not only the TAP. From Git Bash, a Windows pid is stopped with `taskkill //F //PID`, and a probe checks after its cleanup that its folder is gone.
 - Status: open
 
+## 2026-11-22: A PR went up without its Lessons checked line, and a brief left out the lessons step
+- What went wrong: PR 103 (RS-A-missinglookups) was opened and set to auto-merge with a body that had no `Lessons checked:` line, and the round 4 docs brief did not ask the reviewer to run `dev/lessons.sh`. Both are PLAYBOOK step 6. The line was added to the body about two minutes after the PR was opened (opened 08:01:11Z, auto-merge set 08:01:34Z, the body with the line 08:03:10Z, from GitHub's edit history of the body).
+- Why: the PR body was written from the commit messages and the release-state record after a compaction, and the lessons check was run for the edits and the commit but not read again before the push and the brief.
+- Rule going forward: before `gh pr create` and before sending a review brief, read PLAYBOOK step 6 and check the text: the body's last line is `Lessons checked: ...`, and the brief names `dev/lessons.sh` as the reviewer's first step.
+- Status: open
+
 ## 2026-11-22: A reviewer's CONFIRMED reason went into a code comment, and the next round showed it wrong
 - What went wrong: in RS-T-startdirect's round 1, Opus F3 said a full run of the sweep test leaves its state as it was ("CONFIRMED", from a log it made). It went into the test's comment, a commit message and the notes as the reason the state is not rewritten between tries. Round 2 (Opus again, by a mutation that printed the record) saw a full try cut swept to 64. The change stayed safe for another reason.
 - Why: the claim was carried as "CONFIRMED by Opus, not re-run", which the notes allow, and then written into a code comment, which carries no label.
