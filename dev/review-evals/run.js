@@ -39,17 +39,27 @@ const gitBuf = (...a) => execFileSync('git', ['-C', ROOT, ...a], { maxBuffer: 25
 // The PR's files as data, as the workflow's "Write the PR's files as data"
 // step writes them: regular files only, no instruction or server files.
 const SKIPPED = /(^|\/)(claude[^/]*\.md|agents[^/]*\.md|\.mcp\.json)$|(^|\/)\.claude(\/|$)/i;
-function writeHead(sha, dir) {
+// A tree name comes from the repo and is not trusted. It is written only when
+// each part is a plain name on every system: no `\` or `:` (a separator,
+// drive or stream mark on Windows), no empty part, and no part that ends in
+// `.` or a space (Windows drops those, so `.. ` opens as `..`). The case
+// stops on any other name, and the written path must still fall inside `dir`.
+const unsafePath = (p) => /[\\:]/.test(p) || p.split('/').some((s) => s === '' || /[. ]$/.test(s));
+// `opts.lsTree` and `opts.blob` stand in for git in tests.
+function writeHead(sha, dir, opts = {}) {
+  const lsTree = opts.lsTree || ((s) => git('ls-tree', '-r', '-z', '--full-tree', s));
+  const blob = opts.blob || ((o) => gitBuf('cat-file', 'blob', o));
+  const top = path.resolve(dir) + path.sep;
   const notWritten = [];
-  for (const entry of git('ls-tree', '-r', '-z', '--full-tree', sha).split('\0').filter(Boolean)) {
+  for (const entry of lsTree(sha).split('\0').filter(Boolean)) {
     const tab = entry.indexOf('\t');
     const [mode, , obj] = entry.slice(0, tab).split(' ');
     const p = entry.slice(tab + 1);
-    if (`/${p}/`.includes('/../') || p.startsWith('/')) throw new Error(`unsafe path ${p}`);
+    if (unsafePath(p) || !path.resolve(dir, p).startsWith(top)) throw new Error(`unsafe path ${JSON.stringify(p)}`);
     if (mode !== '100644' && mode !== '100755') { notWritten.push(`${mode} ${p}`); continue; }
     if (SKIPPED.test(p)) continue;
     fs.mkdirSync(path.join(dir, path.dirname(p)), { recursive: true });
-    fs.writeFileSync(path.join(dir, p), gitBuf('cat-file', 'blob', obj));
+    fs.writeFileSync(path.join(dir, p), blob(obj));
   }
   return notWritten;
 }
@@ -241,6 +251,6 @@ async function main() {
   process.exit(exitCode(results, floor));
 }
 
-module.exports = { reviewerPrompt, reviewerArgs, caught, normPath, parseResult, prText, prepare, dropWorktree, live, checkId, exitCode };
+module.exports = { reviewerPrompt, reviewerArgs, caught, normPath, parseResult, prText, prepare, dropWorktree, live, checkId, exitCode, writeHead };
 
 if (require.main === module) main().catch((e) => { console.error(e.stack || e.message); process.exit(2); });

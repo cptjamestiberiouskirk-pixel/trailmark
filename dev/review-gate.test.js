@@ -652,3 +652,26 @@ test('evals: prepare reaches git worktree add, and the run removes the worktree 
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+test('evals: a tree name with a backslash, colon or dotted part stops the case, and nothing is written outside', () => {
+  const run = require('./review-evals/run.js');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evalpath-'));
+  try {
+    const dir = path.join(tmp, 'a', 'b', 'head');
+    fs.mkdirSync(dir, { recursive: true });
+    const bs = String.fromCharCode(92);
+    const tree = (names) => names.map((n) => `100644 blob ${'1'.repeat(40)}\t${n}`).join('\0') + '\0';
+    const opts = (names) => ({ lsTree: () => tree(names), blob: () => Buffer.from('x') });
+    const bad = [`x${bs}..${bs}..${bs}..${bs}out.txt`, `..${bs}out.txt`, 'C:out.txt', 'a:stream', 'x/../../../out.txt',
+      'x/.. /out.txt', 'x/./y', 'x/y.', '/out.txt', 'x//y'];
+    for (const n of bad) {
+      assert.throws(() => run.writeHead('sha', dir, opts([n])), /unsafe path/, JSON.stringify(n));
+    }
+    assert.deepEqual(fs.readdirSync(tmp), ['a']);
+    assert.deepEqual(fs.readdirSync(path.join(tmp, 'a')), ['b']);
+    assert.deepEqual(fs.readdirSync(path.join(tmp, 'a', 'b')), ['head']);
+    assert.deepEqual(fs.readdirSync(dir), []);
+    const good = ['a/b.txt', '.github/x.yml', 'a/.hidden', 'x..y/z'];
+    assert.deepEqual(run.writeHead('sha', dir, opts(good)), []);
+    for (const n of good) assert.equal(fs.readFileSync(path.join(dir, n), 'utf8'), 'x', n);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
