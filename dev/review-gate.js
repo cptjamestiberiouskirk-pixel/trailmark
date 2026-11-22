@@ -2,12 +2,15 @@
 // Decides whether a pull request may merge without the owner, from data the
 // workflow fetched into .review/ (see .github/workflows/auto-review.yml).
 // No network calls; it writes only its own output files in that folder.
-//   node dev/review-gate.js candidates <dir>          finders' output -> dir/candidates.json
-//   node dev/review-gate.js merge      <voters> <dir> candidates + votes -> dir/findings.json
-//   node dev/review-gate.js payload    <dir>          -> dir/comments.jsonl and dir/review.json
-//   node dev/review-gate.js decide     <rules> <dir>  -> dir/gate.json
-// Every path that can't tell what happened fails closed (exit 1), so the round
-// is not posted and the gate reads "review did not finish".
+//   node dev/review-gate.js candidates      <dir>             reviewers' output -> dir/candidates.json
+//   node dev/review-gate.js merge           <verifiers> <dir> candidates + votes -> dir/findings.json
+//   node dev/review-gate.js payload         <dir>             -> dir/comments.jsonl and dir/review.json
+//   node dev/review-gate.js signers         <file>            exit 1 unless it holds only security keys for /ship
+//   node dev/review-gate.js ship-candidates <dir>             -> dir/ship/<n>.msg and <n>.sig
+//   node dev/review-gate.js decide          <rules> <dir>     -> dir/gate.json
+// In the review job, a step that can't tell what happened fails closed (exit
+// 1), so the round is not posted and the gate reads "review did not finish".
+// decide fails a tier it does not know.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -20,20 +23,27 @@ const lastLine = (s) => String(s || '').trimEnd().split('\n').pop();
 // No @ mentions, HTML or token-shaped strings from model text reach a comment.
 const clean = (s, max = 4000) => String(s == null ? '' : s)
   .replace(/sk-ant-[A-Za-z0-9_-]+/g, '[removed]')
-  .replace(/\bgh[opsu]_[A-Za-z0-9]{20,}/g, '[removed]')
+  .replace(/(github_pat_|gh[oprsu]_)[A-Za-z0-9_]{20,}/g, '[removed]')
+  .replace(/&/g, '&amp;')
   .replace(/@/g, '@' + String.fromCharCode(0x200b)).replace(/</g, '&lt;').slice(0, max);
 
-// Ids are assigned here, by lens and position, so the finders' own ids never
-// have to match anything.
-function candidates(finderOutputs) {
+// A path as the PR names it: reviewers sometimes give the copy under
+// .review/head/ or a leading "./".
+const prPath = (p) => String(p).replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/^\.review\/head\//, '');
+
+// Ids are assigned here, by lens and position, so the reviewers' own ids never
+// have to match anything. The lens comes from the file name, never from what a
+// reviewer wrote, and two lenses can't share an id.
+function candidates(reviewerOutputs) {
   const out = [];
-  for (const f of finderOutputs) {
+  for (const f of reviewerOutputs) {
+    if (!/^[a-z]{1,20}$/.test(String(f.lens))) throw new Error(`bad lens ${JSON.stringify(f.lens).slice(0, 40)}`);
     (f.findings || []).forEach((x, i) => {
       out.push({
         id: `${f.lens}-${i + 1}`,
         lens: f.lens,
         severity: x.severity === 'blocking' ? 'blocking' : 'note',
-        path: typeof x.path === 'string' ? x.path : '',
+        path: typeof x.path === 'string' ? prPath(x.path) : '',
         line: Number.isInteger(x.line) && x.line > 0 ? x.line : null,
         title: clean(x.title, 300),
         evidence: clean(x.evidence),
@@ -41,6 +51,7 @@ function candidates(finderOutputs) {
       });
     });
   }
+  if (new Set(out.map((c) => c.id)).size !== out.length) throw new Error('two findings share an id');
   return out;
 }
 
@@ -48,7 +59,7 @@ function candidates(finderOutputs) {
 // vote per finding; if it votes twice, a rejection wins. A verifier that gives
 // no verdict for a blocking finding fails the round.
 function mergeFindings(cands, voteOutputs) {
-  const perVoter = voteOutputs.map((v) => {
+  const perVerifier = voteOutputs.map((v) => {
     const m = new Map();
     for (const x of v.votes || []) {
       const ok = x.verdict === 'confirmed';
@@ -61,24 +72,29 @@ function mergeFindings(cands, voteOutputs) {
   const dropped = [];
   for (const c of cands) {
     if (c.severity !== 'blocking') { notes.push(c); continue; }
-    if (perVoter.length === 0 || perVoter.some((m) => !m.has(c.id))) {
+    if (perVerifier.length === 0 || perVerifier.some((m) => !m.has(c.id))) {
       throw new Error(`no verdict from every verifier for ${c.id}`);
     }
-    const yes = perVoter.filter((m) => m.get(c.id)).length;
-    if (yes === perVoter.length) blocking.push(c);
+    const yes = perVerifier.filter((m) => m.get(c.id)).length;
+    if (yes === perVerifier.length) blocking.push(c);
     else if (yes > 0) notes.push(c);
     else dropped.push(c);
   }
-  return { blocking, notes, dropped, verifiers: perVoter.length };
+  return { blocking, notes, dropped, verifiers: perVerifier.length };
 }
 
+// A section counts when it holds a letter or digit. Comments are read as
+// GitHub shows them (an unclosed one hides the rest of the body), and headings
+// inside a fenced code block don't count.
 function sections(body) {
-  const text = String(body || '').replace(/\r\n/g, '\n');
+  const text = String(body || '').replace(/\r\n/g, '\n')
+    .replace(/<!--[\s\S]*?(-->|(?![\s\S]))/g, '')
+    .replace(/^```[\s\S]*?(^```[^\n]*$|(?![\s\S]))/gm, '');
   const missing = [];
   for (const h of ['Testing', 'Risk', 'How to revert']) {
     const re = new RegExp(`^#{2,3}[ \\t]*${h}\\b[^\\n]*\\n([\\s\\S]*?)(?=^#{1,3}[ \\t]|(?![\\s\\S]))`, 'm');
     const m = text.match(re);
-    if (!m || !m[1].replace(/<!--[\s\S]*?-->/g, '').trim()) missing.push(h);
+    if (!m || !/[A-Za-z0-9]/.test(m[1])) missing.push(h);
   }
   return missing;
 }
@@ -143,15 +159,18 @@ function shipped(d) {
   return d.signersValid === true && (d.shipVerified || []).includes(d.head);
 }
 
-// Breaker: of the last `window` PRs merged on agent review alone, how many
-// does a later merged PR name in a "Regression-of: #N" line.
+// Breaker: of the last `window` merged PRs labeled tier:low or tier:medium,
+// how many does a merged PR name in a "Regression-of:" line. The line may be
+// a list item, in any case, and name several PRs ("#10, #11").
 function breaker(merged, rules) {
   const b = { window: 20, trip: 2, resetAfter: 0, ...(rules.breaker || {}) };
   const auto = merged.filter((p) => p.number > b.resetAfter && p.labels.some((l) => /^tier:(low|medium)$/.test(l)))
     .sort((x, y) => y.number - x.number).slice(0, b.window);
   const named = new Set();
   for (const p of merged) {
-    for (const m of String(p.body || '').matchAll(/^Regression-of:\s*#(\d+)/gm)) named.add(Number(m[1]));
+    for (const m of String(p.body || '').matchAll(/^[ \t]*(?:[-*+][ \t]+)?regression-of:[ \t]*([#\d ,\t]+)/gim)) {
+      for (const n of m[1].matchAll(/#?(\d+)/g)) named.add(Number(n[1]));
+    }
   }
   const hits = auto.filter((p) => named.has(p.number)).map((p) => p.number);
   return { tripped: hits.length >= b.trip, hits, window: auto.length };
@@ -166,6 +185,7 @@ function decide(d, rules) {
   const round = new Set(rounds.map((m) => m[2])).size;
   const threads = (d.threads || []).map((t) => ({ ...t, m: FINDING.exec(lastLine(t.firstBody)) })).filter((t) => t.m);
 
+  if (!['low', 'medium', 'high'].includes(tier)) reasons.push(`unknown tier ${JSON.stringify(tier)}`);
   if (onHead.length === 0) reasons.push('no finished review of this head on this base');
   // Each finding the round said it posted must be on the PR as a thread.
   for (const m of onHead) {
@@ -174,18 +194,19 @@ function decide(d, rules) {
   }
   const open = threads.filter((t) => !t.isResolved);
   if (open.length) reasons.push(`${open.length} open finding${open.length > 1 ? 's' : ''}`);
-  const bare = threads.filter((t) => t.isResolved && !(t.replies || []).some((r) => r.author !== d.botLogin && String(r.body).trim().length >= 10));
-  if (bare.length) reasons.push(`${bare.length} finding${bare.length > 1 ? 's' : ''} resolved with no reply`);
+  // Only the owner's login answers a finding (sessions act through it too);
+  // on a public repo anyone else can reply.
+  const human = (t) => (t.replies || []).filter((r) => r.author === d.owner && String(r.body).trim().length >= 10);
+  const bare = threads.filter((t) => t.isResolved && human(t).length === 0);
+  if (bare.length) reasons.push(`${bare.length} finding${bare.length > 1 ? 's' : ''} resolved with no reply from the owner`);
   // "fixed in" on a finding raised on this very head names a fix nobody has
   // reviewed: push it, and the next round checks it.
-  const human = (t) => (t.replies || []).filter((r) => r.author !== d.botLogin && String(r.body).trim().length >= 10);
   const unpushed = threads.filter((t) => t.isResolved && t.m[2] === d.head && human(t).length > 0
     && human(t).every((r) => /^\s*fixed in\b/i.test(r.body)));
   if (unpushed.length) reasons.push(`${unpushed.length} finding${unpushed.length > 1 ? 's' : ''} marked fixed on the commit it was raised on: push the fix`);
   // Past maxRounds with any finding ever posted, the owner decides, even after
-  // the threads are resolved.
+  // the threads are resolved: their signed /ship on this head lets it pass.
   const escalate = round > maxRounds && threads.length > 0;
-  if (escalate) reasons.push(`findings on ${round} reviewed pushes (more than ${maxRounds}): rethink the approach and ask the owner`);
   const missing = sections(d.prBody);
   if (missing.length) reasons.push(`PR body section empty or missing: ${missing.join(', ')}`);
   if (d.draft) reasons.push('draft PR');
@@ -193,9 +214,10 @@ function decide(d, rules) {
 
   const br = breaker(d.merged || [], rules);
   const needsOwner = tier === 'high' || br.tripped || (tier === 'medium' && rules.mediumNeedsOwner === true) || escalate;
-  if (needsOwner && d.signersValid !== true) reasons.push('dev/ship-signers on main is missing or holds a key that is not a security key');
+  if (needsOwner && d.signersValid !== true) reasons.push('dev/ship-signers on main holds no key, or a line that is not a security key limited to /ship');
   if (needsOwner && !shipped(d)) {
-    const why = escalate ? 'escalated' : tier === 'high' ? 'high tier'
+    const why = escalate ? `${round} reviewed pushes (more than ${maxRounds}) and a finding on at least one; rethink the approach`
+      : tier === 'high' ? 'high tier'
       : br.tripped ? `breaker tripped (regressions after ${br.hits.map((n) => '#' + n).join(', ')})` : 'medium tier';
     reasons.push(`${why}: needs the owner's signed /ship ${d.head}`);
   }
@@ -238,9 +260,12 @@ if (require.main === module) {
   const fail = (why) => { console.error(why); process.exit(1); };
   if (cmd === 'candidates') {
     const files = fs.readdirSync(a).filter((n) => /^find-[a-z]+\.json$/.test(n));
-    const outs = files.map((n) => ({ lens: n.slice(5, -5), ...(tryRead(path.join(a, n)) || { findings: null }) }));
+    // The lens goes last, so a "lens" key in a reviewer's own JSON can't replace it.
+    const outs = files.map((n) => ({ ...(tryRead(path.join(a, n)) || { findings: null }), lens: n.slice(5, -5) }));
     if (outs.length === 0 || outs.some((x) => !Array.isArray(x.findings))) fail('a reviewer gave no usable output');
-    fs.writeFileSync(path.join(a, 'candidates.json'), JSON.stringify(candidates(outs)));
+    let list;
+    try { list = candidates(outs); } catch (e) { fail(e.message); }
+    fs.writeFileSync(path.join(a, 'candidates.json'), JSON.stringify(list));
   } else if (cmd === 'merge') {
     const cands = read(path.join(b, 'candidates.json'));
     const votes = fs.readdirSync(b).filter((n) => /^vote-\d+\.json$/.test(n)).map((n) => tryRead(path.join(b, n)));

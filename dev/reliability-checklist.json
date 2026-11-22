@@ -29,7 +29,7 @@
    "origin": "Repository checks step of tests.yml"},
   {"id": "RC-08", "title": "Shipped file changed",
    "paths": "^(plugins/|install\\.|tools/|README\\.md|MANUAL\\.md)", "lines": "",
-   "check": "SHA256SUMS regenerated with --sums and the version raised in plugin.json with a CHANGELOG line.",
+   "check": "SHA256SUMS regenerated with --sums. The version in plugin.json and the CHANGELOG lines wait for the release step.",
    "origin": "PR template"},
   {"id": "RC-09", "title": "Release zip build",
    "paths": "^dev/release-(check|draft)\\.sh$|^\\.gitattributes$", "lines": "git archive|export-ignore",

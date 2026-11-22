@@ -14,7 +14,7 @@
       "title": "The note-cut test puts the launcher path at fixed offsets, so from a checkout whose launcher path is 158 characters or more it fails",
       "causePr": 19, "causeMerge": "e5f5f7f016c00dd464ac1cd4029b71145209f0a7",
       "fixCommit": "7b4222f9df40c0dccead7fb3ed32cb2be86f79b7", "fixPr": 95,
-      "file": "plugins/trailmark/tests/handoff-checks.test.js", "lines": [331, 337, 344, 345, 346, 353, 361, 362, 363, 364, 365, 366],
+      "file": "plugins/trailmark/tests/handoff-checks.test.js", "lines": [331, 344, 345, 346, 353, 365],
       "attribution": "blame"
     },
     {

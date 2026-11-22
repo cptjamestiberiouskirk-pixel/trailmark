@@ -6,17 +6,20 @@ name: auto-review
 # dev/risk-tiers.json) and the gate all come from main. The PR's files are
 # written into .review/head as plain data, one blob at a time with no git
 # attributes applied: nothing from the PR is installed or run, and the
-# reviewers get file reads only, no shell.
+# reviewers are given file reads only, no shell. That --restricted keeps those
+# reads inside the working folder is what its help says; no run has tested it.
 #
 # In observe mode (dev/risk-tiers.json "mode") the gate writes the status
 # "auto-review/observe", always success, saying what it would have done. In
-# enforce mode it writes "auto-review/gate", which the ruleset requires. Open
+# enforce mode it writes "auto-review/gate", which branch protection is set to
+# require at the switch (one of the owner's steps). Open
 # PRs carry no "auto-review/gate" status at the switch, so none of them passes
 # on an old observe result.
 #
 # dev/review-evals/run.js and .github/workflows/review-evals.yml run the same
 # reviewer with the same CLI, model and tools; dev/review-gate.test.js checks
-# that the values below match there.
+# that the values below match there. CI does not run that test:
+# dev/release-check.sh --only dev/review-gate.test.js does.
 on:
   pull_request_target:
     branches: [main]
@@ -34,11 +37,11 @@ env:
   MODEL_SECURITY: claude-fable-5-2
   MODEL_DOCS: claude-sonnet-5-5
   MODEL_VERIFY: claude-opus-5-5
-  VOTERS: '2'
+  VERIFIERS: '2'
   # Reviewers read the workspace only. These may be made stricter, never looser.
-  # TOOLS is the whole built-in set the CLI loads (--tools); --restricted also
-  # keeps the file tools inside the working folder, and --strict-mcp-config
-  # loads no MCP server.
+  # TOOLS is the whole built-in set the CLI loads (--tools); --restricted is
+  # meant to keep the file tools inside the working folder (untested on a run),
+  # and --strict-mcp-config loads no MCP server.
   TOOLS: 'Read,Glob,Grep'
   READ_TOOLS: 'Read(./**),Glob,Grep'
   DENY_TOOLS: 'Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Task,Agent,Skill,Read(//proc/**),Read(//sys/**),Read(//etc/**),Read(//tmp/**),Read(~/.*/**)'
@@ -55,7 +58,8 @@ jobs:
     # A fixed image: the ubuntu-latest label moves to a new release in 2026-11.
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    # The token secret lives in this environment, limited to main.
+    # The token secret lives in this environment. The owner limits it to main
+    # before adding the secret: GitHub makes a missing one with no limit.
     environment: auto-review
     concurrency:
       group: auto-review-${{ github.event.pull_request.number }}
@@ -110,14 +114,18 @@ jobs:
           # They stay readable in the diff.
           find .review/head \( -iname 'claude*.md' -o -iname 'agents*.md' -o -name '.claude' -o -name '.mcp.json' \) -prune -exec rm -rf -- {} +
           chmod -R a-w .review/head
-          git diff --no-ext-diff --no-textconv "$BASE_SHA...$HEAD_SHA" > .review/diff.patch
+          # --text: a NUL byte in a source file would otherwise hide its change.
+          git diff --text --no-ext-diff --no-textconv "$BASE_SHA...$HEAD_SHA" > .review/diff.patch
           git log --no-ext-diff --format='%h %s%n%b' "$BASE_SHA..$HEAD_SHA" > .review/commits.txt
       - name: Sort into a tier
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[]' > .review/files.jsonl
+          # The file list of this exact head (a push after the event can't swap
+          # it). Compare gives up to 300 files; a longer PR fails the count check
+          # in dev/tier.js and is high tier.
+          gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq '.files[]' > .review/files.jsonl
           node dev/tier.js dev/risk-tiers.json .review/files.jsonl "$CHANGED" > .review/tier.json
           tier=$(jq -r .tier .review/tier.json)
           for t in low medium high; do
@@ -133,7 +141,8 @@ jobs:
             --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
                    | select(.comments.nodes[0].author.login == "github-actions")
                    | {resolved: .isResolved, path, finding: .comments.nodes[0].body,
-                      replies: [.comments.nodes[1:][] | {author: .author.login, body}]}]' > .review/prior.json
+                      replies: [.comments.nodes[1:][] | {author: .author.login, body}]}]' \
+            | jq --arg o "${REPO%/*}" 'map(.replies |= map(select(.author == $o)))' > .review/prior.json
           jq -c '{tier, reasons, mustCheck}' .review/tier.json
       - name: Install the reviewer CLI
         run: |
@@ -173,7 +182,7 @@ jobs:
         run: |
           set -uo pipefail
           [ "$(jq '[.[] | select(.severity == "blocking")] | length' .review/candidates.json)" -gt 0 ] || { echo "nothing to vote on"; exit 0; }
-          for i in $(seq 1 "$VOTERS"); do
+          for i in $(seq 1 "$VERIFIERS"); do
             ( "$CLAUDE_BIN" -p "You are verifier $i for PR $PR. Follow REVIEW.md section \"Verifier\" exactly, for each blocking finding in .review/candidates.json. Your final message is the JSON object that section describes and nothing else." \
                 --model "$MODEL_VERIFY" --tools "$TOOLS" --restricted --strict-mcp-config \
                 --allowedTools "$READ_TOOLS" --disallowedTools "$DENY_TOOLS" \
@@ -186,10 +195,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          node dev/review-gate.js merge "$VOTERS" .review
+          node dev/review-gate.js merge "$VERIFIERS" .review
+          # Rounds are read from the last line of each bot review only, as the gate reads them.
           others=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" \
-            --jq '.[] | select(.user.login == "github-actions[bot]") | .body' \
-            | grep -oE 'auto-review round=[0-9]+ sha=[0-9a-f]{40}' | awk '{print $3}' | sort -u \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | .body | sub("\\s+$"; "") | split("\n") | last' \
+            | grep -oE '^<!-- auto-review round=[0-9]+ sha=[0-9a-f]{40}' | awk '{print $4}' | sort -u \
             | grep -vc "sha=$HEAD_SHA" || true)
           jq -n --arg head "$HEAD_SHA" --arg base "$BASE_REF" --argjson round "$(( ${others:-0} + 1 ))" \
             --slurpfile tier .review/tier.json --slurpfile f .review/findings.json --slurpfile files .review/files.jsonl \
@@ -251,7 +261,9 @@ jobs:
           if [ -n "$EVENT_HEAD" ] && [ "$EVENT_HEAD" != "$head" ]; then
             echo "a newer push exists; its own run sets the gate"; echo "SKIP=1" >> "$GITHUB_ENV"; exit 0
           fi
-          gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[]' > .review/files.jsonl
+          # The file list of this exact head; a push between the two calls gives
+          # a count that doesn't match, which dev/tier.js makes high tier.
+          gh api "repos/$REPO/compare/$(jq -r .base.sha .review/pull.json)...$head" --jq '.files[]' > .review/files.jsonl
           node dev/tier.js dev/risk-tiers.json .review/files.jsonl "$(jq -r .changed_files .review/pull.json)" > .review/tier.json
           gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" \
             --jq '[.[] | {body, user: .user.login}]' \
@@ -312,7 +324,7 @@ jobs:
           if [ "$(jq -r .mode dev/risk-tiers.json)" = enforce ]; then
             gh api "repos/$REPO/statuses/$HEAD" -f state="$state" -f context=auto-review/gate -f description="${desc:0:140}" > /dev/null
             if [ "$(jq -r '.needsOwner and (.wouldPass | not)' .review/gate.json)" = true ]; then
-              gh pr edit "$PR" --repo "$REPO" --add-label needs-owner > /dev/null
+              gh pr edit "$PR" --repo "$REPO" --add-label needs-owner > /dev/null || echo "::warning::label needs-owner is missing"
             else
               gh pr edit "$PR" --repo "$REPO" --remove-label needs-owner > /dev/null 2>&1 || true
             fi

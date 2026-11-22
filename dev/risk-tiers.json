@@ -49,7 +49,7 @@
     "^plugins/[^/]+/scripts/lib/(gitbin|gitfacts|plainfile|store|contextwatch)\\.js$",
     "^plugins/[^/]+/scripts/trailmark\\.js$"
   ],
-  "docsLens": "^(?!dev/|claude\\.md$|playbook\\.md$|lessons\\.md$).*\\.md$",
+  "docsLens": "\\.md$",
   "weakenedTests": "(^|/)tests/.+\\.[cm]?js$",
   "evalFloor": 0.5
 }

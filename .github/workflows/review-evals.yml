@@ -32,7 +32,8 @@ jobs:
   evals:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    # The token secret lives in this environment, limited to main.
+    # The token secret lives in this environment. The owner limits it to main
+    # before adding the secret: GitHub makes a missing one with no limit.
     environment: auto-review
     concurrency:
       group: review-evals

@@ -58,10 +58,13 @@ test('tier: weakened tests lift to high; a conditional skip only adds a must-che
   assert.equal(t.classify([file('plugins/trailmark/tests/a.test.js', null, { status: 'removed' })], rules).tier, 'high');
 });
 test('tier: lenses follow the security and docs lists', () => {
-  const c = t.classify([file('plugins/trailmark/scripts/lib/gitbin.js'), file('dev/notes.md')], rules);
+  const c = t.classify([file('plugins/trailmark/scripts/lib/gitbin.js'), file('dev/x.js')], rules);
   assert.deepEqual(c.lenses, { regression: true, security: true, docs: false });
-  assert.equal(t.classify([file('README.md')], rules).lenses.docs, true);
-  assert.equal(t.classify([file('PLAYBOOK.md')], rules).lenses.docs, false);
+  // CLAUDE.md "Reviews": the docs row covers every doc, the notes in dev/ and
+  // the instruction files included.
+  for (const f of ['README.md', 'PLAYBOOK.md', 'dev/release-state.md', 'CLAUDE.md']) {
+    assert.equal(t.classify([file(f)], rules).lenses.docs, true, f);
+  }
 });
 
 test('candidates: ids come from lens and position; fields are cleaned; bad lines become file-level', () => {
@@ -86,7 +89,7 @@ test('merge: blocking needs every verifier, one vote each, rejection wins a repe
   assert.throws(() => g.mergeFindings(c.slice(0, 1), [{ votes: [yes('reg-1')] }, { votes: [] }]), /no verdict/);
   assert.throws(() => g.mergeFindings(c.slice(0, 1), []), /no verdict/);
 });
-test('CLI: unusable finder output, a missing vote file or a missing verdict fails closed', () => {
+test('CLI: unusable reviewer output, a missing vote file or a missing verdict fails closed', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-'));
   const run = (...args) => spawnSync(process.execPath, [CLI, ...args], { timeout: 10000 }).status;
   try {
@@ -259,9 +262,17 @@ test('evals: the eval workflow and runner use the review workflow\'s CLI, model,
   const run = require('./review-evals/run.js');
   const line = wf('auto-review.yml').split('\n').find((l) => l.includes('reviewer for PR $PR'));
   const shell = line.match(/-p "(.*)" \\$/)[1].replace(/\\"/g, '"').replace('$1', 'regression').replace('$1', 'regression').replace('$PR', '7');
-  assert.equal(run.finderPrompt('regression', 7), shell);
-  const call = wf('auto-review.yml').split('\n').slice(wf('auto-review.yml').split('\n').indexOf(line), wf('auto-review.yml').split('\n').indexOf(line) + 4).join(' ');
-  for (const flag of run.finderArgs({}, '').filter((a) => typeof a === 'string' && a.startsWith('--'))) assert.ok(call.includes(flag), flag);
+  assert.equal(run.reviewerPrompt('regression', 7), shell);
+  // The flags after the prompt, with their values, the same in both directions.
+  const lines = wf('auto-review.yml').split('\n');
+  const at = lines.indexOf(line);
+  const call = lines.slice(at + 1, at + 4).join(' ').split('>')[0];
+  const shellArgs = call.replace(/\\/g, ' ').trim().split(/\s+/).map((a) => a.replace(/^"(.*)"$/, '$1'));
+  const asShell = { MODEL_REGRESSION: '$2', TOOLS: '$TOOLS', READ_TOOLS: '$READ_TOOLS', DENY_TOOLS: '$DENY_TOOLS' };
+  assert.deepEqual(run.reviewerArgs(asShell, 'P').slice(2), shellArgs);
+  // The same install step, word for word.
+  const install = (text) => text.match(/^ +npm install [\s\S]*?CLAUDE_BIN=\$bin" >> "\$GITHUB_ENV"$/m)[0];
+  assert.equal(install(wf('review-evals.yml')), install(wf('auto-review.yml')));
 });
 test('evals: a case is caught only by a blocking finding on its file within 10 lines', () => {
   const run = require('./review-evals/run.js');
@@ -300,4 +311,121 @@ test('ship: a security-key signature counts only with the touch flag set', () =>
   assert.equal(g.shipCandidates(d(blob(0x00))).length, 0);
   assert.equal(g.shipCandidates(d(blob(0x01, 'git'))).length, 0);
   assert.equal(g.sigInfo('-----BEGIN SSH SIGNATURE-----\nAAAA\n-----END SSH SIGNATURE-----'), null);
+});
+
+// Round 1 of the review of this branch (2026-11-21).
+test('candidates: a "lens" key in a reviewer\'s JSON does not replace the lens from its file name', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-'));
+  const cli = (...args) => spawnSync(process.execPath, [CLI, ...args], { timeout: 10000 }).status;
+  try {
+    const one = (title) => ({ findings: [{ severity: 'blocking', path: 'a.js', line: 1, title }] });
+    fs.writeFileSync(path.join(dir, 'find-regression.json'), JSON.stringify(one('real')));
+    fs.writeFileSync(path.join(dir, 'find-docs.json'), JSON.stringify({ lens: 'regression', ...one('decoy') }));
+    assert.equal(cli('candidates', dir), 0);
+    const ids = JSON.parse(fs.readFileSync(path.join(dir, 'candidates.json'))).map((c) => c.id).sort();
+    assert.deepEqual(ids, ['docs-1', 'regression-1']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  assert.throws(() => g.candidates([{ lens: 'x -->\n@a', findings: [] }]), /bad lens/);
+  assert.throws(() => g.candidates([{ lens: 'r', findings: [{}] }, { lens: 'r', findings: [{}] }]), /share an id/);
+});
+test('decide: a resolved finding counts as answered only with a reply from the owner\'s login', () => {
+  const r = (author, b = 'not a problem, trust me on this') => [thread(true, [{ author, body: b }])];
+  assert.equal(g.decide(base({ threads: r('stranger') }), rules).state, 'failure');
+  assert.equal(g.decide(base({ threads: r('copilot-pull-request-reviewer') }), rules).state, 'failure');
+  assert.equal(g.decide(base({ threads: r('jim') }), rules).state, 'success');
+  assert.equal(g.decide(base({ threads: r('jim', 'ok fine') }), rules).state, 'failure');
+});
+test('decide: an escalated PR passes with the owner\'s verified /ship on the head, and not without it', () => {
+  const four = [H2, 'c'.repeat(40), 'd'.repeat(40)].map((s) => round(s)).concat([round(H)]);
+  const reason = [{ author: 'jim', body: 'not a bug: the caller checks length first' }];
+  const d = (o) => g.decide(base({ botComments: four, threads: [thread(true, reason, H2)], ...o }), rules);
+  assert.equal(d({}).escalate, true);
+  assert.equal(d({}).state, 'failure');
+  assert.match(d({}).reasons.join('\n'), /4 reviewed pushes \(more than 3\) and a finding on at least one/);
+  assert.equal(d({ signersValid: true, shipVerified: [H] }).state, 'success');
+  assert.equal(d({ signersValid: true, shipVerified: [H2] }).state, 'failure');
+  // Three reviewed pushes with a finding: not yet escalated.
+  const three = g.decide(base({ botComments: four.slice(1), threads: [thread(true, reason, 'c'.repeat(40))] }), rules);
+  assert.equal(three.escalate, false);
+  assert.equal(three.state, 'success');
+});
+test('decide: a tier it does not know fails', () => {
+  for (const tier of [{}, { tier: 'High' }, { tier: 'none' }]) assert.equal(g.decide(base({ tier }), rules).state, 'failure');
+});
+test('breaker: a list item, lower case and several PRs on one line all count; a mention mid-line does not', () => {
+  const auto = (n) => ({ number: n, body: '', labels: ['tier:low'] });
+  const by = (b) => g.breaker([auto(10), auto(11), auto(12), { number: 20, body: b, labels: [] }], rules).hits.sort();
+  assert.deepEqual(by('Regression-of: #10, #11'), [10, 11]);
+  assert.deepEqual(by('Regression-of: #10 #11'), [10, 11]);
+  assert.deepEqual(by('- Regression-of: #10\n- regression-of: #12'), [10, 12]);
+  assert.deepEqual(by('Regression-of: 11'), [11]);
+  assert.deepEqual(by('This is no Regression-of: #10'), []);
+  // A high-tier PR is not counted, and only the last `window` low or medium ones are.
+  assert.deepEqual(g.breaker([{ number: 10, body: '', labels: ['tier:high'] }, { number: 20, body: 'Regression-of: #10', labels: [] }], rules).hits, []);
+  const many = Array.from({ length: 25 }, (_, i) => auto(i + 1));
+  assert.deepEqual(g.breaker([...many, { number: 99, body: 'Regression-of: #1\nRegression-of: #6', labels: [] }], rules).hits, [6]);
+});
+test('clean: more token shapes go, and an entity cannot rebuild a mention', () => {
+  const s = g.clean(`github_pat_${'A'.repeat(30)} ghr_${'b'.repeat(30)} xghs_${'c'.repeat(30)} &#64;octocat`);
+  assert.doesNotMatch(s, /github_pat_A|ghr_b|ghs_c/);
+  assert.match(s, /&amp;#64;octocat/);
+});
+test('candidates: a path under .review/head/ or with ./ is the PR\'s own path', () => {
+  const c = g.candidates([{ lens: 'r', findings: [{ severity: 'blocking', path: '.review/head/a.js', line: 3 }, { severity: 'blocking', path: './b.js', line: 4 }] }]);
+  assert.deepEqual(c.map((x) => x.path), ['a.js', 'b.js']);
+  const p = g.payload({ head: H, base: B, round: 1, tier: { tier: 'low' }, findings: { blocking: c, notes: [] }, changed: ['a.js', 'b.js'] });
+  assert.deepEqual(p.comments.map((x) => [x.path, x.line]), [['a.js', 3], ['b.js', 4]]);
+});
+test('sections: an unclosed comment, a lone dash or headings inside a code fence do not fill a section', () => {
+  const ok = '## Testing\nran it\n## Risk\nlow\n## How to revert\ngit revert';
+  assert.deepEqual(g.sections(ok), []);
+  assert.deepEqual(g.sections(ok.replace('ran it', '<!-- what you ran')), ['Testing', 'Risk', 'How to revert']);
+  assert.deepEqual(g.sections(ok.replace('ran it', '-')), ['Testing']);
+  assert.deepEqual(g.sections('```\n' + ok + '\n```'), ['Testing', 'Risk', 'How to revert']);
+  assert.deepEqual(g.sections('```js\nx\n```\n' + ok), []);
+});
+test('tier: more skip forms lift the tier; a constant that decides the skip is not a condition', () => {
+  const f = (patch) => t.classify([file('plugins/trailmark/tests/a.test.js', `@@\n+${patch}`)], rules);
+  for (const l of ["t.skip ('x');", "t['skip']('x');", "test('a', { skip }, () => {})", "test.only('a', () => {})",
+    "test('a', { skip: true || 0 }, () => {})", "test('a', { skip: 1 ? 'always' : 0 }, () => {})"]) {
+    assert.equal(f(l).tier, 'high', l);
+  }
+  assert.equal(f("test('a', { skip: WIN && 'no' }, () => {})").tier, 'low');
+  // Words in quotes or comments are not a skip or a focus (PRs #63 and #52).
+  assert.equal(f("const OFF_WIN = { skip: WIN && 'the system makes these failures outside Windows only' };").tier, 'low');
+  assert.equal(f('  // one (Windows only: macOS has no path that long).').tier, 'low');
+  assert.equal(f("test('a', { only: true }, () => {})").tier, 'high');
+});
+test('decide: gaps the round-1 mutations showed', () => {
+  // /ship from another login is not a candidate, with a signature that would pass otherwise.
+  const str = (b) => { const l = Buffer.alloc(4); l.writeUInt32BE(b.length); return Buffer.concat([l, b]); };
+  const inner = Buffer.concat([str(Buffer.from('sk-ssh-ed25519@openssh.com')), str(Buffer.alloc(64)), Buffer.from([1]), Buffer.from([0, 0, 0, 1])]);
+  const v = Buffer.alloc(4); v.writeUInt32BE(1);
+  const blob = Buffer.concat([Buffer.from('SSHSIG'), v, str(Buffer.from('pub')), str(Buffer.from('trailmark-ship')), str(Buffer.from('')), str(Buffer.from('sha512')), str(inner)]);
+  const sig = `-----BEGIN SSH SIGNATURE-----\n${blob.toString('base64').match(/.{1,70}/g).join('\n')}\n-----END SSH SIGNATURE-----`;
+  const by = (user) => g.shipCandidates({ head: H, owner: 'jim', repo: 'o/r', pr: 1, comments: [{ user, body: `/ship ${H}\n${sig}` }] }).length;
+  assert.equal(by('jim'), 1);
+  assert.equal(by('eve'), 0);
+  assert.equal(g.decide(base({ draft: true }), rules).state, 'failure');
+  // The posted count is of threads on this head only.
+  assert.ok(g.decide(base({ botComments: [round(H, 1)], threads: [thread(false, [], H2)] }), rules).reasons.some((r) => /round says 1/.test(r)));
+  // Two markers on one sha are one round.
+  assert.equal(g.decide(base({ botComments: [round(H), round(H)] }), rules).round, 1);
+  // "fixed in" blocks on the raised head only when every owner reply says so.
+  const both = [{ author: 'jim', body: 'fixed in 1234567' }, { author: 'jim', body: 'and the reason it holds is here' }];
+  assert.equal(g.decide(base({ threads: [thread(true, both)] }), rules).state, 'success');
+  assert.ok(g.decide(base({ tier: { tier: 'x'.repeat(200) } }), rules).description.length <= 140);
+});
+test('evals: every case\'s cause merge is in this repo', () => {
+  const cases = JSON.parse(fs.readFileSync(path.join(__dirname, 'review-evals', 'cases.json'), 'utf8')).cases;
+  for (const k of cases) {
+    const r = spawnSync('git', ['-C', path.join(__dirname, '..'), 'cat-file', '-e', `${k.causeMerge}^{commit}`], { timeout: 10000 });
+    assert.equal(r.status, 0, k.id);
+  }
+});
+test('evals: with no PR text a case does not run, so its own title is never the PR\'s', () => {
+  const runJs = JSON.stringify(path.join(__dirname, 'review-evals', 'run.js'));
+  const code = `try { require(${runJs}).prText({ causePr: 1, title: 'the bug' }); console.log('returned'); } catch (e) { console.log('threw: ' + e.message); }`;
+  const r = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 20000, env: { ...process.env, PATH: '' } });
+  assert.match(r.stdout, /^threw: no PR text for #1/);
 });

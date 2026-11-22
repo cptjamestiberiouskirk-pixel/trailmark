@@ -19,16 +19,21 @@ function fileTier(name, rules) {
   return 'medium';
 }
 
-const SKIP = /\.(skip|todo)\(|\b(skip|todo)\s*:/;
+// t.skip(), t.skip (), t['skip'](), test.only(), { skip: ... }, { only: true }, { skip }.
+const SKIP = /\.\s*(skip|todo|only)\s*\(|\[\s*['"`](skip|todo|only)['"`]\s*\]|\b(skip|todo)\s*:|\bonly\s*:\s*true\b|[{,]\s*(skip|todo|only)\s*[,}]/;
 // A skip that names its condition on the same line (a platform, root, a flag).
-// Text inside quotes doesn't count, so `t.skip('why?')` is not a condition.
+// Text inside quotes doesn't count, so `t.skip('why?')` is not a condition,
+// and neither does a constant that decides it (`true || x`, `1 ? 'a' : b`).
 const code = (l) => l.replace(/(['"`])(?:\\.|(?!\1).)*\1/g, '""');
-const conditional = (l) => !/todo/i.test(l) && /\?|&&|\|\||\bif\s*\(|process\.(platform|getuid)|\bWIN\b/.test(code(l));
+const constant = (l) => /\bskip\s*:\s*(true|[1-9]\d*|"")\s*(\|\||\?)/.test(code(l));
+const conditional = (l) => !/\b(todo|only)\b/i.test(code(l)) && !constant(l)
+  && /\?|&&|\|\||\bif\s*\(|process\.(platform|getuid)|\bWIN\b/.test(code(l));
 const added = (lines) => lines.filter((l) => l.startsWith('+') && !l.startsWith('+++'));
 const removed = (lines) => lines.filter((l) => l.startsWith('-') && !l.startsWith('---'));
 
-// The checks judge-guard ran, kept here so one place decides "a person looks".
-// Each one lifts the PR to high, because a weaker test can make a bad change pass.
+// Signs that a test was made weaker, kept here so one place decides "a person
+// looks". Each one lifts the PR to high, because a weaker test can make a bad
+// change pass. An early return or a looser assert is left to the reviewer.
 function weakened(f, rules) {
   const tests = re(rules.weakenedTests);
   const isTest = tests.test(f.filename);
@@ -47,7 +52,7 @@ function weakened(f, rules) {
   // lifts it.
   const skips = added(lines).filter((l) => SKIP.test(l));
   const hard = rules.strictSkips ? skips : skips.filter((l) => !conditional(l));
-  if (hard.length > 0) out.push(`skip or todo added (${hard.length})`);
+  if (hard.length > 0) out.push(`skip, todo or only added (${hard.length})`);
   return out;
 }
 

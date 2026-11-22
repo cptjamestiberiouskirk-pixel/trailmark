@@ -23,8 +23,9 @@ Format:
 ## 2026-11-21: A stub `gh` put in PATH by a C: path was not used, and the real one answered
 - What went wrong: a probe of `dev/sign-ship.sh` put a stub `gh` first in `PATH` as `C:/Users/...`; MSYS split the entry at the drive colon, so the real `gh` ran and read the head of PR #7 on GitHub (a read, nothing written). The moved-head refusal printed a real sha, which showed it.
 - Why: the constraint in `PLAYBOOK.md` "Constraints and known limits" (MSYS splits `PATH` at `:`) was not applied to a scratch probe.
-- Rule going forward: none new; that constraint holds, for probes too. A stub's probe prints something only the stub can give (here a fixed sha) and checks it first.
-- Status: open
+- Rule going forward: that constraint holds for probes too, and a stub's probe prints something only the stub can give (here a fixed sha) and checks it first.
+- Seen again 2026-11-21: a bash script named `gh` was skipped by `execFileSync('gh')` in Node on Windows, which runs only `gh.exe`, and the real `gh` answered (a read). The probe's own output showed it.
+- Status: promoted (`PLAYBOOK.md` "Constraints and known limits")
 
 ## 2026-11-21: A zero-width-space escape in pasted reference code went in as the character itself
 - What went wrong: `clean()` in `dev/review-gate.js`, written with the Write tool from the brief's escaped zero-width space after `@`, held a literal zero-width space. The dash scan of the staged diff (its non-ASCII line) found it before the commit; it now reads `String.fromCharCode(0x200b)`.
@@ -33,7 +34,7 @@ Format:
 - Status: open
 
 ## 2026-11-21: A read-only research subagent moved the worktree's HEAD
-- What went wrong: a subagent briefed for read-only git research in the session's worktree ran `git checkout --detach` there by mistake, then switched back. HEAD was 4d0c958 throughout and the uncommitted files were not touched (CONFIRMED by `git status` after), but the brief's read-only rule did not hold.
+- What went wrong: a subagent briefed for read-only git research in the session's worktree ran `git checkout --detach` there by mistake, then switched back. HEAD was back at 4d0c958 and the uncommitted files were unchanged afterwards (CONFIRMED by `git status` and `git rev-parse HEAD` after; what ran while it was detached is not known), but the brief's read-only rule did not hold.
 - Why: the brief gave the session's own worktree as the place to run git, with uncommitted work in it.
 - Rule going forward: a research subagent that runs git gets its own clone or a detached worktree of the commit it reads, the way `PLAYBOOK.md` "Reviewing" step 2 gives reviewers one, never the worktree with the session's uncommitted work.
 - Status: open

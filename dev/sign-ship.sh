@@ -7,6 +7,7 @@ set -euo pipefail
 pr=${1:?usage: sign-ship.sh <pr number> <full sha> [key file]}
 want=${2:?usage: sign-ship.sh <pr number> <full sha> [key file]}
 key=${3:-$HOME/.ssh/trailmark_ship_sk}
+case "$pr" in *[!0-9]*|'') echo "the PR number must be digits only" >&2; exit 1 ;; esac
 case "$want" in *[!0-9a-f]*|'') echo "the sha must be 40 lowercase hex characters" >&2; exit 1 ;; esac
 [ "${#want}" -eq 40 ] || { echo "the sha must be 40 lowercase hex characters" >&2; exit 1; }
 repo=cptjamestiberiouskirk-pixel/trailmark
@@ -15,8 +16,9 @@ if [ "$sha" != "$want" ]; then
   echo "PR #$pr is now at $sha, not $want. Review the new head first." >&2
   exit 1
 fi
-# The title is set by whoever opened the PR: drop control characters.
-title=$(gh pr view "$pr" --repo "$repo" --json title --jq .title | tr -d '\000-\037\177')
+# The title is set by whoever opened the PR: keep printable ASCII only, so no
+# control or direction-changing character reaches your terminal.
+title=$(gh pr view "$pr" --repo "$repo" --json title --jq .title | LC_ALL=C tr -cd '\040-\176')
 line="trailmark ship $repo pr=$pr sha=$sha"
 printf 'PR #%s "%s"\nSigning: %s\n' "$pr" "$title" "$line" >&2
 dir=$(mktemp -d)

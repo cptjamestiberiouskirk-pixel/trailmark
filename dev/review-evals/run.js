@@ -12,7 +12,9 @@
 // (the workflow's values), EVAL_JOBS (cases at once, default 3).
 // Writes <work dir>/results.json and a summary (also to GITHUB_STEP_SUMMARY).
 // Exit 0 at or above "evalFloor" of dev/risk-tiers.json, 1 below it, 2 when
-// it could not run. It removes each worktree it made.
+// any case could not run (no PR text, no usable output): a partial run is no
+// score. It removes each worktree it made, on Ctrl+C too. The score is the
+// reviewer's alone: in the workflow two verifiers must also confirm a finding.
 'use strict';
 const { execFileSync, spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -22,9 +24,9 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const NEAR = 10;
 const LIMIT_MS = 25 * 60 * 1000;
 
-// The finder's prompt, word for word as the workflow builds it for one lens.
-const finderPrompt = (lens, pr) => `You are the ${lens} reviewer for PR ${pr}. Follow REVIEW.md sections "Every reviewer" and "Lens: ${lens}" exactly. Your final message is the JSON object REVIEW.md describes and nothing else.`;
-const finderArgs = (env, prompt) => ['-p', prompt, '--model', env.MODEL_REGRESSION, '--tools', env.TOOLS, '--restricted', '--strict-mcp-config',
+// The reviewer's prompt, word for word as the workflow builds it for one lens.
+const reviewerPrompt = (lens, pr) => `You are the ${lens} reviewer for PR ${pr}. Follow REVIEW.md sections "Every reviewer" and "Lens: ${lens}" exactly. Your final message is the JSON object REVIEW.md describes and nothing else.`;
+const reviewerArgs = (env, prompt) => ['-p', prompt, '--model', env.MODEL_REGRESSION, '--tools', env.TOOLS, '--restricted', '--strict-mcp-config',
   '--allowedTools', env.READ_TOOLS, '--disallowedTools', env.DENY_TOOLS, '--max-turns', '80', '--output-format', 'json'];
 
 const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 256 << 20 });
@@ -68,34 +70,49 @@ function fileList(a, b) {
 }
 
 // The causing PR's own title and body, as the workflow gives them, so the
-// reviewer can read the reasons the PR gave. Without gh or a network, the
-// case's title and an empty body.
+// reviewer can read the reasons the PR gave. Without them the case does not
+// run: the case's own title names the bug and would give the answer away.
 function prText(c) {
+  let out;
   try {
-    const out = execFileSync('gh', ['pr', 'view', String(c.causePr), '--json', 'title,body'],
-      { cwd: ROOT, encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'ignore'] });
-    const j = JSON.parse(out);
-    if (typeof j.title === 'string') return { title: j.title, body: String(j.body || '') };
-  } catch { /* falls through */ }
-  return { title: c.title, body: '' };
+    out = execFileSync('gh', ['pr', 'view', String(c.causePr), '--json', 'title,body'],
+      { cwd: ROOT, encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) { throw new Error(`no PR text for #${c.causePr}: ${String(e.stderr || e.message).trim().slice(0, 200)}`); }
+  const j = JSON.parse(out);
+  if (typeof j.title !== 'string') throw new Error(`no PR title for #${c.causePr}`);
+  return { title: j.title, body: String(j.body || '') };
+}
+
+// Worktrees made and not yet removed, for the end of the run and for Ctrl+C.
+const live = new Set();
+function dropWorktree(ws) {
+  try {
+    execFileSync('git', ['-C', ROOT, 'worktree', 'remove', '--force', ws], { stdio: 'ignore' });
+  } catch { /* not registered: the folder alone goes */ }
+  fs.rmSync(ws, { recursive: true, force: true });
+  live.delete(ws);
 }
 
 function prepare(c, work) {
   const ws = path.join(work, c.id);
+  const pr = prText(c);
+  // A folder left by an earlier run that stopped goes first.
+  if (fs.existsSync(ws)) dropWorktree(ws);
+  live.add(ws);
   git('worktree', 'add', '--detach', '--force', ws, `${c.causeMerge}^1`);
   fs.copyFileSync(path.join(ROOT, 'REVIEW.md'), path.join(ws, 'REVIEW.md'));
   const r = path.join(ws, '.review');
   fs.mkdirSync(path.join(r, 'head'), { recursive: true });
   const notWritten = writeHead(c.causeMerge, path.join(r, 'head'));
   if (notWritten.length) fs.writeFileSync(path.join(r, 'not-written.txt'), notWritten.join('\n') + '\n');
-  fs.writeFileSync(path.join(r, 'diff.patch'), gitBuf('diff', '--no-ext-diff', '--no-textconv', `${c.causeMerge}^1`, c.causeMerge));
+  fs.writeFileSync(path.join(r, 'diff.patch'), gitBuf('diff', '--text', '--no-ext-diff', '--no-textconv', `${c.causeMerge}^1`, c.causeMerge));
   fs.writeFileSync(path.join(r, 'commits.txt'), git('log', '--no-ext-diff', '--format=%h %s%n%b', `${c.causeMerge}^1..${c.causeMerge}`));
   const files = fileList(`${c.causeMerge}^1`, c.causeMerge);
   fs.writeFileSync(path.join(r, 'files.jsonl'), files.map((f) => JSON.stringify(f) + '\n').join(''));
   const tier = require(path.join(ROOT, 'dev', 'tier.js'));
   const rules = JSON.parse(fs.readFileSync(path.join(ROOT, 'dev', 'risk-tiers.json'), 'utf8'));
   fs.writeFileSync(path.join(r, 'tier.json'), JSON.stringify(tier.classify(files, rules, files.length)));
-  fs.writeFileSync(path.join(r, 'pr.json'), JSON.stringify(prText(c)));
+  fs.writeFileSync(path.join(r, 'pr.json'), JSON.stringify(pr));
   fs.writeFileSync(path.join(r, 'prior.json'), '[]');
   return ws;
 }
@@ -104,9 +121,12 @@ function runReviewer(c, ws, env, out) {
   return new Promise((resolve) => {
     const childEnv = { ...process.env };
     delete childEnv.CLAUDECODE;
+    // The workflow gives the reviewer no GitHub token; neither does this.
+    delete childEnv.GH_TOKEN;
+    delete childEnv.GITHUB_TOKEN;
     const raw = fs.openSync(path.join(out, `raw-${c.id}.json`), 'w');
     const err = fs.openSync(path.join(out, `err-${c.id}.txt`), 'w');
-    const p = spawn(env.CLAUDE_BIN, finderArgs(env, finderPrompt('regression', c.causePr)),
+    const p = spawn(env.CLAUDE_BIN, reviewerArgs(env, reviewerPrompt('regression', c.causePr)),
       { cwd: ws, env: childEnv, stdio: ['ignore', raw, err] });
     const timer = setTimeout(() => p.kill('SIGKILL'), LIMIT_MS);
     p.on('error', (e) => { clearTimeout(timer); resolve({ code: null, error: e.message }); });
@@ -114,7 +134,7 @@ function runReviewer(c, ws, env, out) {
   });
 }
 
-// The finder's JSON as the workflow reads it: the result field, with fence lines dropped.
+// The reviewer's JSON as the workflow reads it: the result field, with fence lines dropped.
 function parseResult(rawText) {
   try {
     const res = JSON.parse(rawText).result || '';
@@ -140,13 +160,14 @@ async function main() {
   const work = path.resolve(workArg);
   fs.mkdirSync(work, { recursive: true });
   const results = [];
+  process.on('SIGINT', () => { for (const ws of [...live]) dropWorktree(ws); git('worktree', 'prune'); process.exit(130); });
   let next = 0;
   const one = async () => {
     while (next < cases.length) {
       const c = cases[next++];
-      let ws = null;
+      const ws = path.join(work, c.id);
       try {
-        ws = prepare(c, work);
+        prepare(c, work);
         const run = await runReviewer(c, ws, env, work);
         const out = parseResult(fs.readFileSync(path.join(work, `raw-${c.id}.json`), 'utf8'));
         const findings = out && Array.isArray(out.findings) ? out.findings : null;
@@ -155,8 +176,8 @@ async function main() {
       } catch (e) {
         results.push({ id: c.id, caught: false, noResult: true, error: e.message });
       } finally {
-        if (ws) {
-          try { git('worktree', 'remove', '--force', ws); } catch (e) { console.error(`worktree ${ws} not removed: ${e.message}`); }
+        if (live.has(ws)) {
+          try { dropWorktree(ws); } catch (e) { console.error(`worktree ${ws} not removed: ${e.message}`); }
         }
       }
     }
@@ -172,10 +193,10 @@ async function main() {
     ...results.map((r) => `- ${r.id}: ${r.caught ? 'caught' : r.noResult ? `no result${r.error ? ` (${r.error})` : ''}` : 'missed'}, ${(r.blocking || []).length} blocking`)];
   console.log(lines.join('\n'));
   if (env.GITHUB_STEP_SUMMARY) fs.appendFileSync(env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
-  if (results.every((r) => r.noResult)) process.exit(2);
+  if (results.some((r) => r.noResult)) process.exit(2);
   process.exit(rate >= floor ? 0 : 1);
 }
 
-module.exports = { finderPrompt, finderArgs, caught, normPath, parseResult };
+module.exports = { reviewerPrompt, reviewerArgs, caught, normPath, parseResult, prText, prepare, dropWorktree, live };
 
 if (require.main === module) main().catch((e) => { console.error(e.stack || e.message); process.exit(2); });
