@@ -6,7 +6,7 @@ f81f737038bd2de241a3a63161e5921405dd786a885f2325ec1c7928b1405c05 *./.github/ISSU
 57e80bb102e6ac1936e1c4498da9added34688cc00fd0b37a1b5b59d65fe6b98 *./.github/pull_request_template.md
 6660e1f2f82760a41310351ad25d1c99595f28c9f23441441b3700db31fd65f7 *./.github/run-tests.sh
 5a5140bb240019800d583ad8023653222e4c241324f8105d87172f880dac4038 *./.github/tap-annotate.js
-a01e4db8dee0c2ca6e0fdcfce9d588b5ef5b3b20d1ea9d9c53de41ec74e9b54b *./.github/test-limits-check.js
+25e8f92f4ca3299c89af30f2f12468e16d2e6519eab18242807a19b0dd440bbf *./.github/test-limits-check.js
 c877a01a6b89224e6961a5a1a8f6e783573155afbfd1f6a574e3d88fe236ab8c *./.github/test-limits-fixture.js
 51be64f67113298baa90637a16438512c59bcad2238d23702b526b6320ba6d98 *./.github/test-limits.js
 58aa2555721f29db8cff4757671ac9e4f9b9bb9859c5f19613b03b3138e4a943 *./.github/workflows/release-draft.yml
