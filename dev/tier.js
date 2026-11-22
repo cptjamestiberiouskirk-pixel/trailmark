@@ -84,19 +84,22 @@ function withoutDestructuring(c) {
   return /['"`\/]/.test(c) ? c : '';
 }
 const QUOTED = /['"](skip|todo|only)['"]\s*:/;
+const reads = (l) => [code(l), code(l, 'keep')];
 const isSkip = (l) => {
-  const c = code(l, 'keep');
-  return CALL.test(l) || KEY.test(c) || SHORT.test(withoutDestructuring(c)) || QUOTED.test(l);
+  // Both reads: the raw fallback guards a mispaired quote or comment earlier on
+  // the line, 'keep' sees a skip whose closed comment the raw read leaves in.
+  return CALL.test(l) || QUOTED.test(l) || reads(l).some((c) => KEY.test(c) || SHORT.test(withoutDestructuring(c)));
 };
 // A skip that names its condition on the same line (a platform, root, a flag).
 // Read in the code, so `t.skip('why?')` or a `// a && b` comment is not a
 // condition, and neither does a constant that decides it (`true || x`,
 // `1 ? 'a' : b`), nor is an optional call (`?.(`). A todo or a focus (only)
 // is never conditional.
-// A constant skip is looked for in the whole line (raw after a stray quote), so
-// a `skip: true ||` after the quote keeps the line high; only the condition
-// test below reads the code before the quote (`strict`).
-const constant = (l) => /\bskip\s*:\s*(true|[1-9]\d*|"")\s*(\|\||\?)/.test(code(l));
+// A constant skip is looked for in both reads (raw after a stray quote, and
+// 'keep'), so `skip: true ||`, `skip: 'x' ||` or `skip: true /* c */ ||` after
+// the quote keeps the line high; only the condition test below reads the code
+// before the quote (`strict`).
+const constant = (l) => reads(l).some((c) => /\bskip\s*:\s*(true|[1-9]\d*|"")\s*(\|\||\?)/.test(c));
 // A todo or a focus is looked for in the whole line (the raw line after a stray
 // quote), so it stays high whatever a condition says.
 const conditional = (l) => !/\b(todo|only)\b/i.test(code(l)) && !constant(l)

@@ -744,6 +744,13 @@ test('tier: a todo or focus stays high after a stray quote, and a nested destruc
   assert.equal(f("test('x', { skip /* flaky */ }, fn); /* see #12").tier, 'high');
   assert.equal(f("test('x', { skip/* flaky */: true }, fn); /* see #12").tier, 'high');
   assert.equal(f("test('x', { skip /* flaky */ }, /'/); /* see #12").tier, 'high');
+  // PR 116, round 4: the raw read still guards a mispaired quote or comment earlier on the line,
+  // and a constant skip that the raw read leaves unnormalized still keeps the line high.
+  assert.equal(f("it's done`); test('x', { skip: true }, fn); f('y')").tier, 'high');
+  assert.equal(f("const glob = /src\\/*.js/; test('x', { skip: true }, fn); /* end */ 'x").tier, 'high');
+  for (const l of ["test('x', { skip: 'flaky' || WIN }, fn); /* see #12", "test('x', { skip: true /* c */ || WIN }, fn); /* x", "test('x', { skip: `a` || WIN }, fn); /* x"]) {
+    assert.equal(f(l).tier, 'high', l);
+  }
   // PR 116, review note: a condition before a `/*` with no end still counts (the strict read stops at it); a todo after it does not.
   const o = f("test('x', { skip: WIN }, fn); /* the docs say skip: true");
   assert.equal(o.tier, 'low');
