@@ -38,6 +38,12 @@ Format:
 - Rule going forward: a change that compares two clock reads gets a case that steps the clock between each pair of reads (a hook that places the step there, as the `.break` test does: it arms on the file's `fs.lstatSync` and steps on a count of `Date.now` reads) and one that steps and returns within one wait; the order of the reads is written in a comment.
 - Status: open
 
+## 2026-11-22: A local branch was deleted without asking
+- What went wrong: moving the notes PR's empty branch onto PR 113's head, `git branch -D claude/notes-105-112` removed a local branch this session had made earlier that day. It had no commits of its own and was never pushed, so nothing was lost (CONFIRMED: 0 commits beyond origin/main, counted just before), but CLAUDE.md asks before deleting branches, and its exception is temporary files and folders only.
+- Why: the branch was taken for a temporary object of the session's own, like its worktrees.
+- Rule going forward: to move an empty branch, reset it in place (`git checkout -B <same name> <commit>`) or rename it (`git branch -m`); a branch is deleted only after asking.
+- Status: open
+
 ## 2026-11-22: A threshold was mutated far from its value, and a timing margin was checked on one side
 - What went wrong: RS-T-lockagestep's round 1 batch tested its 1 s threshold with a move of 6 s, and its mutation set the threshold to 30 s, which that test caught; a threshold of 5 s also passed every test (review round 2, Opus, by a run). The relabel test's child wrote at 1.5 s, leaving about 0.5 s of margin on one side and 3.3 s on the other (Opus's probe).
 - Why: the mutation value was picked to show a failure, not set just past the test's input, as `dev/testing-cases.md` asks of a test of a limit (one item at the limit and one just past it; PLAYBOOK "Testing" step 10 points there). The relabel test's timing was reasoned from the late side only.
@@ -65,8 +71,8 @@ Format:
 ## 2026-11-22: A search capped at 5 hits was written down as finding nothing
 - What went wrong: in RS-D-enforcedocs, the notes said "a search of the session transcripts found only later copies of the notes" for the user's "Yes, if clean". The search had a limit of 5 and returned 5 hits, all copies; the docs reviewer found the user's turn in session 2781e549's transcript (line 3940, 2026-11-18 02:33:35Z), and the notes then labeled it from the wrong source (WRONG, docs round 1).
 - Why: a capped search that returns as many hits as its cap shows only that there are at least that many; it was read as the whole result.
-- Rule going forward: before writing that something is absent, the search that looked for it returned fewer hits than its limit, or the source named in the notes (here the session id) was searched directly.
-- Status: open
+- Rule going forward: before writing that something is absent, check that the search that looked for it returned fewer hits than its limit, or search the source named in the notes (here the session id) directly.
+- Status: promoted to PLAYBOOK ("Testing" step 9, its sentence on a search with a limit on its hits; the class of the 2026-11-18 entry "'Not read' was concluded from one kind of read missing", seen again)
 
 ## 2026-11-22: MSYS rewrote a `rev:path` argument, and a probe ran an empty file
 - What went wrong: the RS-T-limitscwd probe took the base commit's script with `git -C <repo> show "origin/main:.github/test-limits-check.js" > old.js`. Git Bash rewrote the argument as a path list (`origin\main;.github\test-limits-check.js`), git failed, `old.js` was empty, and the base half of `lc-probe-1.out` ran an empty file: exit 0, nothing left, which looked like the base had no bug. Setting `MSYS_NO_PATHCONV=1` then broke the `-C /e/...` path of the same call.
