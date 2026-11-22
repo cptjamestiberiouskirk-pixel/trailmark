@@ -26,8 +26,8 @@ Format:
 - Rule going forward: none new; that constraint holds, for probes too. A stub's probe prints something only the stub can give (here a fixed sha) and checks it first.
 - Status: open
 
-## 2026-11-21: A `​` escape in pasted reference code went in as the character itself
-- What went wrong: `clean()` in `dev/review-gate.js`, written with the Write tool from the brief's `'@​'`, held a literal zero-width space. The dash scan of the staged diff (its non-ASCII line) found it before the commit; it now reads `String.fromCharCode(0x200b)`.
+## 2026-11-21: A zero-width-space escape in pasted reference code went in as the character itself
+- What went wrong: `clean()` in `dev/review-gate.js`, written with the Write tool from the brief's escaped zero-width space after `@`, held a literal zero-width space. The dash scan of the staged diff (its non-ASCII line) found it before the commit; it now reads `String.fromCharCode(0x200b)`.
 - Why: the same as the 2026-11-07 entry on escapes in a test's source: an escape is turned into its character on the way into a file.
 - Rule going forward: none new; that entry and the scan of "Committing" step 4 hold, and this time the scan caught it.
 - Status: open
