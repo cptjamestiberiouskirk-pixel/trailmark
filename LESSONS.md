@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A reviewer loaded the library from the worktree while the owner edited it
+- What went wrong: the RS-A-missinglookups security reviewer (Fable) ran its probes against `gitfacts.js` at the worktree's path while the coordinator, in the same worktree, was making the docs-round and regression-round fixes (the files' modification times 01:51 to 02:03, as the reviewer's report gives them). The reviewer's report says it noticed and named which runs could have seen the edited file, and that its test runs were in its own clone at 97cb3ba. The edits in that window were the runner's buffer (32 to 34 MiB) and comments; `farWorktree`'s logic, which the probes exercised, was unchanged, so its result holds. A logic edit in that window would have mixed two versions into one review.
+- Why: the brief said to review `git diff cc92c9a..97cb3ba` and to test in a clone, but did not say that probes load the code from the clone too. The owner went on fixing other rounds' findings in the shared worktree.
+- Rule going forward: a review brief says that every run, probes included, loads the code from the reviewer's own clone at the reviewed commit, never from the owner's worktree. The owner makes no edits in the worktree while a reviewer may read it, or tells the reviewer the worktree is moving.
+- Status: open
+
+## 2026-11-22: A probe went in through a heredoc, and its first run lost its patterns to MSYS
+- What went wrong: the RS-A-missinglookups sparse probe (`ml-sparse.sh`) was written with a Bash heredoc, where "Constraints and known limits" says every script is written with the Write or Edit tool. Its first run in Git Bash passed `/d/a` and the other sparse patterns to Windows git without `MSYS_NO_PATHCONV=1`, which the same section names for `wsl.exe` only. MSYS rewrote them, so the patterns matched nothing, and the `wsl.exe` paths were rewritten too, so the WSL runs never started (CONFIRMED from that run's output as the session saw it: `after set:` listed nothing, and `sh` could not open `C:/Program Files/Git/mnt/c/...`; the output was not saved). The probe was run again with the variable set (`ml-sparse.out`).
+- Why: a harness reminder to work through Bash was followed over the project's rule. The patterns were not seen as path arguments because they were git patterns, not file names.
+- Rule going forward: "Constraints and known limits" holds over a harness reminder. New: any argument that starts with `/` and goes to a Windows program (git patterns, `wsl.exe` paths) runs with `MSYS_NO_PATHCONV=1`, not only `wsl.exe` calls.
+- Status: promoted to PLAYBOOK ("Constraints and known limits", the MSYS bullet)
+
 ## 2026-11-22: A measured count was applied to a different distance than the one measured
 - What went wrong: the RS-T-hookcwd note (PR 101) said a hook working in a subfolder meets the "two folders down" count of 2,000 to 5,000 missing names. `probe-top.js` had put the process in the repo's top folder and the names two folders below it, and the corrected RS-A-missinglookups bullet already said the count depends on the distance from the process's working folder. Moving the hook's folder changes that distance instead of reproducing it. Codex's review found it (P2, CONFIRMED here by reading the bullet and the probe's description); the coordinator had written the sentence from the hook-folder result without re-reading what the count was measured against.
 - Why: two true facts (the hook works in the session's folder; the count depends on the distance from the working folder) were joined by the reading "session folder = repo root + two", which neither fact says.

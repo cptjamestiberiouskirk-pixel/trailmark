@@ -2430,9 +2430,11 @@ test('git pointers: a lookup that fails for another reason than "not there" keep
 const OFF_WIN = { skip: WIN && 'the system makes these failures outside Windows only' };
 const SHARE = '//evil.invalid/share/x';
 const BLOB = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
-// git's two answers for the folder `top`, made up: the tracked paths.
-const trackedIn = (top, rels, mode = '100644') => ({
-  run: (cwd, args) => (args[0] === 'rev-parse' ? { ok: true, out: `${top}\n` } : args[0] === 'ls-files' ? { ok: true, out: rels.map(p => `${mode} ${BLOB} 0\t${p}\0`).join('') } : { ok: false, out: '', why: 'error' }),
+// git's two answers for the folder `top`, made up: the tracked paths, each
+// with the tag ls-files -t gives it (`S`, skip-worktree, for those in
+// `skip`, else `H`).
+const trackedIn = (top, rels, mode = '100644', skip = []) => ({
+  run: (cwd, args) => (args[0] === 'rev-parse' ? { ok: true, out: `${top}\n` } : args[0] === 'ls-files' ? { ok: true, out: rels.map(p => `${skip.includes(p) ? 'S' : 'H'} ${mode} ${BLOB} 0\t${p}\0`).join('') } : { ok: false, out: '', why: 'error' }),
   left: () => 5000,
 });
 // A folder for one of these tests, with what makes repos and long paths in it.
@@ -2897,6 +2899,155 @@ test('git status: the time is looked at before each tracked name is looked up (R
   // The clock is the caller's, read anew each time: short from the fourth
   // look on, the answer comes at the fourth.
   assert.deepStrictEqual(check(n => (n >= 4 ? 0 : 5000)), { why: 'git-timeout', asks: 4, lookups: 2 });
+});
+
+// RS-A-missinglookups. A sparse checkout has one tracked name for each file
+// outside its patterns, and each one was looked up. git marks those entries
+// skip-worktree (`S` from ls-files -t), and git status passes over them;
+// with core.sparseCheckout on, git takes the mark off as it reads the index
+// where its own lookup finds something at the path. So a marked name is not
+// looked up where its folder's listing does not hold it, and one the listing
+// holds is checked as before.
+test('git status: a name git marks skip-worktree is not looked up where the listing does not hold it (RS-A-missinglookups)', () => {
+  const { farWorktree } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-skipwt-');
+  const t = path.join(base, 'made');
+  fs.mkdirSync(path.join(t, 'd', 'sub'), { recursive: true });
+  for (const n of ['a', 'b']) fs.writeFileSync(path.join(t, 'd', n), 'x');
+  const missing = ['d/m1', 'd/m2', 'd/m3'];
+  const rels = ['d/a', 'd/b', ...missing];
+  // seen: the tracked names looked up.
+  const ask = (names, skip) => {
+    const seen = [];
+    const real = fs.lstatSync;
+    fs.lstatSync = function (p, ...a) {
+      const rel = typeof p === 'string' ? path.relative(t, p).replace(/\\/g, '/') : '';
+      if (names.includes(rel)) seen.push(rel);
+      return real.call(this, p, ...a);
+    };
+    try { return { why: farWorktree(trackedIn(t, names, '100644', skip), t, false), seen: seen.sort() }; } finally { fs.lstatSync = real; }
+  };
+  // The control: with no mark, each name the listing does not hold is
+  // looked up.
+  assert.deepStrictEqual(ask(rels, []), { why: '', seen: missing });
+  // All three marked, none is; the middle one marked, the other two are.
+  assert.deepStrictEqual(ask(rels, missing), { why: '', seen: [] }, 'all three marked');
+  assert.deepStrictEqual(ask(rels, ['d/m2']), { why: '', seen: ['d/m1', 'd/m3'] }, 'd/m2 marked');
+  // The mark is a name's in its own folder: x/m1 marked stops no lookup of
+  // d/m1 (review round 1). And in the top folder, which holds d and x, a
+  // marked name is passed over as well.
+  fs.mkdirSync(path.join(t, 'x', 'sub'), { recursive: true });
+  for (const n of ['a', 'b']) { fs.writeFileSync(path.join(t, 'x', n), 'x'); fs.writeFileSync(path.join(t, n), 'x'); }
+  assert.deepStrictEqual(ask(['d/a', 'd/b', 'd/m1', 'x/a', 'x/b', 'x/m1'], ['x/m1']), { why: '', seen: ['d/m1'] }, 'x/m1 marked, d/m1 not');
+  assert.deepStrictEqual(ask(['a', 'b', 'm1'], []), { why: '', seen: ['m1'] }, 'm1 in the top folder, not marked');
+  assert.deepStrictEqual(ask(['a', 'b', 'm1'], ['m1']), { why: '', seen: [] }, 'm1 in the top folder, marked');
+  // A marked name that the listing holds is checked as before: a repo at
+  // d/f whose .git names a share.
+  AT_F.far(path.join(t, 'd', 'f'));
+  assert.strictEqual(ask(['d/a', 'd/b', 'd/f'], ['d/f']).why, 'submodule-pointer', 'd/f marked and listed');
+  // A submodule's line with its tag (`H 160000 ...`) is still read as a
+  // submodule's: past 2,000 of them status is not read, here below a folder
+  // that is not there.
+  const subs = Array.from({ length: 2001 }, (_, k) => `gone/s${k}`);
+  assert.strictEqual(farWorktree(trackedIn(t, subs, '160000'), t, false), 'many-submodules', '2,001 tagged submodules');
+  // With git itself. A sparse checkout leaves d/s (or d/S) out, and then a
+  // repo is made at d/s whose config git can't parse. Seen with git 2.56.1
+  // on Windows, on ext4 and on a Windows drive in WSL: git status fails on
+  // that config where ls-files -t tags the tracked name `H`, and passes it
+  // over where the tag is `S`. Wherever git status fails on it, the check
+  // has looked at d/s or d/S. `fold`: the name is d/S, which a drive that
+  // folds case finds as d/s. `kept`: sparse.expectFilesOutsideOfPatterns
+  // keeps the mark on whatever is there.
+  // git 2.35 is the first with `sparse-checkout set --no-cone`, and 2.36 the
+  // first to take the mark off for what it finds (CONFIRMED by Opus from
+  // git's source in review round 1, not re-run: no older git was run). With
+  // an older git this part is not run, and says so.
+  const ver = execFileSync('git', ['--version'], { encoding: 'utf8' }).trim();
+  const vm = /(\d+)\.(\d+)/.exec(ver);
+  if (!vm || +vm[1] < 2 || (+vm[1] === 2 && +vm[2] < 36)) { console.log(`# RS-A-missinglookups: the part with git itself needs git 2.36 or later, not run with ${ver}`); return; }
+  const realGit = { run: (cwd, args) => { const p = spawnSync('git', args, { cwd, encoding: 'utf8' }); return { ok: p.status === 0, out: p.stdout || '' }; }, left: () => 5000 };
+  const failed = {};
+  for (const [label, name, kept] of [['same', 'd/s', false], ['fold', 'd/S', false], ['kept', 'd/S', true]]) {
+    const dir = path.join(base, label);
+    const g = repoAt(dir);
+    fs.mkdirSync(path.join(dir, 'd', 'sub'), { recursive: true });
+    for (const n of ['a', 'b', 'c']) fs.writeFileSync(path.join(dir, 'd', n), n);
+    fs.writeFileSync(path.join(dir, name), 's');
+    fs.writeFileSync(path.join(dir, 'd', 'sub', 'x'), 'x');
+    g('add', '.'); g('commit', '-qm', 'sparse');
+    if (kept) g('config', 'sparse.expectFilesOutsideOfPatterns', 'true');
+    const set = spawnSync('git', ['sparse-checkout', 'set', '--no-cone', '/a', '/d/a', '/d/b', '/d/c', '/d/sub/'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(set.status, 0, `${label}: sparse-checkout set: ${set.stderr}`);
+    assert.ok(!fs.existsSync(path.join(dir, name)), `${label}: the sparse checkout took ${name} away`);
+    g('init', '-q', path.join(dir, 'd', 's'));
+    fs.appendFileSync(path.join(dir, 'd', 's', '.git', 'config'), '[core\n  broken = \n');
+    // In English whatever the machine's language: the message is read.
+    const st = spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: dir, encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', LANGUAGE: '' } });
+    failed[label] = /bad config/.test(st.stderr);
+    const tag = spawnSync('git', ['ls-files', '-t', '--', name], { cwd: dir, encoding: 'utf8' }).stdout.trim();
+    assert.strictEqual(failed[label], tag === `H ${name}`, `${label}: git status failed on the config where ${name} is tagged H (tag: ${tag}; status: ${st.stderr.trim()})`);
+    let looked = false;
+    const real = fs.lstatSync;
+    fs.lstatSync = function (p, ...a) {
+      if (typeof p === 'string' && /^d\/s(\/|$)/i.test(path.relative(dir, p).replace(/\\/g, '/'))) looked = true;
+      return real.call(this, p, ...a);
+    };
+    let why;
+    try { why = farWorktree(realGit, dir, false); } finally { fs.lstatSync = real; }
+    if (failed[label]) assert.ok(looked, `${label}: git status failed on d/s/.git/config, and the check did not look there (answer: ${why})`);
+    // And where the mark stays, the check takes it from git (it asks with
+    // -t): d/S is not looked up, and d/s is named like no tracked file.
+    if (tag === `S ${name}`) assert.deepStrictEqual({ looked, why }, { looked: false, why: '' }, `${label}: ${name} tagged S`);
+  }
+  // The shape git fails on everywhere, and the one it passes over everywhere.
+  assert.deepStrictEqual({ same: failed.same, kept: failed.kept }, { same: true, kept: false });
+});
+
+// RS-A-missinglookups, review round 1: the tag of ls-files -t puts 2 more
+// bytes on each line of the list of tracked files, and an answer past the
+// runner's buffer fails the call. A list that fits in 32 MiB without the
+// tags and not with them (N tracked names of 150 characters in a folder
+// that is not there, and `a`) is read, and status with it. N is worked out
+// from the length of an object's name, so the list fits with SHA-1 (166,936
+// names) and with SHA-256 (149,129) alike (review round 2). repoAt makes a
+// SHA-1 repo: the SHA-256 count is worked out, not run. The status count is
+// N: `a` is not changed.
+test('git status: a list of tracked files that fits in 32 MiB without the tags of -t is read with them (RS-A-missinglookups)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const dir = path.join(realTemp('jbmem-taglist-'), 'r');
+  repoAt(dir);
+  const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: dir, input: '', encoding: 'utf8' }).trim();
+  // A line: mode and space (7), the name, ` 0` and a tab (3), the path, NUL.
+  const N = Math.floor(((32 << 20) - 200) / (7 + blob.length + 3 + 150 + 1));
+  const names = Array.from({ length: N }, (_, k) => { const p = `d/${String(k).padStart(6, '0')}`; return p + 'x'.repeat(150 - p.length); });
+  const set = spawnSync('git', ['update-index', '--index-info'], { cwd: dir, input: names.map(p => `100644 ${blob}\t${p}\n`).join(''), encoding: 'utf8' });
+  assert.strictEqual(set.status, 0, set.stderr);
+  const size = (more) => spawnSync('git', ['ls-files', '--stage', ...more, '-z', '--full-name'], { cwd: dir, maxBuffer: 64 << 20 }).stdout.length;
+  const sizes = { without: size([]), with: size(['-t']) };
+  assert.ok(sizes.without <= 32 << 20 && sizes.with > 32 << 20, `the list fits in 32 MiB without the tags and not with them: ${JSON.stringify(sizes)}`);
+  const f = gitFacts(dir, ['status'], { budgetMs: 30000, callMs: 20000 });
+  assert.deepStrictEqual({ skipped: f.statusSkipped, count: f.statusCount }, { skipped: undefined, count: N });
+});
+
+// RS-A-missinglookups, review round 2: the larger buffer is for that list
+// alone. A commit subject of 33 MiB is not read (the call fails, and the
+// subject is empty). With 34 MiB for every call it was read. Cutting it to
+// one line is cheap for this test's `x` (about 50 ms), and took 4 s and 2 GB
+// for 33.5 MiB of `a \t`, a subject with many gaps (both CONFIRMED by Fable,
+// not re-run).
+test('git facts: a commit subject past 32 MiB is not read (RS-A-missinglookups)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-bigsubject-');
+  const dir = path.join(base, 'r');
+  const g = repoAt(dir);
+  const msg = path.join(base, 'msg');
+  fs.writeFileSync(msg, 'x'.repeat(33 << 20));
+  g('commit', '-q', '--allow-empty', '--cleanup=verbatim', '-F', msg);
+  // The control: git gives the whole subject, and a short one is read.
+  assert.strictEqual(spawnSync('git', ['log', '-1', '--format=%s'], { cwd: dir, maxBuffer: 64 << 20 }).stdout.length, (33 << 20) + 1);
+  assert.strictEqual(gitFacts(dir, ['subject'], { budgetMs: 20000, callMs: 15000 }).subject, '');
+  g('commit', '-q', '--allow-empty', '-m', 'short');
+  assert.strictEqual(gitFacts(dir, ['subject'], { budgetMs: 20000, callMs: 15000 }).subject, 'short');
 });
 
 // The same lookup where the system makes the failure itself. A tracked name
