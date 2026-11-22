@@ -3008,9 +3008,10 @@ test('git status: a name git marks skip-worktree is not looked up where the list
 // runner's buffer fails the call. A list that fits in 32 MiB without the
 // tags and not with them (N tracked names of 150 characters in a folder
 // that is not there, and `a`) is read, and status with it. N is worked out
-// from the length of an object's name, so the list fits with SHA-1 (166,926
-// names) and with SHA-256 (149,128) alike (review round 2). The status
-// count is N: `a` is not changed.
+// from the length of an object's name, so the list fits with SHA-1 (166,936
+// names) and with SHA-256 (149,129) alike (review round 2). repoAt makes a
+// SHA-1 repo: the SHA-256 count is worked out, not run. The status count is
+// N: `a` is not changed.
 test('git status: a list of tracked files that fits in 32 MiB without the tags of -t is read with them (RS-A-missinglookups)', () => {
   const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const dir = path.join(realTemp('jbmem-taglist-'), 'r');
@@ -3030,8 +3031,10 @@ test('git status: a list of tracked files that fits in 32 MiB without the tags o
 
 // RS-A-missinglookups, review round 2: the larger buffer is for that list
 // alone. A commit subject of 33 MiB is not read (the call fails, and the
-// subject is empty). With 34 MiB for every call it was, and cutting such a
-// subject to one line took 4 s and 2 GB (CONFIRMED by Fable, not re-run).
+// subject is empty). With 34 MiB for every call it was read. Cutting it to
+// one line is cheap for this test's `x` (about 50 ms), and took 4 s and 2 GB
+// for 33.5 MiB of `a \t`, a subject with many gaps (both CONFIRMED by Fable,
+// not re-run).
 test('git facts: a commit subject past 32 MiB is not read (RS-A-missinglookups)', () => {
   const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const base = realTemp('jbmem-bigsubject-');
