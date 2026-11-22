@@ -408,7 +408,8 @@ test('context watch: finding the memory folder is inside the hook\'s 5 s for git
   // it (the hook's limit less the time gone on the clocks) and runs it with
   // 20 s. Started with the launcher's timeout, the script had that much real
   // time less the time the clocks were moved by, and under load it could run
-  // past that and be stopped.
+  // past that and be stopped. A stop now means the script ran past 20 s,
+  // though the launcher's message is the same.
   let made = 0;
   const hook = (at, by) => {
     const log = path.join(c.s.base, `calls${++made}.txt`);

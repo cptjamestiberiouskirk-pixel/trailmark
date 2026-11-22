@@ -5077,7 +5077,9 @@ test('git pointers: finding the repo for a hook stops with the hook\'s time (RS-
   // timeout the launcher gives it (the hook's limit less the time gone on
   // the clocks) and runs it with 20 s. Started with the launcher's timeout,
   // the script had that much real time less the time the clocks were moved
-  // by, and under load it ran past that and was stopped.
+  // by, and under load it ran past that and was stopped. A stop now means
+  // the script ran past 20 s, though the launcher's JBMEM_SHOW_RUN line
+  // still names the timeout it gave.
   const s = sandbox();
   quoted(s.repo, path.join(s.base, 'inc'));
   let made = 0;
