@@ -37,13 +37,16 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 const gitBuf = (...a) => execFileSync('git', ['-C', ROOT, ...a], { maxBuffer: 256 << 20 });
 
 // The PR's files as data, as the workflow's "Write the PR's files as data"
-// step writes them: regular files only, no instruction or server files.
+// step writes them: regular files only, no instruction or server files. One
+// difference: a name the rule below refuses stops the case here, where the
+// workflow (on Linux) writes it.
 const SKIPPED = /(^|\/)(claude[^/]*\.md|agents[^/]*\.md|\.mcp\.json)$|(^|\/)\.claude(\/|$)/i;
 // A tree name comes from the repo and is not trusted. It is written only when
 // each part is a plain name on every system: no `\` or `:` (a separator,
 // drive or stream mark on Windows), no empty part, and no part that ends in
-// `.` or a space (Windows drops those, so `.. ` opens as `..`). The case
-// stops on any other name, and the written path must still fall inside `dir`.
+// `.` or a space (Windows path rules drop those, though Node 26 here kept
+// them in a run: the rule only narrows). The case stops on any other name, and
+// the written path must still fall inside `dir`.
 const unsafePath = (p) => /[\\:]/.test(p) || p.split('/').some((s) => s === '' || /[. ]$/.test(s));
 // `opts.lsTree` and `opts.blob` stand in for git in tests.
 function writeHead(sha, dir, opts = {}) {
@@ -104,8 +107,8 @@ function checkId(c) {
 }
 // Worktrees this run made and has not removed yet, and the reviewers it
 // started, for the end of the run and for Ctrl+C. A folder joins `live` only
-// once `git worktree add` has made it, and only a folder in `live` is ever
-// deleted.
+// when `prepare` has made it with a create that fails if it is there, and only
+// a folder in `live` is ever deleted.
 const live = new Set();
 const children = new Set();
 function dropWorktree(ws) {
@@ -123,7 +126,7 @@ function prepare(c, work, opts = {}) {
   const ws = path.join(work, c.id);
   // A folder that is already there is never this run's, so the case stops.
   if (fs.existsSync(ws)) {
-    throw new Error(`${ws} is already there; if an earlier run left it, remove it with: git worktree remove --force "${ws}"`);
+    throw new Error(`${ws} is already there; if an earlier run left it, remove it with: git worktree remove --force "${ws}" (or, when git says it is not a working tree, delete the folder)`);
   }
   const pr = (opts.prText || prText)(c);
   // git worktree add takes over an empty folder, so a folder made by anything

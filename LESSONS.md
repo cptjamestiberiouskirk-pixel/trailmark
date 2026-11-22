@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A test failed on its parent only for want of its stand-in
+- What went wrong: the three tests of the runner's round 4 fixes failed on their parent commits, which was taken as the reproduction, but they failed there because the parent had no `opts.prText` or `opts.lsTree` (the real `gh` ran, or `writeHead` was not exported). Round 5 added only the stand-ins to the old code: two then failed for the fix's reason, and one passed.
+- Why: a test that adds a stand-in fails on any commit without it, whatever the fix does.
+- Rule going forward: when a fix's test adds a stand-in or an export, the fails-on-parent check runs on the parent with only that stand-in added, and the failure message is read to see that it is the fix's.
+- Status: open
+
 ## 2026-11-22: The eval runner's folder safety was patched three rounds running
 - What went wrong: review rounds 2, 3 and 4 each found `dev/review-evals/run.js` able to delete a folder it had not made: first through an unchecked case id, then by force-removing any registered worktree, then by adopting an empty folder that appeared while `gh` ran. Each fix closed the reported path and claimed more than it proved ("never removes"), and round 3's change of approach still left a check-then-act gap. The brief's rule stopped the work.
 - Why: the safety rested on checks before an action that another process can race, and the claims were written from the design, not from a test that reaches the action (no test ran `git worktree add`).
