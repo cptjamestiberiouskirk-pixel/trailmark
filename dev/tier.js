@@ -19,21 +19,51 @@ function fileTier(name, rules) {
   return 'medium';
 }
 
-// The line's code: quoted text becomes "" and a // comment goes, so words
-// there count for nothing. Each quote kind is matched on its own, so the
-// match stays linear on a line with an unclosed quote.
-const code = (l) => l.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g, '""').replace(/\/\/.*$/, '');
-// t.skip(), t.skip (), t.skip?.(), test.only(), { skip: ... }, { only: true },
-// (..., { skip }), and the quoted forms t['skip']() and { 'skip': true }.
-// Other forms (an alias, a key set later, a call split over lines) are left
-// to the reviewer.
-const CALL = /\.\s*(skip|todo|only)\s*(\?\.\s*)?\(/;
+// The line's code, read once from left to right, so its time grows with the
+// line: each quoted string becomes "", a // comment ends the line and a /* */
+// comment goes. A quote still open at the end gives the raw line back, so a
+// stray quote can't hide a skip from the key forms.
+function code(l) {
+  let out = '';
+  for (let i = 0; i < l.length; i++) {
+    const ch = l[i];
+    if (ch === '"' || ch === "'" || ch === '`') {
+      let j = i + 1;
+      while (j < l.length && l[j] !== ch) j += l[j] === '\\' ? 2 : 1;
+      if (j >= l.length) return l;
+      out += '""';
+      i = j;
+    } else if (ch === '/' && l[i + 1] === '/') {
+      break;
+    } else if (ch === '/' && l[i + 1] === '*') {
+      const end = l.indexOf('*/', i + 2);
+      if (end < 0) break;
+      out += ' ';
+      i = end + 1;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+// Skip forms: t.skip(), t.skip (), t.skip?.(), test.only() and t['skip']()
+// (read on the raw line, so a call inside a template or after a stray quote
+// counts, and so does one named in a string or comment); { skip: ... },
+// { only: true } and the shorthand { skip }, { timeout: 5, todo } (read in
+// the code, but not in a destructuring line such as `const { skip } = opts`);
+// { 'skip': true } (raw). Other forms (an alias, a key set later, a call split
+// over lines) are left to the reviewer.
+const CALL = /\.\s*(skip|todo|only)\s*(\?\.\s*)?\(|\[\s*['"`](skip|todo|only)['"`]\s*\]/;
 const KEY = /\b(skip|todo)\s*:|\bonly\s*:\s*(true|[1-9])/;
-const SHORT = /[(,]\s*\{\s*(skip|only)\s*\}/;
-const QUOTED = /\[\s*['"`](skip|todo|only)['"`]\s*\]|['"](skip|todo|only)['"]\s*:/;
-const isSkip = (l) => { const c = code(l); return CALL.test(c) || KEY.test(c) || SHORT.test(c) || QUOTED.test(l); };
+const SHORT = /[{,]\s*(skip|todo|only)\s*[,}]/;
+const DESTRUCT = /^\+?\s*(const|let|var)\s*\{/;
+const QUOTED = /['"](skip|todo|only)['"]\s*:/;
+const isSkip = (l) => {
+  const c = code(l);
+  return CALL.test(l) || KEY.test(c) || (SHORT.test(c) && !DESTRUCT.test(c)) || QUOTED.test(l);
+};
 // A skip that names its condition on the same line (a platform, root, a flag).
-// Text in quotes or comments doesn't count, so `t.skip('why?')` is not a
+// Read in the code, so `t.skip('why?')` or a `// a && b` comment is not a
 // condition, and neither does a constant that decides it (`true || x`,
 // `1 ? 'a' : b`), nor is an optional call (`?.(`). A todo or a focus (only)
 // is never conditional.

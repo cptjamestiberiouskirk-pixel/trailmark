@@ -89,9 +89,26 @@ function mergeFindings(cands, voteOutputs) {
 function sections(body) {
   // Inside a ``` or ~~~ fence (up to 3 spaces in), a line is content: a
   // leading space keeps it from reading as a heading, and its comment opener
-  // is broken so it can't hide what follows.
+  // is broken so it can't hide what follows. Inside a comment a fence line
+  // opens nothing, as GitHub shows it.
+  // Whether a comment is still open at the end of s, from position `from`.
+  const openAt = (s, from) => {
+    for (let pos = from; ;) {
+      const o = s.indexOf('<!--', pos);
+      if (o < 0) return false;
+      const c = s.indexOf('-->', o + 4);
+      if (c < 0) return true;
+      pos = c + 3;
+    }
+  };
   let fence = null;
+  let comment = false;
   const lines = String(body || '').replace(/\r\n/g, '\n').split('\n').map((l) => {
+    if (comment) {
+      const end = l.indexOf('-->');
+      if (end >= 0) comment = openAt(l, end + 3);
+      return l;
+    }
     const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(l);
     const opens = m && !(m[1][0] === '`' && m[2].includes('`'));
     if (fence) {
@@ -99,6 +116,7 @@ function sections(body) {
       return ' ' + l.replace(/<!--/g, '<! --');
     }
     if (opens) { fence = m[1]; return ' ' + l; }
+    comment = openAt(l, 0);
     return l;
   });
   const text = lines.join('\n').replace(/<!--[\s\S]*?(-->|(?![\s\S]))/g, '');
@@ -173,16 +191,19 @@ function shipped(d) {
 
 // Breaker: of the last `window` merged PRs labeled tier:low or tier:medium,
 // how many does a merged PR name in a "Regression-of:" line. The line may be
-// a list item (-, *, + or 1.), a quote or bold, in any case, and name several
-// PRs ("#10, #11", "#10 and #11"). Other forms ("PR #10") are not counted.
+// a list item (-, *, + or 1.), a task box, a quote, bold or italic (with the
+// colon inside the marks or after them), in any case, and name several PRs
+// ("#10, #11", "10, 11", "#10 and #11"). Other forms ("PR #10") are not counted.
 function breaker(merged, rules) {
   const b = { window: 20, trip: 2, resetAfter: 0, ...(rules.breaker || {}) };
   const auto = merged.filter((p) => p.number > b.resetAfter && p.labels.some((l) => /^tier:(low|medium)$/.test(l)))
     .sort((x, y) => y.number - x.number).slice(0, b.window);
   const named = new Set();
   for (const p of merged) {
-    // After the first PR, only "#N" counts, so "#10 2 tests failed" names 10.
-    for (const m of String(p.body || '').matchAll(/^[ \t>]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?(?:\*\*)?regression-of:(?:\*\*)?[ \t]*(#?\d+(?:[ \t]*(?:,|and)?[ \t]*#\d+)*)/gim)) {
+    // After a comma a bare number counts ("10, 11"); after a blank or "and"
+    // only "#N" does. Each separator ends at a "," or a "#", so a run of
+    // blanks is read one way only and the time stays linear in the body.
+    for (const m of String(p.body || '').matchAll(/^[ \t>]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?(?:\[[ xX]\][ \t]+)?[*_]{0,2}regression-of[*_]{0,2}[ \t]*:[*_]{0,2}[ \t]*(#?\d+(?:[ \t]*,[ \t]*#?\d+|(?:[ \t]+and[ \t]+|[ \t]+)#\d+)*)/gim)) {
       for (const n of m[1].matchAll(/#?(\d+)/g)) named.add(Number(n[1]));
     }
   }

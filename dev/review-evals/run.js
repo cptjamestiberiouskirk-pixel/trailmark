@@ -14,7 +14,8 @@
 // Exit 0 at or above "evalFloor" of dev/risk-tiers.json, 1 below it, 2 when
 // any case could not run (no PR text, no usable output): a partial run is no
 // score. It removes each worktree it made, and on Ctrl+C stops the reviewers
-// first (not run by a test). A folder of a case's name that it did not make
+// first (not run by a test). It never removes a folder that was there before
+// it made it: a folder of a case's name, an earlier run's worktree included,
 // stops that case. The score is the reviewer's alone: in the workflow two
 // verifiers must also confirm a finding.
 'use strict';
@@ -90,13 +91,10 @@ const ID = /^[a-z0-9][a-z0-9-]{0,59}$/;
 function checkId(c) {
   if (!c || typeof c.id !== 'string' || !ID.test(c.id)) throw new Error(`bad case id ${JSON.stringify(c && c.id)}`);
 }
-const same = (a, b) => process.platform === 'win32' ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b);
-const registered = (ws) => git('worktree', 'list', '--porcelain').split('\n')
-  .some((l) => l.startsWith('worktree ') && same(l.slice(9), ws));
-
 // Worktrees this run made and has not removed yet, and the reviewers it
-// started, for the end of the run and for Ctrl+C. Only a folder in `live` is
-// ever deleted.
+// started, for the end of the run and for Ctrl+C. A folder joins `live` only
+// once `git worktree add` has made it, and only a folder in `live` is ever
+// deleted.
 const live = new Set();
 const children = new Set();
 function dropWorktree(ws) {
@@ -111,15 +109,14 @@ function dropWorktree(ws) {
 function prepare(c, work) {
   checkId(c);
   const ws = path.join(work, c.id);
-  // A worktree left by an earlier run that stopped is removed through git;
-  // any other folder of that name is not this tool's, so the case stops.
+  // A folder that is already there is never this run's, so the case stops.
   if (fs.existsSync(ws)) {
-    if (registered(ws)) execFileSync('git', ['-C', ROOT, 'worktree', 'remove', '--force', ws], { stdio: 'ignore' });
-    if (fs.existsSync(ws)) throw new Error(`${ws} exists and is not a worktree of this repo: remove it by hand`);
+    throw new Error(`${ws} is already there; if an earlier run left it, remove it with: git worktree remove --force "${ws}"`);
   }
   const pr = prText(c);
+  // Without --force, git refuses a folder that appeared since the check.
+  git('worktree', 'add', '--detach', ws, `${c.causeMerge}^1`);
   live.add(ws);
-  git('worktree', 'add', '--detach', '--force', ws, `${c.causeMerge}^1`);
   fs.copyFileSync(path.join(ROOT, 'REVIEW.md'), path.join(ws, 'REVIEW.md'));
   const r = path.join(ws, '.review');
   fs.mkdirSync(path.join(r, 'head'), { recursive: true });
@@ -197,6 +194,7 @@ async function main() {
   for (const c of cases) {
     try { checkId(c); } catch (e) { console.error(e.message); process.exit(2); }
   }
+  if (new Set(cases.map((c) => c.id)).size !== cases.length) { console.error('two cases share an id'); process.exit(2); }
   const work = path.resolve(workArg);
   fs.mkdirSync(work, { recursive: true });
   const results = [];

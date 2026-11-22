@@ -493,7 +493,7 @@ test('evals: the workflow runs the regression reviewer on MODEL_REGRESSION, whic
   assert.ok(wf('auto-review.yml').split('\n').some((l) => l.trim() === 'run regression "$MODEL_REGRESSION" &'));
   assert.equal(wf('review-evals.yml').match(/MODEL_REGRESSION:/g).length, 1);
 });
-test('evals: case ids are plain names; a folder the run did not make is never deleted', () => {
+test('evals: case ids are plain names; a plain folder the run did not make is never deleted', () => {
   const run = require('./review-evals/run.js');
   for (const id of ['..', '.', '', 'A', 'a/b', 'a\\b', '-a', 'a'.repeat(61), undefined]) {
     assert.throws(() => run.checkId({ id }), /bad case id/, String(id));
@@ -506,7 +506,7 @@ test('evals: case ids are plain names; a folder the run did not make is never de
     fs.mkdirSync(mine, { recursive: true });
     fs.writeFileSync(path.join(mine, 'keep.txt'), 'x');
     assert.throws(() => run.prepare({ id: '..', causePr: 1, causeMerge: 'HEAD' }, work), /bad case id/);
-    assert.throws(() => run.prepare({ id: 'some-case', causePr: 1, causeMerge: 'HEAD' }, work), /not a worktree of this repo/);
+    assert.throws(() => run.prepare({ id: 'some-case', causePr: 1, causeMerge: 'HEAD' }, work), /is already there/);
     run.dropWorktree(mine);
     assert.ok(fs.existsSync(path.join(mine, 'keep.txt')));
     assert.ok(fs.existsSync(work));
@@ -518,4 +518,103 @@ test('evals: exit 2 when any case has no result or there are none, else 0 at the
   assert.equal(exitCode([{ caught: true }, { noResult: true }], 0.5), 2);
   assert.equal(exitCode([{ caught: true }, { caught: false }], 0.5), 0);
   assert.equal(exitCode([{ caught: false }, { caught: false }], 0.5), 1);
+});
+test('tier: shorthand with other keys, a call in a template or after a stray quote, and a CR line all lift', () => {
+  const f = (patch) => t.classify([file('plugins/trailmark/tests/a.test.js', `@@\n+${patch}`)], rules);
+  for (const l of ["it('x', { skip, timeout: 5 }, f)", "it('x', { timeout: 5, skip }, f)", "it('x', { todo }, f)",
+    'const m = `${t.skip(\'x\')}`;', "/* don't */ t.skip(); // can't", "x = /'/; t.skip('a'); y = /'/",
+    "t.skip('a') /* ? */", "t.skip('x'); // a && b\r"]) {
+    const c = f(l);
+    assert.equal(c.tier, 'high', JSON.stringify(l));
+    assert.equal(c.mustCheck.length, 0, JSON.stringify(l));
+  }
+  assert.equal(f('const { skip, todo } = opts;').tier, 'low');
+});
+test('tier: lines built to slow a quote or comment reader are read in linear time', () => {
+  const tierJs = JSON.stringify(path.join(__dirname, 'tier.js'));
+  const rulesJs = JSON.stringify(path.join(__dirname, 'risk-tiers.json'));
+  // A quote, then many escaped quotes and no closing one; many slashes and a
+  // CR. The child builds the lines: they are too long for a command line.
+  const code = `const t = require(${tierJs}); const r = require(${rulesJs});
+    const q = String.fromCharCode(39), b = String.fromCharCode(92), cr = String.fromCharCode(13), nl = String.fromCharCode(10);
+    const patch = '@@' + nl + '+t.skip(' + q + (b + q).repeat(80000) + nl + '+' + '/'.repeat(80000) + cr;
+    const s = Date.now(); t.classify([{ filename: 'plugins/trailmark/tests/a.test.js', status: 'modified', patch }], r);
+    console.log(Date.now() - s);`;
+  const r = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 20000 });
+  assert.equal(r.signal, null, 'classify did not finish in 20 s');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(Number(r.stdout) < 2000, `took ${r.stdout.trim()} ms`);
+});
+test('breaker: bold or italic with the colon inside or after the marks counts; a long run of blanks is read in linear time', () => {
+  const auto = (n) => ({ number: n, body: '', labels: ['tier:low'] });
+  const by = (b) => g.breaker([auto(10), auto(11), auto(12), { number: 20, body: b, labels: [] }], rules).hits.sort();
+  assert.deepEqual(by('**Regression-of**: #10'), [10]);
+  assert.deepEqual(by('__Regression-of:__ #11'), [11]);
+  assert.deepEqual(by('*Regression-of:* #12'), [12]);
+  const s = Date.now();
+  g.breaker([auto(1), { number: 20, body: 'Regression-of: #1' + ' '.repeat(60000) + 'x', labels: [] }], rules);
+  assert.ok(Date.now() - s < 2000, `took ${Date.now() - s} ms`);
+});
+test('sections: a fence line inside a comment opens nothing; many comment openers are read in linear time', () => {
+  const ok = '## Testing\nran it\n## Risk\nlow\n## How to revert\ngit revert';
+  assert.deepEqual(g.sections('<!--\n```\n-->\n' + ok), []);
+  assert.deepEqual(g.sections('<!-- a --> <!--\n```\n-->\n' + ok), []);
+  assert.deepEqual(g.sections('<!--\n```\n' + ok), ['Testing', 'Risk', 'How to revert']);
+  const s = Date.now();
+  g.sections('<!--'.repeat(15000) + '\n' + ok);
+  g.sections('<!--\n' + '-->'.repeat(15000) + '<!--'.repeat(15000) + '\n' + ok);
+  assert.ok(Date.now() - s < 2000, `took ${Date.now() - s} ms`);
+});
+test('evals: a worktree of this repo the run did not make is kept, untracked files and all', () => {
+  const run = require('./review-evals/run.js');
+  const root = path.join(__dirname, '..');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evaltree-'));
+  const ws = path.join(tmp, 'work', 'user-tree');
+  try {
+    const add = spawnSync('git', ['-C', root, 'worktree', 'add', '--detach', ws, 'HEAD'], { encoding: 'utf8', timeout: 60000 });
+    assert.equal(add.status, 0, add.stderr);
+    fs.writeFileSync(path.join(ws, 'my-notes.txt'), 'x');
+    assert.throws(() => run.prepare({ id: 'user-tree', causePr: 1, causeMerge: 'HEAD' }, path.join(tmp, 'work')), /is already there/);
+    assert.ok(fs.existsSync(path.join(ws, 'my-notes.txt')));
+  } finally {
+    spawnSync('git', ['-C', root, 'worktree', 'remove', '--force', ws], { timeout: 60000 });
+    spawnSync('git', ['-C', root, 'worktree', 'prune'], { timeout: 60000 });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+test('evals: two cases with one id stop the run before any case starts', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evaldup-'));
+  try {
+    const cases = path.join(tmp, 'cases.json');
+    fs.writeFileSync(cases, JSON.stringify({ cases: [{ id: 'same', causePr: 1, causeMerge: 'HEAD' }, { id: 'same', causePr: 2, causeMerge: 'HEAD' }] }));
+    const env = { ...process.env, CLAUDE_BIN: 'none', MODEL_REGRESSION: 'm', TOOLS: 't', READ_TOOLS: 'r', DENY_TOOLS: 'd', PATH: '' };
+    const r = spawnSync(process.execPath, [path.join(__dirname, 'review-evals', 'run.js'), cases, path.join(tmp, 'work')], { encoding: 'utf8', timeout: 60000, env });
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /two cases share an id/);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+test('sections: hidden comments holding fence lines leave a section empty; a fence closes only on its own kind, length and a bare line', () => {
+  const ok = '## Testing\nran it\n## Risk\nlow\n## How to revert\ngit revert';
+  const none = ['Testing', 'Risk', 'How to revert'];
+  // Two comments, each with a fence line: GitHub shows an empty Testing section.
+  assert.deepEqual(g.sections('## Testing\n<!--\n```\n-->\n<!-- hidden filler\n```\n-->\n## Risk\nlow\n## How to revert\ngit revert'), ['Testing']);
+  assert.deepEqual(g.sections('```\n~~~\n' + ok), none);
+  assert.deepEqual(g.sections('```\n```js\n' + ok), none);
+  assert.deepEqual(g.sections('````\n```\n' + ok + '\n````\n'), none);
+});
+test('tier: a call named in a comment lifts; a key form inside a string does not', () => {
+  const f = (patch) => t.classify([file('plugins/trailmark/tests/a.test.js', `@@\n+${patch}`)], rules);
+  assert.equal(f("// t.skip('later')").tier, 'high');
+  for (const l of ["const s = 'skip: true';", 'const s = "{ skip }";', "log('only: 1')"]) {
+    assert.equal(f(l).tier, 'low', l);
+  }
+});
+test('breaker: a task box, a blank before the colon and bare numbers after a comma count', () => {
+  const auto = (n) => ({ number: n, body: '', labels: ['tier:low'] });
+  const by = (b) => g.breaker([auto(10), auto(11), auto(12), { number: 20, body: b, labels: [] }], rules).hits.sort();
+  assert.deepEqual(by('- [x] Regression-of: #10'), [10]);
+  assert.deepEqual(by('Regression-of : #11'), [11]);
+  assert.deepEqual(by('Regression-of: 10, 11'), [10, 11]);
+  assert.deepEqual(by('Regression-of: #10, 12'), [10, 12]);
+  assert.deepEqual(by('_Regression-of:_ #12'), [12]);
 });
