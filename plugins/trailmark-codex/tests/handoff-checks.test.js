@@ -644,12 +644,14 @@ const deadLockAt = (prefix, ago) => {
   if (ago) { const t = (Date.now() - ago) / 1000; fs.utimesSync(file, t, t); }
   return { dir, file };
 };
-// The ended holder's pid must still be free: a pid given to a live process
-// would keep the lock for another reason (review round 2, security F1).
-const assertDead = (text) => {
-  const pid = Number(/^pid (\d+)/.exec(text)[1]);
-  assert.throws(() => process.kill(pid, 0), (e) => e.code === 'ESRCH', `pid ${pid} is in use again`);
-};
+// The ended holders' pids must still be free: a pid given to a live process
+// would keep the lock for another reason (review round 2, security F1). A
+// pid in use again leaves the test unable to tell, so it skips (review
+// round 4, F3: one was reused within about 6.5 s on a busy PC).
+const reusedPid = (...texts) => texts.map((text) => Number(/^pid (\d+)/.exec(text)[1])).find((pid) => {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code !== 'ESRCH'; }
+});
+const reusedSkip = (pid) => `pid ${pid} of an ended holder is in use again, so the test cannot tell`;
 
 test('lock: a system clock moved past 60 s leaves a live holder its fresh lock (RS-T-lockagestep)', () => {
   for (const by of [61000, -3600000]) {
@@ -683,7 +685,7 @@ test('lock: with the clock moved, a dead holder\'s lock is broken after 5 s of w
   assert.ok(took >= 5000, `broken after ${Math.round(took)} ms`);
 });
 
-test('lock: with the clock moved, the watch starts again when the lock changes (RS-T-lockagestep)', async () => {
+test('lock: with the clock moved, the watch starts again when the lock changes (RS-T-lockagestep)', async (t) => {
   const { dir, file } = deadLockAt('jbmem-lockrewatch-', 10000);
   // Another ended holder's label at about 3 s: watched from then, so not
   // broken before about 8 s, past the 6 s wait. The first label is
@@ -694,8 +696,8 @@ test('lock: with the clock moved, the watch starts again when the lock changes (
   const child = require('child_process').spawn(process.execPath, ['-e', `setTimeout(() => require('fs').writeFileSync(${JSON.stringify(file)}, ${JSON.stringify(label)}), 3000)`], { stdio: 'ignore' });
   try {
     const got = tryLock(dir, 61000, 6000);
-    assertDead(first);
-    assertDead(label);
+    const again = reusedPid(first, label);
+    if (again) return t.skip(reusedSkip(again));
     assert.deepStrictEqual(got, { ran: false, code: 'JBMEM_LOCKED' });
     assert.ok(fs.readFileSync(file, 'utf8').includes('token eeee'), 'the relabeled lock was broken');
   } finally {
@@ -722,9 +724,11 @@ test('lock: with the clock moved, a .break file is not removed for its age, and 
 // PR 113, Copilot: a clock that steps and returns within one wait, and a
 // step between a .break file's age and the clock check.
 test('lock: a clock that steps 61 s and returns during the wait leaves a live holder its lock (RS-T-lockagestep)', () => {
-  // Taken while the clock was 61 s ahead, so dated 61 s in the future once
-  // it returns, 300 ms into this wait.
-  const { dir, file } = lockAt('jbmem-lockreturn-', -61000);
+  // Taken while the clock was ahead, and dated 65 s in the future: by the
+  // true clock it stays over 60 s old for about 5 s, the whole wait. The
+  // clock is 61 s ahead for this wait's first 300 ms (review round 4, F2:
+  // dated 61 s ahead, only a try in the first second caught the old code).
+  const { dir, file } = lockAt('jbmem-lockreturn-', -65000);
   const now = Date.now;
   const t0 = performance.now();
   Date.now = () => now() + (performance.now() - t0 < 300 ? 61000 : 0);
@@ -734,33 +738,60 @@ test('lock: a clock that steps 61 s and returns during the wait leaves a live ho
   assert.ok(fs.readFileSync(file, 'utf8').includes('token aaaa'), 'the live lock was broken');
 });
 
-test('lock: a clock step between a .break file\'s age and the clock check leaves the .break (RS-T-lockagestep)', () => {
+test('lock: a clock step at a .break file\'s age, or between it and the clock check, leaves the .break (RS-T-lockagestep)', (t) => {
   // A dead holder's lock 10 s old is breakable at once; another command's
-  // fresh .break is there. The clock steps 61 s for good after the first
-  // Date.now read that follows the .break file's lstat.
-  const { dir, file } = deadLockAt('jbmem-lockbrkstep-', 10000);
-  const text = fs.readFileSync(file, 'utf8');
-  const brk = `${file}.break`;
-  fs.writeFileSync(brk, '');
-  const lstat = fs.lstatSync, now = Date.now;
-  let armed = false, reads = 0;
-  fs.lstatSync = function (p, ...rest) { if (String(p) === brk) armed = true; return lstat.call(this, p, ...rest); };
-  Date.now = () => { if (armed) reads++; return now() + (armed && reads >= 2 ? 61000 : 0); };
-  let got;
-  try { got = (() => { try { S.withLock(dir, () => {}, { waitMs: 600 }); return ''; } catch (e) { return e.code; } })(); } finally { fs.lstatSync = lstat; Date.now = now; }
-  assert.ok(armed, 'the .break file was never looked at');
-  assertDead(text);
-  assert.strictEqual(got, 'JBMEM_LOCKED');
-  assert.ok(fs.existsSync(brk), 'the fresh .break file was removed');
+  // fresh .break is there. The clock steps 61 s for good from a Date.now
+  // read counted after the .break file's lstat: read 1 is the file's age,
+  // read 2 the clock check after it (review round 4, F1: a step from read
+  // 2 alone left that check untested).
+  for (const from of [1, 2]) {
+    const { dir, file } = deadLockAt(`jbmem-lockbrkstep${from}-`, 10000);
+    const text = fs.readFileSync(file, 'utf8');
+    const brk = `${file}.break`;
+    fs.writeFileSync(brk, '');
+    const lstat = fs.lstatSync, now = Date.now;
+    let armed = false, reads = 0;
+    fs.lstatSync = function (p, ...rest) { if (String(p) === brk) armed = true; return lstat.call(this, p, ...rest); };
+    Date.now = () => { if (armed) reads++; return now() + (armed && reads >= from ? 61000 : 0); };
+    let got;
+    try { got = (() => { try { S.withLock(dir, () => {}, { waitMs: 600 }); return ''; } catch (e) { return e.code; } })(); } finally { fs.lstatSync = lstat; Date.now = now; }
+    assert.ok(armed, `step from read ${from}: the .break file was never looked at`);
+    const again = reusedPid(text);
+    if (again) return t.skip(reusedSkip(again));
+    assert.strictEqual(got, 'JBMEM_LOCKED', `step from read ${from}`);
+    assert.ok(fs.existsSync(brk), `step from read ${from}: the fresh .break file was removed`);
+  }
 });
 
-test('lock: a clock moved 2 s keeps a dead holder\'s lock 4 s old for its 5 s (RS-T-lockagestep)', () => {
+test('lock: a clock step after the .break file is taken keeps a dead holder\'s lock for its 5 s (RS-T-lockagestep)', (t) => {
+  // The first look, its clock unmoved, finds the lock breakable; the clock
+  // steps 61 s for good once this command has made the .break file, before
+  // the second look (review round 4: the clock check there had no test).
+  const { dir, file } = deadLockAt('jbmem-lockbrktaken-', 10000);
+  const text = fs.readFileSync(file, 'utf8');
+  const brk = `${file}.break`;
+  const open = fs.openSync, now = Date.now;
+  let armed = false;
+  fs.openSync = function (p, ...rest) { if (String(p) === brk) armed = true; return open.call(this, p, ...rest); };
+  Date.now = () => now() + (armed ? 61000 : 0);
+  let got;
+  try { got = (() => { try { S.withLock(dir, () => {}, { waitMs: 600 }); return ''; } catch (e) { return e.code; } })(); } finally { fs.openSync = open; Date.now = now; }
+  assert.ok(armed, 'the .break file was never made');
+  const again = reusedPid(text);
+  if (again) return t.skip(reusedSkip(again));
+  assert.strictEqual(got, 'JBMEM_LOCKED');
+  assert.ok(fs.readFileSync(file, 'utf8').includes('token dddd'), 'the lock was broken');
+  assert.ok(!fs.existsSync(brk), 'the .break file was left');
+});
+
+test('lock: a clock moved 2 s keeps a dead holder\'s lock 4 s old for its 5 s (RS-T-lockagestep)', (t) => {
   // A move past 1 s counts (review round 2, F1: a move of 6 s held the
   // threshold only below 6 s). By the moved clock this lock is 6 s old.
   const { dir, file } = deadLockAt('jbmem-locksmall-', 4000);
   const text = fs.readFileSync(file, 'utf8');
   const got = tryLock(dir, 2000);
-  assertDead(text);
+  const again = reusedPid(text);
+  if (again) return t.skip(reusedSkip(again));
   assert.deepStrictEqual(got, { ran: false, code: 'JBMEM_LOCKED' });
   assert.ok(fs.readFileSync(file, 'utf8').includes('token dddd'), 'the lock was broken');
 });

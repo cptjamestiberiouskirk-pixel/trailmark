@@ -346,7 +346,8 @@ function lockInfo(file) {
 }
 
 // watchedMs: how long this command has seen this same lock (its text);
-// moved: whether this command has seen the clock move (read after info).
+// moved: whether this command has seen the clock move (the caller reads it
+// after info, as the default does).
 function lockBreakable(info, watchedMs = 0, moved = clockMoved()) {
   if (!info) return false;
   const age = moved ? Math.min(info.age, watchedMs) : info.age;

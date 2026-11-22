@@ -14,10 +14,16 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A line the fix added was never removed alone, and no test needed it
+- What went wrong: in PR #113's Copilot fix, the mutation named for the `.break` file's clock check removed the `!watch.moved` term, not the added line `if (clockMoved()) watch.moved = true;` after the file's age (`store.js` line 407). Removed alone, that line failed no test (review round 4, F1, CONFIRMED by Opus by a run), since the new `.break` test stepped the clock only after the age was read, and the notes said each new part removed alone failed its test. The same held for the check before the second look (line 431).
+- Why: the mutation list was made from the fix's ideas (the kept move, the read order, the clock check), not from its added lines, so a line that an idea took for granted was left out. It is the class of "The lock fix's tests left its watch untested", seen again.
+- Rule going forward: a fix's mutation list is made from its diff: each added or changed line and each new term gets a mutation that removes just it, and a line no test fails on gets a test or a written reason (the 2026-11-09 lesson on a line no test needs).
+- Status: promoted to PLAYBOOK ("Testing" step 8)
+
 ## 2026-11-22: Three review rounds stepped the clock once per wait, and Copilot found two races
 - What went wrong: RS-T-lockagestep passed three review rounds, and Copilot on PR #113 then found two clock-step races in the fix, each CONFIRMED here by a probe: a clock that steps and returns within one wait undid the fix's distrust, and a step between the clock check and the `.break` file's age read removed an active breaker's `.break`.
 - Why: every test and probe moved the clock once, for the whole wait. None stepped it between two reads of one try, or stepped it back during the wait.
-- Rule going forward: a change that compares two clock reads gets a case that steps the clock between each pair of reads (a hook on the call between them, as the `.break` test's `fs.lstatSync` does) and one that steps and returns within one wait; the order of the reads is written in a comment.
+- Rule going forward: a change that compares two clock reads gets a case that steps the clock between each pair of reads (a hook that places the step there, as the `.break` test does: it arms on the file's `fs.lstatSync` and steps on a count of `Date.now` reads) and one that steps and returns within one wait; the order of the reads is written in a comment.
 - Status: open
 
 ## 2026-11-22: A threshold was mutated far from its value, and a timing margin was checked on one side
