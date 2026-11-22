@@ -38,6 +38,8 @@ Don't drive those steps by hand one at a time, and don't paste full test output 
 
 ## Reviews
 
+`REVIEW.md` carries this section's rules and `PLAYBOOK.md` "Reviewing" over for the automated reviewer of `.github/workflows/auto-review.yml`: a change here is made there too.
+
 Every change gets a regression, security and double-check pass, scoped to the change:
 
 - One reviewer on `git diff <last reviewed>..HEAD`, not the whole repo. Give it the goal, the files, what earlier rounds already fixed, and what the report holds: each finding first with its label and repro, then what was tried and found clean, and nothing that restates the diff. Tell it to use its own temp folder and clear it.

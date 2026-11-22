@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "comment": "Read from the base branch by dev/tier.js. Patterns match without regard to case. A file takes the first tier whose list matches it, checked high, then medium, then low; a file no list matches is medium. A PR takes its highest file tier.",
+  "mode": "observe",
+  "mediumNeedsOwner": false,
+  "maxRounds": 3,
+  "breaker": {
+    "window": 20,
+    "trip": 2,
+    "resetAfter": 0
+  },
+  "strictSkips": false,
+  "high": [
+    "^\\.github/",
+    "^\\.claude/",
+    "^\\.(agents|claude-plugin)/",
+    "(^|/)\\.mcp\\.json$",
+    "(^|/)(claude|agents)(\\.local)?\\.md$",
+    "^review\\.md$",
+    "(^|/)\\.gitattributes$",
+    "(^|/)codeowners$",
+    "^install\\.",
+    "^migrate-from",
+    "^tools/",
+    "^dev/release-(check|draft)\\.sh$",
+    "^dev/lessons\\.sh$",
+    "^dev/check-workflow-timeouts\\.js$",
+    "^dev/(tier|review-gate|checklist-pick)\\.js$",
+    "^dev/(ship-signers|sign-ship\\.sh)$",
+    "^dev/.*\\.test\\.js$",
+    "^dev/(risk-tiers|reliability-checklist)\\.json$",
+    "^dev/review-evals/"
+  ],
+  "medium": [
+    "^PLAYBOOK\\.md$",
+    "^plugins/[^/]+/(hooks|skills|commands|agents|scripts)/",
+    "^plugins/[^/]+/\\.(claude|codex)-plugin/",
+    "^plugins/[^/]+/[^/]+\\.json$"
+  ],
+  "low": [
+    "^plugins/[^/]+/tests/",
+    "^dev/",
+    "^docs/",
+    "\\.md$",
+    "^SHA256SUMS$",
+    "^LICENSE$"
+  ],
+  "securityLens": [
+    "^plugins/[^/]+/scripts/lib/(gitbin|gitfacts|plainfile|store|contextwatch)\\.js$",
+    "^plugins/[^/]+/scripts/trailmark\\.js$"
+  ],
+  "docsLens": "^(?!dev/|claude\\.md$).*\\.md$",
+  "weakenedTests": "(^|/)tests/.+\\.[cm]?js$",
+  "evalFloor": 0.5
+}

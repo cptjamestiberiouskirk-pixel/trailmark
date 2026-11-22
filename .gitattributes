@@ -6,5 +6,8 @@
 /CLAUDE.md export-ignore
 /PLAYBOOK.md export-ignore
 /LESSONS.md export-ignore
+/REVIEW.md export-ignore
+/.claude export-ignore
+/.claude/** export-ignore
 /dev export-ignore
 /dev/** export-ignore
