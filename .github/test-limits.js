@@ -120,22 +120,32 @@ if (LIMIT > 0) {
     // The place that called test(): the first stack frame in a .js file that
     // is neither Node's own nor this file, read from V8's call sites rather
     // than parsed from the stack's text, where a path may hold parentheses.
-    // Null when a test file's Error.prepareStackTrace makes the assignment
-    // throw (read-only in strict code, a getter with no setter, a setter that
-    // throws) or not take (an accessor that does not keep what is assigned:
-    // the stack is then no array). An accessor that keeps it gives the call
-    // site; a getter that throws still throws here (RS-T-pstaccessor).
+    // Error.prepareStackTrace is changed only when Error's own property is a
+    // writable value (Node's own, or a test file's function) or there is no
+    // own property, and is then put back as it was: the value, or no own
+    // property. Its descriptor is read, so a test file's getter is never
+    // called; a missing one is defined on Error, not assigned, so a setter
+    // inherited from Error's prototypes is not called either. Null when the
+    // own property is anything else (an accessor, a read-only value) or the
+    // change fails (no own property on an Error that is not extensible): the
+    // stand-in then calls test() itself, and the test's TAP location names
+    // this file, not the test file's line (RS-T-pstaccessor,
+    // dev/release-state.md).
     const callSite = () => {
-      const keep = Error.prepareStackTrace;
       let sites = [];
+      let d;
+      let changed = false;
       try {
-        Error.prepareStackTrace = (_, s) => s;
+        d = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace');
+        if (d && !('value' in d && d.writable)) return null;
+        changed = true;
+        if (d) Error.prepareStackTrace = (_, s) => s;
+        else Object.defineProperty(Error, 'prepareStackTrace', { value: (_, s) => s, writable: true, configurable: true });
         sites = new Error().stack;
       } catch { return null; } finally {
-        // Throws when the assignment above did (read-only), or when the file's
-        // own setter refuses the old value, which then leaves the call-site
-        // array in place (RS-T-pstaccessor).
-        try { Error.prepareStackTrace = keep; } catch { /* see above */ }
+        if (changed) {
+          try { if (d) Error.prepareStackTrace = d.value; else delete Error.prepareStackTrace; } catch { /* only an exotic Error (a Proxy's trap) gets here */ }
+        }
       }
       for (const s of Array.isArray(sites) ? sites : []) {
         const file = s.getFileName();
