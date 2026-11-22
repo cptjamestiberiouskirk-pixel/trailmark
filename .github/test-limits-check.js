@@ -14,8 +14,8 @@
 // longfile case checks that a file whose tests together run past the limit
 // still passes, which --test-timeout on Node 22 would fail. Its step fails
 // the job when a case does not give what it must (RS-T-hang75-enforce). It
-// runs from the repository's root, needs bash on PATH, and stops the
-// processes the cases leave.
+// runs from the repository's root (from elsewhere it exits 2 and makes
+// nothing), needs bash on PATH, and stops the processes the cases leave.
 // Usage: node .github/test-limits-check.js
 'use strict';
 const fs = require('fs');
@@ -26,18 +26,25 @@ const { spawnSync } = require('child_process');
 const LIMIT_MS = 3000;
 const GUARD_MS = 25000;
 const BUDGET_MS = 160000;
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trailmark-limits-'));
 const stopLine = /^::error title=calls stopped by the per-test limit \(1\)::/m;
+// The cases name the fixture and run-tests.sh by paths from the repository's
+// root. Started anywhere else, the check says so and exits 2, before it makes
+// its temp folder; the fixture is read before that folder too, so nothing is
+// left when either step fails (RS-T-limitscwd, dev/release-state.md).
+const FIXTURE = '.github/test-limits-fixture.js';
+for (const f of [FIXTURE, '.github/run-tests.sh']) {
+  if (!fs.existsSync(f)) { console.log(`run it from the repository's root: ${f} is not in ${process.cwd()}`); process.exit(2); }
+}
 // The fixture's line and column of the async case's first test() call, which
 // its TAP location line must name (line 0 when the call is not found, which
 // no location matches). The async case runs a copy of the fixture from a
 // folder whose name holds parentheses, and the location must keep that
 // folder's name.
-const FIXTURE = '.github/test-limits-fixture.js';
 const fixture = fs.readFileSync(FIXTURE, 'utf8').split('\n');
 const asyncLine = fixture.findIndex(l => l.includes("test('case async', hang)")) + 1;
 const asyncCol = asyncLine ? fixture[asyncLine - 1].indexOf('test(') + 1 : 0;
 const asyncAt = new RegExp(`^not ok \\d+ - case async\\n(?:  .*\\n)*?  location: '[^']*limits \\(x\\)[\\\\/]+test-limits-fixture\\.js:${asyncLine}:${asyncCol}'$`, 'm');
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trailmark-limits-'));
 const parenCopy = path.join(dir, 'limits (x)', 'test-limits-fixture.js');
 
 // What each case must give: the run's exit status, patterns the TAP output
