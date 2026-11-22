@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A clock-step test showed only that the work was not stopped early
+- What went wrong: RS-T-clocksteplibs's commit-sites test stepped `Date.now` and checked that the read was not cut short. Review round 1 (Opus, by a run) put `parse`'s deadline back on `Date.now` alone: the deadline then sat near 1.7e12 against `performance.now`, so the read never stopped for time, and the new test still passed. An older test caught it.
+- Why: the test checked one side of the deadline, that a step does not end it, and not that the deadline still ends the work.
+- Rule going forward: a test for a deadline moved to another clock also checks, on the real clocks, that a deadline already past still stops the work.
+- Status: open
+
 ## 2026-11-22: A killed child's handle outlived its exit event
 - What went wrong: the new RS-T-clocksteplibs lock test started a child to free the lock and killed it in `finally`. The `--only` run gave the WARN "left something open at exit: ProcessWrap" for both copies, and waiting for the child's `exit` event did not clear it.
 - Why: under `--test-force-exit` a file ends as soon as its tests do, and a child's handle is closed a loop turn after its `exit` event, so it was still listed at exit (`cl-wrap-probe.js` in the notes folder `rs-t-clocksteplibs/`: listed after `exit` and after a `setImmediate`, gone after a `setTimeout(0)`).

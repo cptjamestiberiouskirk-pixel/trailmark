@@ -220,6 +220,13 @@ function withShare(cwd, fn) {
 // about 15 times. Dropped when that check returns, since a folder can be
 // swapped for a link between two checks.
 let LSTAT_SEEN = null;
+// monoNow: the time in whole ms on Node's monotonic clock (performance.now
+// counts from performance.timeOrigin, about when the process started), for
+// the libraries' own deadlines. The system clock (Date.now) can be set back
+// or forward while one runs, which moved such a deadline (RS-T-clocksteplibs,
+// dev/release-state.md). Whole ms: execFileSync refuses a timeout that is not
+// an integer.
+const monoNow = () => Math.floor(performance.now());
 // What is left of the caller's time for git, in ms, while fn runs: a function,
 // or null where the caller has no limit (the launcher). The reading of config
 // files looks at it (farConfig, configEntries): a file with a quote in it is
@@ -230,12 +237,6 @@ let LSTAT_SEEN = null;
 // the caller's own loops stop at 800 (the status check); the check before a
 // git call hands in the 250 that call itself needs, so a caller with a second
 // in all (the look into another session's folder) still gets its call.
-// monoNow: the time in whole ms on Node's monotonic clock (performance.now
-// counts from the process's start), for the libraries' own deadlines. The
-// system clock (Date.now) can be set back or forward while one runs, which
-// moved such a deadline (RS-T-clocksteplibs, dev/release-state.md). Whole
-// ms: execFileSync refuses a timeout that is not an integer.
-const monoNow = () => Math.floor(performance.now());
 let TIME_LEFT = null;
 let TIME_FLOOR = 800;
 function withTime(left, fn, floor = 800) {

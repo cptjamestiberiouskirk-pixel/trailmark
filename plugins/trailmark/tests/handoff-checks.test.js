@@ -582,6 +582,11 @@ test('commit sites: a system clock set forward while a command is read leaves it
   // 2000 commands: past the 512 steps between looks at the time.
   const r = stepAfterFirst(3600000, () => commitSites('true; '.repeat(2000) + 'git commit -m x', { platform: 'linux', cwd: '/r', home: '/h', deadlineMs: 60000 }));
   assert.deepStrictEqual({ sites: r.sites.length, unresolved: r.unresolved }, { sites: 1, unresolved: [] });
+  // A deadline already past, on the real clocks: the read stops. A deadline
+  // set from Date.now and read against performance.now never would (review
+  // round 1, F1).
+  const late = commitSites('true; '.repeat(2000) + 'git commit -m x', { platform: 'linux', cwd: '/r', home: '/h', deadlineMs: -1 });
+  assert.ok(late.unresolved.includes('too-long'), JSON.stringify(late.unresolved));
 });
 
 // The lock is this process's, on this host, so it is never broken as dead.
