@@ -316,6 +316,14 @@ function testPause() {
 // seen, counts for the rest of this command's wait (a clock that steps and
 // returns leaves a lock dated in the future), and each age is read before
 // the clock is checked, so a step between the two reads counts as a move.
+// A lock and its .break file also carry a stamp on the monotonic clock
+// ("mono <ms> plat <platform>", process.hrtime, shared by every process of
+// one system and counted from its boot). A waiter on the same host and
+// platform ages a stamped file by that clock alone, so no change of the
+// system clock, and no platform caching of it, reaches that age
+// (RS-T-lockagemono). A stamp ahead of now is from an earlier boot and is
+// not trusted; a file without a trusted stamp (an older version's, another
+// host's or platform's, one not yet labeled) is aged by the rules above.
 const LOCK_DEAD_MIN_MS = 5 * 1000;
 const LOCK_UNLABELED_MS = 30 * 1000;
 const LOCK_MAX_MS = 60 * 1000;
@@ -327,6 +335,17 @@ const HOST = String(os.hostname() || 'unknown').replace(/\s+/g, '_').slice(0, 64
 const CLOCK_MOVED_MS = 1000;
 function clockMoved() {
   return Math.abs(Date.now() - (performance.timeOrigin + performance.now())) > CLOCK_MOVED_MS;
+}
+const PLAT = process.platform;
+function monoNow() { return Number(process.hrtime.bigint() / 1000000n); }
+function monoStamp() { return ` mono ${monoNow()} plat ${PLAT}`; }
+// The stamp's age in ms, or null where it can't be trusted. Read from the
+// end of the text, so a label's other fields can't stand in for it.
+function monoAge(text, host) {
+  const m = / mono (\d{1,16}) plat (\S+)\n?$/.exec(text || '');
+  if (!m || host !== HOST || m[2] !== PLAT) return null;
+  const age = monoNow() - Number(m[1]);
+  return age >= 0 ? age : null;
 }
 
 // Dead only on ESRCH ("no such process"). EPERM means it exists; anything
@@ -342,7 +361,8 @@ function lockInfo(file) {
   try { st = plainStat(file); text = readPlain(file); } catch { return null; }
   const pid = /^pid (\d+)/.exec(text);
   const host = / host (\S+)/.exec(text);
-  return { text, pid: pid ? Number(pid[1]) : 0, host: host ? host[1] : '', age: Math.abs(Date.now() - st.mtimeMs) };
+  const h = host ? host[1] : '';
+  return { text, pid: pid ? Number(pid[1]) : 0, host: h, age: Math.abs(Date.now() - st.mtimeMs), mono: monoAge(text, h) };
 }
 
 // watchedMs: how long this command has seen this same lock (its text);
@@ -350,7 +370,7 @@ function lockInfo(file) {
 // after info, as the default does).
 function lockBreakable(info, watchedMs = 0, moved = clockMoved()) {
   if (!info) return false;
-  const age = moved ? Math.min(info.age, watchedMs) : info.age;
+  const age = info.mono !== null && info.mono !== undefined ? info.mono : moved ? Math.min(info.age, watchedMs) : info.age;
   if (age > LOCK_MAX_MS) return true;
   if (!info.pid) return age > LOCK_UNLABELED_MS;
   return info.host === HOST && age > LOCK_DEAD_MIN_MS && !pidAlive(info.pid);
@@ -404,12 +424,17 @@ function tryBreakLock(file, watch = { text: null, at: 0, moved: false }) {
     }
     // Its age is read from the system clock too: not trusted once that moved
     // (one that is not a plain file is still removed).
+    // A stamped one is aged by its stamp alone (RS-T-lockagemono).
+    let bMono = null;
+    if (b && b.isFile()) { try { const bt = readPlain(brk, 512); const bh = / host (\S+)/.exec(bt); bMono = monoAge(bt, bh ? bh[1] : ''); } catch { /* gone */ } }
     const bAge = b ? Math.abs(Date.now() - b.mtimeMs) : 0;
     if (clockMoved()) watch.moved = true;
-    try { if (b && (!b.isFile() || (!watch.moved && bAge > LOCK_UNLABELED_MS))) fs.unlinkSync(brk); } catch { /* gone */ }
+    const bOld = bMono !== null ? bMono > LOCK_UNLABELED_MS : !watch.moved && bAge > LOCK_UNLABELED_MS;
+    try { if (b && (!b.isFile() || bOld)) fs.unlinkSync(brk); } catch { /* gone */ }
     return false;
   }
   try {
+    try { fs.writeSync(bfd, `pid ${process.pid} host ${HOST}${monoStamp()}\n`); } catch { /* label only */ }
     try { fs.closeSync(bfd); } catch { /* closed */ }
     if (nonFile) {
       // Moved aside and checked again there: a real lock another command
@@ -468,7 +493,7 @@ function withLock(dir, fn, { waitMs = 10000, holder = '' } = {}) {
     }
     if (!broke) sleepMs(25 + Math.floor(Math.random() * 75));
   }
-  try { fs.writeSync(fd, `pid ${process.pid} host ${HOST}${holder ? ' session ' + holder : ''} since ${new Date().toISOString()} token ${token}\n`); } catch { /* label only */ }
+  try { fs.writeSync(fd, `pid ${process.pid} host ${HOST}${holder ? ' session ' + holder : ''} since ${new Date().toISOString()} token ${token}${monoStamp()}\n`); } catch { /* label only */ }
   try { fs.closeSync(fd); } catch { /* closed */ }
   try {
     return fn();

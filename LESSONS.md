@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A test input far from its check's edge let a mutation pass
+- What went wrong: RS-T-lockagemono's first mutation pass showed that `monoAge`'s check that a stamp is not ahead of now could be replaced by `Math.abs(age)` with every test passing. The test's stamp was an hour ahead, so read as a distance it was an hour old, and the 60 s rule broke the lock either way.
+- Why: the case was picked to be clearly ahead, not near the edges that the check and its mutation draw. It is the class of "A threshold was mutated far from its value", seen a second time.
+- Rule going forward: a case for a check takes an input where the check and each of its mutations give different answers (here a stamp 10 s ahead: trusted as a distance it keeps the lock, untrusted the 120 s mtime breaks it).
+- Status: promoted to PLAYBOOK ("Testing" step 8)
+
+## 2026-11-22: A stray `&` ran a mutation script a second time
+- What went wrong: a Bash call that set a variable and then read a doc ended its first line with `&`, so the mutation script, which rewrites both `store.js` copies while it runs, started again in the background. Nothing edited those files before it ended and restored them (no `Math.abs(age)` left in either copy, by grep, and the next `--only` run passed).
+- Why: the line was copied from a command that ran the script, and its `&` was left on it.
+- Rule going forward: a script that rewrites files in a worktree runs alone in its call (in the tool's background mode when it is long), never chained with other commands. Before the next edit of those files, check that its process is gone (`Get-CimInstance Win32_Process` by its command line).
+- Status: open
+
 ## 2026-11-22: Auto-merge was turned off and the supervisor was not told
 - What went wrong: on PR #113 this session turned auto-merge off on Copilot's findings, as the deferred-item rule asks, but told the supervisor session only that it had been set. The supervisor then saw it off, took it for a drop, and asked for it to be set again on a head with two CONFIRMED races.
 - Why: the supervisor was to be told after a push or a merge; turning auto-merge off is neither, and was left out.
@@ -42,7 +54,7 @@ Format:
 - What went wrong: RS-T-lockagestep's round 1 batch tested its 1 s threshold with a move of 6 s, and its mutation set the threshold to 30 s, which that test caught; a threshold of 5 s also passed every test (review round 2, Opus, by a run). The relabel test's child wrote at 1.5 s, leaving about 0.5 s of margin on one side and 3.3 s on the other (Opus's probe).
 - Why: the mutation value was picked to show a failure, not set just past the test's input, as `dev/testing-cases.md` asks of a test of a limit (one item at the limit and one just past it; PLAYBOOK "Testing" step 10 points there). The relabel test's timing was reasoned from the late side only.
 - Rule going forward: a timing test works out the time to each edge it must stay between and keeps them about equal, its comment giving both. A threshold's mutations sit just past the test's input, as `dev/testing-cases.md` already says.
-- Status: open
+- Status: promoted to PLAYBOOK ("Testing" step 8; seen again in RS-T-lockagemono, 2026-11-22)
 
 ## 2026-11-22: The lock fix's tests left its watch untested
 - What went wrong: RS-T-lockagestep's first four tests passed with the parent's whole `tryBreakLock` or `withLock` put back, with a watch that never started again, with the `.break` line put back and with a 30 s threshold (review round 1, Opus, by runs). Only the outcome of short waits was tested, not the watch that the comment names as the design.
