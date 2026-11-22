@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: MSYS rewrote a `rev:path` argument, and a probe ran an empty file
+- What went wrong: the RS-T-limitscwd probe took the base commit's script with `git -C <repo> show "origin/main:.github/test-limits-check.js" > old.js`. Git Bash rewrote the argument as a path list (`origin\main;.github\test-limits-check.js`), git failed, `old.js` was empty, and the base half of `lc-probe-1.out` ran an empty file: exit 0, nothing left, which looked like the base had no bug. Setting `MSYS_NO_PATHCONV=1` then broke the `-C /e/...` path of the same call.
+- Why: the playbook's MSYS bullet names arguments that start with `/`; a `:` between two parts that hold `/` is read as a path list too. The probe did not check that its copy of the old script was there.
+- Rule going forward: a `rev:path` whose rev holds a `/` goes to git with `MSYS_NO_PATHCONV=1` and a Windows-form `-C` path (`cygpath -w`), or uses a commit id. A probe that runs an old copy checks that the copy is not empty before it runs it.
+- Status: promoted to PLAYBOOK ("Constraints and known limits", the MSYS bullet)
+
 ## 2026-11-22: Anchoring a match at a line's start dropped a joined line
 - What went wrong: RS-T-localhang round 2 anchored the WARN's match at the start of the TAP comment (`^# \\# trailmark-test-limits:`) so that a test's mention mid-line would not count. Round 3 (Opus, by a run) found that node --test joins a file's last stderr text with no newline in front of the preload's line (`# progress 50%\# trailmark-...`), so that file was dropped from the WARN; the looser match of round 1 had counted it.
 - Why: the tighter match was checked only against the cases it was meant to exclude, not against what the old match counted that the new one drops.
