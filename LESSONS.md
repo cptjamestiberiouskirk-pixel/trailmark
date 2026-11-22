@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: The eval runner's folder safety was patched three rounds running
+- What went wrong: review rounds 2, 3 and 4 each found `dev/review-evals/run.js` able to delete a folder it had not made: first through an unchecked case id, then by force-removing any registered worktree, then by adopting an empty folder that appeared while `gh` ran. Each fix closed the reported path and claimed more than it proved ("never removes"), and round 3's change of approach still left a check-then-act gap. The brief's rule stopped the work.
+- Why: the safety rested on checks before an action that another process can race, and the claims were written from the design, not from a test that reaches the action (no test ran `git worktree add`).
+- Rule going forward: a tool that deletes what it made creates the folder itself with an exclusive create (`mkdir` that fails if it exists) and records it in the same step; a claim like "never deletes" needs a test that reaches the delete, including the race.
+- Status: open
+
 ## 2026-11-21: `--only '<name>'` passed a dev/ test that never ran
 - What went wrong: to check that a new test in `dev/review-gate.test.js` fails on the parent commit, `dev/release-check.sh --only 'linear time'` printed "PASS ... 2/2 pass" on the parent. The 2 tests were in the plugin suites: a name pattern runs the plugin test files only (`HC`, `TCC`, `TCX` in `release-check.sh`), so the dev/ test was never run. The file form, `--only dev/review-gate.test.js`, showed it failing (CONFIRMED, both runs kept under `trailmark-release-check/`).
 - Why: "every test file" in the summary line reads as every file, and a pass count that is not zero looked like the test had run.
