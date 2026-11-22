@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A retry added for load could hide the regression its test was written for
+- What went wrong: RS-T-startdirect gave the sweep test startInTime's tries, which make a stop after a slow launcher again and then skip. The fault that test exists for (a real path per key) is itself a slow launcher, so under load it was stopped, made again and skipped (review round 1, Opus F1; reproduced with `sd-f1.sh`).
+- Why: startInTime's own comment lists "the slow launcher step itself" as not covered, and that line was not read against what this test measures.
+- Rule going forward: before a test gets a retry or a skip on a sign of load, check whether the fault the test exists for gives the same sign. If it does, the test checks its own assertion after every try, a stopped one too, before it tries again; and a mutation run puts the fault back under that load.
+- Status: open
+
 ## 2026-11-22: A measured count was applied to a different distance than the one measured
 - What went wrong: the RS-T-hookcwd note (PR 101) said a hook working in a subfolder meets the "two folders down" count of 2,000 to 5,000 missing names. `probe-top.js` had put the process in the repo's top folder and the names two folders below it, and the corrected RS-A-missinglookups bullet already said the count depends on the distance from the process's working folder. Moving the hook's folder changes that distance instead of reproducing it. Codex's review found it (P2, CONFIRMED here by reading the bullet and the probe's description); the coordinator had written the sentence from the hook-folder result without re-reading what the count was measured against.
 - Why: two true facts (the hook works in the session's folder; the count depends on the distance from the working folder) were joined by the reading "session folder = repo root + two", which neither fact says.
