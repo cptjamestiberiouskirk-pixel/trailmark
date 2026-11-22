@@ -22,22 +22,25 @@ function fileTier(name, rules) {
 // The line's code, read once from left to right, so its time grows with the
 // line: each quoted string becomes "", a // comment ends the line and a /* */
 // comment goes. A quote still open at the end gives the raw line back, so a
-// stray quote can't hide a skip from the key forms.
-function code(l) {
+// stray quote can't hide a skip from the key forms (`strict` gives the code
+// before the quote instead, for reading a condition). A `/*` with no end on
+// the line, after other code, may be a regex literal such as `/a\/*b/`, so it
+// gives the raw line back too; one that opens the line is a comment.
+function code(l, strict) {
   let out = '';
   for (let i = 0; i < l.length; i++) {
     const ch = l[i];
     if (ch === '"' || ch === "'" || ch === '`') {
       let j = i + 1;
       while (j < l.length && l[j] !== ch) j += l[j] === '\\' ? 2 : 1;
-      if (j >= l.length) return l;
+      if (j >= l.length) return strict ? out : l;
       out += '""';
       i = j;
     } else if (ch === '/' && l[i + 1] === '/') {
       break;
     } else if (ch === '/' && l[i + 1] === '*') {
       const end = l.indexOf('*/', i + 2);
-      if (end < 0) break;
+      if (end < 0) { if (/^\+?\s*$/.test(out) || strict) break; return l; }
       out += ' ';
       i = end + 1;
     } else {
@@ -56,20 +59,21 @@ function code(l) {
 const CALL = /\.\s*(skip|todo|only)\s*(\?\.\s*)?\(|\[\s*['"`](skip|todo|only)['"`]\s*\]/;
 const KEY = /\b(skip|todo)\s*:|\bonly\s*:\s*(true|[1-9])/;
 const SHORT = /[{,]\s*(skip|todo|only)\s*[,}]/;
-const DESTRUCT = /^\+?\s*(const|let|var)\s*\{/;
+const DESTRUCT = /^\+?\s*(const|let|var)\s*\{[^}]*\}\s*=/;
 const QUOTED = /['"](skip|todo|only)['"]\s*:/;
 const isSkip = (l) => {
   const c = code(l);
-  return CALL.test(l) || KEY.test(c) || (SHORT.test(c) && !DESTRUCT.test(c)) || QUOTED.test(l);
+  return CALL.test(l) || KEY.test(c) || SHORT.test(c.replace(DESTRUCT, '')) || QUOTED.test(l);
 };
 // A skip that names its condition on the same line (a platform, root, a flag).
 // Read in the code, so `t.skip('why?')` or a `// a && b` comment is not a
 // condition, and neither does a constant that decides it (`true || x`,
 // `1 ? 'a' : b`), nor is an optional call (`?.(`). A todo or a focus (only)
 // is never conditional.
-const constant = (l) => /\bskip\s*:\s*(true|[1-9]\d*|"")\s*(\|\||\?)/.test(code(l));
-const conditional = (l) => !/\b(todo|only)\b/i.test(code(l)) && !constant(l)
-  && /\?(?!\.)|&&|\|\||\bif\s*\(|process\.(platform|getuid)|\bWIN\b/.test(code(l));
+// A condition is read only from the code before a stray quote (`strict`).
+const constant = (l) => /\bskip\s*:\s*(true|[1-9]\d*|"")\s*(\|\||\?)/.test(code(l, true));
+const conditional = (l) => !/\b(todo|only)\b/i.test(code(l, true)) && !constant(l)
+  && /\?(?!\.)|&&|\|\||\bif\s*\(|process\.(platform|getuid)|\bWIN\b/.test(code(l, true));
 const added = (lines) => lines.filter((l) => l.startsWith('+') && !l.startsWith('+++'));
 const removed = (lines) => lines.filter((l) => l.startsWith('-') && !l.startsWith('---'));
 

@@ -704,3 +704,21 @@ run.stop();`;
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+test('tier: a destructuring on the line, a slash-star in a regex and a stray quote do not hide a skip or fake its condition', () => {
+  const f = (patch) => t.classify([file('plugins/trailmark/tests/a.test.js', `@@\n+${patch}`)], rules);
+  // RS-G-destructline: only the destructuring itself is exempt, not the rest of the line.
+  assert.equal(f("const { a } = o; test('x', { skip }, () => {})").tier, 'high');
+  assert.equal(f('const { skip, todo } = opts;').tier, 'low');
+  // RS-G-regexcomment: a /* with no end after code may be a regex; one that opens the line is a comment.
+  const c = f("const re = /a\\/*b/; test('x', { skip: true }, () => {})");
+  assert.equal(c.tier, 'high');
+  assert.equal(f('/* the docs say { skip: true } here').tier, 'low');
+  // RS-G-rawconditional: && inside a string, with a stray quote after it, is not a condition.
+  const d = f("t.skip('a && b', /'/)");
+  assert.equal(d.tier, 'high');
+  assert.equal(d.mustCheck.length, 0);
+  // A real condition before a stray quote still counts.
+  const e = f("test('x', { skip: WIN && 'no' }, /'/)");
+  assert.equal(e.tier, 'low');
+  assert.equal(e.mustCheck.length, 1);
+});
