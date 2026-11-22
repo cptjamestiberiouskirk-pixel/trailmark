@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A measured count was applied to a different distance than the one measured
+- What went wrong: the RS-T-hookcwd note (PR 101) said a hook working in a subfolder meets the "two folders down" count of 2,000 to 5,000 missing names. `probe-top.js` had put the process in the repo's top folder and the names two folders below it, and the corrected RS-A-missinglookups bullet already said the count depends on the distance from the process's working folder. Moving the hook's folder changes that distance instead of reproducing it. Codex's review found it (P2, CONFIRMED here by reading the bullet and the probe's description); the coordinator had written the sentence from the hook-folder result without re-reading what the count was measured against.
+- Why: two true facts (the hook works in the session's folder; the count depends on the distance from the working folder) were joined by the reading "session folder = repo root + two", which neither fact says.
+- Rule going forward: when a note carries a measured figure into a new case, first write down what the figure was measured against (which folder, which load, which size) and check that the new case has the same value there; otherwise say it was not measured.
+- Status: open
+
 ## 2026-11-21: A deferred item read a stop line against the wrong clock
 - What went wrong: RS-T-firstcheckload's bullet in `dev/release-state.md` said the real git calls after the test's fake 3 s step had to fit in the 3 s left. `trailmark.js` (`run`) says otherwise: the git calls ran with 20 s on a clock the preload held still, and the `spent=3000` of the stop line is that fake clock. The launcher then gave the hook's script 6,000 ms of real time, and the script ran past them. A load probe built on the old reading would have timed the git calls.
 - Why: the line was read for what it seemed to say, and the code that prints it, and the clock each of its numbers comes from, were not opened.
