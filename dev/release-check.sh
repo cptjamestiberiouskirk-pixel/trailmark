@@ -22,6 +22,23 @@
 # and the 20 newest passing --only runs' apart from them). It
 # makes no network requests. The test suites run at the same time, and each
 # summary line gives the suite's own time.
+#
+# Each test has a limit, as in CI's test steps (enforce mode of
+# .github/run-tests.sh). It ends two kinds of hang as a failure that names the
+# test, and the suite goes on: a test that waits on something asynchronous,
+# and a synchronous child call with no timeout of its own (the call fails with
+# its command and line). Below Node 24 the first holds only for test() calls
+# of the require('node:test') form (see .github/test-limits.js). A test
+# blocked in its own code (a loop that never yields) is not ended, nor is a
+# run whose test file has ended while a child it started still holds the
+# file's output (stdio inherited): stop the run. A file whose tests pass but
+# leave something open (a timer, a child) is let end, and its suite's line is
+# followed by a WARN that names it.
+# TRAILMARK_TEST_LIMIT_MS sets the limit in ms, up to 2147483647; the default
+# is 400000, CI's limit on Windows, its largest; 0 runs the suites with no
+# limit, with neither --test-force-exit nor the preload, so with no WARN
+# either. The summary's first line names the limit (RS-T-localhang,
+# dev/release-state.md).
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
 
@@ -99,6 +116,46 @@ KEEP=''
 export TMPDIR="$T"
 # Node on Windows takes its temp folder from TEMP and TMP, not TMPDIR.
 if command -v cygpath >/dev/null 2>&1; then TW="$(cygpath -w "$T")"; export TEMP="$TW" TMP="$TW"; fi
+# The per-test limit, given to node --test as run-tests.sh gives it in enforce
+# mode (see there for each part): --test-timeout on Node 24 and later, and on
+# Node 22, where it would limit each file as a whole, the preload's own
+# timeout for each test() call in its place; --test-force-exit, so a file
+# whose test was ended doesn't wait on what that test left open; and the
+# preload, which limits each synchronous child call with no timeout of its own.
+# --zip-only runs no test, so it reads no limit and needs no node here.
+LIMIT_FLAGS=()
+LIMIT_SAID=''
+if [ "$ZIPONLY" = 1 ]; then
+  LIMIT_MS=0
+else
+  LIMIT_MS="${TRAILMARK_TEST_LIMIT_MS-400000}"
+  # Digits only, at most 10 of them after leading zeros, and at most
+  # 2147483647, the largest timeout Node takes (with a larger one node --test
+  # throws ERR_OUT_OF_RANGE before any test file starts, on Node 26). Read as
+  # decimal: 007 is 7.
+  limit_digits="${LIMIT_MS#"${LIMIT_MS%%[!0]*}"}"
+  case "$LIMIT_MS" in
+    ''|*[!0-9]*) limit_bad=1 ;;
+    *) limit_bad=0; [ ${#limit_digits} -gt 10 ] && limit_bad=1; [ $limit_bad = 0 ] && [ -n "$limit_digits" ] && [ "$limit_digits" -gt 2147483647 ] && limit_bad=1 ;;
+  esac
+  if [ $limit_bad = 1 ]; then
+    echo "TRAILMARK_TEST_LIMIT_MS must be a whole number of ms from 0 (no limit) to 2147483647, not '$LIMIT_MS'"; exit 2
+  fi
+  LIMIT_MS="${limit_digits:-0}"
+  if [ "$LIMIT_MS" -gt 0 ]; then LIMIT_SAID="per-test limit $LIMIT_MS ms"; else LIMIT_SAID='no per-test limit'; fi
+fi
+if [ "$LIMIT_MS" -gt 0 ]; then
+  if [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 24 ]; then
+    LIMIT_FLAGS=(--test-timeout="$LIMIT_MS"); export TRAILMARK_TEST_LIMIT_OPTION=0
+  else
+    export TRAILMARK_TEST_LIMIT_OPTION=1
+  fi
+  LIMIT_FLAGS+=(--test-force-exit --require ./.github/test-limits.js)
+  export TRAILMARK_TEST_LIMIT_MS="$LIMIT_MS"
+else
+  # No limit: the preload is not loaded, and nothing passes one on.
+  unset TRAILMARK_TEST_LIMIT_MS TRAILMARK_TEST_LIMIT_OPTION
+fi
 RESULTS=()
 FAILED=0
 record() { RESULTS+=("$(printf '%-4s  %s' "$1" "$2")"); if [ "$1" = FAIL ]; then FAILED=1; fi; return 0; }
@@ -106,7 +163,7 @@ record() { RESULTS+=("$(printf '%-4s  %s' "$1" "$2")"); if [ "$1" = FAIL ]; then
 shown() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
 
 heading() {
-  echo "release-check${ONLY:+ --only $ONLY} at $(git rev-parse --short HEAD)$( [ -n "$(git status --porcelain)" ] && echo ' (uncommitted changes)')"
+  echo "release-check${ONLY:+ --only $ONLY} at $(git rev-parse --short HEAD)$( [ -n "$(git status --porcelain)" ] && echo ' (uncommitted changes)')${LIMIT_SAID:+, $LIMIT_SAID}"
 }
 # This run's folder for kept output, made on first use, with what was run
 # where in run.txt. A passing --only run's folder is marked as it is made, so
@@ -166,7 +223,7 @@ start_suite() { # name, slug for the kept output, then node --test arguments
     export TMPDIR="$d/tmp" TEMP="$dt" TMP="$dt"
     s=$(date +%s)
     # TAP named: newer Node prints the spec reporter even into a pipe.
-    node --test --test-reporter=tap "$@" > "$d/out" 2>&1
+    node --test --test-reporter=tap ${LIMIT_FLAGS[@]+"${LIMIT_FLAGS[@]}"} "$@" > "$d/out" 2>&1
     echo $(( $(date +%s) - s )) > "$d/secs"
   ) &
   set +m
@@ -182,9 +239,14 @@ finish_suites() {
 }
 report_suite() { # name, slug, the suite's folder, seconds
   local name="$1" slug="$2" dir="$3" secs="${4:-?}" out; out="$(cat "$dir/out")"
-  local tests pass fail skip
+  local tests pass fail skip cancelled
   tests="$(sed -n 's/^# tests //p' <<<"$out" | tail -1)"; pass="$(sed -n 's/^# pass //p' <<<"$out" | tail -1)"
   fail="$(sed -n 's/^# fail //p' <<<"$out" | tail -1)"; skip="$(sed -n 's/^# skipped //p' <<<"$out" | tail -1)"
+  # A test the limit ended is counted as cancelled, not failed (Node 26 with
+  # --test-timeout: "# fail 0", "# cancelled 3"), so a cancelled test fails
+  # the suite too (RS-T-localhang).
+  cancelled="$(sed -n 's/^# cancelled //p' <<<"$out" | tail -1)"
+  if [ -n "$cancelled" ] && [ "$cancelled" != 0 ]; then fail=$(( ${fail:-0} + cancelled )); fi
   # A file in which no test ran (--only with a name) is listed as one passing
   # test named by the file's path: not a test.
   local empty; empty="$(grep -cE '^ok [0-9]+ - .*\.test\.js$' <<<"$out")"
@@ -192,8 +254,32 @@ report_suite() { # name, slug, the suite's folder, seconds
   local ok=0
   if [ "${fail:-1}" = 0 ] && [ "${tests:-0}" != 0 ]; then ok=1; record PASS "$name: $pass/$tests pass, $skip skipped ($secs s)"
   elif [ "${tests:-}" = 0 ]; then record FAIL "$name: no test ran ($secs s)"
-  else record FAIL "$name: ${fail:-?} failed of ${tests:-?} ($secs s)"; fi
+  else record FAIL "$name: ${fail:-?} failed of ${tests:-?}$( [ -n "$cancelled" ] && [ "$cancelled" != 0 ] && echo ", $cancelled of them cancelled (the per-test limit, or a test ended early)") ($secs s)"; fi
   [ $ok = 1 ] || grep -E '^not ok' <<<"$out" | head -5 | sed "s|^|      $slug: |" >> "$T/failures"
+  # --test-force-exit lets a file end with handles still open; the preload
+  # names them on stderr (.github/test-limits.js), which CI turns into a
+  # warning (tap-annotate.js). Here it is a WARN after the suite's line that
+  # names each such file and what it left. node --test writes each line of a
+  # file's stderr as a TAP comment with its `#` escaped, so the preload's line
+  # is `# \# trailmark-test-limits: open at exit in ...`. When the file's last
+  # stderr write had no newline, node --test joins that text in front of it
+  # (`# progress 50%\# trailmark-test-limits: ...`), so the escaped text
+  # counts anywhere in a top-level comment line. Any such line that holds the
+  # escaped text counts too: a test's output, a top-level test's name (its
+  # `# Subtest:` line) or a t.diagnostic() text. A plain mention of
+  # `trailmark-test-limits:`, with no `\#` before it, does not count, nor does
+  # an indented line (CI's tap-annotate.js counts the text anywhere). Some test
+  # files leave a child or a write open today (CI on main names them too, run
+  # 45013849055), so a passing full run can show this WARN. awk joins the
+  # names, so a `;` in a name is kept, and a list over 300 characters is cut
+  # and ends in "..." (under a C locale gawk counts bytes, and the cut can
+  # split a UTF-8 character).
+  local open n
+  open="$(sed -n 's/^# .*\\# trailmark-test-limits: open at exit in //p' <<<"$out" | sed 's|\\#|#|g; s|^.*[\\/]||')"
+  if [ -n "$open" ]; then
+    n="$(grep -c . <<<"$open")"
+    record WARN "$name: $n test file(s) left something open at exit: $(awk 'NR > 1 { s = s "; " } { s = s $0 } END { if (length(s) > 300) s = substr(s, 1, 297) "..."; print s }' <<<"$open")"
+  fi
   # Kept when the suite failed, and always with --only: a skip's reason is in it too.
   if [ $ok = 0 ] || [ -n "$ONLY" ]; then keep_suite "$slug" "$out" "$dir" $ok; fi
   rm -rf "$dir" 2>/dev/null

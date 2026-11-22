@@ -14,6 +14,24 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: Anchoring a match at a line's start dropped a joined line
+- What went wrong: RS-T-localhang round 2 anchored the WARN's match at the start of the TAP comment (`^# \\# trailmark-test-limits:`) so that a test's mention mid-line would not count. Round 3 (Opus, by a run) found that node --test joins a file's last stderr text with no newline in front of the preload's line (`# progress 50%\# trailmark-...`), so that file was dropped from the WARN; the looser match of round 1 had counted it.
+- Why: the tighter match was checked only against the cases it was meant to exclude, not against what the old match counted that the new one drops.
+- Rule going forward: before tightening a match, list each line form the old match counted and the new one drops, and run a real case of each (for TAP: a joined partial line, a CR line end, an escaped `#`).
+- Status: open
+
+## 2026-11-22: A reviewer's --only runs pruned the shared kept folders
+- What went wrong: the RS-T-localhang regression reviewer ran `dev/release-check.sh --only` 23 times, and the script's `prune_kept` removed 22 older kept run folders under `E:/DevTemp/trailmark-release-check` (39 before its runs; 22 of those were pruned; 17 were left once the reviewer had removed the 23 its own runs made; CONFIRMED by the reviewer's counts, not re-run). A note of this item named a count of those files, which can no longer be checked.
+- Why: the kept folder is next to the run's temp folder (`KEEPROOT="$(dirname "$T")/trailmark-release-check"`, with `T` from `mktemp -d`, so under `TMPDIR`), and a reviewer's clone shares the owner's `TMPDIR`. Pruning is by design.
+- Rule going forward: a review brief that lets the reviewer run `dev/release-check.sh` tells it to set `TMPDIR` to its own temp folder for those runs, so its kept output and pruning stay there. A note cites copies in the notes folder, not a kept run folder.
+- Status: open
+
+## 2026-11-22: The local summary called a run with three hung tests PASS
+- What went wrong: with the per-test limit added to `dev/release-check.sh` (RS-T-localhang), the hang probe's `async` case printed `PASS ... 2/5 pass` and exit 0 while three tests had timed out. Node 26 counts a test that `--test-timeout` ends as cancelled (`# fail 0`, `# cancelled 3`), and `report_suite` read only `# fail`. The same probe's cleanup stopped none of the 16 pids the cases wrote, because MSYS `kill` cannot signal Windows pids, and two leftover node processes running the fixture's `sleep` (INFERRED to be its orphans) held the probe's folder.
+- Why: the summary's pass rule was written when nothing ended a test early, and the probe's cleanup was written from the CI self-check, which kills by `process.kill` in node, not from bash.
+- Rule going forward: a summary that turns TAP into pass or fail counts every line of the footer that can mean a test did not pass (`# fail`, `# cancelled`), and a probe of a new limit reads the run's own summary line, not only the TAP. From Git Bash, a Windows pid is stopped with `taskkill //F //PID`, and a probe checks after its cleanup that its folder is gone.
+- Status: open
+
 ## 2026-11-22: A PR went up without its Lessons checked line, and a brief left out the lessons step
 - What went wrong: PR 103 (RS-A-missinglookups) was opened and set to auto-merge with a body that had no `Lessons checked:` line, and the round 4 docs brief did not ask the reviewer to run `dev/lessons.sh`. Both are PLAYBOOK step 6. The line was added to the body about two minutes after the PR was opened (opened 08:01:11Z, auto-merge set 08:01:34Z, the body with the line 08:03:10Z, from GitHub's edit history of the body).
 - Why: the PR body was written from the commit messages and the release-state record after a compaction, and the lessons check was run for the edits and the commit but not read again before the push and the brief.
