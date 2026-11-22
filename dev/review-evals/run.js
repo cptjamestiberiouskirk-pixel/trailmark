@@ -14,9 +14,10 @@
 // Exit 0 at or above "evalFloor" of dev/risk-tiers.json, 1 below it, 2 when
 // any case could not run (no PR text, no usable output): a partial run is no
 // score. It removes each worktree it made, and on Ctrl+C stops the reviewers
-// first (not run by a test). It never removes a folder that was there before
-// it made it: a folder of a case's name, an earlier run's worktree included,
-// stops that case. The score is the reviewer's alone: in the workflow two
+// first (not run by a test). It makes each case's folder itself with a create
+// that fails if the folder is there, and removes only folders it made that
+// way: a folder of a case's name made by anything else, an earlier run's
+// worktree included, stops that case. The score is the reviewer's alone: in the workflow two
 // verifiers must also confirm a finding.
 'use strict';
 const { execFileSync, spawn } = require('node:child_process');
@@ -101,22 +102,28 @@ function dropWorktree(ws) {
   if (!live.has(ws)) return;
   try {
     execFileSync('git', ['-C', ROOT, 'worktree', 'remove', '--force', ws], { stdio: 'ignore' });
-  } catch { /* not registered yet: the folder alone goes */ }
+  } catch { /* git has not made it a worktree: the folder alone goes */ }
   fs.rmSync(ws, { recursive: true, force: true });
   live.delete(ws);
 }
 
-function prepare(c, work) {
+// `opts.prText` stands in for the gh call in tests.
+function prepare(c, work, opts = {}) {
   checkId(c);
   const ws = path.join(work, c.id);
   // A folder that is already there is never this run's, so the case stops.
   if (fs.existsSync(ws)) {
     throw new Error(`${ws} is already there; if an earlier run left it, remove it with: git worktree remove --force "${ws}"`);
   }
-  const pr = prText(c);
-  // Without --force, git refuses a folder that appeared since the check.
-  git('worktree', 'add', '--detach', ws, `${c.causeMerge}^1`);
+  const pr = (opts.prText || prText)(c);
+  // git worktree add takes over an empty folder, so a folder made by anything
+  // else while gh ran would pass for this run's. The folder is made here
+  // instead, with a create that fails if it is there (EEXIST), and joins
+  // `live` in the same step; git then fills the empty folder.
+  fs.mkdirSync(work, { recursive: true });
+  fs.mkdirSync(ws);
   live.add(ws);
+  git('worktree', 'add', '--detach', ws, `${c.causeMerge}^1`);
   fs.copyFileSync(path.join(ROOT, 'REVIEW.md'), path.join(ws, 'REVIEW.md'));
   const r = path.join(ws, '.review');
   fs.mkdirSync(path.join(r, 'head'), { recursive: true });

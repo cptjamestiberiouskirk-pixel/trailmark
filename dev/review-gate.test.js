@@ -618,3 +618,37 @@ test('breaker: a task box, a blank before the colon and bare numbers after a com
   assert.deepEqual(by('Regression-of: #10, 12'), [10, 12]);
   assert.deepEqual(by('_Regression-of:_ #12'), [12]);
 });
+test('evals: an empty folder made while gh runs is not taken for the run\'s own, and is kept', () => {
+  const run = require('./review-evals/run.js');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evalrace-'));
+  try {
+    const work = path.join(tmp, 'work');
+    const ws = path.join(work, 'race-case');
+    // The gh call's stand-in makes the folder, as another process could.
+    const made = () => { fs.mkdirSync(ws, { recursive: true }); return { title: 't', body: '' }; };
+    assert.throws(() => run.prepare({ id: 'race-case', causePr: 1, causeMerge: 'HEAD' }, work, { prText: made }), /EEXIST/);
+    assert.equal(run.live.has(ws), false);
+    run.dropWorktree(ws);
+    assert.ok(fs.existsSync(ws));
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+test('evals: prepare reaches git worktree add, and the run removes the worktree it made', () => {
+  const run = require('./review-evals/run.js');
+  const root = path.join(__dirname, '..');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evaladd-'));
+  const ws = path.join(tmp, 'work', 'add-case');
+  try {
+    const head = spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 30000 }).stdout.trim();
+    run.prepare({ id: 'add-case', causePr: 1, causeMerge: head }, path.join(tmp, 'work'), { prText: () => ({ title: 't', body: '' }) });
+    assert.ok(run.live.has(ws));
+    assert.ok(fs.existsSync(path.join(ws, '.review', 'pr.json')));
+    run.dropWorktree(ws);
+    assert.equal(fs.existsSync(ws), false);
+    const list = spawnSync('git', ['-C', root, 'worktree', 'list', '--porcelain'], { encoding: 'utf8', timeout: 30000 }).stdout;
+    assert.ok(!list.toLowerCase().includes('add-case'), 'worktree still registered');
+  } finally {
+    spawnSync('git', ['-C', root, 'worktree', 'remove', '--force', ws], { timeout: 60000 });
+    spawnSync('git', ['-C', root, 'worktree', 'prune'], { timeout: 60000 });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
