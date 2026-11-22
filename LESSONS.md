@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A fix took the one read its item named, not the class
+- What went wrong: RS-T-lockagekeptread named one check that read the lock file with no exists check, and its first commit fixed that one. Review round 1 (Opus, F1, CONFIRMED by Opus by a run, not re-run here) found nine more in the RS-T-lockagestep and RS-T-lockagemono tests, plus one `assert.strictEqual`, each giving a raw `ENOENT` when the lock is gone.
+- Why: PLAYBOOK "Writing code and docs" step 11 (write down a reviewer's example's class first) was not run; the item's text was read as the whole of it.
+- Rule going forward: none new; step 11 is run on a deferred item's example too, with a grep for the pattern across the files it lives in.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 11, which already holds it)
+
 ## 2026-11-22: A reviewer's suggested wording went into the notes unchecked
 - What went wrong: RS-T-lockagemono's round 2 docs point 4 said a waiter whose monotonic clock runs behind by D keeps a lock "until its true age is D plus 60 s". It went into `dev/release-state.md` as written. Round 3 (Sonnet, by a probe, not re-run here) showed it true only for D under 60 s: a larger D makes the stamp of a younger lock ahead of now, not trusted, and the file time decides (CONFIRMED in code here, `monoAge`).
 - Why: a COULD BE CLEARER point was read as wording to copy, not as a claim to check; the code was not read for each case of its terms. The class of "A reviewer's CONFIRMED reason went into a code comment, and the next round showed it wrong", seen again.
