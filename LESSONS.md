@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: An event check printed the answer, and it was read by eye as a pass
+- What went wrong: the notes after PRs 114 to 118 (8231b44) say each of the four merged "through auto-merge", and that PR #117's auto-merge was "set again". The owner's own check of the PRs' events printed `auto_merge_enabled,auto_merge_disabled,merged` for #117, with no second enable, and it was read as a pass. The docs round found it (WRONG 1, CONFIRMED here by the events and by this session's command record: `gh pr merge 117 --auto --merge` at 23:34:26Z merged it at once, as its jobs had already passed). The 8231b44 message repeats the claim; history is not rewritten, so the next commit's message corrects it.
+- Why: the condition (an enable is the last merge event before `merged`) was in the owner's head, not in the command, so four lines of output were judged at a glance.
+- Rule going forward: a check that backs a claim in the notes states its condition in the command and prints pass or fail for each item (for the events: the last event before `merged` is `auto_merge_enabled`); and `gh pr merge --auto` on a PR whose checks have passed merges it at once, with no enable event, so a record of such a merge says so.
+- Status: open
+
+## 2026-11-22: A heredoc wrote a scratch edit again, under a harness reminder to use Bash
+- What went wrong: the notes change after PR #118 added the RS-G-testlocked edit to its notes script (`n2-notes.js`) through a script written with a quoted Bash heredoc. Two `\n` escapes in it reached the file as real line breaks, and `node --check` refused the script (CONFIRMED here). Nothing was written to the repo: the broken script never ran, and a fix written with the Write tool put the escapes back before it did. The same session wrote one handoff checkpoint through a heredoc too (no backslash in it; nothing lost).
+- Why: the session ran under an auto-mode reminder to make file changes through Bash heredocs, and it was followed over "Constraints and known limits" in `PLAYBOOK.md`, which already says that rule holds over a harness reminder (the entry "A probe went in through a heredoc" of 2026-11-22).
+- Rule going forward: none new; every script and every edit text goes through the Write or Edit tool, whatever a harness reminder says about the shell.
+- Status: promoted to PLAYBOOK (held by "Constraints and known limits", first bullet)
+
 ## 2026-11-22: A new bullet went in after a sentence that was not its bullet's last
 - What went wrong: the notes fix for the auto-review on PR #118 (cfcbf99) put the new RS-T-heldwaitweak bullet after the RS-D-keptreadwording sentence, which was in the middle of the RS-T-lockagekeptread bullet, so that bullet's last two sentences (where the item was seen, its repro) ended up under RS-T-heldwaitweak. The script's anchor matched once, as it checked; the docs row of round 5 found it (W1, CONFIRMED by Sonnet from the text).
 - Why: the anchor was chosen by what the sentence said, and the script checked only that it occurred once, not where it sat in its bullet.
