@@ -1572,7 +1572,10 @@ test('stampedHead: a call stopped sooner than its timeout allows fails, and one 
   fs.writeFileSync(path.join(s.memdir, 'handoff.md'), '# H\nUpdated: 2026-11-23 15:00 | branch main | by Claude Code\n');
   s.writes.splice(0, Infinity, 'trailmark head: late budget=5000 spent=12 hung=1\n');
   assert.throws(() => stampedHead(s), (e) => e instanceof assert.AssertionError && /stopped sooner than its timeout allows/.test(e.message));
-  s.writes.splice(0, Infinity, 'trailmark head: late budget=5000 spent=4010 hung=1\n');
+  // The bound's edge: a looser bound (100 ms) passed the cases above.
+  s.writes.splice(0, Infinity, 'trailmark head: late budget=5000 spent=3899 hung=1\n');
+  assert.throws(() => stampedHead(s), (e) => e instanceof assert.AssertionError && /stopped sooner than its timeout allows/.test(e.message));
+  s.writes.splice(0, Infinity, 'trailmark head: late budget=5000 spent=3900 hung=1\n');
   assert.throws(() => stampedHead(s), CommitsOutOfTime);
 });
 
