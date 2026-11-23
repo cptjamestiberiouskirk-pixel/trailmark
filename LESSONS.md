@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-23: A timing test's margin was worked out at the first try and not over the wait
+- What went wrong: RS-D-lockagewording moved the threshold test to a move of 1.2 s on a lock 4.5 s old, with a comment giving the real age as 500 ms short of 5 s. Review round 1 (Opus, F1, CONFIRMED by Opus by runs, not re-run here) measured it at 5116 to 5182 ms by the end of the 600 ms wait, so the test also failed a correct reading of the 5 s rule. The lock is back to 4 s, each margin about 200 ms or more.
+- Why: the edges were worked out for the input as the test starts, and the wait the test runs was not added to the real age.
+- Rule going forward: none new; the promoted rule ("a timing test works out the time to each edge it must stay between") counts every edge at the point in the test where it is nearest, the end of a wait included.
+- Status: promoted to PLAYBOOK (held by the entry "A threshold was mutated far from its value, and a timing margin was checked on one side", 2026-11-22)
+
+## 2026-11-22: A read-only check ran Windows PowerShell 5.1
+- What went wrong: a read-only Bash command, while the auto-review notes on PR #120 were checked, held a stray `powershell -NoProfile -c 1`, which started Windows PowerShell 5.1, against the user's rule to use PowerShell 7 (`pwsh`) only. It evaluated `1` and changed nothing (CONFIRMED by the command's text, which gave it nothing else). The user and the supervisor session were told the same day (this session's message to the user and its message to the supervisor session, 2026-11-22).
+- Why: a probe with no purpose was typed into a chained command, and the command was not read for `powershell` before it ran.
+- Rule going forward: a command is read for `powershell` (not `pwsh`) before it runs, a chained one included, and no probe goes into a command without a purpose.
+- Status: open
+
 ## 2026-11-22: An event check printed the answer, and it was read by eye as a pass
 - What went wrong: the notes after PRs 114 to 118 (8231b44) say each of the four merged "through auto-merge", and that PR #117's auto-merge was "set again". The owner's own check of the PRs' events printed `auto_merge_enabled,auto_merge_disabled,merged` for #117, with no second enable, and it was read as a pass. The docs round found it (WRONG 1, CONFIRMED here by the events and by this session's command record: `gh pr merge 117 --auto --merge` at 23:34:26Z merged it at once, as its jobs had already passed). The 8231b44 message repeats the claim; history is not rewritten, so the next commit's message corrects it.
 - Why: the condition (an enable is the last merge event before `merged`) was in the owner's head, not in the command, so four lines of output were judged at a glance.
@@ -22,7 +34,7 @@ Format:
 
 ## 2026-11-22: A heredoc wrote a scratch edit again, under a harness reminder to use Bash
 - What went wrong: the notes change after PR #118 added the RS-G-testlocked edit to its notes script (`n2-notes.js`) through a script written with a quoted Bash heredoc. Two `\n` escapes in it reached the file as real line breaks, and `node --check` refused the script (CONFIRMED here). Nothing was written to the repo: the broken script never ran, and a fix written with the Write tool put the escapes back before it did. The same session wrote one handoff checkpoint through a heredoc too (no backslash in it; nothing lost).
-- Why: the session ran under an auto-mode reminder to make file changes through Bash heredocs, and it was followed over "Constraints and known limits" in `PLAYBOOK.md`, which already says that rule holds over a harness reminder (the entry "A probe went in through a heredoc" of 2026-11-22).
+- Why: the session, in Git Bash on Windows (the case the bullet names), ran under an auto-mode reminder to make file changes through Bash heredocs, and it was followed over "Constraints and known limits" in `PLAYBOOK.md`, which already says that rule holds over a harness reminder (the entry "A probe went in through a heredoc" of 2026-11-22).
 - Rule going forward: none new; every script and every edit text goes through the Write or Edit tool, whatever a harness reminder says about the shell.
 - Status: promoted to PLAYBOOK (held by "Constraints and known limits", first bullet)
 
