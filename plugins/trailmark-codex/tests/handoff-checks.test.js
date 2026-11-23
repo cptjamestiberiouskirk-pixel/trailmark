@@ -1099,6 +1099,34 @@ test('commits since the handoff: another branch and an unknown HEAD are said pla
   assert.ok(!fs.existsSync(path.join(s.repo, 'x')));
 }));
 
+// RS-S-sincegitadvice: the commits-since hints told the model to run git
+// log, also where Trailmark kept git out of the folder (state 'late' comes
+// before the folder is checked), and plain git there can run the repo's
+// programs. Every hint state, full and short: no git command in the line.
+test('commits since the handoff: no hint names a git command, full or short (RS-S-sincegitadvice)', () => {
+  const s = sandbox();
+  s.write('# H\n## Next steps\n- one\n');
+  const tight = sandbox();
+  const cfgFile = path.join(tight.memdir, '.jbmem.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), budgets: { injectChars: 2000 } }));
+  tight.write('# H\n## State\n' + Array.from({ length: 60 }, (_, i) => `- item ${i} ${'x'.repeat(70)}`).join('\n') + '\n');
+  const notes = Array.from({ length: 4 }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(150)}`);
+  const cases = [
+    [{ base: 'abc1234', state: 'late' }, /isn't known: git ran out of time/],
+    [{ base: 'abc1234', state: 'ok', count: 1, entries: [], unlisted: 'late' }, /not listed(?: here)?: git ran out of time/],
+    [{ base: 'abc1234', state: 'ok', count: 2, entries: [], unlisted: 'error' }, /not listed(?: here)?: git could not list them/],
+  ];
+  for (const [since, sign] of cases) {
+    for (const [what, text] of [['full', S.buildInjection(s.memdir, { since }).text], ['short', S.buildInjection(tight.memdir, { since, notes }).text]]) {
+      const line = text.split('\n').find(l => sign.test(l));
+      assert.ok(line, `${what} ${JSON.stringify(since)}: no hint line in ${text}`);
+      // Every git in the line is one of its own phrases (an allowlist).
+      assert.doesNotMatch(line, /\bgit(?!\s+(ran out of time|could not list them|for this|out of this folder)\b)/i, `${what}: ${line}`);
+      if (what === 'full') assert.match(line, /Don't run git for this: Trailmark may have kept git out of this folder\./, line);
+    }
+  }
+});
+
 test('checkSinceFacts keeps only well-formed facts', () => {
   assert.strictEqual(S.checkSinceFacts({ base: 'zz', state: 'ok' }), null);
   assert.strictEqual(S.checkSinceFacts({ base: 'abc1234', state: 'weird' }), null);
@@ -1113,7 +1141,7 @@ test('commits since the handoff: git running out of time is said, never "the new
   s.write('# H\n## Next steps\n- one\n');
   const at = (since) => S.buildInjection(s.memdir, { since }).text;
   const late = at({ base: 'abc1234', state: 'ok', count: 1, entries: [], unlisted: 'late' });
-  assert.match(late, /HEAD has 1 newer commit, not listed: git ran out of time\. Run git log --oneline abc1234\.\.HEAD/);
+  assert.match(late, /HEAD has 1 newer commit, not listed: git ran out of time\. Before redoing work, check the next steps against the files or ask the user\./);
   assert.doesNotMatch(late, /the newest 0 shown/);
   const failed = at({ base: 'abc1234', state: 'ok', count: 2, entries: [], unlisted: 'error' });
   assert.match(failed, /HEAD has 2 newer commits, not listed: git could not list them\./);

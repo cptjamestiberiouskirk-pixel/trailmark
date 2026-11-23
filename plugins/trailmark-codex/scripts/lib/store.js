@@ -2086,6 +2086,13 @@ function coveredSteps(body, entries) {
   return out;
 }
 
+// What the commits-since hints say instead of a git command: they reach the
+// model also where Trailmark kept git out of the folder (state 'late' is
+// answered before the folder is checked, trailmark.js sinceHandoff), and
+// plain git there can run the repo's programs (RS-S-sincegitadvice). The
+// refusal warning goes to the user, not the model, so this has no condition.
+const NO_GIT_HINT = "Before redoing work, check the next steps against the files or ask the user. Don't run git for this: Trailmark may have kept git out of this folder.";
+
 // The lines the injection adds for commits made since the handoff.
 function sinceSection(since, body, m, now) {
   if (!since) return [];
@@ -2093,12 +2100,12 @@ function sinceSection(since, body, m, now) {
   if (since.state === 'not-ancestor') return [`The handoff was written at HEAD ${since.base}, which is not in the history of the current HEAD (another branch, or rewritten history). Check what still applies before acting on it.`];
   // git was too slow to answer: said, with "git ran out of time" (the sign
   // the commit-list tests repeat on), never left out in silence.
-  if (since.state === 'late') return [`Whether HEAD has commits since the handoff's HEAD ${since.base} isn't known: git ran out of time. Run git log --oneline ${since.base}..HEAD and check the next steps against it before redoing work.`];
+  if (since.state === 'late') return [`Whether HEAD has commits since the handoff's HEAD ${since.base} isn't known: git ran out of time. ${NO_GIT_HINT}`];
   if (!since.count) return [];
   // The count came but not the list: said why, never "the newest 0 shown".
   if (!since.entries.length) {
     return [`--- COMMITS SINCE THIS HANDOFF ${m} ---`,
-      `The handoff was written at HEAD ${since.base}; HEAD has ${since.count} newer commit${since.count === 1 ? '' : 's'}, not listed: ${since.unlisted === 'late' ? 'git ran out of time' : 'git could not list them'}. Run git log --oneline ${since.base}..HEAD and check the next steps against them before redoing work.`,
+      `The handoff was written at HEAD ${since.base}; HEAD has ${since.count} newer commit${since.count === 1 ? '' : 's'}, not listed: ${since.unlisted === 'late' ? 'git ran out of time' : 'git could not list them'}. ${NO_GIT_HINT}`,
       `--- END COMMITS ${m} ---`];
   }
   const list = since.entries.map(e => `- ${e.short} ${e.subject}${e.t ? ` (${ageText(now - e.t)} ago)` : ''}`);
@@ -2243,7 +2250,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
     // could say (one line, cut to 150 characters last, the sign first).
     const n = sinceFacts.count;
     const why = sinceFacts.unlisted === 'late' ? ': git ran out of time' : sinceFacts.unlisted ? ': git could not list them' : ' to fit the budget';
-    add(sinceLines.join('\n'), 5, { short: n ? `${n} commit${n === 1 ? '' : 's'} on HEAD since the handoff's HEAD ${sinceFacts.base}, not listed here${why}. Run git log --oneline ${sinceFacts.base}..HEAD and check the next steps against them before redoing work.` : '', keep: !!n || sinceFacts.state === 'late' });
+    add(sinceLines.join('\n'), 5, { short: n ? `${n} commit${n === 1 ? '' : 's'} on HEAD since the handoff's HEAD ${sinceFacts.base}, not listed here${why}. ${NO_GIT_HINT}` : '', keep: !!n || sinceFacts.state === 'late' });
   }
 
   // After this session's own compaction: its own snapshot. At a fresh start:
