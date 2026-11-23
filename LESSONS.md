@@ -14,11 +14,29 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
-## 2026-11-22: A fix for a safe-direction miss opened an unsafe one
-- What went wrong: RS-G-midcomment (a mid-line `<!--` hid a fence line in `sections()`) was fixed by ending the comment at four line shapes, checked on GitHub's markdown endpoint. The round reviewer then found shapes where the fix made the gate count text GitHub hides (a list item that is not `1.`, a backtick line with a backtick in its info string, a non-ASCII blank, an opener after a raw HTML block start).
-- Why: the miss was in the safe direction (a section read as missing), so the fix had only downside; I checked the four shapes that showed the bug on GitHub, not the neighbors that must stay hidden.
-- Rule going forward: before a heuristic changes what a gate counts, name the direction a miss fails in; a safe-direction miss that needs a partial copy of a spec (CommonMark paragraph interruption) stays deferred. For each shape the fix ends, render its nearest look-alikes on GitHub and confirm they stay hidden.
+## 2026-11-22: An event check printed the answer, and it was read by eye as a pass
+- What went wrong: the notes after PRs 114 to 118 (8231b44) say each of the four merged "through auto-merge", and that PR #117's auto-merge was "set again". The owner's own check of the PRs' events printed `auto_merge_enabled,auto_merge_disabled,merged` for #117, with no second enable, and it was read as a pass. The docs round found it (WRONG 1, CONFIRMED here by the events and by this session's command record: `gh pr merge 117 --auto --merge` at 23:34:26Z merged it at once, as its jobs had already passed). The 8231b44 message repeats the claim; history is not rewritten, so the next commit's message corrects it.
+- Why: the condition (an enable is the last merge event before `merged`) was in the owner's head, not in the command, so four lines of output were judged at a glance.
+- Rule going forward: a check that backs a claim in the notes states its condition in the command and prints pass or fail for each item (for the events: the last event before `merged` is `auto_merge_enabled`); and `gh pr merge --auto` on a PR whose checks have passed merges it at once, with no enable event, so a record of such a merge says so.
 - Status: open
+
+## 2026-11-22: A heredoc wrote a scratch edit again, under a harness reminder to use Bash
+- What went wrong: the notes change after PR #118 added the RS-G-testlocked edit to its notes script (`n2-notes.js`) through a script written with a quoted Bash heredoc. Two `\n` escapes in it reached the file as real line breaks, and `node --check` refused the script (CONFIRMED here). Nothing was written to the repo: the broken script never ran, and a fix written with the Write tool put the escapes back before it did. The same session wrote one handoff checkpoint through a heredoc too (no backslash in it; nothing lost).
+- Why: the session ran under an auto-mode reminder to make file changes through Bash heredocs, and it was followed over "Constraints and known limits" in `PLAYBOOK.md`, which already says that rule holds over a harness reminder (the entry "A probe went in through a heredoc" of 2026-11-22).
+- Rule going forward: none new; every script and every edit text goes through the Write or Edit tool, whatever a harness reminder says about the shell.
+- Status: promoted to PLAYBOOK (held by "Constraints and known limits", first bullet)
+
+## 2026-11-22: A new bullet went in after a sentence that was not its bullet's last
+- What went wrong: the notes fix for the auto-review on PR #118 (cfcbf99) put the new RS-T-heldwaitweak bullet after the RS-D-keptreadwording sentence, which was in the middle of the RS-T-lockagekeptread bullet, so that bullet's last two sentences (where the item was seen, its repro) ended up under RS-T-heldwaitweak. The script's anchor matched once, as it checked; the docs row of round 5 found it (W1, CONFIRMED by Sonnet from the text).
+- Why: the anchor was chosen by what the sentence said, and the script checked only that it occurred once, not where it sat in its bullet.
+- Rule going forward: a script that adds a bullet after an anchor checks that the anchor ends its line (the next character is a newline), and the diff is read for the bullets it splits before the commit.
+- Status: open
+
+## 2026-11-22: A fix took the one read its item named, not the class
+- What went wrong: RS-T-lockagekeptread named one check that read the lock file with no exists check, and its first commit fixed that one. Review round 1 (Opus, F1) found nine more in the RS-T-lockagestep and RS-T-lockagemono tests, plus one `assert.strictEqual`, that give a raw `ENOENT` when the lock is gone (five CONFIRMED by Opus by a run, not re-run here, five INFERRED). Round 2 (Opus) found three more, in `sessions.test.js` and two link tests (one CONFIRMED by Opus by a run, not re-run here, two INFERRED), and its sweep, a reading of the code, went into the notes as finding no more. Round 3 (Opus) found one more that the sweep had passed (CONFIRMED by Opus by a run, not re-run here).
+- Why: PLAYBOOK "Writing code and docs" step 11 (write down a reviewer's example's class first) was not run; the item's text was read as the whole of it. Then a reviewer's sweep stood in for the owner's own search.
+- Rule going forward: step 11 is run on a deferred item's example too, and its class is found by a search for the example's pattern across every test and source file, each hit listed.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 11, its sentence on a search for the pattern)
 
 ## 2026-11-22: A reviewer's suggested wording went into the notes unchecked
 - What went wrong: RS-T-lockagemono's round 2 docs point 4 said a waiter whose monotonic clock runs behind by D keeps a lock "until its true age is D plus 60 s". It went into `dev/release-state.md` as written. Round 3 (Sonnet, by a probe, not re-run here) showed it true only for D under 60 s: a larger D makes the stamp of a younger lock ahead of now, not trusted, and the file time decides (CONFIRMED in code here, `monoAge`).
@@ -186,6 +204,12 @@ Format:
 - What went wrong: review rounds 2, 3 and 4 each found `dev/review-evals/run.js` able to delete a folder it had not made: first through an unchecked case id, then by force-removing any registered worktree, then by adopting an empty folder that appeared while `gh` ran. Each fix closed the reported path and claimed more than it proved ("never removes"), and round 3's change of approach still left a check-then-act gap. The brief's rule stopped the work.
 - Why: the safety rested on checks before an action that another process can race, and the claims were written from the design, not from a test that reaches the action (no test ran `git worktree add`).
 - Rule going forward: a tool that deletes what it made creates the folder itself with an exclusive create (`mkdir` that fails if it exists) and records it in the same step; a claim like "never deletes" needs a test that reaches the delete, including the race.
+- Status: open
+
+## 2026-11-22: A fix for a safe-direction miss opened an unsafe one
+- What went wrong: RS-G-midcomment (a mid-line `<!--` hid a fence line in `sections()`) was fixed by ending the comment at four line shapes, checked on GitHub's markdown endpoint. The round reviewer then found shapes where the fix made the gate count text GitHub hides (a list item that is not `1.`, a backtick line with a backtick in its info string, a non-ASCII blank, an opener after a raw HTML block start).
+- Why: the miss was in the safe direction (a section read as missing), so the fix had only downside; I checked the four shapes that showed the bug on GitHub, not the neighbors that must stay hidden.
+- Rule going forward: before a heuristic changes what a gate counts, name the direction a miss fails in; a safe-direction miss that needs a partial copy of a spec (CommonMark paragraph interruption) stays deferred. For each shape the fix ends, render its nearest look-alikes on GitHub and confirm they stay hidden.
 - Status: open
 
 ## 2026-11-21: A deferred item read a stop line against the wrong clock
