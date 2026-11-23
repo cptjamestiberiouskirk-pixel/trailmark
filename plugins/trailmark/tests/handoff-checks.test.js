@@ -7310,6 +7310,80 @@ test('branch: a folder that is not a repo has no branch, and the Updated line ke
   assert.match(out, /branch feature-x \| HEAD abcdef1/, "an unknown branch replaced the model's own");
 });
 
+// RS-T-headlate, RS-T-stampplaceholder: a handoff written with no facts
+// from git kept the template's placeholders, read "<branch>" as a branch,
+// and its next session start said nothing about the missing HEAD.
+test('stamp: with no facts from git, placeholders go, one marker says so, and session start says why there is no HEAD (RS-T-headlate)', () => {
+  const tpl = '# H\nUpdated: <YYYY-MM-DD HH:MM> | branch <branch> | HEAD <sha7>\n';
+  const out = S.stampUpdated(tpl, null, new Date(2026, 10, 23, 14, 0));
+  const line = out.split('\n')[1];
+  assert.ok(!/[<>]/.test(line), `a placeholder was kept: ${line}`);
+  assert.strictEqual(line.split(' | ').filter(p => p === 'git: no facts').length, 1, line);
+  // The model's own text is kept; a copied marker is not doubled.
+  const again = S.stampUpdated('# H\nUpdated: 2026-11-01 10:00 | branch mine | git: no facts | <sha7>\n', null).split('\n')[1];
+  assert.match(again, /\| branch mine \| git: no facts \| by (Claude Code|Codex)$/, again);
+  // With facts from git there is no marker.
+  assert.doesNotMatch(S.stampUpdated(tpl, { branch: 'main', head: 'abc1234' }), /git: no facts/);
+  // The reader takes neither a placeholder nor the marker for a branch or HEAD.
+  const raw = S.handoffStamp('Updated: 2026-11-23 14:00 | <YYYY-MM-DD HH:MM> | branch <branch> | HEAD <sha7> | by Claude Code');
+  assert.strictEqual(raw.branch, undefined, 'a placeholder was read as a branch');
+  assert.strictEqual(raw.head, undefined);
+  const st = S.handoffStamp(line);
+  assert.strictEqual(st.git, 'no facts');
+  assert.strictEqual(st.branch, undefined);
+  assert.strictEqual(st.head, undefined);
+  // Session start says why there is no HEAD, and not when there is one.
+  // write-handoff would restamp with the sandbox repo's git facts, so the
+  // line goes down raw and is read through the session-start hook.
+  const s = sandbox();
+  s.write('# H\n## Next steps\n- one\n');
+  const hf = path.join(s.memdir, 'handoff.md');
+  fs.writeFileSync(hf, `# H\n${line}\n## Next steps\n- one\n`);
+  const said = s.start().context.split('\n').find(l => l.includes('The handoff has no HEAD'));
+  assert.match(said || '', /^The handoff has no HEAD, so the commits since it are not listed\. /);
+  // It names no git command: the marker is also written where Trailmark
+  // kept git out of the folder, and plain git there can run the repo's
+  // programs (a planted gpg.program or core.fsmonitor).
+  // Every git in the line is one of its own phrases (an allowlist: a list
+  // of commands missed `git --no-pager log` and `git -c k=v log`).
+  assert.doesNotMatch(said, /\bgit(?!\s+(gave|ran|repo|for this|out of this folder)\b)/i, said);
+  // Said without a condition: the refusal warning reaches only the user.
+  assert.match(said, /Don't run git for this: Trailmark may have kept git out of this folder\./);
+  // At a budget too small for the rest, kept lines are cut to their first
+  // 150 characters: the stop is inside them (auto-review on PR 128).
+  const cfgFile = path.join(s.memdir, '.jbmem.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), budgets: { injectChars: 2000 } }));
+  const notes = Array.from({ length: 4 }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(150)}`);
+  const cutLine = S.buildInjection(s.memdir, { notes }).text.split('\n').find(l => l.includes('The handoff has no HEAD'));
+  assert.ok(cutLine && cutLine.length <= 150, `the line was not cut: ${cutLine}`);
+  assert.match(cutLine, /Don't run git for this: Trailmark may have kept git out of this folder\./, cutLine);
+  assert.doesNotMatch(cutLine, /\bgit(?!\s+(gave|ran|repo|for this|out of this folder)\b)/i, cutLine);
+  // The line's short form goes first at a tight budget: no note is cut while
+  // the line keeps its full length (auto-review round 3 on PR 128: a note
+  // lost its "never run it"). Any kept text can still push a note whose
+  // warning ends past 150 characters into the cut (RS-T-notecutorder).
+  const nodeNote = "[trailmark] The Node that ran this hook is a node program in this session's folder or the repo's top folder, not the installed one; its path isn't given here. Tell the user if asked; never run it.";
+  const steps = Array.from({ length: 40 }, (_, i) => `${i + 1}. step ${i} ${'x'.repeat(60)} -- owner: Claude`).join('\n');
+  fs.writeFileSync(hf, `# H\n${line}\n## Next actions\n${steps}\n`);
+  let cut = 0;
+  for (let n = 0; n <= 8; n++) {
+    for (const fill of [17, 33, 66]) {
+      const more = [nodeNote, ...Array.from({ length: n }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(fill)}`)];
+      const text = S.buildInjection(s.memdir, { notes: more }).text;
+      if (/never run it\./.test(text)) continue;
+      cut++;
+      const said = text.split('\n').find(l => l.includes('The handoff has no HEAD'));
+      assert.strictEqual(said, "The handoff has no HEAD, so the commits since it are not listed. Don't run git for this: Trailmark may have kept git out of this folder.", `a note was cut while the line kept its full length (${n} notes of ${fill} words)`);
+    }
+  }
+  assert.ok(cut > 0, 'the sweep never cut the note');
+  fs.writeFileSync(hf, '# H\nUpdated: 2026-11-23 14:00 | branch main | HEAD abc1234 | by Claude Code\n## Next steps\n- one\n');
+  assert.doesNotMatch(s.start().context, /The handoff has no HEAD/);
+  // A HEAD with the marker (a hand-edited line): there is a HEAD, so no line.
+  fs.writeFileSync(hf, '# H\nUpdated: 2026-11-23 14:00 | branch main | HEAD abc1234 | git: no facts | by Claude Code\n## Next steps\n- one\n');
+  assert.doesNotMatch(s.start().context, /The handoff has no HEAD/);
+});
+
 test('git checks: a folder with a HEAD is probed only as git probes a bare repo; module walks skip refs/ and the loose-object folders of module gitdirs (loop round 8)', { skip: NO_LINKS }, () => {
   const { farGitConfig, farModules } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-bare8-');
