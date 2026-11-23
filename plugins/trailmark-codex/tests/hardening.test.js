@@ -527,7 +527,7 @@ test('Updated line: only the one under the title is restamped; a later body line
   assert.strictEqual(lines[1], 'Updated: 2026-10-18 09:05 | branch main | HEAD abc1234 | by Codex');
   assert.ok(lines.includes('Updated: the README is now current'), out);
   const top = S.stampUpdated(['# Handoff: x', 'Updated: old', '', 'body'].join('\n'), null, new Date(2026, 9, 18, 9, 5));
-  assert.strictEqual(top.split('\n')[1], 'Updated: 2026-10-18 09:05 | old | by Codex');
+  assert.strictEqual(top.split('\n')[1], 'Updated: 2026-10-18 09:05 | old | git: no facts | by Codex');
 });
 
 test('findTranscript: reads only the head of each transcript it scans', () => {

@@ -899,6 +899,8 @@ function keepHistory(dir, text) {
 // them, the branch and HEAD from git, whatever the model wrote there. A model
 // doesn't reliably know the time: in the 2026-10-16 round-trip test it wrote a
 // time five minutes after the session had already ended.
+// The Updated line's field for a handoff written with no facts from git.
+const NO_GIT_FACTS = 'git: no facts';
 function stampUpdated(text, facts, now = new Date(), session = '') {
   const lines = text.split('\n');
   let body = 0;
@@ -934,12 +936,20 @@ function stampUpdated(text, facts, now = new Date(), session = '') {
       .replace(/^\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?\s*/, '')
       .replace(/^\|\s*/, '')
       .trim();
-    if (rest) parts.push(rest);
+    // With no facts from git, a template placeholder ("<branch>", "HEAD
+    // <sha7>", "<YYYY-MM-DD HH:MM>") is not kept as if it were one
+    // (RS-T-stampplaceholder).
+    const real = rest.split(/\s*\|\s*/).filter(p => p && !/<[^<>]*>/.test(p)).join(' | ');
+    if (real) parts.push(real);
   }
   // The writing session's short ID goes last, replacing any the model copied.
   const sshort = shortSession(session);
   // The agent goes after it, replacing any "by ..." the model copied.
-  const kept = parts.flatMap(p => p.split(/\s*\|\s*/)).filter(p => p && !/^session\s/.test(p) && !/^by\s/.test(p));
+  const kept = parts.flatMap(p => p.split(/\s*\|\s*/)).filter(p => p && !/^session\s/.test(p) && !/^by\s/.test(p) && !/^git:\s/.test(p));
+  // No facts from git (it ran out of time, was not found, or this is not a
+  // repo): said on the line, so the next session start can say why there
+  // is no HEAD (RS-T-headlate). One the model copied is dropped above.
+  if (!fromGit) kept.push(NO_GIT_FACTS);
   if (sshort) kept.push(`session ${sshort}`);
   kept.push(`by ${AGENT}`);
   const line = kept.join(' | ');
@@ -2039,7 +2049,8 @@ function handoffStamp(text) {
   for (const p of m[0].replace(/^Updated:\s*/, '').split(/\s*\|\s*/)) {
     let x;
     if ((x = /^HEAD ([0-9a-f]{7,12})$/.exec(p))) out.head = x[1];
-    else if ((x = /^branch (\S{1,80})$/.exec(p))) out.branch = x[1];
+    else if ((x = /^branch (\S{1,80})$/.exec(p))) { if (!/^<[^<>]*>$/.test(x[1])) out.branch = x[1]; }
+    else if (p === NO_GIT_FACTS) out.git = 'no facts';
     else if ((x = /^session ([0-9a-f]{8})$/.exec(p))) out.session = x[1];
     else if ((x = /^by (Claude Code|Codex)$/.exec(p))) out.agent = x[1];
   }
@@ -2238,6 +2249,9 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   const add = (text, rank, { short = '', keep = false } = {}) => rest.push({ text, rank, short, keep });
   const sinceFacts = checkSinceFacts(since);
   const sinceLines = sinceSection(sinceFacts, plainBody, m, now);
+  // Written with no facts from git and no HEAD: no commits since it can
+  // be listed, and this says why (RS-T-headlate).
+  if (stamp.git === 'no facts' && !stamp.head) add('The handoff has no HEAD: git gave no facts when it was written (git ran out of time, was not found, or this is not a git repo), so the commits since it are not listed. Run git log --oneline -10 and check the next steps against them before redoing work.', 5, { keep: true });
   if (sinceLines.length) {
     // Kept when there are commits, or when git ran out of time before it
     // could say (one line, cut to 150 characters last, the sign first).

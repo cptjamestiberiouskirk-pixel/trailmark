@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-23: A test set up a state through the writer that the writer can't produce
+
+- What went wrong: the first RS-T-headlate test wrote its "no facts from git" handoff with the sandbox's `write`, which runs `write-handoff` in a git repo. It restamped the line with the repo's branch and HEAD, so the session-start check failed on the fixed code.
+- Why: the helper's name says what it does to the file, not what the launcher adds on the way.
+- Rule going forward: when a test needs a file in a state that only another place produces (here, a checkpoint with no git), put the file down raw and read it through the real reader; check the file's content before the assertion that depends on it.
+- Status: open
+
 ## 2026-11-22: An event check printed the answer, and it was read by eye as a pass
 - What went wrong: the notes after PRs 114 to 118 (8231b44) say each of the four merged "through auto-merge", and that PR #117's auto-merge was "set again". The owner's own check of the PRs' events printed `auto_merge_enabled,auto_merge_disabled,merged` for #117, with no second enable, and it was read as a pass. The docs round found it (WRONG 1, CONFIRMED here by the events and by this session's command record: `gh pr merge 117 --auto --merge` at 23:34:26Z merged it at once, as its jobs had already passed). The 8231b44 message repeats the claim; history is not rewritten, so the next commit's message corrects it.
 - Why: the condition (an enable is the last merge event before `merged`) was in the owner's head, not in the command, so four lines of output were judged at a glance.

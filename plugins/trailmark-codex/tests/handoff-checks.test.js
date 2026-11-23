@@ -7277,6 +7277,40 @@ test('branch: a folder that is not a repo has no branch, and the Updated line ke
   assert.match(out, /branch feature-x \| HEAD abcdef1/, "an unknown branch replaced the model's own");
 });
 
+// RS-T-headlate, RS-T-stampplaceholder: a handoff written with no facts
+// from git kept the template's placeholders, read "<branch>" as a branch,
+// and its next session start said nothing about the missing HEAD.
+test('stamp: with no facts from git, placeholders go, one marker says so, and session start says why there is no HEAD (RS-T-headlate)', () => {
+  const tpl = '# H\nUpdated: <YYYY-MM-DD HH:MM> | branch <branch> | HEAD <sha7>\n';
+  const out = S.stampUpdated(tpl, null, new Date(2026, 10, 23, 14, 0));
+  const line = out.split('\n')[1];
+  assert.ok(!/[<>]/.test(line), `a placeholder was kept: ${line}`);
+  assert.strictEqual(line.split(' | ').filter(p => p === 'git: no facts').length, 1, line);
+  // The model's own text is kept; a copied marker is not doubled.
+  const again = S.stampUpdated('# H\nUpdated: 2026-11-01 10:00 | branch mine | git: no facts | <sha7>\n', null).split('\n')[1];
+  assert.match(again, /\| branch mine \| git: no facts \| by (Claude Code|Codex)$/, again);
+  // With facts from git there is no marker.
+  assert.doesNotMatch(S.stampUpdated(tpl, { branch: 'main', head: 'abc1234' }), /git: no facts/);
+  // The reader takes neither a placeholder nor the marker for a branch or HEAD.
+  const raw = S.handoffStamp('Updated: 2026-11-23 14:00 | <YYYY-MM-DD HH:MM> | branch <branch> | HEAD <sha7> | by Claude Code');
+  assert.strictEqual(raw.branch, undefined, 'a placeholder was read as a branch');
+  assert.strictEqual(raw.head, undefined);
+  const st = S.handoffStamp(line);
+  assert.strictEqual(st.git, 'no facts');
+  assert.strictEqual(st.branch, undefined);
+  assert.strictEqual(st.head, undefined);
+  // Session start says why there is no HEAD, and not when there is one.
+  // write-handoff would restamp with the sandbox repo's git facts, so the
+  // line goes down raw and is read through the session-start hook.
+  const s = sandbox();
+  s.write('# H\n## Next steps\n- one\n');
+  const hf = path.join(s.memdir, 'handoff.md');
+  fs.writeFileSync(hf, `# H\n${line}\n## Next steps\n- one\n`);
+  assert.match(s.start().context, /The handoff has no HEAD: git gave no facts when it was written/);
+  fs.writeFileSync(hf, '# H\nUpdated: 2026-11-23 14:00 | branch main | HEAD abc1234 | by Claude Code\n## Next steps\n- one\n');
+  assert.doesNotMatch(s.start().context, /The handoff has no HEAD/);
+});
+
 test('git checks: a folder with a HEAD is probed only as git probes a bare repo; module walks skip refs/ and the loose-object folders of module gitdirs (loop round 8)', { skip: NO_LINKS }, () => {
   const { farGitConfig, farModules } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-bare8-');
