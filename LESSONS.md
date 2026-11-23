@@ -14,8 +14,14 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-23: A timing test's margin was worked out at the first try and not over the wait
+- What went wrong: RS-D-lockagewording moved the threshold test to a move of 1.2 s on a lock 4.5 s old, with a comment giving the real age as 500 ms short of 5 s. Review round 1 (Opus, F1, CONFIRMED by Opus by runs, not re-run here) measured it at 5116 to 5182 ms by the end of the 600 ms wait, so the test also failed a correct reading of the 5 s rule. The lock is back to 4 s, each margin about 200 ms or more.
+- Why: the edges were worked out for the input as the test starts, and the wait the test runs was not added to the real age.
+- Rule going forward: none new; the promoted rule ("a timing test works out the time to each edge it must stay between") counts every edge at the point in the test where it is nearest, the end of a wait included.
+- Status: promoted to PLAYBOOK (held by the entry "A threshold was mutated far from its value, and a timing margin was checked on one side", 2026-11-22)
+
 ## 2026-11-22: A read-only check ran Windows PowerShell 5.1
-- What went wrong: a read-only Bash command, while the auto-review notes on PR #120 were checked, held a stray `powershell -NoProfile -c 1`, which started Windows PowerShell 5.1, against the user's rule to use PowerShell 7 (`pwsh`) only. It evaluated `1` and changed nothing (CONFIRMED by the command's text, which gave it nothing else). The user and the supervisor session were told the same day.
+- What went wrong: a read-only Bash command, while the auto-review notes on PR #120 were checked, held a stray `powershell -NoProfile -c 1`, which started Windows PowerShell 5.1, against the user's rule to use PowerShell 7 (`pwsh`) only. It evaluated `1` and changed nothing (CONFIRMED by the command's text, which gave it nothing else). The user and the supervisor session were told the same day (this session's message to the user and its message to the supervisor session, 2026-11-22).
 - Why: a probe with no purpose was typed into a chained command, and the command was not read for `powershell` before it ran.
 - Rule going forward: a command is read for `powershell` (not `pwsh`) before it runs, a chained one included, and no probe goes into a command without a purpose.
 - Status: open

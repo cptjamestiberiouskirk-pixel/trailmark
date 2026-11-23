@@ -809,14 +809,16 @@ test('lock: a clock step after the .break file is taken keeps a dead holder\'s l
   assert.ok(armed, 'the .break file was never made');
 });
 
-test('lock: a clock moved 1.2 s keeps a dead holder\'s lock 4.5 s old for its 5 s (RS-T-lockagestep)', (t) => {
+test('lock: a clock moved 1.2 s keeps a dead holder\'s lock 4 s old for its 5 s (RS-T-lockagestep)', (t) => {
   // A move just past the 1 s threshold, so a threshold from about 1.2 s up
   // fails it (RS-D-lockagewording: a move of 2 s held it only from about
   // 2 s up; review round 2, F1: a move of 6 s only below 6 s). Seen, the
   // move makes the age the time watched; missed, the moved clock makes the
-  // lock 5.7 s old and breakable at once. Margins: the move 200 ms past the
-  // threshold, the moved age 700 ms past 5 s, the real age 500 ms short.
-  const { dir, file } = deadLockAt('jbmem-locksmall-', 4500);
+  // lock 5.2 s old and breakable at once. Margins, each about 200 ms or
+  // more: the move past the threshold, the moved age past 5 s at the first
+  // try, and the real age short of 5 s at the end of the 600 ms wait (about
+  // 4.65 s; RS-D-lockagewording round 1, F1: a lock 4.5 s old passed 5 s).
+  const { dir, file } = deadLockAt('jbmem-locksmall-', 4000);
   const text = fs.readFileSync(file, 'utf8');
   const got = tryLock(dir, 1200);
   assert.deepStrictEqual(got, { ran: false, code: 'JBMEM_LOCKED' });
