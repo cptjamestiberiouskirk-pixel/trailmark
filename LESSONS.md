@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-23: Recording low bot notes by a push started another bot round each time
+
+- What went wrong: on PR 128 the automated reviewer reviews every push, and each of its rounds 1 to 4 added low notes. Recording them in `dev/release-state.md` meant a push, and that push drew the next round, so the PR could not reach a head with no new notes.
+- Why: the rule "low points go to release-state, then push" was written for review rounds the session starts, not for a reviewer that runs on its own on each push.
+- Rule going forward: once a PR's scoped review rounds are done, bot notes that are low and not CONFIRMED wrong in what the PR changes are answered by a PR comment and recorded in the next PR's release-state (or in a push the PR needs anyway), not by a push of their own (the supervisor, pr128-A-r4). Medium or higher is asked.
+- Status: open
+
 ## 2026-11-23: A review brief said to extract the commit with git archive, which leaves out dev/
 
 - What went wrong: the RS-T-headlate briefs told the reviewer to run tests from `git archive <commit>`; `dev/` is `export-ignore`, so the copy had no `dev/release-check.sh`, and the reviewer cloned the checkout instead.
