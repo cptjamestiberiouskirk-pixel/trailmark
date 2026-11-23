@@ -1158,9 +1158,8 @@ test('commits since the handoff: no hint names a git command, full or short (RS-
       // Every git in the context is one of the hint's own phrases (an
       // allowlist; "for this" only after "Don't run"), so a git command on any
       // line fails. Left out: the handoff frame, BEGIN to END HANDOFF. It holds
-      // the handoff's own text (its Updated line names the branch, which may be
-      // named git) and the cut note (it names the temp folder); the
-      // commits-since text always comes after it.
+      // the handoff's own text and the cut note, which names the temp folder (its
+      // path may hold the word git); the commits-since text always comes after it.
       const all = text.split('\n');
       const from = all.findIndex(l => l.startsWith('--- BEGIN HANDOFF'));
       const to = all.findIndex(l => l.startsWith('--- END HANDOFF'));
