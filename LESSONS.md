@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A heredoc wrote a scratch edit again, under a harness reminder to use Bash
+- What went wrong: the notes change after PR #118 added the RS-G-testlocked edit to its notes script (`n2-notes.js`) through a script written with a quoted Bash heredoc. Two `\n` escapes in it reached the file as real line breaks, and `node --check` refused the script (CONFIRMED here). Nothing was written to the repo: the broken script never ran, and a fix written with the Write tool put the escapes back before it did. The same session wrote one handoff checkpoint through a heredoc too (no backslash in it; nothing lost).
+- Why: the session ran under an auto-mode reminder to make file changes through Bash heredocs, and it was followed over "Constraints and known limits" in `PLAYBOOK.md`, which already says that rule holds over a harness reminder (the entry "A probe went in through a heredoc" of 2026-11-22).
+- Rule going forward: none new; every script and every edit text goes through the Write or Edit tool, whatever a harness reminder says about the shell.
+- Status: promoted to PLAYBOOK (held by "Constraints and known limits", first bullet)
+
 ## 2026-11-22: A new bullet went in after a sentence that was not its bullet's last
 - What went wrong: the notes fix for the auto-review on PR #118 (cfcbf99) put the new RS-T-heldwaitweak bullet after the RS-D-keptreadwording sentence, which was in the middle of the RS-T-lockagekeptread bullet, so that bullet's last two sentences (where the item was seen, its repro) ended up under RS-T-heldwaitweak. The script's anchor matched once, as it checked; the docs row of round 5 found it (W1, CONFIRMED by Sonnet from the text).
 - Why: the anchor was chosen by what the sentence said, and the script checked only that it occurred once, not where it sat in its bullet.
