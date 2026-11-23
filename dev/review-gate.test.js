@@ -652,6 +652,31 @@ test('evals: prepare reaches git worktree add, and the run removes the worktree 
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+test('evals: a link at .review or REVIEW.md in the checked-out parent stops the case (RS-G-reviewlink)', () => {
+  const run = require('./review-evals/run.js');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evallink-'));
+  try {
+    const outside = path.join(tmp, 'outside');
+    fs.mkdirSync(outside);
+    const mk = (name) => { const ws = path.join(tmp, name); fs.mkdirSync(ws); return ws; };
+    // No link: fine, with or without the names there.
+    const plain = mk('plain');
+    fs.mkdirSync(path.join(plain, '.review'));
+    fs.writeFileSync(path.join(plain, 'REVIEW.md'), 'x');
+    run.noLinks(plain);
+    run.noLinks(mk('empty'));
+    // A directory link (a junction needs no privilege on Windows) at .review.
+    const d = mk('dirlink');
+    fs.symlinkSync(outside, path.join(d, '.review'), 'junction');
+    assert.throws(() => run.noLinks(d), /\.review is a link/);
+    // A file link at REVIEW.md: needs symlink rights on Windows, so that half is skipped there without them.
+    const f = mk('filelink');
+    let made = true;
+    try { fs.symlinkSync(path.join(outside, 'target.md'), path.join(f, 'REVIEW.md'), 'file'); } catch (e) { if (e.code !== 'EPERM') throw e; made = false; }
+    if (made) assert.throws(() => run.noLinks(f), /REVIEW\.md is a link/);
+    assert.deepEqual(fs.readdirSync(outside), []);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
 test('evals: git\'s own refusal at worktree add stops the case, and the run-owned folder goes with whatever is in it (RS-G-addhappy, RS-G-mkdirfill)', () => {
   const run = require('./review-evals/run.js');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evalrefuse-'));
