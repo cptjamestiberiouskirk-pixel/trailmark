@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-23: A review brief said to extract the commit with git archive, which leaves out dev/
+
+- What went wrong: the RS-T-headlate briefs told the reviewer to run tests from `git archive <commit>`; `dev/` is `export-ignore`, so the copy had no `dev/release-check.sh`, and the reviewer cloned the checkout instead.
+- Why: the archive command was chosen to avoid adding a worktree, without checking what `.gitattributes` leaves out of it.
+- Rule going forward: a brief gives the reviewer a `git clone` of the checkout at the commit (or `git worktree add` in the reviewer's own clone), never `git archive`, when the reviewer runs the repo's checks.
+- Status: open
+
 ## 2026-11-23: A test set up a state through the writer that the writer can't produce
 
 - What went wrong: the first RS-T-headlate test wrote its "no facts from git" handoff with the sandbox's `write`, which runs `write-handoff` in a git repo. It restamped the line with the repo's branch and HEAD, so the session-start check failed on the fixed code.
