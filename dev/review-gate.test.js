@@ -652,6 +652,26 @@ test('evals: prepare reaches git worktree add, and the run removes the worktree 
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+test('evals: git\'s own refusal at worktree add stops the case, and the run-owned folder goes with whatever is in it (RS-G-addhappy, RS-G-mkdirfill)', () => {
+  const run = require('./review-evals/run.js');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evalrefuse-'));
+  const ws = path.join(tmp, 'work', 'refuse-case');
+  try {
+    // A merge that is not there: git refuses the add, and `prepare` throws with the folder still in `live`.
+    assert.throws(() => run.prepare({ id: 'refuse-case', causePr: 1, causeMerge: '0'.repeat(40) }, path.join(tmp, 'work'), { prText: () => ({ title: 't', body: '' }) }));
+    assert.ok(run.live.has(ws));
+    // The folder is this run's (made with a create that fails if it is there), so a file another process
+    // puts in it is removed with it. That is the design: nothing outside the run's own folder is touched.
+    fs.writeFileSync(path.join(ws, 'stray.txt'), 'x');
+    run.dropWorktree(ws);
+    assert.equal(fs.existsSync(ws), false);
+    assert.equal(run.live.has(ws), false);
+    assert.ok(fs.existsSync(path.join(tmp, 'work')));
+  } finally {
+    run.dropWorktree(ws);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
 test('evals: a tree name with a backslash, colon or dotted part stops the case, and nothing is written outside', () => {
   const run = require('./review-evals/run.js');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evalpath-'));
