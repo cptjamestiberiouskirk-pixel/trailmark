@@ -1142,9 +1142,15 @@ test('commits since the handoff: no hint names a git command, full or short (RS-
       if (what === 'full') assert.match(line, /Don't run git for this: Trailmark may have kept git out of this folder\./, line);
       // Every git in the context is one of the hint's own phrases (an
       // allowlist; "for this" only after "Don't run"), so a git command on any
-      // line fails. Left out: the cut note, which names the temp folder (a
-      // part of it may be named git).
-      const part = text.split('\n').filter(l => !l.startsWith('[truncated:')).join('\n');
+      // line fails. Left out: the handoff frame, BEGIN to END HANDOFF. It holds
+      // the handoff's own text (its Updated line names the branch, which may be
+      // named git) and the cut note (it names the temp folder); the
+      // commits-since text always comes after it.
+      const all = text.split('\n');
+      const from = all.findIndex(l => l.startsWith('--- BEGIN HANDOFF'));
+      const to = all.findIndex(l => l.startsWith('--- END HANDOFF'));
+      assert.ok(from >= 0 && to > from, `${what}: no handoff frame in ${text}`);
+      const part = [...all.slice(0, from), ...all.slice(to + 1)].join('\n');
       assert.doesNotMatch(part, /\bgit\b(?<!Don't run git)(?<!kept git)(?!\s+(ran out of time|could not list them)\b)/i, `${what}: ${line}`);
     }
   }
