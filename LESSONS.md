@@ -14,6 +14,18 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A new bullet went in after a sentence that was not its bullet's last
+- What went wrong: the notes fix for the auto-review on PR #118 (cfcbf99) put the new RS-T-heldwaitweak bullet after the RS-D-keptreadwording sentence, which was in the middle of the RS-T-lockagekeptread bullet, so that bullet's last two sentences (where the item was seen, its repro) ended up under RS-T-heldwaitweak. The script's anchor matched once, as it checked; the docs row of round 5 found it (W1, CONFIRMED by Sonnet from the text).
+- Why: the anchor was chosen by what the sentence said, and the script checked only that it occurred once, not where it sat in its bullet.
+- Rule going forward: a script that adds a bullet after an anchor checks that the anchor ends its line (the next character is a newline), and the diff is read for the bullets it splits before the commit.
+- Status: open
+
+## 2026-11-22: A fix took the one read its item named, not the class
+- What went wrong: RS-T-lockagekeptread named one check that read the lock file with no exists check, and its first commit fixed that one. Review round 1 (Opus, F1) found nine more in the RS-T-lockagestep and RS-T-lockagemono tests, plus one `assert.strictEqual`, that give a raw `ENOENT` when the lock is gone (five CONFIRMED by Opus by a run, not re-run here, five INFERRED). Round 2 (Opus) found three more, in `sessions.test.js` and two link tests (one CONFIRMED by Opus by a run, not re-run here, two INFERRED), and its sweep, a reading of the code, went into the notes as finding no more. Round 3 (Opus) found one more that the sweep had passed (CONFIRMED by Opus by a run, not re-run here).
+- Why: PLAYBOOK "Writing code and docs" step 11 (write down a reviewer's example's class first) was not run; the item's text was read as the whole of it. Then a reviewer's sweep stood in for the owner's own search.
+- Rule going forward: step 11 is run on a deferred item's example too, and its class is found by a search for the example's pattern across every test and source file, each hit listed.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 11, its sentence on a search for the pattern)
+
 ## 2026-11-22: A reviewer's suggested wording went into the notes unchecked
 - What went wrong: RS-T-lockagemono's round 2 docs point 4 said a waiter whose monotonic clock runs behind by D keeps a lock "until its true age is D plus 60 s". It went into `dev/release-state.md` as written. Round 3 (Sonnet, by a probe, not re-run here) showed it true only for D under 60 s: a larger D makes the stamp of a younger lock ahead of now, not trusted, and the file time decides (CONFIRMED in code here, `monoAge`).
 - Why: a COULD BE CLEARER point was read as wording to copy, not as a claim to check; the code was not read for each case of its terms. The class of "A reviewer's CONFIRMED reason went into a code comment, and the next round showed it wrong", seen again.
