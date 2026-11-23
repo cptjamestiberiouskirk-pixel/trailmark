@@ -1653,9 +1653,11 @@ test('sinceInTime: three late session starts skip when the 30 s control answers,
   const G = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const real = G.commitsSince;
   for (const bad of [null, { base: head, state: 'late' }, { base: head, state: 'ok', count: 1, entries: [], unlisted: 'late' }, { base: head, state: 'ok', count: 1, entries: [], unlisted: 'error' }]) {
-    G.commitsSince = () => bad;
+    let asked = null;
+    G.commitsSince = (cwd, base) => { asked = base; return bad; };
     try {
       assert.throws(() => sinceInTime(s, () => late), (e) => e instanceof assert.AssertionError && /so did the same lookup with 30 s/.test(e.message), JSON.stringify(bad));
+      assert.strictEqual(asked, head, 'the control looked up from another base');
     } finally {
       G.commitsSince = real;
     }
