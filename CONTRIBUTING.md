@@ -58,7 +58,7 @@ The other files differ on purpose. Codex-specific code is in `scripts/lib/host.j
 ## Sending a change
 
 - Keep each pull request to one change, with a test that fails without it.
-- Raise the version in the plugin's `plugin.json` and add a CHANGELOG entry. The plugin directory picks up a new version only when that number changes. The Codex copy has its version in both `plugins/trailmark-codex/plugin.json` and `plugins/trailmark-codex/.codex-plugin/plugin.json`.
+- Leave the version and the CHANGELOG alone: the maintainer raises the version and writes the CHANGELOG entry at the release step, for all the changes since the last release. (The plugin directory picks up a new version only when the number in `plugin.json` changes.) The Codex copy has its version in both `plugins/trailmark-codex/plugin.json` and `plugins/trailmark-codex/.codex-plugin/plugin.json`.
 - Run `claude plugin validate .`, `claude plugin validate plugins/trailmark` and `claude plugin validate plugins/trailmark-codex`.
 - Regenerate `SHA256SUMS` from the repository root, after your change is staged or committed so that `git ls-files` lists every file:
 

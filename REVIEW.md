@@ -21,7 +21,7 @@ From `CLAUDE.md` "Reviews" and `PLAYBOOK.md` "Reviewing":
 - Each new test fails on the parent commit and passes on the head. Check it by reading: a test that would pass on the old code proves nothing about the fix.
 - Probe the fix's neighbors: the next value up and down, a repeat, an empty input, the Windows path.
 - Shared files: a change to one plugin copy is in the other (the `for f in` list in `.github/workflows/tests.yml`).
-- A shipped file changed: `SHA256SUMS` moved with it. A missing version raise in `plugin.json` or `CHANGELOG.md` line is a note, not blocking: `CONTRIBUTING.md` and the PR template ask for them with each PR, and recent PRs leave them to the release step.
+- A shipped file changed: `SHA256SUMS` moved with it. A version raise in `plugin.json` or a `CHANGELOG.md` line is not expected in a PR: the maintainer does both at the release step (`CONTRIBUTING.md`), so a missing one is not a finding.
 - A test made weaker to pass (an assert removed or loosened, a skip, a longer limit) is blocking unless the PR body says why and the reason holds.
 - A change to a check that judges the PR (`tests.yml`, `dev/release-check.sh`, `dev/lessons.sh`, `.github/tap-annotate.js`, a test's assertion) is named in the PR body; read each loosened assertion beside the parent's.
 
