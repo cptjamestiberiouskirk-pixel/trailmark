@@ -280,8 +280,12 @@ const SINCE_CONTROL = { budgetMs: 30000, callMs: 30000 };
 // none, the last write must have that line, with a call stopped or the
 // budget spent but 300 ms (a call is refused with under 250 ms left), and
 // the same lookup with 30 s, as a control, must give HEAD; then the test is
-// skipped. No HEAD and no line fails at once.
+// skipped. No HEAD and no line fails at once. A call stopped at its own
+// timeout (hung=1) ran at least min(4000, the budget left) ms (gitfacts.js
+// runner), so the lookup spent 4,000 ms or more: a stop sooner fails,
+// whatever the control says (RS-T-stamphungbound; 100 ms of slack).
 const SHOW_HEAD = /^trailmark head: late budget=(\d+) spent=(\d+) hung=([01])$/m;
+const HUNG_MIN_MS = 3900;
 function stampedHead(s) {
   const head = S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8')).head;
   if (head) return head;
@@ -290,6 +294,7 @@ function stampedHead(s) {
   const [budget, spent, hung] = m.slice(1).map(Number);
   assert.strictEqual(budget, 5000, `the write's git budget isn't the launcher's: ${m[0]}`);
   assert.ok(hung === 1 || spent >= budget - 300, `the handoff has no HEAD, but git had time left: ${m[0]}`);
+  assert.ok(hung === 0 || spent >= HUNG_MIN_MS, `a git call was stopped sooner than its timeout allows (at least 4,000 ms): ${m[0]}`);
   const G = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const c = G.gitFacts(s.repo, ['branch', 'head', 'toplevel'], SINCE_CONTROL);
   assert.ok(c.head, `the handoff's write ran out of time, and so did the same lookup with 30 s: ${JSON.stringify(c)}`);
@@ -1512,6 +1517,9 @@ test('commits since the handoff: a handoff written with git out of time says so,
       '  const p = opts && opts.cwd === REPO && PLAN.find(([call]) => { const i = a.indexOf(call[0]); return i >= 0 && JSON.stringify(a.slice(i)) === JSON.stringify(call); });',
       '  if (!p) return real.apply(this, arguments);',
       "  if (p[1] === 'slow') { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000); return p[2]; }",
+      // 'time' waits out the timeout it was given, as a call git doesn't
+      // answer is stopped only then (stampedHead's bound).
+      "  if (p[1] === 'time') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, opts.timeout);",
       "  const e = new Error(p[1] === 'time' ? 'spawnSync git ETIMEDOUT' : 'Command failed');",
       "  if (p[1] === 'time') e.code = 'ETIMEDOUT'; else e.status = 128;",
       '  throw e;',
@@ -1529,6 +1537,7 @@ test('commits since the handoff: a handoff written with git out of time says so,
   const m = SHOW_HEAD.exec(late.stderr);
   assert.ok(m, late.stderr);
   assert.deepStrictEqual([m[1], m[3]], ['5000', '1']);
+  assert.ok(+m[2] >= HUNG_MIN_MS, m[0]);
   assert.throws(() => stampedHead(s), CommitsOutOfTime);
   // No call stopped, the budget spent: `branch` answers after 5 s, and the
   // calls after it are refused for lack of time (hung=0).
@@ -1552,6 +1561,23 @@ test('commits since the handoff: a handoff written with git out of time says so,
   s.write('# H\n- plain\n');
   assert.strictEqual(stampedHead(s), s.g('rev-parse', '--short', 'HEAD'));
 }));
+
+// RS-T-stamphungbound: a write whose git call was stopped sooner than the
+// runner's timeout allows (a fault that cuts the hook's calls short) is a
+// failure, not a skip, even when the 30 s control gives HEAD.
+test('stampedHead: a call stopped sooner than its timeout allows fails, and one stopped after 4 s skips (RS-T-stamphungbound)', () => {
+  const s = sandbox();
+  s.write('# H\n');
+  // No HEAD on the line: put down raw, as write-handoff would stamp one.
+  fs.writeFileSync(path.join(s.memdir, 'handoff.md'), '# H\nUpdated: 2026-11-23 15:00 | branch main | by Claude Code\n');
+  s.writes.splice(0, Infinity, 'trailmark head: late budget=5000 spent=12 hung=1\n');
+  assert.throws(() => stampedHead(s), (e) => e instanceof assert.AssertionError && /stopped sooner than its timeout allows/.test(e.message));
+  // The bound's edge: a looser bound (100 ms) passed the cases above.
+  s.writes.splice(0, Infinity, 'trailmark head: late budget=5000 spent=3899 hung=1\n');
+  assert.throws(() => stampedHead(s), (e) => e instanceof assert.AssertionError && /stopped sooner than its timeout allows/.test(e.message));
+  s.writes.splice(0, Infinity, 'trailmark head: late budget=5000 spent=3900 hung=1\n');
+  assert.throws(() => stampedHead(s), CommitsOutOfTime);
+});
 
 test('fit: a small injectChars holds with a commit list, a snapshot and warnings', sinceTest(() => {
   const s = sandbox();
