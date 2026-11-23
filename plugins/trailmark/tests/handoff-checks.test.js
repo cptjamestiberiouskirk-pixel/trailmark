@@ -7318,8 +7318,11 @@ test('stamp: with no facts from git, placeholders go, one marker says so, and se
   // It names no git command: the marker is also written where Trailmark
   // kept git out of the folder, and plain git there can run the repo's
   // programs (a planted gpg.program or core.fsmonitor).
-  assert.doesNotMatch(said, /\bgit\s+(log|status|diff|show|rev-parse|rev-list|branch|fetch|pull|checkout|switch|reset|config|blame|grep|ls-files|describe|reflog|shortlog|whatchanged|cat-file|for-each-ref|-C)\b/, said);
-  assert.match(said, /do not run git in it/);
+  // Every git in the line is one of its own phrases (an allowlist: a list
+  // of commands missed `git --no-pager log` and `git -c k=v log`).
+  assert.doesNotMatch(said, /\bgit(?!\s+(gave|ran|repo|for this|out of this folder)\b)/i, said);
+  // Said without a condition: the refusal warning reaches only the user.
+  assert.match(said, /Don't run git for this: Trailmark may have kept git out of this folder\./);
   fs.writeFileSync(hf, '# H\nUpdated: 2026-11-23 14:00 | branch main | HEAD abc1234 | by Claude Code\n## Next steps\n- one\n');
   assert.doesNotMatch(s.start().context, /The handoff has no HEAD/);
   // A HEAD with the marker (a hand-edited line): there is a HEAD, so no line.
