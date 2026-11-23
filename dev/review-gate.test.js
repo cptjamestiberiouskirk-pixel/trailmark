@@ -31,7 +31,7 @@ test('tier: workflow change is high, test file low, script medium, unknown file 
 });
 test('tier: instruction files, manifests and the gate files are high, in any case', () => {
   for (const f of ['CLAUDE.local.md', 'plugins/x/claude.md', 'AGENTS.md', '.mcp.json', '.claude-plugin/marketplace.json',
-    '.agents/plugins/marketplace.json', 'plugins/x/scripts/.gitattributes', 'REVIEW.md', 'dev/review-gate.test.js', 'dev/tier.js']) {
+    '.agents/plugins/marketplace.json', 'plugins/x/scripts/.gitattributes', 'REVIEW.md', 'PLAYBOOK.md', 'dev/review-gate.test.js', 'dev/tier.js']) {
     assert.equal(t.classify([file(f)], rules).tier, 'high', f);
   }
 });
