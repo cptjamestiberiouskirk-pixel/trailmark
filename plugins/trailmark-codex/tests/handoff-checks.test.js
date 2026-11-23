@@ -779,7 +779,8 @@ test('lock: a clock step at a .break file\'s age, or between it and the clock ch
     assert.strictEqual(got, 'JBMEM_LOCKED', `step from read ${from}`);
     assert.ok(fs.existsSync(brk), `step from read ${from}: the fresh .break file was removed`);
     // A pid in use in one case leaves the other to run (review round 6, F1:
-    // only the step from read 2 catches the old read order).
+    // only the step from read 2 catches the old read order; round 7: only
+    // the step from read 1 catches the clock check after the age removed).
     const again = reusedPid(text);
     if (again) { reused = again; continue; }
     assert.ok(armed, `step from read ${from}: the .break file was never looked at`);
@@ -808,12 +809,18 @@ test('lock: a clock step after the .break file is taken keeps a dead holder\'s l
   assert.ok(armed, 'the .break file was never made');
 });
 
-test('lock: a clock moved 2 s keeps a dead holder\'s lock 4 s old for its 5 s (RS-T-lockagestep)', (t) => {
-  // A move past 1 s counts (review round 2, F1: a move of 6 s held the
-  // threshold only below 6 s). By the moved clock this lock is 6 s old.
+test('lock: a clock moved 1.2 s keeps a dead holder\'s lock 4 s old for its 5 s (RS-T-lockagestep)', (t) => {
+  // A move just past the 1 s threshold, so a threshold from about 1.2 s up
+  // fails it (RS-D-lockagewording: a move of 2 s held it only from about
+  // 2 s up; review round 2, F1: a move of 6 s only below 6 s). Seen, the
+  // move makes the age the time watched; missed, the moved clock makes the
+  // lock 5.2 s old and breakable at once. Margins, each about 200 ms or
+  // more: the move past the threshold, the moved age past 5 s at the first
+  // try, and the real age short of 5 s at the end of the 600 ms wait (about
+  // 4.65 s; RS-D-lockagewording round 1, F1: a lock 4.5 s old passed 5 s).
   const { dir, file } = deadLockAt('jbmem-locksmall-', 4000);
   const text = fs.readFileSync(file, 'utf8');
-  const got = tryLock(dir, 2000);
+  const got = tryLock(dir, 1200);
   assert.deepStrictEqual(got, { ran: false, code: 'JBMEM_LOCKED' });
   assert.ok(fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token dddd'), 'the lock was broken');
   const again = reusedPid(text);
