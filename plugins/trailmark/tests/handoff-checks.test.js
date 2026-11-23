@@ -1104,6 +1104,72 @@ test('commits since the handoff: another branch and an unknown HEAD are said pla
   assert.ok(!fs.existsSync(path.join(s.repo, 'x')));
 }));
 
+// RS-S-sincegitadvice: the commits-since hints told the model to run git
+// log, also where Trailmark kept git out of the folder (state 'late' comes
+// before the folder is checked), and plain git there can run the repo's
+// programs. Every hint state, full, short and cut to 150 characters (the
+// last step at a budget too small for the rest), the longest input too:
+// the whole stop is kept, and no git command is in the context.
+test('commits since the handoff: no hint names a git command, full or short (RS-S-sincegitadvice)', () => {
+  // The handoffs are put down raw with a HEAD on their Updated line, not
+  // through the launcher's write: a write whose git ran out of time leaves no
+  // HEAD, and session start then adds the no-HEAD line, whose own "Git gave no
+  // facts" is outside this allowlist (auto-review round 1 on PR 130).
+  const stamp = 'Updated: 2026-11-23 10:00 | branch main | HEAD 1234567 | session abcdef12 | by Claude Code';
+  const put = (box, body) => {
+    const f = path.join(box.memdir, 'handoff.md');
+    fs.writeFileSync(f, `# H\n${stamp}\n${body}`);
+    assert.strictEqual(S.handoffStamp(fs.readFileSync(f, 'utf8')).head, '1234567', 'the handoff has no HEAD');
+  };
+  const s = sandbox();
+  put(s, '## Next steps\n- one\n');
+  const tight = sandbox();
+  const cfgFile = path.join(tight.memdir, '.jbmem.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), budgets: { injectChars: 2000 } }));
+  put(tight, '## State\n' + Array.from({ length: 60 }, (_, i) => `- item ${i} ${'x'.repeat(70)}`).join('\n') + '\n');
+  const notes = n => Array.from({ length: n }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(150)}`);
+  const forms = {
+    full: since => S.buildInjection(s.memdir, { since }).text,
+    // 2 notes: the short form, whole at any temp path; 8: the last-resort cut.
+    short: since => S.buildInjection(tight.memdir, { since, notes: notes(2) }).text,
+    cut: since => S.buildInjection(tight.memdir, { since, notes: notes(8) }).text,
+  };
+  const listed = [{ short: 'def5678', subject: 'one', t: 0 }];
+  const cases = [
+    [{ base: 'abc1234', state: 'late' }, /isn't known: git ran out of time/, ['full', 'short', 'cut']],
+    [{ base: 'abc1234', state: 'ok', count: 1, entries: [], unlisted: 'late' }, /not listed(?: here)?: git ran out of time/, ['full', 'short', 'cut']],
+    [{ base: 'abc1234', state: 'ok', count: 2, entries: [], unlisted: 'error' }, /not listed(?: here)?: git could not list them/, ['full', 'short', 'cut']],
+    // Listed, then dropped for size: the full form lists them (no hint).
+    [{ base: 'abc1234', state: 'ok', count: 1, entries: listed }, /not listed here to fit the budget/, ['short', 'cut']],
+    // The longest text before the hint (a 12-character base, the largest
+    // count): the stop is still inside the cut.
+    [{ base: 'abcdef123456', state: 'late' }, /isn't known: git ran out of time/, ['cut']],
+    [{ base: 'abcdef123456', state: 'ok', count: 1000000, entries: [], unlisted: 'error' }, /not listed(?: here)?: git could not list them/, ['cut']],
+  ];
+  for (const [since, sign, which] of cases) {
+    for (const what of which) {
+      const text = forms[what](since);
+      const line = text.split('\n').find(l => sign.test(l));
+      assert.ok(line, `${what} ${JSON.stringify(since)}: no hint line in ${text}`);
+      if (what === 'cut') assert.ok(line.length <= 150, `${what}: the line was not cut: ${line}`);
+      if (what === 'short') assert.ok(!line.endsWith('...'), `${what}: the line was cut: ${line}`);
+      assert.match(line, /Don't run git for this:/, `${what}: ${line}`);
+      if (what === 'full') assert.match(line, /Don't run git for this: Trailmark may have kept git out of this folder\./, line);
+      // Every git in the context is one of the hint's own phrases (an
+      // allowlist; "for this" only after "Don't run"), so a git command on any
+      // line fails. Left out: the handoff frame, BEGIN to END HANDOFF. It holds
+      // the handoff's own text and the cut note, which names the temp folder (its
+      // path may hold the word git); the commits-since text always comes after it.
+      const all = text.split('\n');
+      const from = all.findIndex(l => l.startsWith('--- BEGIN HANDOFF'));
+      const to = all.findIndex(l => l.startsWith('--- END HANDOFF'));
+      assert.ok(from >= 0 && to > from, `${what}: no handoff frame in ${text}`);
+      const part = [...all.slice(0, from), ...all.slice(to + 1)].join('\n');
+      assert.doesNotMatch(part, /\bgit\b(?<!Don't run git)(?<!kept git)(?!\s+(ran out of time|could not list them)\b)/i, `${what}: ${line}`);
+    }
+  }
+});
+
 test('checkSinceFacts keeps only well-formed facts', () => {
   assert.strictEqual(S.checkSinceFacts({ base: 'zz', state: 'ok' }), null);
   assert.strictEqual(S.checkSinceFacts({ base: 'abc1234', state: 'weird' }), null);
@@ -1118,7 +1184,7 @@ test('commits since the handoff: git running out of time is said, never "the new
   s.write('# H\n## Next steps\n- one\n');
   const at = (since) => S.buildInjection(s.memdir, { since }).text;
   const late = at({ base: 'abc1234', state: 'ok', count: 1, entries: [], unlisted: 'late' });
-  assert.match(late, /HEAD has 1 newer commit, not listed: git ran out of time\. Run git log --oneline abc1234\.\.HEAD/);
+  assert.match(late, /HEAD has 1 newer commit, not listed: git ran out of time\. Don't run git for this: Trailmark may have kept git out of this folder\. Before redoing work, check the next steps against the files or ask the user\./);
   assert.doesNotMatch(late, /the newest 0 shown/);
   const failed = at({ base: 'abc1234', state: 'ok', count: 2, entries: [], unlisted: 'error' });
   assert.match(failed, /HEAD has 2 newer commits, not listed: git could not list them\./);
