@@ -14,6 +14,12 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-22: A fix for a safe-direction miss opened an unsafe one
+- What went wrong: RS-G-midcomment (a mid-line `<!--` hid a fence line in `sections()`) was fixed by ending the comment at four line shapes, checked on GitHub's markdown endpoint. The round reviewer then found shapes where the fix made the gate count text GitHub hides (a list item that is not `1.`, a backtick line with a backtick in its info string, a non-ASCII blank, an opener after a raw HTML block start).
+- Why: the miss was in the safe direction (a section read as missing), so the fix had only downside; I checked the four shapes that showed the bug on GitHub, not the neighbors that must stay hidden.
+- Rule going forward: before a heuristic changes what a gate counts, name the direction a miss fails in; a safe-direction miss that needs a partial copy of a spec (CommonMark paragraph interruption) stays deferred. For each shape the fix ends, render its nearest look-alikes on GitHub and confirm they stay hidden.
+- Status: open
+
 ## 2026-11-22: A reviewer's suggested wording went into the notes unchecked
 - What went wrong: RS-T-lockagemono's round 2 docs point 4 said a waiter whose monotonic clock runs behind by D keeps a lock "until its true age is D plus 60 s". It went into `dev/release-state.md` as written. Round 3 (Sonnet, by a probe, not re-run here) showed it true only for D under 60 s: a larger D makes the stamp of a younger lock ahead of now, not trusted, and the file time decides (CONFIRMED in code here, `monoAge`).
 - Why: a COULD BE CLEARER point was read as wording to copy, not as a claim to check; the code was not read for each case of its terms. The class of "A reviewer's CONFIRMED reason went into a code comment, and the next round showed it wrong", seen again.
