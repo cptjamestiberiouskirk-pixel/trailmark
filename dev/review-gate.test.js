@@ -704,3 +704,68 @@ run.stop();`;
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+test('tier: a destructuring on the line, a slash-star in a regex and a stray quote do not hide a skip or fake its condition', () => {
+  const f = (patch) => t.classify([file('plugins/trailmark/tests/a.test.js', `@@\n+${patch}`)], rules);
+  // RS-G-destructline: only the destructuring itself is exempt, not the rest of the line.
+  assert.equal(f("const { a } = o; test('x', { skip }, () => {})").tier, 'high');
+  assert.equal(f('const { skip, todo } = opts;').tier, 'low');
+  // RS-G-regexcomment: a /* with no end after code may be a regex; one that opens the line is a comment.
+  const c = f("const re = /a\\/*b/; test('x', { skip: true }, () => {})");
+  assert.equal(c.tier, 'high');
+  assert.equal(f('/* the docs say { skip: true } here').tier, 'low');
+  // RS-G-rawconditional: && inside a string, with a stray quote after it, is not a condition.
+  const d = f("t.skip('a && b', /'/)");
+  assert.equal(d.tier, 'high');
+  assert.equal(d.mustCheck.length, 0);
+  // A real condition before a stray quote still counts.
+  const e = f("test('x', { skip: WIN && 'no' }, /'/)");
+  assert.equal(e.tier, 'low');
+  assert.equal(e.mustCheck.length, 1);
+});
+test('tier: a todo or focus stays high after a stray quote, and a nested destructuring is exempt whole', () => {
+  const f = (patch) => t.classify([file('plugins/trailmark/tests/a.test.js', `@@\n+${patch}`)], rules);
+  // PR 116, Codex: a condition with a stray quote before test.only or test.todo must not make it a must-check.
+  for (const l of ["if (WIN) { const re = /'/; test.only('x', fn); }", "if (WIN) { const re = /'/; test.todo('x'); }"]) {
+    const c = f(l);
+    assert.equal(c.tier, 'high', l);
+    assert.equal(c.mustCheck.length, 0, l);
+  }
+  // PR 116, Codex: a nested pattern or a default is part of the destructuring.
+  for (const l of ['const { a: { skip }, b } = opts;', 'const { skip = {}, todo } = opts;', 'let { a: { b: { todo } } } = opts;']) {
+    assert.equal(f(l).tier, 'low', l);
+  }
+  // What follows the destructuring still counts, and so does an assignment that is a comparison.
+  assert.equal(f("const { a: { skip }, b } = opts; test('x', { skip }, fn)").tier, 'high');
+  assert.equal(f("const { skip } == 1; test('x', { skip }, fn)").tier, 'high');
+  // PR 116, Opus: the first line of a multi-line destructuring is all pattern, and a
+  // `skip: true ||` after a stray quote still keeps the line high.
+  assert.equal(f('const { skip,').tier, 'low');
+  // PR 116, review round 2: a closed comment inside a skip is still taken out when a `/*` with no end, or a stray quote, follows.
+  assert.equal(f("test('x', { skip /* flaky */ }, fn); /* see #12").tier, 'high');
+  assert.equal(f("test('x', { skip/* flaky */: true }, fn); /* see #12").tier, 'high');
+  assert.equal(f("test('x', { skip /* flaky */ }, /'/); /* see #12").tier, 'high');
+  // PR 116, round 4: the raw read still guards a mispaired quote or comment earlier on the line,
+  // and a constant skip that the raw read leaves unnormalized still keeps the line high.
+  assert.equal(f("it's done`); test('x', { skip: true }, fn); f('y')").tier, 'high');
+  assert.equal(f("const glob = /src\\/*.js/; test('x', { skip: true }, fn); /* end */ 'x").tier, 'high');
+  for (const l of ["test('x', { skip: 'flaky' || WIN }, fn); /* see #12", "test('x', { skip: true /* c */ || WIN }, fn); /* x", "test('x', { skip: `a` || WIN }, fn); /* x"]) {
+    assert.equal(f(l).tier, 'high', l);
+  }
+  // PR 116, review round 3 (automated): stray quotes that pair across the skip must not hide it.
+  assert.equal(f("const re = /'/; test('x', { skip: true }, () => [/'/, /'/].map(f))").tier, 'high');
+  // PR 116, round 5: the raw half of the constant check (a mispaired quote makes the keep read miss it).
+  assert.equal(f("if (WIN) it's test('x', { skip: 1 ? 'a' : b }, fn)").tier, 'high');
+  assert.equal(f("if (WIN) it's test('x', { skip: true || WIN }, fn) f('y')").tier, 'high');
+  // PR 116, review note: a condition before a `/*` with no end still counts (the strict read stops at it); a todo after it does not.
+  const o = f("test('x', { skip: WIN }, fn); /* the docs say skip: true");
+  assert.equal(o.tier, 'low');
+  assert.equal(o.mustCheck.length, 1);
+  assert.equal(f("test('x', { skip: WIN }, fn); /* todo later").tier, 'high');
+  // The strict read stops at the `/*`, so a `&&` in the comment is not a condition.
+  assert.equal(f("test('x', { skip: true }, fn); /* a && b").tier, 'high');
+  // PR 116, Opus round 2: a brace in a string or regex of the pattern must not hide what follows.
+  for (const l of ["const { a = '{' } = o; test('x', { skip }, /'/)", "const { a = '{' } = o; test('x', { only }, /'/)", "const { a = /{/ } = o; test('x', { skip }, fn)", "const { a /* { */ } = o; test('x', { skip }, /'/)", 'const { a = /{/ } = o; test(x, { skip }, fn)']) {
+    assert.equal(f(l).tier, 'high', l);
+  }
+  assert.equal(f("test('x', { skip: WIN }, /'/, { skip: true || x })").tier, 'high');
+});
