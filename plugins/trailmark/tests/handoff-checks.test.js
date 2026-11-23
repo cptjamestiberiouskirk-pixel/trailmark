@@ -1104,7 +1104,7 @@ test('commits since the handoff: another branch and an unknown HEAD are said pla
 // before the folder is checked), and plain git there can run the repo's
 // programs. Every hint state, full, short and cut to 150 characters (the
 // last step at a budget too small for the rest), the longest input too:
-// the whole stop is kept, and the commits-since part names no git command.
+// the whole stop is kept, and no git command is in the context.
 test('commits since the handoff: no hint names a git command, full or short (RS-S-sincegitadvice)', () => {
   const s = sandbox();
   s.write('# H\n## Next steps\n- one\n');
@@ -1140,15 +1140,12 @@ test('commits since the handoff: no hint names a git command, full or short (RS-
       if (what === 'short') assert.ok(!line.endsWith('...'), `${what}: the line was cut: ${line}`);
       assert.match(line, /Don't run git for this:/, `${what}: ${line}`);
       if (what === 'full') assert.match(line, /Don't run git for this: Trailmark may have kept git out of this folder\./, line);
-      // Every git in the commits-since part (its section, or the one line
-      // left of it) is one of the hint's own phrases (an allowlist; "for
-      // this" only after "Don't run"). Not the whole context: the cut
-      // note names the temp folder, which may hold a part named git.
-      const lines = text.split('\n');
-      const a = lines.findIndex(l => l.startsWith('--- COMMITS SINCE THIS HANDOFF'));
-      const b = lines.findIndex(l => l.startsWith('--- END COMMITS'));
-      const part = a >= 0 && b > a ? lines.slice(a, b + 1).join('\n') : line;
-      assert.doesNotMatch(part, /\bgit\b(?<!Don't run git)(?<!kept git)(?!\s+(ran out of time|could not list them)\b)/i, `${what}: ${part}`);
+      // Every git in the context is one of the hint's own phrases (an
+      // allowlist; "for this" only after "Don't run"), so a git command on any
+      // line fails. Left out: the cut note, which names the temp folder (a
+      // part of it may be named git).
+      const part = text.split('\n').filter(l => !l.startsWith('[truncated:')).join('\n');
+      assert.doesNotMatch(part, /\bgit\b(?<!Don't run git)(?<!kept git)(?!\s+(ran out of time|could not list them)\b)/i, `${what}: ${line}`);
     }
   }
 });
