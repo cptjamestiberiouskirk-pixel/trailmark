@@ -3,6 +3,7 @@
 // workflow fetched into .review/ (see .github/workflows/auto-review.yml).
 // No network calls; it writes only its own output files in that folder.
 //   node dev/review-gate.js candidates      <dir>             reviewers' output -> dir/candidates.json
+//   node dev/review-gate.js lens-ok         <file>            exit 1 unless the file holds JSON with a findings array
 //   node dev/review-gate.js merge           <verifiers> <dir> candidates + votes -> dir/findings.json
 //   node dev/review-gate.js payload         <dir>             -> dir/comments.jsonl and dir/review.json
 //   node dev/review-gate.js signers         <file>            exit 1 unless it holds only security keys for /ship
@@ -301,6 +302,10 @@ if (require.main === module) {
     let list;
     try { list = candidates(outs); } catch (e) { fail(e.message); }
     fs.writeFileSync(path.join(a, 'candidates.json'), JSON.stringify(list));
+  } else if (cmd === 'lens-ok') {
+    // One lens's output file: exit 0 only if it is JSON with a `findings` array,
+    // the check `candidates` makes, so the workflow can ask a lens once more.
+    if (!Array.isArray((tryRead(a) || {}).findings)) process.exit(1);
   } else if (cmd === 'merge') {
     const cands = read(path.join(b, 'candidates.json'));
     const votes = fs.readdirSync(b).filter((n) => /^vote-\d+\.json$/.test(n)).map((n) => tryRead(path.join(b, n)));
@@ -332,7 +337,7 @@ if (require.main === module) {
   } else if (cmd === 'decide') {
     fs.writeFileSync(path.join(b, 'gate.json'), JSON.stringify(decide(read(path.join(b, 'gate-input.json')), read(a))));
   } else {
-    console.error('usage: review-gate.js candidates|merge|payload|signers|ship-candidates|decide ...');
+    console.error('usage: review-gate.js candidates|lens-ok|merge|payload|signers|ship-candidates|decide ...');
     process.exit(2);
   }
 }

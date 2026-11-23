@@ -9,7 +9,7 @@ f81f737038bd2de241a3a63161e5921405dd786a885f2325ec1c7928b1405c05 *./.github/ISSU
 74621ad634b999a008ad9f34835b40c951208c2a3ca469194f8060d20192950d *./.github/test-limits-check.js
 c877a01a6b89224e6961a5a1a8f6e783573155afbfd1f6a574e3d88fe236ab8c *./.github/test-limits-fixture.js
 4bb79fb8c5fdd01586e8d004072677209b47b6192f80a77b74f317c9c982d376 *./.github/test-limits.js
-c777a3b61f44c94385923c1e3bae47ba6e5ff3cae9d452fb596c23ddbe269729 *./.github/workflows/auto-review.yml
+2caa7d1facc4feedfc3571fce20e78791971277bb1a4cbcc2b75b7a1e506d2e5 *./.github/workflows/auto-review.yml
 58aa2555721f29db8cff4757671ac9e4f9b9bb9859c5f19613b03b3138e4a943 *./.github/workflows/release-draft.yml
 99767875de1798b0b03941f06d295440f40795ab155ae6e8bb09546134187352 *./.github/workflows/review-evals.yml
 31678613c3e998480b4121be763fdbe31ef09e4370596477e8899ded1fa8eaf7 *./.github/workflows/tests.yml
