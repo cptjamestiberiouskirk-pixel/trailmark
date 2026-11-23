@@ -956,16 +956,18 @@ function stampUpdated(text, facts, now = new Date(), session = '') {
     // With no facts from git, a template placeholder ("<branch>", "HEAD
     // <sha7>", "<YYYY-MM-DD HH:MM>") is not kept as if it were one
     // (RS-T-stampplaceholder).
-    const real = rest.split(/\s*\|\s*/).filter(p => p && !/<[^<>]*>/.test(p)).join(' | ');
+    // A plain split and trim: the same fields as /\s*\|\s*/, in linear time.
+    const real = rest.split('|').map(p => p.trim()).filter(p => p && !/<[^<>]*>/.test(p)).join(' | ');
     if (real) parts.push(real);
   }
   // The writing session's short ID goes last, replacing any the model copied.
   const sshort = shortSession(session);
   // The agent goes after it, replacing any "by ..." the model copied.
   const kept = parts.flatMap(p => p.split(/\s*\|\s*/)).filter(p => p && !/^session\s/.test(p) && !/^by\s/.test(p) && !/^git:\s/.test(p));
-  // No facts from git (it ran out of time, was not found, or this is not a
-  // repo): said on the line, so the next session start can say why there
-  // is no HEAD (RS-T-headlate). One the model copied is dropped above.
+  // No facts from git (it ran out of time, was not found or was kept out of
+  // this folder, or this is not a repo): said on the line, so the next
+  // session start can say why there is no HEAD (RS-T-headlate). One the
+  // model copied is dropped above.
   if (!fromGit) kept.push(NO_GIT_FACTS);
   if (sshort) kept.push(`session ${sshort}`);
   kept.push(`by ${AGENT}`);
@@ -2268,7 +2270,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   const sinceLines = sinceSection(sinceFacts, plainBody, m, now);
   // Written with no facts from git and no HEAD: no commits since it can
   // be listed, and this says why (RS-T-headlate).
-  if (stamp.git === 'no facts' && !stamp.head) add('The handoff has no HEAD: git gave no facts when it was written (git ran out of time, was not found, or this is not a git repo), so the commits since it are not listed. Run git log --oneline -10 and check the next steps against them before redoing work.', 5, { keep: true });
+  if (stamp.git === 'no facts' && !stamp.head) add('The handoff has no HEAD: git gave no facts when it was written (git ran out of time, was not found or was kept out of this folder, or this is not a git repo), so the commits since it are not listed. Run git log --oneline -10 and check the next steps against them before redoing work.', 5, { keep: true });
   if (sinceLines.length) {
     // Kept when there are commits, or when git ran out of time before it
     // could say (one line, cut to 150 characters last, the sign first).

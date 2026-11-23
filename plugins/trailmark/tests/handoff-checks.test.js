@@ -7309,6 +7309,9 @@ test('stamp: with no facts from git, placeholders go, one marker says so, and se
   assert.match(s.start().context, /The handoff has no HEAD: git gave no facts when it was written/);
   fs.writeFileSync(hf, '# H\nUpdated: 2026-11-23 14:00 | branch main | HEAD abc1234 | by Claude Code\n## Next steps\n- one\n');
   assert.doesNotMatch(s.start().context, /The handoff has no HEAD/);
+  // A HEAD with the marker (a hand-edited line): there is a HEAD, so no line.
+  fs.writeFileSync(hf, '# H\nUpdated: 2026-11-23 14:00 | branch main | HEAD abc1234 | git: no facts | by Claude Code\n## Next steps\n- one\n');
+  assert.doesNotMatch(s.start().context, /The handoff has no HEAD/);
 });
 
 test('git checks: a folder with a HEAD is probed only as git probes a bare repo; module walks skip refs/ and the loose-object folders of module gitdirs (loop round 8)', { skip: NO_LINKS }, () => {
