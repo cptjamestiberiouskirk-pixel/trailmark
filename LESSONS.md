@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-23: A merge of main put a new line in front of a test that reads the whole context
+
+- What went wrong: the RS-S-sincegitadvice test checks every `git` in the session-start context outside the handoff frame. Merging main brought PR 128's no-HEAD line, whose "Git gave no facts" the allowlist doesn't take, and that line appears when the sandbox's own launcher write runs out of git time. The quick check passed (no load), and the automated reviewer found it on PR 130.
+- Why: after the merge only the counts and the two shipped hints were checked; nothing listed which lines main had added to the text the test reads, nor whether the test's setup depends on git finishing in time.
+- Rule going forward: after merging main into a branch whose test reads a whole output, list the lines main adds to that output (each state, load-dependent ones included) and run them through the test's check; a test that needs a file in a known state puts it down raw (lesson of 2026-11-23 on writers).
+- Status: open
+
+## 2026-11-23: A CONFIRMED blocking finding was fixed before the supervisor was asked
+
+- What went wrong: on PR 130 a blocking bot finding was reproduced, fixed and mutation-tested locally before the supervisor heard of it, where the cap (sga-A-final) says CONFIRMED medium or higher is asked first. Nothing was pushed.
+- Why: the auto-fix event reads as standing authorization to fix and push, and the supervisor's cap is a second rule on top of it that the event does not mention.
+- Rule going forward: on a bot finding marked blocking, turn auto-merge off and reproduce it, then ask the supervisor before writing the fix; the auto-fix event does not lift the cap.
+- Status: open
+
 ## 2026-11-23: Recording low bot notes by a push started another bot round each time
 
 - What went wrong: on PR 128 the automated reviewer reviews every push, and each of its rounds 1 to 4 added low notes. Recording them in `dev/release-state.md` meant a push, and that push drew the next round, so the PR could not reach a head with no new notes.
