@@ -91,36 +91,22 @@ function sections(body) {
   // leading space keeps it from reading as a heading, and its comment opener
   // is broken so it can't hide what follows. Inside a comment a fence line
   // opens nothing, as GitHub shows it.
-  // Where the comment still open at the end of s starts (from position `from`), or -1.
+  // Whether a comment is still open at the end of s, from position `from`.
   const openAt = (s, from) => {
     for (let pos = from; ;) {
       const o = s.indexOf('<!--', pos);
-      if (o < 0) return -1;
+      if (o < 0) return false;
       const c = s.indexOf('-->', o + 4);
-      if (c < 0) return o;
+      if (c < 0) return true;
       pos = c + 3;
     }
   };
-  // A comment opened in the middle of a line is inline HTML in a paragraph: GitHub
-  // (checked on its markdown endpoint, 2026-11-22) ends it, leaving the `<!--` as
-  // text, at a blank line, a heading, a fence or a list item; plain lines go on
-  // inside it. One at the start of a line is a block and runs to `-->`.
-  const BLOCK = /^(?: {0,3}(?:`{3,}|~{3,}|#{1,6}(?:[ \t]|$)|[-*+][ \t]|\d+[.)][ \t])|\s*$)/;
   let fence = null;
   let comment = false;
-  let mid = -1; // the line (index) whose unclosed `<!--` is mid-line, and where it starts
-  let midAt = -1;
-  const cancel = [];
-  const lines =String(body || '').replace(/\r\n/g, '\n').split('\n').map((l, i) => {
-    if (comment && mid >= 0 && BLOCK.test(l)) {
-      // The mid-line opener was text: break it so it hides nothing, and read this line afresh.
-      cancel.push([mid, midAt]);
-      comment = false;
-      mid = -1;
-    }
+  const lines = String(body || '').replace(/\r\n/g, '\n').split('\n').map((l) => {
     if (comment) {
       const end = l.indexOf('-->');
-      if (end >= 0) { const o = openAt(l, end + 3); comment = o >= 0; mid = -1; if (comment) { mid = i; midAt = o; } }
+      if (end >= 0) comment = openAt(l, end + 3);
       return l;
     }
     const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(l);
@@ -130,15 +116,9 @@ function sections(body) {
       return ' ' + l.replace(/<!--/g, '<! --');
     }
     if (opens) { fence = m[1]; return ' ' + l; }
-    const o = openAt(l, 0);
-    comment = o >= 0;
-    // Only text with no comment markup before the opener makes it inline: after an
-    // earlier `<!-- a -->` GitHub hides what follows as one comment.
-    mid = comment && /\S/.test(l.slice(0, o)) && !/<!--|-->/.test(l.slice(0, o)) ? i : -1;
-    midAt = o;
+    comment = openAt(l, 0);
     return l;
   });
-  for (const [i, at] of cancel) lines[i] = lines[i].slice(0, at) + '<! --' + lines[i].slice(at + 4);
   const text = lines.join('\n').replace(/<!--[\s\S]*?(-->|(?![\s\S]))/g, '');
   const missing = [];
   for (const h of ['Testing', 'Risk', 'How to revert']) {
@@ -223,7 +203,7 @@ function breaker(merged, rules) {
     // After a comma a bare number counts ("10, 11"), unless a word follows it
     // ("#10, 2 tests failed"); after a blank or "and" only "#N" does. Each separator ends at a "," or a "#", so a run of
     // blanks is read one way only and the time stays linear in the body.
-    for (const m of String(p.body || '').matchAll(/^[ \t>]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?(?:\[[ xX]\][ \t]+)?[*_]{0,2}regression-of[*_]{0,2}[ \t]*:[*_]{0,2}[ \t]*((?:#\d+|\d+(?!\d|[ \t]+(?!and\b)[A-Za-z]))(?:[ \t]*,[ \t]*(?:#\d+|\d+(?!\d|[ \t]+(?!and\b)[A-Za-z]))|(?:[ \t]+and[ \t]+|[ \t]+)#\d+)*)/gim)) {
+    for (const m of String(p.body || '').matchAll(/^[ \t>]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?(?:\[[ xX]\][ \t]+)?[*_]{0,2}regression-of[*_]{0,2}[ \t]*:[*_]{0,2}[ \t]*(#?\d+(?:[ \t]*,[ \t]*(?:#\d+|\d+(?!\d|[ \t]+(?!and\b)[A-Za-z]))|(?:[ \t]+and[ \t]+|[ \t]+)#\d+)*)/gim)) {
       for (const n of m[1].matchAll(/#?(\d+)/g)) named.add(Number(n[1]));
     }
   }
