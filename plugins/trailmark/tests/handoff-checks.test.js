@@ -1102,7 +1102,9 @@ test('commits since the handoff: another branch and an unknown HEAD are said pla
 // RS-S-sincegitadvice: the commits-since hints told the model to run git
 // log, also where Trailmark kept git out of the folder (state 'late' comes
 // before the folder is checked), and plain git there can run the repo's
-// programs. Every hint state, full and short: no git command in the line.
+// programs. Every hint state, full, short and cut to 150 characters (the
+// last step at a budget too small for the rest): the stop is kept, and no
+// git command is anywhere in the context.
 test('commits since the handoff: no hint names a git command, full or short (RS-S-sincegitadvice)', () => {
   const s = sandbox();
   s.write('# H\n## Next steps\n- one\n');
@@ -1110,19 +1112,31 @@ test('commits since the handoff: no hint names a git command, full or short (RS-
   const cfgFile = path.join(tight.memdir, '.jbmem.json');
   fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), budgets: { injectChars: 2000 } }));
   tight.write('# H\n## State\n' + Array.from({ length: 60 }, (_, i) => `- item ${i} ${'x'.repeat(70)}`).join('\n') + '\n');
-  const notes = Array.from({ length: 4 }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(150)}`);
+  const notes = n => Array.from({ length: n }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(150)}`);
+  const forms = {
+    full: since => S.buildInjection(s.memdir, { since }).text,
+    short: since => S.buildInjection(tight.memdir, { since, notes: notes(4) }).text,
+    cut: since => S.buildInjection(tight.memdir, { since, notes: notes(8) }).text,
+  };
+  const listed = [{ short: 'def5678', subject: 'one', t: 0 }];
   const cases = [
-    [{ base: 'abc1234', state: 'late' }, /isn't known: git ran out of time/],
-    [{ base: 'abc1234', state: 'ok', count: 1, entries: [], unlisted: 'late' }, /not listed(?: here)?: git ran out of time/],
-    [{ base: 'abc1234', state: 'ok', count: 2, entries: [], unlisted: 'error' }, /not listed(?: here)?: git could not list them/],
+    [{ base: 'abc1234', state: 'late' }, /isn't known: git ran out of time/, ['full', 'short', 'cut']],
+    [{ base: 'abc1234', state: 'ok', count: 1, entries: [], unlisted: 'late' }, /not listed(?: here)?: git ran out of time/, ['full', 'short', 'cut']],
+    [{ base: 'abc1234', state: 'ok', count: 2, entries: [], unlisted: 'error' }, /not listed(?: here)?: git could not list them/, ['full', 'short', 'cut']],
+    // Listed, then dropped for size: the full form lists them (no hint).
+    [{ base: 'abc1234', state: 'ok', count: 1, entries: listed }, /not listed here to fit the budget/, ['short', 'cut']],
   ];
-  for (const [since, sign] of cases) {
-    for (const [what, text] of [['full', S.buildInjection(s.memdir, { since }).text], ['short', S.buildInjection(tight.memdir, { since, notes }).text]]) {
+  for (const [since, sign, which] of cases) {
+    for (const what of which) {
+      const text = forms[what](since);
       const line = text.split('\n').find(l => sign.test(l));
       assert.ok(line, `${what} ${JSON.stringify(since)}: no hint line in ${text}`);
-      // Every git in the line is one of its own phrases (an allowlist).
-      assert.doesNotMatch(line, /\bgit(?!\s+(ran out of time|could not list them|for this|out of this folder)\b)/i, `${what}: ${line}`);
+      if (what === 'cut') assert.ok(line.length <= 150, `${what}: the line was not cut: ${line}`);
+      assert.match(line, /Don't run git for this/, `${what}: ${line}`);
       if (what === 'full') assert.match(line, /Don't run git for this: Trailmark may have kept git out of this folder\./, line);
+      // Every git in the whole context is one of the hint's own phrases (an
+      // allowlist; "for this" only after "Don't run").
+      assert.doesNotMatch(text, /\bgit\b(?<!Don't run git)(?<!kept git)(?!\s+(ran out of time|could not list them)\b)/i, `${what}: ${line}`);
     }
   }
 });
@@ -1141,7 +1155,7 @@ test('commits since the handoff: git running out of time is said, never "the new
   s.write('# H\n## Next steps\n- one\n');
   const at = (since) => S.buildInjection(s.memdir, { since }).text;
   const late = at({ base: 'abc1234', state: 'ok', count: 1, entries: [], unlisted: 'late' });
-  assert.match(late, /HEAD has 1 newer commit, not listed: git ran out of time\. Before redoing work, check the next steps against the files or ask the user\./);
+  assert.match(late, /HEAD has 1 newer commit, not listed: git ran out of time\. Don't run git for this: Trailmark may have kept git out of this folder\. Before redoing work, check the next steps against the files or ask the user\./);
   assert.doesNotMatch(late, /the newest 0 shown/);
   const failed = at({ base: 'abc1234', state: 'ok', count: 2, entries: [], unlisted: 'error' });
   assert.match(failed, /HEAD has 2 newer commits, not listed: git could not list them\./);

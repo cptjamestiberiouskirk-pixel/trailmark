@@ -2108,7 +2108,10 @@ function coveredSteps(body, entries) {
 // answered before the folder is checked, trailmark.js sinceHandoff), and
 // plain git there can run the repo's programs (RS-S-sincegitadvice). The
 // refusal warning goes to the user, not the model, so this has no condition.
-const NO_GIT_HINT = "Before redoing work, check the next steps against the files or ask the user. Don't run git for this: Trailmark may have kept git out of this folder.";
+// The stop comes first: at a budget too small for the rest, a kept line is
+// cut to 147 characters and "...", and the longest text before the hint is
+// about 105 (a 12-character base, a 7-digit count).
+const NO_GIT_HINT = "Don't run git for this: Trailmark may have kept git out of this folder. Before redoing work, check the next steps against the files or ask the user.";
 
 // The lines the injection adds for commits made since the handoff.
 function sinceSection(since, body, m, now) {
