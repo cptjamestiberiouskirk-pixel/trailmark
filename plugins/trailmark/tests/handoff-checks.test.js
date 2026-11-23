@@ -7313,7 +7313,13 @@ test('stamp: with no facts from git, placeholders go, one marker says so, and se
   s.write('# H\n## Next steps\n- one\n');
   const hf = path.join(s.memdir, 'handoff.md');
   fs.writeFileSync(hf, `# H\n${line}\n## Next steps\n- one\n`);
-  assert.match(s.start().context, /The handoff has no HEAD: git gave no facts when it was written/);
+  const said = s.start().context.split('\n').find(l => l.includes('The handoff has no HEAD'));
+  assert.match(said || '', /^The handoff has no HEAD: git gave no facts when it was written/);
+  // It names no git command: the marker is also written where Trailmark
+  // kept git out of the folder, and plain git there can run the repo's
+  // programs (a planted gpg.program or core.fsmonitor).
+  assert.doesNotMatch(said, /\bgit\s+(log|status|diff|show|rev-parse|rev-list|branch|fetch|pull|checkout|switch|reset|config|blame|grep|ls-files|describe|reflog|shortlog|whatchanged|cat-file|for-each-ref|-C)\b/, said);
+  assert.match(said, /do not run git in it/);
   fs.writeFileSync(hf, '# H\nUpdated: 2026-11-23 14:00 | branch main | HEAD abc1234 | by Claude Code\n## Next steps\n- one\n');
   assert.doesNotMatch(s.start().context, /The handoff has no HEAD/);
   // A HEAD with the marker (a hand-edited line): there is a HEAD, so no line.

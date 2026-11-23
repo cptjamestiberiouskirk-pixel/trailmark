@@ -2252,8 +2252,11 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   const sinceFacts = checkSinceFacts(since);
   const sinceLines = sinceSection(sinceFacts, plainBody, m, now);
   // Written with no facts from git and no HEAD: no commits since it can
-  // be listed, and this says why (RS-T-headlate).
-  if (stamp.git === 'no facts' && !stamp.head) add('The handoff has no HEAD: git gave no facts when it was written (git ran out of time, was not found or was kept out of this folder, or this is not a git repo), so the commits since it are not listed. Run git log --oneline -10 and check the next steps against them before redoing work.', 5, { keep: true });
+  // be listed, and this says why (RS-T-headlate). It names no git command:
+  // the marker is also written where Trailmark kept git out of the folder
+  // (a hostile .git/config), and plain git there can run the repo's
+  // programs (Codex security review on PR 128).
+  if (stamp.git === 'no facts' && !stamp.head) add('The handoff has no HEAD: git gave no facts when it was written (git ran out of time, was not found or was kept out of this folder, or this is not a git repo), so the commits since it are not listed. Check the next steps against the work done since before redoing it. If Trailmark says git is kept out of this repo, do not run git in it.', 5, { keep: true });
   if (sinceLines.length) {
     // Kept when there are commits, or when git ran out of time before it
     // could say (one line, cut to 150 characters last, the sign first).
