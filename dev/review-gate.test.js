@@ -769,3 +769,29 @@ test('tier: a todo or focus stays high after a stray quote, and a nested destruc
   }
   assert.equal(f("test('x', { skip: WIN }, /'/, { skip: true || x })").tier, 'high');
 });
+test('breaker: a number followed by a word is prose, not a PR (RS-G-commaprose)', () => {
+  const auto = (n) => ({ number: n, body: '', labels: ['tier:low'] });
+  const by = (b) => g.breaker([auto(2), auto(10), auto(11), auto(12), { number: 20, body: b, labels: [] }], rules).hits.sort((x, y) => x - y);
+  assert.deepEqual(by('Regression-of: #10, 2 tests failed'), [10]);
+  assert.deepEqual(by('Regression-of: 2 tests failed'), []);
+  assert.deepEqual(by('Regression-of: #10, 11 and #12'), [10, 11, 12]);
+  assert.deepEqual(by('Regression-of: 10, 11'), [10, 11]);
+  assert.deepEqual(by('Regression-of: #10, 2'), [2, 10]);
+  assert.deepEqual(by('Regression-of: 12'), [12]);
+  // Still linear on a long run of numbers and words.
+  const t0 = Date.now();
+  by('Regression-of: ' + '1, '.repeat(30000) + 'x');
+  assert.ok(Date.now() - t0 < 2000);
+});
+test('sections: a comment opened mid-line ends at a blank line, heading, fence or list item, as on GitHub (RS-G-midcomment)', () => {
+  const ok = '## Testing\nran it\n## Risk\nlow\n## How to revert\ngit revert';
+  // GitHub's markdown endpoint, 2026-11-22: these leave the `<!--` as text and show what follows.
+  assert.deepEqual(g.sections('x <!-- hidden\n```\nnpm test\n```\n' + ok), []);
+  assert.deepEqual(g.sections('x <!-- hidden\n' + ok), []);
+  assert.deepEqual(g.sections('x <!-- hidden\n\n' + ok), []);
+  assert.deepEqual(g.sections('x <!-- hidden\n- item\n' + ok), []);
+  // Plain lines go on inside it, and a comment that opens a line is a block that runs to its end.
+  assert.deepEqual(g.sections('x <!-- hidden\nplain\n' + ok.replace('## Testing', 'Testing')), ['Testing']);
+  assert.deepEqual(g.sections('<!-- hidden\n```\nnpm test\n```\n' + ok), ['Testing', 'Risk', 'How to revert']);
+  assert.deepEqual(g.sections('<!-- hidden\n\n' + ok), ['Testing', 'Risk', 'How to revert']);
+});
