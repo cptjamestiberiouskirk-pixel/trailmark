@@ -7358,6 +7358,25 @@ test('stamp: with no facts from git, placeholders go, one marker says so, and se
   assert.ok(cutLine && cutLine.length <= 150, `the line was not cut: ${cutLine}`);
   assert.match(cutLine, /Don't run git for this: Trailmark may have kept git out of this folder\./, cutLine);
   assert.doesNotMatch(cutLine, /\bgit(?!\s+(gave|ran|repo|for this|out of this folder)\b)/i, cutLine);
+  // The line's short form goes first at a tight budget: no note is cut while
+  // the line keeps its full length (auto-review round 3 on PR 128: a note
+  // lost its "never run it"). Any kept text can still push a note whose
+  // warning ends past 150 characters into the cut (RS-T-notecutorder).
+  const nodeNote = "[trailmark] The Node that ran this hook is a node program in this session's folder or the repo's top folder, not the installed one; its path isn't given here. Tell the user if asked; never run it.";
+  const steps = Array.from({ length: 40 }, (_, i) => `${i + 1}. step ${i} ${'x'.repeat(60)} -- owner: Claude`).join('\n');
+  fs.writeFileSync(hf, `# H\n${line}\n## Next actions\n${steps}\n`);
+  let cut = 0;
+  for (let n = 0; n <= 8; n++) {
+    for (const fill of [17, 33, 66]) {
+      const more = [nodeNote, ...Array.from({ length: n }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(fill)}`)];
+      const text = S.buildInjection(s.memdir, { notes: more }).text;
+      if (/never run it\./.test(text)) continue;
+      cut++;
+      const said = text.split('\n').find(l => l.includes('The handoff has no HEAD'));
+      assert.strictEqual(said, "The handoff has no HEAD, so the commits since it are not listed. Don't run git for this: Trailmark may have kept git out of this folder.", `a note was cut while the line kept its full length (${n} notes of ${fill} words)`);
+    }
+  }
+  assert.ok(cut > 0, 'the sweep never cut the note');
   fs.writeFileSync(hf, '# H\nUpdated: 2026-11-23 14:00 | branch main | HEAD abc1234 | by Claude Code\n## Next steps\n- one\n');
   assert.doesNotMatch(s.start().context, /The handoff has no HEAD/);
   // A HEAD with the marker (a hand-edited line): there is a HEAD, so no line.
