@@ -565,6 +565,38 @@ test('sections: a fence line inside a comment opens nothing; many comment opener
   g.sections('<!--\n' + '-->'.repeat(15000) + '<!--'.repeat(15000) + '\n' + ok);
   assert.ok(Date.now() - s < 2000, `took ${Date.now() - s} ms`);
 });
+// A test's cleanup of the one worktree it made: never `git worktree prune`, which is repo-wide and
+// would drop the record of an unrelated worktree whose folder is away. `remove --force` leaves a
+// locked worktree, so it is unlocked first (RS-G-testprune, RS-G-testlocked).
+function dropOwnWorktree(root, p) {
+  spawnSync('git', ['-C', root, 'worktree', 'unlock', p], { timeout: 60000 });
+  spawnSync('git', ['-C', root, 'worktree', 'remove', '--force', p], { timeout: 60000 });
+}
+test('evals: the test cleanup removes a locked worktree of its own and leaves another worktree whose folder is away (RS-G-testlocked, RS-G-testprune)', () => {
+  const root = path.join(__dirname, '..');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evallocked-'));
+  const mine = path.join(tmp, 'mine');
+  const away = path.join(tmp, 'away');
+  const gitq = (...a) => spawnSync('git', ['-C', root, ...a], { encoding: 'utf8', timeout: 60000 });
+  const listed = () => gitq('worktree', 'list', '--porcelain').stdout.toLowerCase();
+  try {
+    assert.equal(gitq('worktree', 'add', '--detach', mine, 'HEAD').status, 0);
+    assert.equal(gitq('worktree', 'add', '--detach', away, 'HEAD').status, 0);
+    fs.rmSync(away, { recursive: true, force: true });
+    assert.equal(gitq('worktree', 'lock', mine).status, 0);
+    // The old cleanup: a plain `remove --force` does not take a locked worktree.
+    assert.notEqual(gitq('worktree', 'remove', '--force', mine).status, 0);
+    assert.ok(listed().includes('jbmem-evallocked-'), 'locked record is still there');
+    dropOwnWorktree(root, mine);
+    assert.ok(!listed().includes(path.basename(mine) + '\n'), 'own record gone');
+    assert.equal(fs.existsSync(mine), false);
+    assert.ok(listed().includes('away'), 'the other record is kept');
+  } finally {
+    dropOwnWorktree(root, mine);
+    dropOwnWorktree(root, away);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
 test('evals: a worktree of this repo the run did not make is kept, untracked files and all', () => {
   const run = require('./review-evals/run.js');
   const root = path.join(__dirname, '..');
@@ -577,8 +609,7 @@ test('evals: a worktree of this repo the run did not make is kept, untracked fil
     assert.throws(() => run.prepare({ id: 'user-tree', causePr: 1, causeMerge: 'HEAD' }, path.join(tmp, 'work')), /is already there/);
     assert.ok(fs.existsSync(path.join(ws, 'my-notes.txt')));
   } finally {
-    spawnSync('git', ['-C', root, 'worktree', 'remove', '--force', ws], { timeout: 60000 });
-    spawnSync('git', ['-C', root, 'worktree', 'prune'], { timeout: 60000 });
+    dropOwnWorktree(root, ws);
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
@@ -647,8 +678,7 @@ test('evals: prepare reaches git worktree add, and the run removes the worktree 
     const list = spawnSync('git', ['-C', root, 'worktree', 'list', '--porcelain'], { encoding: 'utf8', timeout: 30000 }).stdout;
     assert.ok(!list.toLowerCase().includes('add-case'), 'worktree still registered');
   } finally {
-    spawnSync('git', ['-C', root, 'worktree', 'remove', '--force', ws], { timeout: 60000 });
-    spawnSync('git', ['-C', root, 'worktree', 'prune'], { timeout: 60000 });
+    dropOwnWorktree(root, ws);
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
@@ -740,12 +770,11 @@ run.stop();`;
     assert.ok(!list.includes('prune-case'), 'own worktree still registered');
     assert.ok(list.includes('other-tree'), 'the other worktree\'s record was dropped');
   } finally {
-    // Only this test's own record goes: `git worktree prune` is repo-wide and
-    // would drop the record of any unrelated worktree whose folder is away.
-    // `remove --force` of a missing, unlocked worktree drops just its record.
-    // The test's own worktree too, which stays only when an assertion failed first.
-    gitq('worktree', 'remove', '--force', own);
-    gitq('worktree', 'remove', '--force', other);
+    // Only this test's own records go (see dropOwnWorktree): the run's worktree stays
+    // when the run did not finish its own cleanup (an assertion failed first, or the
+    // worktree is locked), and `other` always stays until here.
+    dropOwnWorktree(root, own);
+    dropOwnWorktree(root, other);
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
