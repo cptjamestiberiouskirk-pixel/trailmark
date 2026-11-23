@@ -206,6 +206,12 @@ Format:
 - Rule going forward: a tool that deletes what it made creates the folder itself with an exclusive create (`mkdir` that fails if it exists) and records it in the same step; a claim like "never deletes" needs a test that reaches the delete, including the race.
 - Status: open
 
+## 2026-11-22: A fix for a safe-direction miss opened an unsafe one
+- What went wrong: RS-G-midcomment (a mid-line `<!--` hid a fence line in `sections()`) was fixed by ending the comment at four line shapes, checked on GitHub's markdown endpoint. The round reviewer then found shapes where the fix made the gate count text GitHub hides (a list item that is not `1.`, a backtick line with a backtick in its info string, a non-ASCII blank, an opener after a raw HTML block start).
+- Why: the miss was in the safe direction (a section read as missing), so the fix had only downside; I checked the four shapes that showed the bug on GitHub, not the neighbors that must stay hidden.
+- Rule going forward: before a heuristic changes what a gate counts, name the direction a miss fails in; a safe-direction miss that needs a partial copy of a spec (CommonMark paragraph interruption) stays deferred. For each shape the fix ends, render its nearest look-alikes on GitHub and confirm they stay hidden.
+- Status: open
+
 ## 2026-11-21: A deferred item read a stop line against the wrong clock
 - What went wrong: RS-T-firstcheckload's bullet in `dev/release-state.md` said the real git calls after the test's fake 3 s step had to fit in the 3 s left. `trailmark.js` (`run`) says otherwise: the git calls ran with 20 s on a clock the preload held still, and the `spent=3000` of the stop line is that fake clock. The launcher then gave the hook's script 6,000 ms of real time, and the script ran past them. A load probe built on the old reading would have timed the git calls.
 - Why: the line was read for what it seemed to say, and the code that prints it, and the clock each of its numbers comes from, were not opened.
