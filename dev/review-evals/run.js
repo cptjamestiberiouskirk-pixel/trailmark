@@ -125,6 +125,18 @@ function dropWorktree(ws) {
   live.delete(ws);
 }
 
+// The runner writes REVIEW.md and .review/ into the checked-out parent. A link
+// at either name (git checks links out when core.symlinks is on) would turn
+// those writes to wherever it points, and the lexical check of `writeHead`
+// does not see links, so the case stops instead.
+function noLinks(ws) {
+  for (const name of ['REVIEW.md', '.review']) {
+    let st = null;
+    try { st = fs.lstatSync(path.join(ws, name)); } catch { /* not there: fine */ }
+    if (st && st.isSymbolicLink()) throw new Error(`${name} is a link in the cause merge's parent; the case stops`);
+  }
+}
+
 // `opts.prText` stands in for the gh call in tests.
 function prepare(c, work, opts = {}) {
   checkId(c);
@@ -142,6 +154,7 @@ function prepare(c, work, opts = {}) {
   fs.mkdirSync(ws);
   live.add(ws);
   git('worktree', 'add', '--detach', ws, `${c.causeMerge}^1`);
+  noLinks(ws);
   fs.copyFileSync(path.join(ROOT, 'REVIEW.md'), path.join(ws, 'REVIEW.md'));
   const r = path.join(ws, '.review');
   fs.mkdirSync(path.join(r, 'head'), { recursive: true });
@@ -257,6 +270,6 @@ async function main() {
   process.exit(exitCode(results, floor));
 }
 
-module.exports = { reviewerPrompt, reviewerArgs, caught, normPath, parseResult, prText, prepare, dropWorktree, live, checkId, exitCode, writeHead, stop };
+module.exports = { reviewerPrompt, reviewerArgs, caught, normPath, parseResult, prText, prepare, noLinks, dropWorktree, live, checkId, exitCode, writeHead, stop };
 
 if (require.main === module) main().catch((e) => { console.error(e.stack || e.message); process.exit(2); });

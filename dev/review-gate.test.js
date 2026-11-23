@@ -565,6 +565,38 @@ test('sections: a fence line inside a comment opens nothing; many comment opener
   g.sections('<!--\n' + '-->'.repeat(15000) + '<!--'.repeat(15000) + '\n' + ok);
   assert.ok(Date.now() - s < 2000, `took ${Date.now() - s} ms`);
 });
+// A test's cleanup of the one worktree it made: never `git worktree prune`, which is repo-wide and
+// would drop the record of an unrelated worktree whose folder is away. `remove --force` leaves a
+// locked worktree, so it is unlocked first (RS-G-testprune, RS-G-testlocked).
+function dropOwnWorktree(root, p) {
+  spawnSync('git', ['-C', root, 'worktree', 'unlock', p], { timeout: 60000 });
+  spawnSync('git', ['-C', root, 'worktree', 'remove', '--force', p], { timeout: 60000 });
+}
+test('evals: the test cleanup removes a locked worktree of its own and leaves another worktree whose folder is away (RS-G-testlocked, RS-G-testprune)', () => {
+  const root = path.join(__dirname, '..');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evallocked-'));
+  const mine = path.join(tmp, 'mine');
+  const away = path.join(tmp, 'away');
+  const gitq = (...a) => spawnSync('git', ['-C', root, ...a], { encoding: 'utf8', timeout: 60000 });
+  const listed = () => gitq('worktree', 'list', '--porcelain').stdout.toLowerCase();
+  try {
+    assert.equal(gitq('worktree', 'add', '--detach', mine, 'HEAD').status, 0);
+    assert.equal(gitq('worktree', 'add', '--detach', away, 'HEAD').status, 0);
+    fs.rmSync(away, { recursive: true, force: true });
+    assert.equal(gitq('worktree', 'lock', mine).status, 0);
+    // The old cleanup: a plain `remove --force` does not take a locked worktree.
+    assert.notEqual(gitq('worktree', 'remove', '--force', mine).status, 0);
+    assert.ok(listed().includes('jbmem-evallocked-'), 'locked record is still there');
+    dropOwnWorktree(root, mine);
+    assert.ok(!listed().includes(path.basename(mine) + '\n'), 'own record gone');
+    assert.equal(fs.existsSync(mine), false);
+    assert.ok(listed().includes('away'), 'the other record is kept');
+  } finally {
+    dropOwnWorktree(root, mine);
+    dropOwnWorktree(root, away);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
 test('evals: a worktree of this repo the run did not make is kept, untracked files and all', () => {
   const run = require('./review-evals/run.js');
   const root = path.join(__dirname, '..');
@@ -577,8 +609,7 @@ test('evals: a worktree of this repo the run did not make is kept, untracked fil
     assert.throws(() => run.prepare({ id: 'user-tree', causePr: 1, causeMerge: 'HEAD' }, path.join(tmp, 'work')), /is already there/);
     assert.ok(fs.existsSync(path.join(ws, 'my-notes.txt')));
   } finally {
-    spawnSync('git', ['-C', root, 'worktree', 'remove', '--force', ws], { timeout: 60000 });
-    spawnSync('git', ['-C', root, 'worktree', 'prune'], { timeout: 60000 });
+    dropOwnWorktree(root, ws);
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
@@ -647,8 +678,52 @@ test('evals: prepare reaches git worktree add, and the run removes the worktree 
     const list = spawnSync('git', ['-C', root, 'worktree', 'list', '--porcelain'], { encoding: 'utf8', timeout: 30000 }).stdout;
     assert.ok(!list.toLowerCase().includes('add-case'), 'worktree still registered');
   } finally {
-    spawnSync('git', ['-C', root, 'worktree', 'remove', '--force', ws], { timeout: 60000 });
-    spawnSync('git', ['-C', root, 'worktree', 'prune'], { timeout: 60000 });
+    dropOwnWorktree(root, ws);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+test('evals: a link at .review or REVIEW.md in the checked-out parent stops the case (RS-G-reviewlink)', () => {
+  const run = require('./review-evals/run.js');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evallink-'));
+  try {
+    const outside = path.join(tmp, 'outside');
+    fs.mkdirSync(outside);
+    const mk = (name) => { const ws = path.join(tmp, name); fs.mkdirSync(ws); return ws; };
+    // No link: fine, with or without the names there.
+    const plain = mk('plain');
+    fs.mkdirSync(path.join(plain, '.review'));
+    fs.writeFileSync(path.join(plain, 'REVIEW.md'), 'x');
+    run.noLinks(plain);
+    run.noLinks(mk('empty'));
+    // A directory link (a junction needs no privilege on Windows) at .review.
+    const d = mk('dirlink');
+    fs.symlinkSync(outside, path.join(d, '.review'), 'junction');
+    assert.throws(() => run.noLinks(d), /\.review is a link/);
+    // A file link at REVIEW.md: needs symlink rights on Windows, so that half is skipped there without them.
+    const f = mk('filelink');
+    let made = true;
+    try { fs.symlinkSync(path.join(outside, 'target.md'), path.join(f, 'REVIEW.md'), 'file'); } catch (e) { if (e.code !== 'EPERM') throw e; made = false; }
+    if (made) assert.throws(() => run.noLinks(f), /REVIEW\.md is a link/);
+    assert.deepEqual(fs.readdirSync(outside), []);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+test('evals: git\'s own refusal at worktree add stops the case, and the run-owned folder goes with whatever is in it (RS-G-addhappy, RS-G-mkdirfill)', () => {
+  const run = require('./review-evals/run.js');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-evalrefuse-'));
+  const ws = path.join(tmp, 'work', 'refuse-case');
+  try {
+    // A merge that is not there: git refuses the add, and `prepare` throws with the folder still in `live`.
+    assert.throws(() => run.prepare({ id: 'refuse-case', causePr: 1, causeMerge: '0'.repeat(40) }, path.join(tmp, 'work'), { prText: () => ({ title: 't', body: '' }) }));
+    assert.ok(run.live.has(ws));
+    // The folder is this run's (made with a create that fails if it is there), so a file another process
+    // puts in it is removed with it. That is the design: nothing outside the run's own folder is touched.
+    fs.writeFileSync(path.join(ws, 'stray.txt'), 'x');
+    run.dropWorktree(ws);
+    assert.equal(fs.existsSync(ws), false);
+    assert.equal(run.live.has(ws), false);
+    assert.ok(fs.existsSync(path.join(tmp, 'work')));
+  } finally {
+    run.dropWorktree(ws);
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
@@ -695,12 +770,11 @@ run.stop();`;
     assert.ok(!list.includes('prune-case'), 'own worktree still registered');
     assert.ok(list.includes('other-tree'), 'the other worktree\'s record was dropped');
   } finally {
-    // Only this test's own record goes: `git worktree prune` is repo-wide and
-    // would drop the record of any unrelated worktree whose folder is away.
-    // `remove --force` of a missing, unlocked worktree drops just its record.
-    // The test's own worktree too, which stays only when an assertion failed first.
-    gitq('worktree', 'remove', '--force', own);
-    gitq('worktree', 'remove', '--force', other);
+    // Only this test's own records go (see dropOwnWorktree): the run's worktree stays
+    // when the run did not finish its own cleanup (an assertion failed first, or the
+    // worktree is locked), and `other` always stays until here.
+    dropOwnWorktree(root, own);
+    dropOwnWorktree(root, other);
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
