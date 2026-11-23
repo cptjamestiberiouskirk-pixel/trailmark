@@ -201,10 +201,10 @@ function breaker(merged, rules) {
     .sort((x, y) => y.number - x.number).slice(0, b.window);
   const named = new Set();
   for (const p of merged) {
-    // After a comma a bare number counts ("10, 11"); after a blank or "and"
-    // only "#N" does. Each separator ends at a "," or a "#", so a run of
+    // After a comma a bare number counts ("10, 11"), unless a word follows it
+    // ("#10, 2 tests failed"); after a blank or "and" only "#N" does. Each separator ends at a "," or a "#", so a run of
     // blanks is read one way only and the time stays linear in the body.
-    for (const m of String(p.body || '').matchAll(/^[ \t>]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?(?:\[[ xX]\][ \t]+)?[*_]{0,2}regression-of[*_]{0,2}[ \t]*:[*_]{0,2}[ \t]*(#?\d+(?:[ \t]*,[ \t]*#?\d+|(?:[ \t]+and[ \t]+|[ \t]+)#\d+)*)/gim)) {
+    for (const m of String(p.body || '').matchAll(/^[ \t>]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?(?:\[[ xX]\][ \t]+)?[*_]{0,2}regression-of[*_]{0,2}[ \t]*:[*_]{0,2}[ \t]*(#?\d+(?:[ \t]*,[ \t]*(?:#\d+|\d+(?!\d|[ \t]+(?!and\b)[A-Za-z]))|(?:[ \t]+and[ \t]+|[ \t]+)#\d+)*)/gim)) {
       for (const n of m[1].matchAll(/#?(\d+)/g)) named.add(Number(n[1]));
     }
   }
