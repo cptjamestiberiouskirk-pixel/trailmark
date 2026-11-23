@@ -1103,8 +1103,8 @@ test('commits since the handoff: another branch and an unknown HEAD are said pla
 // log, also where Trailmark kept git out of the folder (state 'late' comes
 // before the folder is checked), and plain git there can run the repo's
 // programs. Every hint state, full, short and cut to 150 characters (the
-// last step at a budget too small for the rest): the stop is kept, and no
-// git command is anywhere in the context.
+// last step at a budget too small for the rest), the longest input too:
+// the whole stop is kept, and the commits-since part names no git command.
 test('commits since the handoff: no hint names a git command, full or short (RS-S-sincegitadvice)', () => {
   const s = sandbox();
   s.write('# H\n## Next steps\n- one\n');
@@ -1115,7 +1115,8 @@ test('commits since the handoff: no hint names a git command, full or short (RS-
   const notes = n => Array.from({ length: n }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(150)}`);
   const forms = {
     full: since => S.buildInjection(s.memdir, { since }).text,
-    short: since => S.buildInjection(tight.memdir, { since, notes: notes(4) }).text,
+    // 2 notes: the short form, whole at any temp path; 8: the last-resort cut.
+    short: since => S.buildInjection(tight.memdir, { since, notes: notes(2) }).text,
     cut: since => S.buildInjection(tight.memdir, { since, notes: notes(8) }).text,
   };
   const listed = [{ short: 'def5678', subject: 'one', t: 0 }];
@@ -1125,6 +1126,10 @@ test('commits since the handoff: no hint names a git command, full or short (RS-
     [{ base: 'abc1234', state: 'ok', count: 2, entries: [], unlisted: 'error' }, /not listed(?: here)?: git could not list them/, ['full', 'short', 'cut']],
     // Listed, then dropped for size: the full form lists them (no hint).
     [{ base: 'abc1234', state: 'ok', count: 1, entries: listed }, /not listed here to fit the budget/, ['short', 'cut']],
+    // The longest text before the hint (a 12-character base, the largest
+    // count): the stop is still inside the cut.
+    [{ base: 'abcdef123456', state: 'late' }, /isn't known: git ran out of time/, ['cut']],
+    [{ base: 'abcdef123456', state: 'ok', count: 1000000, entries: [], unlisted: 'error' }, /not listed(?: here)?: git could not list them/, ['cut']],
   ];
   for (const [since, sign, which] of cases) {
     for (const what of which) {
@@ -1132,11 +1137,18 @@ test('commits since the handoff: no hint names a git command, full or short (RS-
       const line = text.split('\n').find(l => sign.test(l));
       assert.ok(line, `${what} ${JSON.stringify(since)}: no hint line in ${text}`);
       if (what === 'cut') assert.ok(line.length <= 150, `${what}: the line was not cut: ${line}`);
-      assert.match(line, /Don't run git for this/, `${what}: ${line}`);
+      if (what === 'short') assert.ok(!line.endsWith('...'), `${what}: the line was cut: ${line}`);
+      assert.match(line, /Don't run git for this:/, `${what}: ${line}`);
       if (what === 'full') assert.match(line, /Don't run git for this: Trailmark may have kept git out of this folder\./, line);
-      // Every git in the whole context is one of the hint's own phrases (an
-      // allowlist; "for this" only after "Don't run").
-      assert.doesNotMatch(text, /\bgit\b(?<!Don't run git)(?<!kept git)(?!\s+(ran out of time|could not list them)\b)/i, `${what}: ${line}`);
+      // Every git in the commits-since part (its section, or the one line
+      // left of it) is one of the hint's own phrases (an allowlist; "for
+      // this" only after "Don't run"). Not the whole context: the cut
+      // note names the temp folder, which may hold a part named git.
+      const lines = text.split('\n');
+      const a = lines.findIndex(l => l.startsWith('--- COMMITS SINCE THIS HANDOFF'));
+      const b = lines.findIndex(l => l.startsWith('--- END COMMITS'));
+      const part = a >= 0 && b > a ? lines.slice(a, b + 1).join('\n') : line;
+      assert.doesNotMatch(part, /\bgit\b(?<!Don't run git)(?<!kept git)(?!\s+(ran out of time|could not list them)\b)/i, `${what}: ${part}`);
     }
   }
 });
