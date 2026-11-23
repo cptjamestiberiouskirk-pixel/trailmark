@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-23: A reviewer's clone under the session scratchpad broke the sandbox tests
+
+- What went wrong: the RS-T-stamphungbound reviewer cloned the repo under the session's scratchpad; every sandbox test failed there, as the memory folder's path came to 408 characters, past Windows' path limit. It re-cloned under `E:/DevTemp` and ran from there.
+- Why: the brief said "your own temp folder" without a short path, and the scratchpad's path is long.
+- Rule going forward: a brief names a short clone path for runs (for example `E:/DevTemp/<id>`) on Windows, and the reviewer removes it at the end.
+- Status: open
+
 ## 2026-11-23: A timing test's margin was worked out at the first try and not over the wait
 - What went wrong: RS-D-lockagewording moved the threshold test to a move of 1.2 s on a lock 4.5 s old, with a comment giving the real age as 500 ms short of 5 s. Review round 1 (Opus, F1, CONFIRMED by Opus by runs, not re-run here) measured it at 5116 to 5182 ms by the end of the 600 ms wait, so the test also failed a correct reading of the 5 s rule. The lock is back to 4 s, each margin about 200 ms or more.
 - Why: the edges were worked out for the input as the test starts, and the wait the test runs was not added to the real age.
