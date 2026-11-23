@@ -2257,7 +2257,9 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   // (a hostile .git/config), and plain git there can run the repo's
   // programs (Codex security review on PR 128). It says so without a
   // condition: the refusal warning goes to the user, not to the model.
-  if (stamp.git === 'no facts' && !stamp.head) add('The handoff has no HEAD: git gave no facts when it was written (git ran out of time, was not found or was kept out of this folder, or this is not a git repo), so the commits since it are not listed. Before redoing work, check the next steps against the files or ask the user. Don\'t run git for this: Trailmark may have kept git out of this folder.', 5, { keep: true });
+  // The stop comes before the reason: at a budget too small for the rest,
+  // a kept line is cut to its first 150 characters (auto-review on PR 128).
+  if (stamp.git === 'no facts' && !stamp.head) add('The handoff has no HEAD, so the commits since it are not listed. Don\'t run git for this: Trailmark may have kept git out of this folder. Git gave no facts when the handoff was written (it ran out of time, was not found or was kept out of this folder, or this is not a git repo). Before redoing work, check the next steps against the files or ask the user.', 5, { keep: true });
   if (sinceLines.length) {
     // Kept when there are commits, or when git ran out of time before it
     // could say (one line, cut to 150 characters last, the sign first).

@@ -7314,7 +7314,7 @@ test('stamp: with no facts from git, placeholders go, one marker says so, and se
   const hf = path.join(s.memdir, 'handoff.md');
   fs.writeFileSync(hf, `# H\n${line}\n## Next steps\n- one\n`);
   const said = s.start().context.split('\n').find(l => l.includes('The handoff has no HEAD'));
-  assert.match(said || '', /^The handoff has no HEAD: git gave no facts when it was written/);
+  assert.match(said || '', /^The handoff has no HEAD, so the commits since it are not listed\. /);
   // It names no git command: the marker is also written where Trailmark
   // kept git out of the folder, and plain git there can run the repo's
   // programs (a planted gpg.program or core.fsmonitor).
@@ -7323,6 +7323,15 @@ test('stamp: with no facts from git, placeholders go, one marker says so, and se
   assert.doesNotMatch(said, /\bgit(?!\s+(gave|ran|repo|for this|out of this folder)\b)/i, said);
   // Said without a condition: the refusal warning reaches only the user.
   assert.match(said, /Don't run git for this: Trailmark may have kept git out of this folder\./);
+  // At a budget too small for the rest, kept lines are cut to their first
+  // 150 characters: the stop is inside them (auto-review on PR 128).
+  const cfgFile = path.join(s.memdir, '.jbmem.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), budgets: { injectChars: 2000 } }));
+  const notes = Array.from({ length: 4 }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(150)}`);
+  const cutLine = S.buildInjection(s.memdir, { notes }).text.split('\n').find(l => l.includes('The handoff has no HEAD'));
+  assert.ok(cutLine && cutLine.length <= 150, `the line was not cut: ${cutLine}`);
+  assert.match(cutLine, /Don't run git for this: Trailmark may have kept git out of this folder\./, cutLine);
+  assert.doesNotMatch(cutLine, /\bgit(?!\s+(gave|ran|repo|for this|out of this folder)\b)/i, cutLine);
   fs.writeFileSync(hf, '# H\nUpdated: 2026-11-23 14:00 | branch main | HEAD abc1234 | by Claude Code\n## Next steps\n- one\n');
   assert.doesNotMatch(s.start().context, /The handoff has no HEAD/);
   // A HEAD with the marker (a hand-edited line): there is a HEAD, so no line.
