@@ -301,6 +301,10 @@ if (require.main === module) {
     let list;
     try { list = candidates(outs); } catch (e) { fail(e.message); }
     fs.writeFileSync(path.join(a, 'candidates.json'), JSON.stringify(list));
+  } else if (cmd === 'lens-ok') {
+    // One lens's output file: exit 0 only if it is JSON with a `findings` array,
+    // the check `candidates` makes, so the workflow can ask a lens once more.
+    if (!Array.isArray((tryRead(a) || {}).findings)) process.exit(1);
   } else if (cmd === 'merge') {
     const cands = read(path.join(b, 'candidates.json'));
     const votes = fs.readdirSync(b).filter((n) => /^vote-\d+\.json$/.test(n)).map((n) => tryRead(path.join(b, n)));

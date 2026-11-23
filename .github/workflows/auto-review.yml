@@ -164,12 +164,21 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.REVIEW_OAUTH_TOKEN }}
         run: |
           set -uo pipefail
+          # A lens that gives no usable JSON is asked once more; the second empty
+          # answer stays in place and `candidates` fails the job on it. Each failed
+          # attempt prints a short tail of the CLI's stderr, so the log says why.
           run() { # lens model
-            "$CLAUDE_BIN" -p "You are the $1 reviewer for PR $PR. Follow REVIEW.md sections \"Every reviewer\" and \"Lens: $1\" exactly. Your final message is the JSON object REVIEW.md describes and nothing else." \
-              --model "$2" --tools "$TOOLS" --restricted --strict-mcp-config \
-              --allowedTools "$READ_TOOLS" --disallowedTools "$DENY_TOOLS" --max-turns 80 --output-format json \
-              > ".review/raw-$1.json" 2> ".review/err-$1.txt"
-            jq -r '.result // ""' ".review/raw-$1.json" | sed -e '/^```/d' > ".review/find-$1.json"
+            for attempt in 1 2; do
+              "$CLAUDE_BIN" -p "You are the $1 reviewer for PR $PR. Follow REVIEW.md sections \"Every reviewer\" and \"Lens: $1\" exactly. Your final message is the JSON object REVIEW.md describes and nothing else." \
+                --model "$2" --tools "$TOOLS" --restricted --strict-mcp-config \
+                --allowedTools "$READ_TOOLS" --disallowedTools "$DENY_TOOLS" --max-turns 80 --output-format json \
+                > ".review/raw-$1.json" 2> ".review/err-$1.txt"
+              jq -r '.result // ""' ".review/raw-$1.json" | sed -e '/^```/d' > ".review/find-$1.json"
+              node dev/review-gate.js lens-ok ".review/find-$1.json" && return 0
+              echo "the $1 reviewer gave no usable output (attempt $attempt of 2); stderr tail:" >&2
+              tail -n 20 ".review/err-$1.txt" | cut -c1-300 >&2
+            done
+            return 1
           }
           run regression "$MODEL_REGRESSION" &
           if [ "$(jq -r .lenses.security .review/tier.json)" = true ]; then run security "$MODEL_SECURITY" & fi

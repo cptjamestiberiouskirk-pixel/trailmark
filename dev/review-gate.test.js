@@ -769,3 +769,75 @@ test('tier: a todo or focus stays high after a stray quote, and a nested destruc
   }
   assert.equal(f("test('x', { skip: WIN }, /'/, { skip: true || x })").tier, 'high');
 });
+test('lens-ok: only JSON with a findings array passes, as `candidates` requires', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-lensok-'));
+  try {
+    const ok = (body) => {
+      const f = path.join(tmp, 'f.json');
+      fs.writeFileSync(f, body);
+      return spawnSync(process.execPath, [path.join(__dirname, 'review-gate.js'), 'lens-ok', f], { encoding: 'utf8', timeout: 20000 }).status;
+    };
+    assert.equal(ok('{"findings":[]}'), 0);
+    assert.equal(ok('{"findings":[{"title":"x"}],"lens":"a"}'), 0);
+    for (const bad of ['', 'not json', '{}', '{"findings":null}', '{"findings":{}}', '[]', 'null', '5', '{"findings":"x"}']) assert.equal(ok(bad), 1, JSON.stringify(bad));
+    const gone = spawnSync(process.execPath, [path.join(__dirname, 'review-gate.js'), 'lens-ok', path.join(tmp, 'nope.json')], { encoding: 'utf8', timeout: 20000 });
+    assert.equal(gone.status, 1);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+test('workflow: a lens that gives nothing is asked once more, prints its stderr tail, and still fails on a second empty answer', (t) => {
+  if (spawnSync('bash', ['-c', 'true'], { timeout: 20000 }).status !== 0) return t.skip('bash is needed');
+  const wf = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'auto-review.yml'), 'utf8');
+  const start = wf.indexOf('          run() { # lens model');
+  const end = wf.indexOf('\n          }\n', start);
+  assert.ok(start > 0 && end > start, 'the run() function is in the workflow');
+  const fn = wf.slice(start, end + '\n          }'.length).split('\n').map((l) => l.slice(10)).join('\n');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-lensrun-'));
+  const sh = (p) => p.replace(/\\/g, '/');
+  try {
+    fs.mkdirSync(path.join(tmp, '.review'));
+    fs.mkdirSync(path.join(tmp, 'dev'));
+    fs.copyFileSync(path.join(__dirname, 'review-gate.js'), path.join(tmp, 'dev', 'review-gate.js'));
+    // A stand-in for the one jq call run() makes (jq -r '.result // ""' FILE), so the test needs only bash and node.
+    fs.mkdirSync(path.join(tmp, 'bin'));
+    fs.writeFileSync(path.join(tmp, 'bin', 'jq.js'), 'let o = {}; try { o = JSON.parse(require("fs").readFileSync(process.argv[2], "utf8")); } catch {} console.log(o.result ?? "");\n');
+    fs.writeFileSync(path.join(tmp, 'bin', 'jq'), '#!/bin/bash\nexec node "$(dirname "$0")/jq.js" "$3"\n', { mode: 0o755 });
+    // The stand-in CLI: the answers it gives, one per call, the last one repeating.
+    const stub = path.join(tmp, 'stub.sh');
+    fs.writeFileSync(stub, [
+      '#!/bin/bash',
+      'n=$(cat "$STUB_COUNT" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$STUB_COUNT"',
+      'if [ "$n" -le "$STUB_EMPTY" ]; then echo \'{"result":""}\'; echo "boom: transient error $n" >&2; exit 1; fi',
+      'echo \'{"result":"```json\\n{\\"findings\\":[]}\\n```"}\'',
+      '',
+    ].join('\n'));
+    const go = (empty) => {
+      const count = path.join(tmp, 'count');
+      fs.rmSync(count, { force: true });
+      const script = ['set -uo pipefail', `PR=7 TOOLS=a READ_TOOLS=b DENY_TOOLS=c CLAUDE_BIN="${sh(stub)}"`, fn, 'run regression m; echo "rc=$?"'].join('\n');
+      const r = spawnSync('bash', ['-c', script], { cwd: tmp, encoding: 'utf8', timeout: 60000, env: { ...process.env, PATH: sh(path.join(tmp, 'bin')) + path.delimiter + process.env.PATH, STUB_COUNT: sh(count), STUB_EMPTY: String(empty) } });
+      return { out: r.stdout, err: r.stderr, calls: Number(fs.readFileSync(count, 'utf8')), found: fs.readFileSync(path.join(tmp, '.review', 'find-regression.json'), 'utf8') };
+    };
+    // Empty once: asked again, the second answer is used, and the log says why the first failed.
+    const once = go(1);
+    assert.match(once.out, /rc=0/);
+    assert.equal(once.calls, 2);
+    assert.match(once.err, /regression reviewer gave no usable output \(attempt 1 of 2\)/);
+    assert.match(once.err, /boom: transient error 1/);
+    assert.deepEqual(JSON.parse(once.found), { findings: [] });
+    // Empty twice: two calls, no more, and the failure stays so `candidates` fails the job.
+    const twice = go(2);
+    assert.match(twice.out, /rc=1/);
+    assert.equal(twice.calls, 2);
+    assert.match(twice.err, /\(attempt 2 of 2\)/);
+    assert.notEqual(spawnSync(process.execPath, [path.join(tmp, 'dev', 'review-gate.js'), 'candidates', path.join(tmp, '.review')], { encoding: 'utf8', timeout: 20000 }).status, 0);
+    // A good first answer: one call and nothing on stderr.
+    const fine = go(0);
+    assert.match(fine.out, /rc=0/);
+    assert.equal(fine.calls, 1);
+    assert.equal(fine.err, '');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
