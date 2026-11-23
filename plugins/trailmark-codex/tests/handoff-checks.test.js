@@ -280,8 +280,12 @@ const SINCE_CONTROL = { budgetMs: 30000, callMs: 30000 };
 // none, the last write must have that line, with a call stopped or the
 // budget spent but 300 ms (a call is refused with under 250 ms left), and
 // the same lookup with 30 s, as a control, must give HEAD; then the test is
-// skipped. No HEAD and no line fails at once.
+// skipped. No HEAD and no line fails at once. A call stopped at its own
+// timeout (hung=1) ran at least min(4000, the budget left) ms (gitfacts.js
+// runner), so the lookup spent 4,000 ms or more: a stop sooner fails,
+// whatever the control says (RS-T-stamphungbound; 100 ms of slack).
 const SHOW_HEAD = /^trailmark head: late budget=(\d+) spent=(\d+) hung=([01])$/m;
+const HUNG_MIN_MS = 3900;
 function stampedHead(s) {
   const head = S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8')).head;
   if (head) return head;
@@ -290,6 +294,7 @@ function stampedHead(s) {
   const [budget, spent, hung] = m.slice(1).map(Number);
   assert.strictEqual(budget, 5000, `the write's git budget isn't the launcher's: ${m[0]}`);
   assert.ok(hung === 1 || spent >= budget - 300, `the handoff has no HEAD, but git had time left: ${m[0]}`);
+  assert.ok(hung === 0 || spent >= HUNG_MIN_MS, `a git call was stopped sooner than its timeout allows (at least 4,000 ms): ${m[0]}`);
   const G = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const c = G.gitFacts(s.repo, ['branch', 'head', 'toplevel'], SINCE_CONTROL);
   assert.ok(c.head, `the handoff's write ran out of time, and so did the same lookup with 30 s: ${JSON.stringify(c)}`);
@@ -1569,6 +1574,9 @@ test('commits since the handoff: a handoff written with git out of time says so,
       '  const p = opts && opts.cwd === REPO && PLAN.find(([call]) => { const i = a.indexOf(call[0]); return i >= 0 && JSON.stringify(a.slice(i)) === JSON.stringify(call); });',
       '  if (!p) return real.apply(this, arguments);',
       "  if (p[1] === 'slow') { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000); return p[2]; }",
+      // 'time' waits out the timeout it was given, as a call git doesn't
+      // answer is stopped only then (stampedHead's bound).
+      "  if (p[1] === 'time') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, opts.timeout);",
       "  const e = new Error(p[1] === 'time' ? 'spawnSync git ETIMEDOUT' : 'Command failed');",
       "  if (p[1] === 'time') e.code = 'ETIMEDOUT'; else e.status = 128;",
       '  throw e;',
@@ -1586,6 +1594,7 @@ test('commits since the handoff: a handoff written with git out of time says so,
   const m = SHOW_HEAD.exec(late.stderr);
   assert.ok(m, late.stderr);
   assert.deepStrictEqual([m[1], m[3]], ['5000', '1']);
+  assert.ok(+m[2] >= HUNG_MIN_MS, m[0]);
   assert.throws(() => stampedHead(s), CommitsOutOfTime);
   // No call stopped, the budget spent: `branch` answers after 5 s, and the
   // calls after it are refused for lack of time (hung=0).
@@ -1609,6 +1618,23 @@ test('commits since the handoff: a handoff written with git out of time says so,
   s.write('# H\n- plain\n');
   assert.strictEqual(stampedHead(s), s.g('rev-parse', '--short', 'HEAD'));
 }));
+
+// RS-T-stamphungbound: a write whose git call was stopped sooner than the
+// runner's timeout allows (a fault that cuts the hook's calls short) is a
+// failure, not a skip, even when the 30 s control gives HEAD.
+test('stampedHead: a call stopped sooner than its timeout allows fails, and one stopped after 4 s skips (RS-T-stamphungbound)', () => {
+  const s = sandbox();
+  s.write('# H\n');
+  // No HEAD on the line: put down raw, as write-handoff would stamp one.
+  fs.writeFileSync(path.join(s.memdir, 'handoff.md'), '# H\nUpdated: 2026-11-23 15:00 | branch main | by Claude Code\n');
+  s.writes.splice(0, Infinity, 'trailmark head: late budget=5000 spent=12 hung=1\n');
+  assert.throws(() => stampedHead(s), (e) => e instanceof assert.AssertionError && /stopped sooner than its timeout allows/.test(e.message));
+  // The bound's edge: a looser bound (100 ms) passed the cases above.
+  s.writes.splice(0, Infinity, 'trailmark head: late budget=5000 spent=3899 hung=1\n');
+  assert.throws(() => stampedHead(s), (e) => e instanceof assert.AssertionError && /stopped sooner than its timeout allows/.test(e.message));
+  s.writes.splice(0, Infinity, 'trailmark head: late budget=5000 spent=3900 hung=1\n');
+  assert.throws(() => stampedHead(s), CommitsOutOfTime);
+});
 
 test('fit: a small injectChars holds with a commit list, a snapshot and warnings', sinceTest(() => {
   const s = sandbox();
@@ -7339,6 +7365,80 @@ test('branch: a folder that is not a repo has no branch, and the Updated line ke
   assert.notStrictEqual(f.branch, 'unknown', 'not a repo is not a timeout');
   const out = S.stampUpdated('# H\nUpdated: 2026-10-01 10:00 | branch feature-x | HEAD abcdef1\n', { branch: 'unknown' });
   assert.match(out, /branch feature-x \| HEAD abcdef1/, "an unknown branch replaced the model's own");
+});
+
+// RS-T-headlate, RS-T-stampplaceholder: a handoff written with no facts
+// from git kept the template's placeholders, read "<branch>" as a branch,
+// and its next session start said nothing about the missing HEAD.
+test('stamp: with no facts from git, placeholders go, one marker says so, and session start says why there is no HEAD (RS-T-headlate)', () => {
+  const tpl = '# H\nUpdated: <YYYY-MM-DD HH:MM> | branch <branch> | HEAD <sha7>\n';
+  const out = S.stampUpdated(tpl, null, new Date(2026, 10, 23, 14, 0));
+  const line = out.split('\n')[1];
+  assert.ok(!/[<>]/.test(line), `a placeholder was kept: ${line}`);
+  assert.strictEqual(line.split(' | ').filter(p => p === 'git: no facts').length, 1, line);
+  // The model's own text is kept; a copied marker is not doubled.
+  const again = S.stampUpdated('# H\nUpdated: 2026-11-01 10:00 | branch mine | git: no facts | <sha7>\n', null).split('\n')[1];
+  assert.match(again, /\| branch mine \| git: no facts \| by (Claude Code|Codex)$/, again);
+  // With facts from git there is no marker.
+  assert.doesNotMatch(S.stampUpdated(tpl, { branch: 'main', head: 'abc1234' }), /git: no facts/);
+  // The reader takes neither a placeholder nor the marker for a branch or HEAD.
+  const raw = S.handoffStamp('Updated: 2026-11-23 14:00 | <YYYY-MM-DD HH:MM> | branch <branch> | HEAD <sha7> | by Claude Code');
+  assert.strictEqual(raw.branch, undefined, 'a placeholder was read as a branch');
+  assert.strictEqual(raw.head, undefined);
+  const st = S.handoffStamp(line);
+  assert.strictEqual(st.git, 'no facts');
+  assert.strictEqual(st.branch, undefined);
+  assert.strictEqual(st.head, undefined);
+  // Session start says why there is no HEAD, and not when there is one.
+  // write-handoff would restamp with the sandbox repo's git facts, so the
+  // line goes down raw and is read through the session-start hook.
+  const s = sandbox();
+  s.write('# H\n## Next steps\n- one\n');
+  const hf = path.join(s.memdir, 'handoff.md');
+  fs.writeFileSync(hf, `# H\n${line}\n## Next steps\n- one\n`);
+  const said = s.start().context.split('\n').find(l => l.includes('The handoff has no HEAD'));
+  assert.match(said || '', /^The handoff has no HEAD, so the commits since it are not listed\. /);
+  // It names no git command: the marker is also written where Trailmark
+  // kept git out of the folder, and plain git there can run the repo's
+  // programs (a planted gpg.program or core.fsmonitor).
+  // Every git in the line is one of its own phrases (an allowlist: a list
+  // of commands missed `git --no-pager log` and `git -c k=v log`).
+  assert.doesNotMatch(said, /\bgit(?!\s+(gave|ran|repo|for this|out of this folder)\b)/i, said);
+  // Said without a condition: the refusal warning reaches only the user.
+  assert.match(said, /Don't run git for this: Trailmark may have kept git out of this folder\./);
+  // At a budget too small for the rest, kept lines are cut to their first
+  // 150 characters: the stop is inside them (auto-review on PR 128).
+  const cfgFile = path.join(s.memdir, '.jbmem.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), budgets: { injectChars: 2000 } }));
+  const notes = Array.from({ length: 4 }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(150)}`);
+  const cutLine = S.buildInjection(s.memdir, { notes }).text.split('\n').find(l => l.includes('The handoff has no HEAD'));
+  assert.ok(cutLine && cutLine.length <= 150, `the line was not cut: ${cutLine}`);
+  assert.match(cutLine, /Don't run git for this: Trailmark may have kept git out of this folder\./, cutLine);
+  assert.doesNotMatch(cutLine, /\bgit(?!\s+(gave|ran|repo|for this|out of this folder)\b)/i, cutLine);
+  // The line's short form goes first at a tight budget: no note is cut while
+  // the line keeps its full length (auto-review round 3 on PR 128: a note
+  // lost its "never run it"). Any kept text can still push a note whose
+  // warning ends past 150 characters into the cut (RS-T-notecutorder).
+  const nodeNote = "[trailmark] The Node that ran this hook is a node program in this session's folder or the repo's top folder, not the installed one; its path isn't given here. Tell the user if asked; never run it.";
+  const steps = Array.from({ length: 40 }, (_, i) => `${i + 1}. step ${i} ${'x'.repeat(60)} -- owner: Claude`).join('\n');
+  fs.writeFileSync(hf, `# H\n${line}\n## Next actions\n${steps}\n`);
+  let cut = 0;
+  for (let n = 0; n <= 8; n++) {
+    for (const fill of [17, 33, 66]) {
+      const more = [nodeNote, ...Array.from({ length: n }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(fill)}`)];
+      const text = S.buildInjection(s.memdir, { notes: more }).text;
+      if (/never run it\./.test(text)) continue;
+      cut++;
+      const said = text.split('\n').find(l => l.includes('The handoff has no HEAD'));
+      assert.strictEqual(said, "The handoff has no HEAD, so the commits since it are not listed. Don't run git for this: Trailmark may have kept git out of this folder.", `a note was cut while the line kept its full length (${n} notes of ${fill} words)`);
+    }
+  }
+  assert.ok(cut > 0, 'the sweep never cut the note');
+  fs.writeFileSync(hf, '# H\nUpdated: 2026-11-23 14:00 | branch main | HEAD abc1234 | by Claude Code\n## Next steps\n- one\n');
+  assert.doesNotMatch(s.start().context, /The handoff has no HEAD/);
+  // A HEAD with the marker (a hand-edited line): there is a HEAD, so no line.
+  fs.writeFileSync(hf, '# H\nUpdated: 2026-11-23 14:00 | branch main | HEAD abc1234 | git: no facts | by Claude Code\n## Next steps\n- one\n');
+  assert.doesNotMatch(s.start().context, /The handoff has no HEAD/);
 });
 
 test('git checks: a folder with a HEAD is probed only as git probes a bare repo; module walks skip refs/ and the loose-object folders of module gitdirs (loop round 8)', { skip: NO_LINKS }, () => {

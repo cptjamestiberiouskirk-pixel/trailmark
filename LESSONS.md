@@ -14,6 +14,34 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-23: Recording low bot notes by a push started another bot round each time
+
+- What went wrong: on PR 128 the automated reviewer reviews every push, and each of its rounds 1 to 4 added low notes. Recording them in `dev/release-state.md` meant a push, and that push drew the next round, so the PR could not reach a head with no new notes.
+- Why: the rule "low points go to release-state, then push" was written for review rounds the session starts, not for a reviewer that runs on its own on each push.
+- Rule going forward: once a PR's scoped review rounds are done, bot notes that are low and not CONFIRMED wrong in what the PR changes are answered by a PR comment and recorded in the next PR's release-state (or in a push the PR needs anyway), not by a push of their own (the supervisor, pr128-A-r4). Medium or higher is asked.
+- Status: open
+
+## 2026-11-23: A review brief said to extract the commit with git archive, which leaves out dev/
+
+- What went wrong: the RS-T-headlate briefs told the reviewer to run tests from `git archive <commit>`; `dev/` is `export-ignore`, so the copy had no `dev/release-check.sh`, and the reviewer cloned the checkout instead.
+- Why: the archive command was chosen to avoid adding a worktree, without checking what `.gitattributes` leaves out of it.
+- Rule going forward: a brief gives the reviewer a `git clone` of the checkout at the commit (or `git worktree add` in the reviewer's own clone), never `git archive`, when the reviewer runs the repo's checks.
+- Status: open
+
+## 2026-11-23: A test set up a state through the writer that the writer can't produce
+
+- What went wrong: the first RS-T-headlate test wrote its "no facts from git" handoff with the sandbox's `write`, which runs `write-handoff` in a git repo. It restamped the line with the repo's branch and HEAD, so the session-start check failed on the fixed code.
+- Why: the helper's name says what it does to the file, not what the launcher adds on the way.
+- Rule going forward: when a test needs a file in a state that only another place produces (here, a checkpoint with no git), put the file down raw and read it through the real reader; check the file's content before the assertion that depends on it.
+- Status: open
+
+## 2026-11-23: A reviewer's clone under the session scratchpad broke the sandbox tests
+
+- What went wrong: the RS-T-stamphungbound reviewer cloned the repo under the session's scratchpad; every sandbox test failed there, as the memory folder's path came to 408 characters, past Windows' path limit. It re-cloned under `E:/DevTemp` and ran from there.
+- Why: the brief said "your own temp folder" without a short path, and the scratchpad's path is long.
+- Rule going forward: a brief names a short clone path for runs (for example `E:/DevTemp/<id>`) on Windows, and the reviewer removes it at the end.
+- Status: open
+
 ## 2026-11-23: A timing test's margin was worked out at the first try and not over the wait
 - What went wrong: RS-D-lockagewording moved the threshold test to a move of 1.2 s on a lock 4.5 s old, with a comment giving the real age as 500 ms short of 5 s. Review round 1 (Opus, F1, CONFIRMED by Opus by runs, not re-run here) measured it at 5116 to 5182 ms by the end of the 600 ms wait, so the test also failed a correct reading of the 5 s rule. The lock is back to 4 s, each margin about 200 ms or more.
 - Why: the edges were worked out for the input as the test starts, and the wait the test runs was not added to the real age.

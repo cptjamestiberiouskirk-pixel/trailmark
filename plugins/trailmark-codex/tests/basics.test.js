@@ -397,12 +397,12 @@ test('write-handoff: the Updated line gets the clock time, and git branch and HE
   const d = wh(s.cli, '# Handoff: x\nUpdated: 2020-01-01 00:00 | branch mine | HEAD abc1234\n');
   assert.strictEqual(d.status, 0, d.stdout + d.stderr);
   const t3 = fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8');
-  assert.match(t3, /^Updated: \S+ \S+ \| branch mine \| HEAD abc1234 \| by Codex$/m);
+  assert.match(t3, /^Updated: \S+ \S+ \| branch mine \| HEAD abc1234 \| git: no facts \| by Codex$/m);
   assert.ok(!t3.includes('2020-01-01'));
   // Frontmatter is left alone; only the body's Updated line changes.
   const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
   const fm = S.stampUpdated('---\nname: handoff\n---\n# H\nUpdated: 2020-01-01 00:00\n', null, new Date(2026, 9, 17, 9, 5));
-  assert.strictEqual(fm, '---\nname: handoff\n---\n# H\nUpdated: 2026-10-17 09:05 | by Codex\n');
+  assert.strictEqual(fm, '---\nname: handoff\n---\n# H\nUpdated: 2026-10-17 09:05 | git: no facts | by Codex\n');
 });
 
 test('write-handoff and park: --from=<file> works like stdin; a file in the memory folder is removed once saved', () => {

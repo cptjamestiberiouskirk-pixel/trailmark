@@ -156,8 +156,8 @@ test('sessions: per-session snapshots, start messages, notes, status and the Upd
   // The Updated line names the writing session and drops one the model copied.
   const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
   const t = S.stampUpdated('# H\nUpdated: 2020-01-01 00:00 | branch x | session deadbeef\n', null, new Date(2026, 9, 17, 9, 5), SB);
-  assert.strictEqual(t, '# H\nUpdated: 2026-10-17 09:05 | branch x | session 22222222 | by Claude Code\n');
-  assert.strictEqual(S.stampUpdated('# H\nUpdated: 2020-01-01 00:00 | session deadbeef\n', null, new Date(2026, 9, 17, 9, 5)), '# H\nUpdated: 2026-10-17 09:05 | by Claude Code\n');
+  assert.strictEqual(t, '# H\nUpdated: 2026-10-17 09:05 | branch x | git: no facts | session 22222222 | by Claude Code\n');
+  assert.strictEqual(S.stampUpdated('# H\nUpdated: 2020-01-01 00:00 | session deadbeef\n', null, new Date(2026, 9, 17, 9, 5)), '# H\nUpdated: 2026-10-17 09:05 | git: no facts | by Claude Code\n');
   // A session ID that isn't one (an unsubstituted ${CLAUDE_SESSION_ID}) is ignored.
   assert.strictEqual(S.cleanSession('${CLAUDE_SESSION_ID}'), '');
   assert.strictEqual(jbm(s, ['note', 'no id', '--session=${CLAUDE_SESSION_ID}']).status, 0);
