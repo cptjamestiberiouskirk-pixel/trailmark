@@ -176,7 +176,12 @@ jobs:
               jq -r '.result // ""' ".review/raw-$1.json" | sed -e '/^```/d' > ".review/find-$1.json"
               node dev/review-gate.js lens-ok ".review/find-$1.json" && return 0
               echo "the $1 reviewer gave no usable output (attempt $attempt of 2); stderr tail:" >&2
-              tail -n 20 ".review/err-$1.txt" | cut -c1-300 >&2
+              # The runner reads stderr for `::command::` lines, so the tail is printed between
+              # stop-commands and a random resume token that the tail cannot know.
+              tok=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+              echo "::stop-commands::$tok" >&2
+              tail -n 20 ".review/err-$1.txt" | cut -b1-300 >&2
+              echo "::$tok::" >&2
             done
             return 1
           }

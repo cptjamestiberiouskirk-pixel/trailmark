@@ -808,7 +808,7 @@ test('workflow: a lens that gives nothing is asked once more, prints its stderr 
     fs.writeFileSync(stub, [
       '#!/bin/bash',
       'n=$(cat "$STUB_COUNT" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$STUB_COUNT"',
-      'if [ "$n" -le "$STUB_EMPTY" ]; then echo \'{"result":""}\'; echo "boom: transient error $n" >&2; exit 1; fi',
+      'if [ "$n" -le "$STUB_EMPTY" ]; then echo \'{"result":""}\'; echo "boom: transient error $n" >&2; echo "::error title=spoof::from stderr" >&2; exit 1; fi',
       'echo \'{"result":"```json\\n{\\"findings\\":[]}\\n```"}\'',
       '',
     ].join('\n'));
@@ -825,6 +825,12 @@ test('workflow: a lens that gives nothing is asked once more, prints its stderr 
     assert.equal(once.calls, 2);
     assert.match(once.err, /regression reviewer gave no usable output \(attempt 1 of 2\)/);
     assert.match(once.err, /boom: transient error 1/);
+    // The runner reads stderr for `::command::` lines: the tail must sit between stop-commands and its resume token.
+    const lines = once.err.split('\n');
+    const stop = lines.findIndex((l) => /^::stop-commands::[0-9a-f]{32}$/.test(l));
+    const spoof = lines.indexOf('::error title=spoof::from stderr');
+    assert.ok(stop >= 0 && spoof > stop, 'the tail follows stop-commands');
+    assert.equal(lines[lines.length - 2], '::' + lines[stop].split('::')[2] + '::', 'the resume token closes it');
     assert.deepEqual(JSON.parse(once.found), { findings: [] });
     // Empty twice: two calls, no more, and the failure stays so `candidates` fails the job.
     const twice = go(2);
