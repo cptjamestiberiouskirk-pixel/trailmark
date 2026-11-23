@@ -29,10 +29,10 @@
     "^dev/(ship-signers|sign-ship\\.sh)$",
     "^dev/.*\\.test\\.js$",
     "^dev/(risk-tiers|reliability-checklist)\\.json$",
-    "^dev/review-evals/"
+    "^dev/review-evals/",
+    "^playbook\\.md$"
   ],
   "medium": [
-    "^PLAYBOOK\\.md$",
     "^plugins/[^/]+/(hooks|skills|commands|agents|scripts)/",
     "^plugins/[^/]+/\\.(claude|codex)-plugin/",
     "^plugins/[^/]+/[^/]+\\.json$"
