@@ -1111,12 +1111,22 @@ test('commits since the handoff: another branch and an unknown HEAD are said pla
 // last step at a budget too small for the rest), the longest input too:
 // the whole stop is kept, and no git command is in the context.
 test('commits since the handoff: no hint names a git command, full or short (RS-S-sincegitadvice)', () => {
+  // The handoffs are put down raw with a HEAD on their Updated line, not
+  // through the launcher's write: a write whose git ran out of time leaves no
+  // HEAD, and session start then adds the no-HEAD line, whose own "Git gave no
+  // facts" is outside this allowlist (auto-review round 1 on PR 130).
+  const stamp = 'Updated: 2026-11-23 10:00 | branch main | HEAD 1234567 | session abcdef12 | by Claude Code';
+  const put = (box, body) => {
+    const f = path.join(box.memdir, 'handoff.md');
+    fs.writeFileSync(f, `# H\n${stamp}\n${body}`);
+    assert.strictEqual(S.handoffStamp(fs.readFileSync(f, 'utf8')).head, '1234567', 'the handoff has no HEAD');
+  };
   const s = sandbox();
-  s.write('# H\n## Next steps\n- one\n');
+  put(s, '## Next steps\n- one\n');
   const tight = sandbox();
   const cfgFile = path.join(tight.memdir, '.jbmem.json');
   fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), budgets: { injectChars: 2000 } }));
-  tight.write('# H\n## State\n' + Array.from({ length: 60 }, (_, i) => `- item ${i} ${'x'.repeat(70)}`).join('\n') + '\n');
+  put(tight, '## State\n' + Array.from({ length: 60 }, (_, i) => `- item ${i} ${'x'.repeat(70)}`).join('\n') + '\n');
   const notes = n => Array.from({ length: n }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(150)}`);
   const forms = {
     full: since => S.buildInjection(s.memdir, { since }).text,
