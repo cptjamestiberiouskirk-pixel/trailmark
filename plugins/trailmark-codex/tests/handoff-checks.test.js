@@ -1628,6 +1628,40 @@ test('commits since the handoff: a handoff written with git out of time says so,
   assert.strictEqual(stampedHead(s), s.g('rev-parse', '--short', 'HEAD'));
 }));
 
+// RS-T-sincecontrol: sinceInTime's control. Three session starts that each
+// say git ran out of time end in the same lookup with 30 s: one that answers
+// skips the test (CommitsOutOfTime), and one that is late too, or can't list
+// the commits, fails it. The session starts are stand-ins (a context and the
+// launcher's JBMEM_SHOW_SINCE line with no time left), and the late control is
+// gitfacts' commitsSince swapped out, so nothing here waits on git's timing.
+test('sinceInTime: three late session starts skip when the 30 s control answers, and fail when it is late too (RS-T-sincecontrol)', () => {
+  const s = sandbox();
+  s.write('# H\n');
+  // Put down raw with the repo's HEAD, as a write in time would stamp it.
+  const head = s.g('rev-parse', '--short', 'HEAD');
+  fs.writeFileSync(path.join(s.memdir, 'handoff.md'), `# H\nUpdated: 2026-11-24 10:00 | branch main | HEAD ${head} | by Claude Code\n- one\n`);
+  assert.strictEqual(stampedHead(s), head);
+  const late = { context: 'Whether HEAD has commits since the handoff isn\'t known: git ran out of time.', stderr: 'trailmark since: late elapsed=3400 left=100 budget=0 git=0\n' };
+  let calls = 0;
+  assert.throws(() => sinceInTime(s, () => { calls++; return late; }), (e) => e instanceof CommitsOutOfTime && /3 session starts in a row/.test(e.message));
+  assert.strictEqual(calls, 3);
+  // A start in time ends the tries at once.
+  calls = 0;
+  const ok = { context: 'no commits since', stderr: '' };
+  assert.strictEqual(sinceInTime(s, () => { calls++; return calls < 2 ? late : ok; }), ok);
+  assert.strictEqual(calls, 2);
+  const G = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const real = G.commitsSince;
+  for (const bad of [null, { base: head, state: 'late' }, { base: head, state: 'ok', count: 1, entries: [], unlisted: 'late' }, { base: head, state: 'ok', count: 1, entries: [], unlisted: 'error' }]) {
+    G.commitsSince = () => bad;
+    try {
+      assert.throws(() => sinceInTime(s, () => late), (e) => e instanceof assert.AssertionError && /so did the same lookup with 30 s/.test(e.message), JSON.stringify(bad));
+    } finally {
+      G.commitsSince = real;
+    }
+  }
+});
+
 // RS-T-stamphungbound: a write whose git call was stopped sooner than the
 // runner's timeout allows (a fault that cuts the hook's calls short) is a
 // failure, not a skip, even when the 30 s control gives HEAD.
