@@ -280,8 +280,12 @@ const SINCE_CONTROL = { budgetMs: 30000, callMs: 30000 };
 // none, the last write must have that line, with a call stopped or the
 // budget spent but 300 ms (a call is refused with under 250 ms left), and
 // the same lookup with 30 s, as a control, must give HEAD; then the test is
-// skipped. No HEAD and no line fails at once.
+// skipped. No HEAD and no line fails at once. A call stopped at its own
+// timeout (hung=1) ran at least min(4000, the budget left) ms (gitfacts.js
+// runner), so the lookup spent 4,000 ms or more: a stop sooner fails,
+// whatever the control says (RS-T-stamphungbound; 100 ms of slack).
 const SHOW_HEAD = /^trailmark head: late budget=(\d+) spent=(\d+) hung=([01])$/m;
+const HUNG_MIN_MS = 3900;
 function stampedHead(s) {
   const head = S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8')).head;
   if (head) return head;
@@ -290,6 +294,7 @@ function stampedHead(s) {
   const [budget, spent, hung] = m.slice(1).map(Number);
   assert.strictEqual(budget, 5000, `the write's git budget isn't the launcher's: ${m[0]}`);
   assert.ok(hung === 1 || spent >= budget - 300, `the handoff has no HEAD, but git had time left: ${m[0]}`);
+  assert.ok(hung === 0 || spent >= HUNG_MIN_MS, `a git call was stopped sooner than its timeout allows (at least 4,000 ms): ${m[0]}`);
   const G = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
   const c = G.gitFacts(s.repo, ['branch', 'head', 'toplevel'], SINCE_CONTROL);
   assert.ok(c.head, `the handoff's write ran out of time, and so did the same lookup with 30 s: ${JSON.stringify(c)}`);
@@ -314,6 +319,16 @@ function sinceInTime(s, call, tries = 3) {
 const sinceTest = (fn) => (t) => {
   try { fn(t); } catch (e) {
     if (!(e instanceof CommitsOutOfTime || e instanceof HookOutOfTime)) throw e;
+    t.skip(e.message);
+  }
+};
+// A test that starts the session-start hook itself, not through the
+// sandbox's start(), and gives that start startInTime's tries: three stops in
+// a row, each after a slow launcher, skip it with the reason
+// (RS-T-startdirect).
+const startTest = (fn) => (t) => {
+  try { fn(t); } catch (e) {
+    if (!(e instanceof HookOutOfTime)) throw e;
     t.skip(e.message);
   }
 };
@@ -517,6 +532,550 @@ test('hook clock: a system clock set forward during the commit hook leaves git i
   assert.ok((c.folders || []).length, `no folder was read: ${JSON.stringify(c)}`);
 });
 
+// RS-T-clocksteplibs: the libraries' own deadlines are on Node's monotonic
+// clock too. gitfacts.js's runner set its deadline from Date.now, so a clock
+// set forward after the runner was made left its git calls no time (Fable,
+// RS-T-clockstep round 1: `git-timeout` for the commit's folder). The step,
+// an hour, is made at the first execFileSync, after the runner is made. The
+// two libraries are loaded again so that the stub is the execFileSync they
+// call.
+test('git facts: a system clock set forward during the git calls leaves them their time (RS-T-clocksteplibs)', () => {
+  const dir = path.join(realTemp('jbmem-runstep-'), 'r');
+  repoAt(dir);
+  const branch = execFileSync('git', ['branch', '--show-current'], { cwd: dir, encoding: 'utf8' }).trim();
+  const cp = require('child_process');
+  const keys = ['gitfacts.js', 'gitbin.js'].map(n => require.resolve(path.join(ROOT, 'scripts', 'lib', n)));
+  const kept = keys.map(k => require.cache[k]);
+  const realRun = cp.execFileSync; const now = Date.now;
+  let calls = 0;
+  cp.execFileSync = function (...a) { if (++calls === 1) Date.now = () => now() + 3600000; return realRun.apply(this, a); };
+  const seen = {};
+  let f;
+  try {
+    for (const k of keys) delete require.cache[k];
+    f = require(keys[0]).gitFacts(dir, ['branch', 'status'], { budgetMs: 5000, seen });
+  } finally {
+    cp.execFileSync = realRun; Date.now = now;
+    keys.forEach((k, i) => { if (kept[i]) require.cache[k] = kept[i]; else delete require.cache[k]; });
+  }
+  assert.deepStrictEqual({ late: seen.late, hung: seen.hung, branch: f.branch, status: f.statusSkipped }, { late: false, hung: false, branch, status: undefined });
+  assert.ok(calls > 1, `the git calls did not run: ${calls}`);
+});
+
+// RS-T-clocksteplibs, the other libraries: each kept a deadline on Date.now.
+// stepAfterFirst: Date.now gives the real time at its first read (where the
+// old code set the deadline) and `by` ms more after it.
+const stepAfterFirst = (by, fn) => {
+  const now = Date.now; let reads = 0;
+  Date.now = () => (++reads === 1 ? now() : now() + by);
+  try { return fn(); } finally { Date.now = now; }
+};
+
+test('health: a system clock set forward during the check for other copies leaves it its time (RS-T-clocksteplibs)', () => {
+  const H = require(path.join(ROOT, 'scripts', 'lib', 'health'));
+  const base = realTemp('jbmem-copystep-');
+  for (const v of ['0.1.0', '0.2.0']) {
+    const d = path.join(base, 'cfg', 'plugins', 'cache', 'mkt', 'trailmark', v, 'scripts');
+    fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'trailmark.js'), '// stand-in');
+  }
+  const r = stepAfterFirst(3600000, () => H.otherCopies(path.join(base, 'cfg'), path.join(base, 'mine'), { budgetMs: 60000 }));
+  assert.deepStrictEqual({ incomplete: r.incomplete, found: r.copies.length }, { incomplete: '', found: 2 });
+});
+
+test('commit sites: a system clock set forward while a command is read leaves it its time (RS-T-clocksteplibs)', () => {
+  const { commitSites } = require(path.join(ROOT, 'scripts', 'lib', 'commands.js'));
+  // 2000 commands: past the 512 steps between looks at the time.
+  const r = stepAfterFirst(3600000, () => commitSites('true; '.repeat(2000) + 'git commit -m x', { platform: 'linux', cwd: '/r', home: '/h', deadlineMs: 60000 }));
+  assert.deepStrictEqual({ sites: r.sites.length, unresolved: r.unresolved }, { sites: 1, unresolved: [] });
+  // A deadline already past, on the real clocks: the read stops. A deadline
+  // set from Date.now and read against performance.now never would (review
+  // round 1, F1).
+  const late = commitSites('true; '.repeat(2000) + 'git commit -m x', { platform: 'linux', cwd: '/r', home: '/h', deadlineMs: -1 });
+  assert.ok(late.unresolved.includes('too-long'), JSON.stringify(late.unresolved));
+});
+
+// The lock is this process's, on this host, so it is never broken as dead.
+// The step is 40 s: past the 30 s wait, short of the 60 s after which any
+// lock is taken as left behind (LOCK_MAX_MS, store.js), which lockInfo reads
+// from the system clock and the file's time. A child removes the lock after
+// 300 ms, and the wait then takes it.
+test('lock: a system clock set forward during the wait for the lock leaves the wait its time (RS-T-clocksteplibs)', async () => {
+  const dir = realTemp('jbmem-lockstep-');
+  const file = path.join(dir, S.LOCK);
+  const host = String(os.hostname() || 'unknown').replace(/\s+/g, '_').slice(0, 64);
+  fs.writeFileSync(file, `pid ${process.pid} host ${host} test token 00\n`);
+  const freed = require('child_process').spawn(process.execPath, ['-e', `setTimeout(() => { try { require('fs').unlinkSync(${JSON.stringify(file)}); } catch {} }, 300)`], { stdio: 'ignore' });
+  let ran = false;
+  try {
+    stepAfterFirst(40000, () => S.withLock(dir, () => { ran = true; }, { waitMs: 30000 }));
+  } finally {
+    // The wait above is synchronous, so the child's exit can't have been
+    // seen yet. Wait for it, then for the timer turn that closes its handle
+    // (the exit event comes first), or the handle is open when the file ends.
+    freed.kill();
+    await require('events').once(freed, 'exit');
+    await new Promise(r => setTimeout(r, 0));
+  }
+  assert.strictEqual(ran, true);
+});
+
+// RS-T-lockagestep: a lock's age is the system clock against the file's
+// mtime, so a clock set forward or back made a live holder's fresh lock look
+// over 60 s old, and the waiter broke it and went in beside the holder.
+// lockAt: a lock labeled with this process (alive, this host) and its token,
+// its mtime `ago` ms back. withClock: Date.now moved by `by` while fn runs.
+const lockAt = (prefix, ago, label = true) => {
+  const dir = realTemp(prefix);
+  const file = path.join(dir, S.LOCK);
+  const host = String(os.hostname() || 'unknown').replace(/\s+/g, '_').slice(0, 64);
+  fs.writeFileSync(file, label ? `pid ${process.pid} host ${host} since x token aaaa\n` : '');
+  if (ago) { const t = (Date.now() - ago) / 1000; fs.utimesSync(file, t, t); }
+  return { dir, file };
+};
+const withClock = (by, fn) => {
+  const now = Date.now;
+  Date.now = () => now() + by;
+  try { return fn(); } finally { Date.now = now; }
+};
+const tryLock = (dir, by, waitMs = 600) => {
+  let ran = false;
+  try { withClock(by, () => S.withLock(dir, () => { ran = true; }, { waitMs })); return { ran, code: '' }; } catch (e) { return { ran, code: e.code }; }
+};
+// A lock of a holder that has ended (a pid that ran and exited, this host).
+const deadLabel = (token) => `pid ${spawnSync(process.execPath, ['-e', '']).pid} host ${String(os.hostname() || 'unknown').replace(/\s+/g, '_').slice(0, 64)} since x token ${token}\n`;
+const deadLockAt = (prefix, ago) => {
+  const { dir, file } = lockAt(prefix, 0);
+  fs.writeFileSync(file, deadLabel('dddd'));
+  if (ago) { const t = (Date.now() - ago) / 1000; fs.utimesSync(file, t, t); }
+  return { dir, file };
+};
+// The ended holders' pids must still be free: a pid given to a live process
+// would keep the lock for another reason (review round 2, security F1). A
+// live pid can only keep a lock, so a test checks what it expects first (a
+// lock broken or a .break removed fails it either way) and skips only where
+// its result is one a pid in use again could explain (review round 4, F3:
+// one was reused within about 6.5 s on a busy PC; round 5, the order).
+const reusedPid = (...texts) => texts.map((text) => Number(/^pid (\d+)/.exec(text)[1])).find((pid) => {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code !== 'ESRCH'; }
+});
+const reusedSkip = (pid) => `pid ${pid} of an ended holder is in use again, so the test cannot tell`;
+
+test('lock: a system clock moved past 60 s leaves a live holder its fresh lock (RS-T-lockagestep)', () => {
+  for (const by of [61000, -3600000]) {
+    const { dir, file } = lockAt('jbmem-lockage-', 0);
+    assert.deepStrictEqual(tryLock(dir, by), { ran: false, code: 'JBMEM_LOCKED' }, `clock moved ${by} ms`);
+    assert.ok(fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token aaaa'), `clock moved ${by} ms: the holder's lock was broken`);
+  }
+  // Unlabeled (made, not yet labeled): over 30 s by the moved clock, still kept.
+  const bare = lockAt('jbmem-lockage-bare-', 0, false);
+  assert.deepStrictEqual(tryLock(bare.dir, 31000), { ran: false, code: 'JBMEM_LOCKED' });
+  assert.ok(fs.existsSync(bare.file), 'the unlabeled lock was broken');
+});
+
+test('lock: with the clock not moved, a lock over 60 s old is still broken at once (RS-T-lockagestep)', () => {
+  const { dir } = lockAt('jbmem-lockage-old-', 120000);
+  assert.deepStrictEqual(tryLock(dir, 0), { ran: true, code: '' });
+  // With the clock moved, the same old lock is kept: this command has watched
+  // it for 600 ms, not 60 s. The next command, its clock unmoved, breaks it.
+  const moved = lockAt('jbmem-lockage-oldmoved-', 120000);
+  assert.deepStrictEqual(tryLock(moved.dir, 61000), { ran: false, code: 'JBMEM_LOCKED' });
+  assert.deepStrictEqual(tryLock(moved.dir, 0), { ran: true, code: '' });
+});
+
+// Review round 1, F1 to F3: with the clock moved, the age is the time this
+// command has watched the same lock text.
+test('lock: with the clock moved, a dead holder\'s lock is broken after 5 s of watching it (RS-T-lockagestep)', (t) => {
+  const { dir, file } = deadLockAt('jbmem-lockwatch-', 10000);
+  const text = fs.readFileSync(file, 'utf8');
+  const t0 = performance.now();
+  const got = tryLock(dir, 61000, 7000);
+  const took = performance.now() - t0;
+  // A lock kept, as a pid in use again would keep it, is the one result to
+  // skip on (review round 6, F2: a throw was skipped too). A break that
+  // ends after the deadline leaves no lock to read, so its failure is the
+  // assertion's, not a raw ENOENT (RS-T-lockagekeptread). The other lock
+  // tests' checks that a lock was kept now check it exists the same way
+  // (review rounds 1 to 3).
+  const kept = !got.ran && got.code === 'JBMEM_LOCKED' && fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token dddd');
+  const again = kept ? reusedPid(text) : 0;
+  if (again) return t.skip(reusedSkip(again));
+  assert.deepStrictEqual(got, { ran: true, code: '' });
+  assert.ok(took >= 5000, `broken after ${Math.round(took)} ms`);
+});
+
+test('lock: with the clock moved, the watch starts again when the lock changes (RS-T-lockagestep)', async (t) => {
+  const { dir, file } = deadLockAt('jbmem-lockrewatch-', 10000);
+  // Another ended holder's label at about 3 s: watched from then, so not
+  // broken before about 8 s, past the 6 s wait. The first label is
+  // breakable at 5 s, so the child has about 2 s either way (review round
+  // 2, F2: at 1.5 s a stall of 0.5 s would fail it).
+  const first = fs.readFileSync(file, 'utf8');
+  const label = deadLabel('eeee');
+  const child = require('child_process').spawn(process.execPath, ['-e', `setTimeout(() => require('fs').writeFileSync(${JSON.stringify(file)}, ${JSON.stringify(label)}), 3000)`], { stdio: 'ignore' });
+  try {
+    const got = tryLock(dir, 61000, 6000);
+    assert.deepStrictEqual(got, { ran: false, code: 'JBMEM_LOCKED' });
+    assert.ok(fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token eeee'), 'the relabeled lock was broken');
+    const again = reusedPid(first, label);
+    if (again) return t.skip(reusedSkip(again));
+  } finally {
+    // As in the lock test above: the exit, then the turn that closes the handle.
+    child.kill();
+    await require('events').once(child, 'exit');
+    await new Promise(r => setTimeout(r, 0));
+  }
+});
+
+test('lock: with the clock moved, a .break file is not removed for its age, and the next command clears it (RS-T-lockagestep)', (t) => {
+  const { dir, file } = deadLockAt('jbmem-lockbreak-', 10000);
+  const text = fs.readFileSync(file, 'utf8');
+  const brk = `${file}.break`;
+  fs.writeFileSync(brk, '');
+  const at = (Date.now() - 40000) / 1000; fs.utimesSync(brk, at, at);
+  // Watched past 5 s the dead holder's lock is breakable, so the .break
+  // file is reached; by the moved clock it is over 30 s old.
+  assert.deepStrictEqual(tryLock(dir, 61000, 7000), { ran: false, code: 'JBMEM_LOCKED' });
+  assert.ok(fs.existsSync(brk), 'the .break file was removed');
+  // A pid in use again would also keep the lock and the .break file, and the
+  // next try needs it free.
+  const again = reusedPid(text);
+  if (again) return t.skip(reusedSkip(again));
+  assert.deepStrictEqual(tryLock(dir, 0), { ran: true, code: '' });
+  assert.ok(!fs.existsSync(brk), 'the .break file was left');
+});
+
+// PR 113, Copilot: a clock that steps and returns within one wait, and a
+// step between a .break file's age and the clock check.
+test('lock: a clock that steps 61 s and returns during the wait leaves a live holder its lock (RS-T-lockagestep)', () => {
+  // Taken while the clock was ahead, and dated 65 s in the future: by the
+  // true clock it stays over 60 s old for about 5 s (round 5: one try broke
+  // it at 4.5 s and kept it at 5.5 s, CONFIRMED by Opus, not re-run), the
+  // whole wait. The clock is 61 s ahead for this wait's first 300 ms
+  // (review round 4, F2: dated 61 s ahead, only a try in the first second
+  // caught the old code).
+  const { dir, file } = lockAt('jbmem-lockreturn-', -65000);
+  const now = Date.now;
+  const t0 = performance.now();
+  Date.now = () => now() + (performance.now() - t0 < 300 ? 61000 : 0);
+  let ran = false, code = '';
+  try { S.withLock(dir, () => { ran = true; }, { waitMs: 1500 }); } catch (e) { code = e.code; } finally { Date.now = now; }
+  assert.deepStrictEqual({ ran, code }, { ran: false, code: 'JBMEM_LOCKED' });
+  assert.ok(fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token aaaa'), 'the live lock was broken');
+});
+
+test('lock: a clock step at a .break file\'s age, or between it and the clock check, leaves the .break (RS-T-lockagestep)', (t) => {
+  // A dead holder's lock 10 s old is breakable at once; another command's
+  // fresh .break is there. The clock steps 61 s for good from a Date.now
+  // read counted after the .break file's lstat: read 1 is the file's age,
+  // read 2 the clock check after it (review round 4, F1: a step from read
+  // 2 alone left that check untested).
+  let reused = 0;
+  for (const from of [1, 2]) {
+    const { dir, file } = deadLockAt(`jbmem-lockbrkstep${from}-`, 10000);
+    const text = fs.readFileSync(file, 'utf8');
+    const brk = `${file}.break`;
+    fs.writeFileSync(brk, '');
+    const lstat = fs.lstatSync, now = Date.now;
+    let armed = false, reads = 0;
+    fs.lstatSync = function (p, ...rest) { if (String(p) === brk) armed = true; return lstat.call(this, p, ...rest); };
+    Date.now = () => { if (armed) reads++; return now() + (armed && reads >= from ? 61000 : 0); };
+    let got;
+    try { got = (() => { try { S.withLock(dir, () => {}, { waitMs: 600 }); return ''; } catch (e) { return e.code; } })(); } finally { fs.lstatSync = lstat; Date.now = now; }
+    assert.strictEqual(got, 'JBMEM_LOCKED', `step from read ${from}`);
+    assert.ok(fs.existsSync(brk), `step from read ${from}: the fresh .break file was removed`);
+    // A pid in use in one case leaves the other to run (review round 6, F1:
+    // only the step from read 2 catches the old read order; round 7: only
+    // the step from read 1 catches the clock check after the age removed).
+    const again = reusedPid(text);
+    if (again) { reused = again; continue; }
+    assert.ok(armed, `step from read ${from}: the .break file was never looked at`);
+  }
+  if (reused) t.skip(reusedSkip(reused));
+});
+
+test('lock: a clock step after the .break file is taken keeps a dead holder\'s lock for its 5 s (RS-T-lockagestep)', (t) => {
+  // The first look, its clock unmoved, finds the lock breakable; the clock
+  // steps 61 s for good once this command has made the .break file, before
+  // the second look (review round 4: the clock check there had no test).
+  const { dir, file } = deadLockAt('jbmem-lockbrktaken-', 10000);
+  const text = fs.readFileSync(file, 'utf8');
+  const brk = `${file}.break`;
+  const open = fs.openSync, now = Date.now;
+  let armed = false;
+  fs.openSync = function (p, ...rest) { if (String(p) === brk) armed = true; return open.call(this, p, ...rest); };
+  Date.now = () => now() + (armed ? 61000 : 0);
+  let got;
+  try { got = (() => { try { S.withLock(dir, () => {}, { waitMs: 600 }); return ''; } catch (e) { return e.code; } })(); } finally { fs.openSync = open; Date.now = now; }
+  assert.strictEqual(got, 'JBMEM_LOCKED');
+  assert.ok(fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token dddd'), 'the lock was broken');
+  assert.ok(!fs.existsSync(brk), 'the .break file was left');
+  const again = reusedPid(text);
+  if (again) return t.skip(reusedSkip(again));
+  assert.ok(armed, 'the .break file was never made');
+});
+
+test('lock: a clock moved 1.2 s keeps a dead holder\'s lock 4 s old for its 5 s (RS-T-lockagestep)', (t) => {
+  // A move just past the 1 s threshold, so a threshold from about 1.2 s up
+  // fails it (RS-D-lockagewording: a move of 2 s held it only from about
+  // 2 s up; review round 2, F1: a move of 6 s only below 6 s). Seen, the
+  // move makes the age the time watched; missed, the moved clock makes the
+  // lock 5.2 s old and breakable at once. Margins, each about 200 ms or
+  // more: the move past the threshold, the moved age past 5 s at the first
+  // try, and the real age short of 5 s at the end of the 600 ms wait (about
+  // 4.65 s; RS-D-lockagewording round 1, F1: a lock 4.5 s old passed 5 s).
+  const { dir, file } = deadLockAt('jbmem-locksmall-', 4000);
+  const text = fs.readFileSync(file, 'utf8');
+  const got = tryLock(dir, 1200);
+  assert.deepStrictEqual(got, { ran: false, code: 'JBMEM_LOCKED' });
+  assert.ok(fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token dddd'), 'the lock was broken');
+  const again = reusedPid(text);
+  if (again) return t.skip(reusedSkip(again));
+});
+
+// RS-T-lockagemono: a lock and its .break file carry a stamp on the
+// monotonic clock, and for a waiter on the same host and platform the stamp
+// can only lower their age. stampAt: that stamp, ago ms back. withNow:
+// Date.now replaced by f(real now) while fn runs. CLOCKS: the wall clock
+// unmoved (so a step this command never saw, before it started or cached
+// away, is the mtime's alone: review round 1, regression F1), ahead 61 s,
+// back an hour, and stepping 61 s each way on every read.
+const stampAt = (ago, plat = process.platform) => ` mono ${Number(process.hrtime.bigint() / 1000000n) - ago} plat ${plat}`;
+const HOSTNAME = String(os.hostname() || 'unknown').replace(/\s+/g, '_').slice(0, 64);
+const withNow = (f, fn) => { const now = Date.now; Date.now = () => f(now()); try { return fn(); } finally { Date.now = now; } };
+const CLOCKS = { unmoved: (n) => n, 'ahead 61 s': (n) => n + 61000, 'back 1 h': (n) => n - 3600000, stepping: (() => { let i = 0; return (n) => n + (i++ % 2 ? 61000 : -61000); })() };
+const tryLockNow = (dir, f, waitMs = 400) => { let ran = false; try { withNow(f, () => S.withLock(dir, () => { ran = true; }, { waitMs })); return { ran, code: '' }; } catch (e) { return { ran, code: e.code }; } };
+const setMtime = (file, ago) => { const t = (Date.now() - ago) / 1000; fs.utimesSync(file, t, t); };
+
+test('lock: the monotonic clock is one clock across processes (RS-T-lockagemono)', () => {
+  // The design rests on it: a child's reading falls between the parent's
+  // before and after, with and without the permission model the writer runs
+  // under. CI runs this on each system.
+  for (const args of [['-e'], ['--permission', '-e']]) {
+    const before = process.hrtime.bigint();
+    const r = spawnSync(process.execPath, [...args, 'process.stdout.write(String(process.hrtime.bigint()))'], { encoding: 'utf8' });
+    const after = process.hrtime.bigint();
+    assert.strictEqual(r.status, 0, r.stderr);
+    const child = BigInt(r.stdout);
+    assert.ok(child >= before && child <= after, `${args.join(' ')}: ${child} not in ${before}..${after}`);
+  }
+});
+
+test('lock: a live holder\'s stamped lock is kept whatever the wall clock and the mtime say (RS-T-lockagemono)', () => {
+  for (const [name, f] of Object.entries(CLOCKS)) {
+    const dir = realTemp('jbmem-lockmono-');
+    const file = path.join(dir, S.LOCK);
+    fs.writeFileSync(file, `pid ${process.pid} host ${HOSTNAME} since x token aaaa${stampAt(0)}\n`);
+    // By its mtime two hours old: the rules without a stamp break it at once.
+    setMtime(file, 7200000);
+    assert.deepStrictEqual(tryLockNow(dir, f), { ran: false, code: 'JBMEM_LOCKED' }, name);
+    assert.ok(fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token aaaa'), `${name}: the live lock was broken`);
+  }
+});
+
+test('lock: a real holder in another process stamps its lock, and keeps it under a moved clock (RS-T-lockagemono)', async (t) => {
+  const dir = realTemp('jbmem-lockmonochild-');
+  const file = path.join(dir, S.LOCK);
+  const ready = path.join(dir, 'ready');
+  const store = path.join(ROOT, 'scripts', 'lib', 'store.js');
+  const child = require('child_process').spawn(process.execPath, ['-e', `require(${JSON.stringify(store)}).withLock(${JSON.stringify(dir)}, () => { require('fs').writeFileSync(${JSON.stringify(ready)}, ''); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30000); })`], { stdio: 'ignore' });
+  // Taken now, so a child that ends early is still seen (round 1, regression F4).
+  const exited = require('events').once(child, 'exit');
+  try {
+    const t0 = performance.now();
+    while (!fs.existsSync(ready)) {
+      assert.ok(performance.now() - t0 < 20000, 'the child never took the lock');
+      await new Promise(r => setTimeout(r, 25));
+    }
+    const label = fs.readFileSync(file, 'utf8');
+    assert.match(label, new RegExp(`^pid ${child.pid} host \\S+ since \\S+ token [0-9a-f]+ mono \\d+ plat ${process.platform}\\n$`));
+    setMtime(file, 7200000);
+    for (const [name, f] of Object.entries(CLOCKS)) {
+      assert.deepStrictEqual(tryLockNow(dir, f), { ran: false, code: 'JBMEM_LOCKED' }, name);
+      assert.strictEqual(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '(no lock file)', label, `${name}: the child's lock was broken`);
+    }
+  } finally {
+    child.kill();
+    await exited;
+    await new Promise(r => setTimeout(r, 0));
+  }
+});
+
+test('lock: a dead holder\'s lock is broken after 5 s by the lower of its stamp\'s age and its file time\'s, or by its file time alone without a stamp (RS-T-lockagemono)', (t) => {
+  // The clock unmoved. Each case: [stamp ms ago or null for none, mtime ms
+  // ago, broken]. A stamp lowers an age (4 s against 2 h) and never raises
+  // one (6 s against 4 s or 0: a waiter whose monotonic clock runs ahead of
+  // the holder's, as in a Linux time namespace; review round 1, F1). An
+  // older version's lock, unstamped, keeps its 5 s (round 1, regression F3).
+  let reused = 0;
+  for (const [ago, mtimeAgo, broken] of [[6000, 7200000, true], [4000, 7200000, false], [6000, 4000, false], [6000, 0, false], [null, 6000, true], [null, 4000, false]]) {
+    const dir = realTemp('jbmem-lockmonodead-');
+    const file = path.join(dir, S.LOCK);
+    const text = ago === null ? deadLabel('dddd') : deadLabel('dddd').replace(/\n$/, `${stampAt(ago)}\n`);
+    fs.writeFileSync(file, text);
+    setMtime(file, mtimeAgo);
+    const got = tryLockNow(dir, (n) => n);
+    const label = `stamp ${ago} ms, mtime ${mtimeAgo} ms old`;
+    if (broken) {
+      // Kept, as a pid in use again would keep it, is the one result to skip on.
+      const kept = !got.ran && got.code === 'JBMEM_LOCKED' && fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token dddd');
+      const again = kept ? reusedPid(text) : 0;
+      if (again) { reused = again; continue; }
+      assert.deepStrictEqual(got, { ran: true, code: '' }, label);
+    } else {
+      assert.deepStrictEqual(got, { ran: false, code: 'JBMEM_LOCKED' }, label);
+      assert.ok(fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token dddd'), `${label}: the lock was broken`);
+      // A pid in use in one case leaves the others to run.
+      const again = reusedPid(text);
+      if (again) { reused = again; continue; }
+    }
+  }
+  if (reused) t.skip(reusedSkip(reused));
+});
+
+test('lock: a stamp from a monotonic clock behind the waiter\'s does not make a fresh lock old, whatever the wall clock says (RS-T-lockagemono, review round 1, F1)', (t) => {
+  // A waiter whose monotonic clock runs ahead of the holder's reads the
+  // holder's stamp as older than it is. A live holder's fresh lock with a
+  // stamp 61 s old is kept under each clock (the mtime's age, capped by the
+  // watch once the clock moved, is the lower one), and a dead holder's lock
+  // 6 s old by its stamp and its mtime is kept under each moved clock, by
+  // the watch (review round 2, F1: the watch cap for a stamped lock had no
+  // test). The stamp needs 61 s of uptime to be a number.
+  const stamp = stampAt(61000);
+  if (!/ mono \d+ /.test(stamp)) return t.skip('the system has been up less than 61 s');
+  let reused = 0;
+  for (const [name, f] of Object.entries(CLOCKS)) {
+    const dir = realTemp('jbmem-lockmonoahead-');
+    const file = path.join(dir, S.LOCK);
+    fs.writeFileSync(file, `pid ${process.pid} host ${HOSTNAME} since x token aaaa${stamp}\n`);
+    assert.deepStrictEqual(tryLockNow(dir, f), { ran: false, code: 'JBMEM_LOCKED' }, name);
+    assert.ok(fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('token aaaa'), `${name}: the live lock was broken`);
+    if (name === 'unmoved') continue;
+    const ddir = realTemp('jbmem-lockmonoaheaddead-');
+    const dfile = path.join(ddir, S.LOCK);
+    const text = deadLabel('dddd').replace(/\n$/, `${stampAt(6000)}\n`);
+    fs.writeFileSync(dfile, text);
+    setMtime(dfile, 6000);
+    assert.deepStrictEqual(tryLockNow(ddir, f), { ran: false, code: 'JBMEM_LOCKED' }, `${name}, dead holder`);
+    assert.ok(fs.existsSync(dfile) && fs.readFileSync(dfile, 'utf8').includes('token dddd'), `${name}: the dead holder's lock was broken inside the watch`);
+    // A pid in use again keeps it too, so that case can't tell.
+    const again = reusedPid(text);
+    if (again) reused = again;
+  }
+  if (reused) t.skip(reusedSkip(reused));
+});
+
+test('lock: a clock step at a stamped .break file\'s age leaves the .break (RS-T-lockagemono, review round 2, F2)', (t) => {
+  // As the RS-T-lockagestep step test, with a .break 31 s old by its stamp
+  // and 40 s by its mtime, which an unmoved clock removes: once the clock is
+  // seen to move, no .break is removed for its age, stamped or not.
+  let reused = 0;
+  for (const from of [1, 2]) {
+    const { dir, file } = deadLockAt(`jbmem-lockmonobrkstep${from}-`, 10000);
+    const text = fs.readFileSync(file, 'utf8');
+    const brk = `${file}.break`;
+    fs.writeFileSync(brk, `pid 1 host ${HOSTNAME}${stampAt(31000)}\n`);
+    setMtime(brk, 40000);
+    const lstat = fs.lstatSync, now = Date.now;
+    let armed = false, reads = 0;
+    fs.lstatSync = function (p, ...rest) { if (String(p) === brk) armed = true; return lstat.call(this, p, ...rest); };
+    Date.now = () => { if (armed) reads++; return now() + (armed && reads >= from ? 61000 : 0); };
+    let got;
+    try { got = (() => { try { S.withLock(dir, () => {}, { waitMs: 600 }); return ''; } catch (e) { return e.code; } })(); } finally { fs.lstatSync = lstat; Date.now = now; }
+    assert.strictEqual(got, 'JBMEM_LOCKED', `step from read ${from}`);
+    assert.ok(fs.existsSync(brk), `step from read ${from}: the stamped .break file was removed`);
+    const again = reusedPid(text);
+    if (again) { reused = again; continue; }
+    assert.ok(armed, `step from read ${from}: the .break file was never looked at`);
+  }
+  if (reused) t.skip(reusedSkip(reused));
+});
+
+test('lock: a stamp of another platform or host, ahead of now, or not at the end of the label is not trusted (RS-T-lockagemono)', () => {
+  // Each lock is a live holder's, 120 s old by its mtime: without a trusted
+  // stamp the 60 s rule breaks it; with one (the control) it is kept.
+  const cases = {
+    control: [`pid ${process.pid} host ${HOSTNAME} since x token aaaa${stampAt(0)}\n`, false],
+    'another platform': [`pid ${process.pid} host ${HOSTNAME} since x token aaaa${stampAt(0, 'plan9')}\n`, true],
+    'another host': [`pid ${process.pid} host elsewhere since x token aaaa${stampAt(0)}\n`, true],
+    // 10 s ahead: trusted as its distance from now, the stamp would keep it.
+    'ahead of now': [`pid ${process.pid} host ${HOSTNAME} since x token aaaa${stampAt(-10000)}\n`, true],
+    'not at the end': [`pid ${process.pid} host ${HOSTNAME} session s${stampAt(0)} since x token aaaa\n`, true],
+  };
+  for (const [name, [text, broken]] of Object.entries(cases)) {
+    const dir = realTemp('jbmem-lockmonotrust-');
+    const file = path.join(dir, S.LOCK);
+    fs.writeFileSync(file, text);
+    setMtime(file, 120000);
+    assert.deepStrictEqual(tryLockNow(dir, (n) => n), broken ? { ran: true, code: '' } : { ran: false, code: 'JBMEM_LOCKED' }, name);
+  }
+});
+
+test('lock: a stamped .break file is aged by the lower of its stamp\'s age and its file time\'s, and a breaker stamps its own (RS-T-lockagemono)', (t) => {
+  // A dead holder's lock 10 s old by its stamp and its mtime is breakable at
+  // once, so the .break file is reached each time. The clock unmoved.
+  const mk = () => { const dir = realTemp('jbmem-lockmonobrk-'); const file = path.join(dir, S.LOCK); const text = deadLabel('dddd').replace(/\n$/, stampAt(10000) + '\n'); fs.writeFileSync(file, text); setMtime(file, 10000); return { dir, file, brk: file + '.break', text }; };
+  // got: the try's result; armed: whether it looked at the .break file.
+  const tryLooked = (c, waitMs) => { const lstat = fs.lstatSync; let armed = false; fs.lstatSync = function (p, ...rest) { if (String(p) === c.brk) armed = true; return lstat.call(this, p, ...rest); }; try { return { got: tryLockNow(c.dir, (n) => n, waitMs), armed }; } finally { fs.lstatSync = lstat; } };
+  const keptLock = (c, got) => !got.ran && got.code === 'JBMEM_LOCKED' && fs.existsSync(c.file) && fs.readFileSync(c.file, 'utf8').includes('token dddd');
+  // A pid in use again keeps the lock before its .break file is looked at:
+  // that case is skipped, and the others still run (review round 2, F3).
+  let reused = 0;
+  // Kept: a fresh stamp with a 40 s mtime (the stamp lowers the age), a
+  // fresh stamp with an mtime 61 s in the future (a live breaker's, the
+  // clock since stepped back: RS-T-lockagereturn F2), and a 31 s stamp with
+  // a fresh mtime (a breaker whose monotonic clock runs behind this one's:
+  // review round 1, F1).
+  for (const [ago, mtimeAgo] of [[0, 40000], [0, -61000], [31000, 0]]) {
+    const c = mk();
+    const label = `stamp ${ago} ms, mtime ${mtimeAgo} ms old`;
+    fs.writeFileSync(c.brk, `pid 1 host ${HOSTNAME}${stampAt(ago)}\n`);
+    setMtime(c.brk, mtimeAgo);
+    const { got, armed } = tryLooked(c);
+    assert.deepStrictEqual(got, { ran: false, code: 'JBMEM_LOCKED' }, label);
+    assert.ok(fs.existsSync(c.brk), `${label}: the .break file was removed`);
+    const again = reusedPid(c.text);
+    if (again) { reused = again; continue; }
+    assert.ok(armed, `${label}: the .break file was never looked at`);
+  }
+  // Removed, each 40 s old by its mtime, and the next try breaks the lock:
+  // 31 s old by its stamp; a fresh stamp of another host (the host is read
+  // from the .break text); and a fresh stamp past the 512 bytes read, so
+  // not read (round 1, regression F2).
+  const removed = {
+    'stamp 31 s': `pid 1 host ${HOSTNAME}${stampAt(31000)}\n`,
+    'another host': `pid 1 host elsewhere${stampAt(0)}\n`,
+    'past 512 bytes': `pid 1 host ${HOSTNAME} ${'x'.repeat(600)}${stampAt(0)}\n`,
+  };
+  let c;
+  for (const [name, text] of Object.entries(removed)) {
+    c = mk();
+    fs.writeFileSync(c.brk, text);
+    setMtime(c.brk, 40000);
+    const { got } = tryLooked(c, 600);
+    if (keptLock(c, got)) { const again = reusedPid(c.text); if (again) { reused = again; continue; } }
+    assert.ok(!fs.existsSync(c.brk), `${name}: an old .break file was left`);
+    assert.deepStrictEqual(got, { ran: true, code: '' }, name);
+  }
+  // The .break file this command writes while it breaks carries the stamp.
+  c = mk();
+  const write = fs.writeSync;
+  const seen = [];
+  fs.writeSync = function (fd, data, ...rest) { if (typeof data === 'string') seen.push(data); return write.call(this, fd, data, ...rest); };
+  let got;
+  try { got = tryLockNow(c.dir, (n) => n); } finally { fs.writeSync = write; }
+  if (keptLock(c, got) && reusedPid(c.text)) return t.skip(reusedSkip(reusedPid(c.text)));
+  assert.ok(seen.some((s) => new RegExp(`^pid ${process.pid} host \\S+ mono \\d+ plat ${process.platform}\\n$`).test(s)), `no stamped .break text in ${JSON.stringify(seen)}`);
+  if (reused) t.skip(reusedSkip(reused));
+});
+
+// retryWin: Windows's transient codes are tried again for 2 s. The platform
+// is handed in, so this runs on every system.
+test('retry: a system clock set forward between tries leaves the 2 s of tries their time (RS-T-clocksteplibs)', () => {
+  let tries = 0;
+  const out = stepAfterFirst(3600000, () => S.retryWin(() => { if (++tries < 3) { const e = new Error('busy'); e.code = 'EBUSY'; throw e; } return 'done'; }, 'win32'));
+  assert.deepStrictEqual({ out, tries }, { out: 'done', tries: 3 });
+});
+
 test('commits since the handoff: a commit subject posing as markup is escaped', sinceTest(() => {
   const s = sandbox();
   s.write('# H\n## Next\n- nothing yet\n');
@@ -545,6 +1104,72 @@ test('commits since the handoff: another branch and an unknown HEAD are said pla
   assert.ok(!fs.existsSync(path.join(s.repo, 'x')));
 }));
 
+// RS-S-sincegitadvice: the commits-since hints told the model to run git
+// log, also where Trailmark kept git out of the folder (state 'late' comes
+// before the folder is checked), and plain git there can run the repo's
+// programs. Every hint state, full, short and cut to 150 characters (the
+// last step at a budget too small for the rest), the longest input too:
+// the whole stop is kept, and no git command is in the context.
+test('commits since the handoff: no hint names a git command, full or short (RS-S-sincegitadvice)', () => {
+  // The handoffs are put down raw with a HEAD on their Updated line, not
+  // through the launcher's write: a write whose git ran out of time leaves no
+  // HEAD, and session start then adds the no-HEAD line, whose own "Git gave no
+  // facts" is outside this allowlist (auto-review round 1 on PR 130).
+  const stamp = 'Updated: 2026-11-23 10:00 | branch main | HEAD 1234567 | session abcdef12 | by Claude Code';
+  const put = (box, body) => {
+    const f = path.join(box.memdir, 'handoff.md');
+    fs.writeFileSync(f, `# H\n${stamp}\n${body}`);
+    assert.strictEqual(S.handoffStamp(fs.readFileSync(f, 'utf8')).head, '1234567', 'the handoff has no HEAD');
+  };
+  const s = sandbox();
+  put(s, '## Next steps\n- one\n');
+  const tight = sandbox();
+  const cfgFile = path.join(tight.memdir, '.jbmem.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), budgets: { injectChars: 2000 } }));
+  put(tight, '## State\n' + Array.from({ length: 60 }, (_, i) => `- item ${i} ${'x'.repeat(70)}`).join('\n') + '\n');
+  const notes = n => Array.from({ length: n }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(150)}`);
+  const forms = {
+    full: since => S.buildInjection(s.memdir, { since }).text,
+    // 2 notes: the short form, whole at any temp path; 8: the last-resort cut.
+    short: since => S.buildInjection(tight.memdir, { since, notes: notes(2) }).text,
+    cut: since => S.buildInjection(tight.memdir, { since, notes: notes(8) }).text,
+  };
+  const listed = [{ short: 'def5678', subject: 'one', t: 0 }];
+  const cases = [
+    [{ base: 'abc1234', state: 'late' }, /isn't known: git ran out of time/, ['full', 'short', 'cut']],
+    [{ base: 'abc1234', state: 'ok', count: 1, entries: [], unlisted: 'late' }, /not listed(?: here)?: git ran out of time/, ['full', 'short', 'cut']],
+    [{ base: 'abc1234', state: 'ok', count: 2, entries: [], unlisted: 'error' }, /not listed(?: here)?: git could not list them/, ['full', 'short', 'cut']],
+    // Listed, then dropped for size: the full form lists them (no hint).
+    [{ base: 'abc1234', state: 'ok', count: 1, entries: listed }, /not listed here to fit the budget/, ['short', 'cut']],
+    // The longest text before the hint (a 12-character base, the largest
+    // count): the stop is still inside the cut.
+    [{ base: 'abcdef123456', state: 'late' }, /isn't known: git ran out of time/, ['cut']],
+    [{ base: 'abcdef123456', state: 'ok', count: 1000000, entries: [], unlisted: 'error' }, /not listed(?: here)?: git could not list them/, ['cut']],
+  ];
+  for (const [since, sign, which] of cases) {
+    for (const what of which) {
+      const text = forms[what](since);
+      const line = text.split('\n').find(l => sign.test(l));
+      assert.ok(line, `${what} ${JSON.stringify(since)}: no hint line in ${text}`);
+      if (what === 'cut') assert.ok(line.length <= 150, `${what}: the line was not cut: ${line}`);
+      if (what === 'short') assert.ok(!line.endsWith('...'), `${what}: the line was cut: ${line}`);
+      assert.match(line, /Don't run git for this:/, `${what}: ${line}`);
+      if (what === 'full') assert.match(line, /Don't run git for this: Trailmark may have kept git out of this folder\./, line);
+      // Every git in the context is one of the hint's own phrases (an
+      // allowlist; "for this" only after "Don't run"), so a git command on any
+      // line fails. Left out: the handoff frame, BEGIN to END HANDOFF. It holds
+      // the handoff's own text and the cut note, which names the temp folder (its
+      // path may hold the word git); the commits-since text always comes after it.
+      const all = text.split('\n');
+      const from = all.findIndex(l => l.startsWith('--- BEGIN HANDOFF'));
+      const to = all.findIndex(l => l.startsWith('--- END HANDOFF'));
+      assert.ok(from >= 0 && to > from, `${what}: no handoff frame in ${text}`);
+      const part = [...all.slice(0, from), ...all.slice(to + 1)].join('\n');
+      assert.doesNotMatch(part, /\bgit\b(?<!Don't run git)(?<!kept git)(?!\s+(ran out of time|could not list them)\b)/i, `${what}: ${line}`);
+    }
+  }
+});
+
 test('checkSinceFacts keeps only well-formed facts', () => {
   assert.strictEqual(S.checkSinceFacts({ base: 'zz', state: 'ok' }), null);
   assert.strictEqual(S.checkSinceFacts({ base: 'abc1234', state: 'weird' }), null);
@@ -559,7 +1184,7 @@ test('commits since the handoff: git running out of time is said, never "the new
   s.write('# H\n## Next steps\n- one\n');
   const at = (since) => S.buildInjection(s.memdir, { since }).text;
   const late = at({ base: 'abc1234', state: 'ok', count: 1, entries: [], unlisted: 'late' });
-  assert.match(late, /HEAD has 1 newer commit, not listed: git ran out of time\. Run git log --oneline abc1234\.\.HEAD/);
+  assert.match(late, /HEAD has 1 newer commit, not listed: git ran out of time\. Don't run git for this: Trailmark may have kept git out of this folder\. Before redoing work, check the next steps against the files or ask the user\./);
   assert.doesNotMatch(late, /the newest 0 shown/);
   const failed = at({ base: 'abc1234', state: 'ok', count: 2, entries: [], unlisted: 'error' });
   assert.match(failed, /HEAD has 2 newer commits, not listed: git could not list them\./);
@@ -627,36 +1252,46 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   // before that point (a cut that ignores the start lands inside it), and
   // one after it (review rounds 2 and 3: a cut that doesn't see a path
   // starting there, or leaves no room for the tail; the real note for a
-  // copy check cut short starts its path at 292). Each path ends at least 4
-  // characters before the cut that comes earlier (by 1,196 for 1,200, by
-  // 296 for 300): a path that ends 3 before a cut loses its closing quote
-  // there and runs on into the "..." (RS-F-fusedtail, deferred), and the
-  // case would rely on that. At least 23 characters go before it (at 22 the
-  // padding is empty, and oneLine folds the double space). So at 300 the
-  // early start holds for any launcher usablePath writes (up to 1,024) and
-  // the late one (272 or later) for one of up to 924; at 150 the early start
-  // holds up to 273 and the late one (122 or later) up to 174. These limits
-  // are for this test's notes, which always run past the earlier cut: a
-  // shorter note keeps its path whole up to 3 lengths further, and other
-  // starts and ends are not tried (RS-T-cutsweep, deferred). Past 273 the
-  // path is left out of each of this test's notes at 300, so no path
-  // reaches the 150 cut, and that case doesn't run: its notes, cut to about
-  // 50 characters, can fit with one still whole.
+  // copy check cut short starts its path at 292). The path's closing quote
+  // sits `room` characters or more before the cut that comes earlier (1,200
+  // for the 300 case, 300 for the 150 case): 4 for a note longer than that
+  // cut, which keeps text up to the cut less 3, and 1 for a note held to
+  // that cut's length, which it doesn't cut (review round 4, F1: a cut
+  // that works only on this test's longer notes passed at the 3 launcher
+  // lengths past each limit). At least 23 characters go before the path
+  // (at 22 the padding is empty, and oneLine folds the double space). So
+  // at 300 the early start holds for any launcher usablePath writes (up to
+  // 1,024) and the late one (272 or later) for one of up to 924, 927 held;
+  // at 150 the early start holds up to 273, 276 held, and the late one (122
+  // or later) up to 174, 177 held. Every start and end at each cut is tried
+  // on shortNote itself in the next test (RS-T-cutsweep). Past 273 (276
+  // held) the path is left out of each of this test's notes at 300, so no
+  // path reaches the 150 cut, and that case doesn't run: its notes, cut to
+  // about 50 characters, can fit with one still whole.
   const L = launcher.length;
-  const at300 = Math.min(260, 1196 - L), late300 = Math.min(290, 1196 - L);
-  const at150 = Math.min(110, 296 - L), late150 = Math.min(140, 296 - L);
-  const cases = [[300, at300, 3]];
-  if (late300 >= 272) cases.push([300, late300, 3]);
-  else t.diagnostic(`a launcher of ${L} characters: no path that starts after 271 ends by 1,196, so the 300 case does not start one there`);
-  // 7 notes at 150: 7 x 300 is still over the budget, so the 150 cut is
-  // reached, and 7 x 150 leaves room for the framing, whose cut note names
-  // the full handoff path (9 notes went over on CI's longer temp paths).
-  if (at150 >= 23) cases.push([150, at150, 7]);
-  else t.diagnostic(`a launcher of ${L} characters: none of this test's notes keeps it whole at 300, so no path reaches the 150 cut, and that case does not run`);
-  if (late150 >= 122) cases.push([150, late150, 7]);
-  else if (at150 >= 23) t.diagnostic(`a launcher of ${L} characters: no path that starts after 121 ends by 296, so the 150 case does not start one there`);
-  for (const [cut, at, count] of cases) {
-    const notes = Array.from({ length: count }, (_, i) => noteAt(at, `n${i}`));
+  const earlier = { 300: 1200, 150: 300 };
+  const cases = [];
+  for (const [held, room] of [[false, 4], [true, 1]]) {
+    const kind = held ? 'notes held to the earlier cut' : 'notes longer than the earlier cut';
+    const by300 = earlier[300] - room, by150 = earlier[150] - room;
+    const at300 = Math.min(260, by300 - L), late300 = Math.min(290, by300 - L);
+    const at150 = Math.min(110, by150 - L), late150 = Math.min(140, by150 - L);
+    cases.push([300, at300, 3, held]);
+    if (late300 >= 272) cases.push([300, late300, 3, held]);
+    else t.diagnostic(`a launcher of ${L} characters, ${kind}: no path that starts after 271 ends by ${by300.toLocaleString('en-US')}, so the 300 case does not start one there`);
+    // 7 notes at 150: 7 x 300 is still over the budget, so the 150 cut is
+    // reached, and 7 x 150 leaves room for the framing, whose cut note
+    // names the full handoff path (9 notes went over on CI's longer temp
+    // paths).
+    if (at150 >= 23) cases.push([150, at150, 7, held]);
+    else t.diagnostic(`a launcher of ${L} characters, ${kind}: none keeps it whole at 300, so no path reaches the 150 cut, and that case does not run`);
+    if (late150 >= 122) cases.push([150, late150, 7, held]);
+    else if (at150 >= 23) t.diagnostic(`a launcher of ${L} characters, ${kind}: no path that starts after 121 ends by ${by150}, so the 150 case does not start one there`);
+  }
+  for (const [cut, at, count, held] of cases) {
+    const notes = Array.from({ length: count }, (_, i) => noteAt(at, `n${i}`).slice(0, held ? earlier[cut] : Infinity));
+    // A held note is not cut at the earlier cut, and keeps its closing quote.
+    if (held) assert.ok(notes[0].length <= earlier[cut] && notes[0][at + L] === '"', notes[0].slice(-40));
     assert.strictEqual(notes[0].indexOf(launcher), at);
     const { text } = S.buildInjection(s.memdir, { notes });
     assert.ok(text.length <= 2000, `${text.length} chars`);
@@ -682,6 +1317,47 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   }
 });
 
+test('shortNote: a path at any start near a cut is kept with the character after it, or left out (next version)', (t) => {
+  // RS-T-cutsweep: every start of each path shortNote knows, at each cut
+  // buildInjection makes, with a quote, a space or a bracket after the
+  // path (the Codex start note has "Launcher: <path> (run"). Review round 4
+  // found a cut blind to the last starts before it, and a path span 1 to 3
+  // characters short, both passing the test above. RS-F-fusedtail: a path
+  // that ended at the cut, or with only a space between it and the cut,
+  // was kept and ran on into the "...".
+  const LEFT = '... (a path is left out here)';
+  const paths = [path.join(ROOT, 'scripts', 'trailmark.js'), path.join(ROOT, 'skills')].map(p => S.usablePath(p)).filter(Boolean);
+  if (!paths.length) return t.skip('usablePath writes neither path here, so no note names one');
+  let runs = 0;
+  for (const p of paths) {
+    for (const max of [1200, 300, 150]) {
+      // A note no longer than the cut comes back as it is, its path's
+      // closing quote as its last character.
+      if (p.length + 2 <= max) {
+        const fits = 'a'.repeat(max - p.length - 2) + '"' + p + '"';
+        assert.strictEqual(S.shortNote(fits, max), fits);
+      }
+      for (const [open, close] of [['"', '"'], [' ', ' '], ['(', ')']]) {
+        for (let at = 2; at <= max; at++) {
+          const note = 'a'.repeat(at - 1) + open + p + close + 'more '.repeat(Math.ceil(max / 5) + 2);
+          assert.strictEqual(note.indexOf(p), at);
+          const out = S.shortNote(note, max);
+          runs++;
+          const tail = out.endsWith(LEFT) ? LEFT : out.endsWith('...') ? '...' : '';
+          const kept = out.slice(0, out.length - tail.length);
+          // Whole: the path and the character after it are kept. Left out:
+          // nothing from the path's start on is kept, and a path that
+          // starts before the cut is said to be left out.
+          const whole = kept.slice(at, at + p.length) === p && kept[at + p.length] === close;
+          const leftOut = kept.length <= at && (tail === LEFT || at >= max - 3);
+          assert.ok(tail && out.length <= max && (whole || leftOut), `cut ${max}, path ${at} to ${at + p.length}, then ${JSON.stringify(close)}: ...${out.slice(Math.max(0, at - 5))}`);
+        }
+      }
+    }
+  }
+  assert.strictEqual(runs, paths.length * 3 * (1199 + 299 + 149));
+});
+
 test('agent tag: the Updated line names the agent, and the next session is told who wrote it', () => {
   const s = sandbox();
   s.write('# H\nUpdated: 2020-01-01 00:00 | by Someone Else\n- state\n');
@@ -694,6 +1370,81 @@ test('agent tag: the Updated line names the agent, and the next session is told 
   const other = S.AGENT === 'Codex' ? 'Claude Code' : 'Codex';
   fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(` | by ${S.AGENT}`, ` | by ${other}`));
   assert.match(s.start(SB).context, new RegExp(`updated .* ago by ${other}\\)`));
+});
+
+test('short session IDs: two Codex thread IDs from the same minute are told apart (RS-D-codexshortid)', () => {
+  // Codex thread IDs are UUIDv7, which start with a millisecond timestamp.
+  // These two share their first 8 digits, as the Codex runs t1 and t4a did.
+  const T1 = '01a1e532-8d05-7a11-8b11-1111aaaa1111';
+  const T2 = '01a1e532-e22c-7b22-9c22-2222bbbb2222';
+  assert.strictEqual(S.shortSession(T1), 'aaaa1111');
+  assert.strictEqual(S.shortSession(T2.toUpperCase()), 'bbbb2222');
+  // Any other version (Claude Code's are v4) keeps its first 8.
+  assert.strictEqual(S.shortSession(SA), '11111111');
+  assert.strictEqual(S.shortSession('01a1e532-8d05-6a11-8b11-1111aaaa1111'), '01a1e532');
+  assert.strictEqual(S.shortSession('01a1e532-8d05-7a11'), '');
+  const s = sandbox();
+  const f = path.join(s.memdir, 'handoff.md');
+  const updated = () => /^Updated: .*$/m.exec(fs.readFileSync(f, 'utf8'))[0];
+  s.start(T1);
+  s.start(T2);
+  s.write('# H\n- state\n', T1);
+  assert.match(updated(), / \| session aaaa1111 \| by /);
+  s.write('# H\n- state 2\n', T2);
+  assert.match(updated(), / \| session bbbb2222 \| by /);
+  // A resume after the other thread wrote, and an undo of its write.
+  const resumed = s.jbm(['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'resume', session_id: T1 }));
+  assert.match(resumed.stdout, /session bbbb2222/);
+  const undo = s.jbm(['undo-handoff', `--session=${T1}`]);
+  assert.notStrictEqual(undo.status, 0);
+  assert.match(undo.stdout + undo.stderr, /session bbbb2222/);
+  // The other thread's snapshot, and session start's label for it.
+  s.jbm(['--hook', 'precompact'], JSON.stringify({ cwd: s.repo, trigger: 'auto', session_id: T2 }));
+  const snap = fs.readFileSync(path.join(s.memdir, 'snapshots', `${T2}.md`), 'utf8');
+  assert.match(snap, /^name: snapshot-bbbb2222$/m);
+  assert.match(snap, / in session bbbb2222\. /);
+  const ctx = s.start(T1).context;
+  assert.match(ctx, /session bbbb2222 compacted after the last checkpoint/);
+  assert.match(ctx, /bbbb2222 \(last active /);
+  const st = s.jbm(['status', `--session=${T1}`]);
+  assert.strictEqual(st.status, 0, st.stderr);
+  assert.match(st.stdout, /last handoff write: session bbbb2222[ ,]/);
+  assert.match(st.stdout, /other sessions active in the last 3 h: bbbb2222 /);
+  assert.match(st.stdout, /this session \(aaaa1111\)/);
+  // A thread with no transcript here, while another session has one (the
+  // Claude Code copy then warns, naming the thread).
+  fs.writeFileSync(path.join(path.dirname(s.memdir), `${SA}.jsonl`), '{}\n');
+  const tr = s.jbm(['transcript', '--session=01a1e532-ffff-7c33-8d33-3333cccc3333']);
+  assert.match(tr.stdout + tr.stderr, /session cccc3333/);
+  // A thread that started here but has no transcript.
+  const tr1 = s.jbm(['transcript', `--session=${T1}`]);
+  assert.match(tr1.stdout + tr1.stderr, /session aaaa1111/);
+  // The Windows checkers (tools/windows) read the same short form.
+  if (WIN && S.AGENT === 'Claude Code') {
+    // A copy laid out as in the release, so the logs they keep next to
+    // themselves land in the temp folder.
+    const top = path.join(s.base, 'tool');
+    fs.cpSync(path.join(ROOT, 'scripts'), path.join(top, 'plugins', 'trailmark', 'scripts'), { recursive: true });
+    const ps = (name, args) => {
+      const at = path.join(top, 'tools', 'windows', name);
+      fs.mkdirSync(path.dirname(at), { recursive: true });
+      fs.copyFileSync(path.join(ROOT, '..', '..', 'tools', 'windows', name), at);
+      const r = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', at, '-Repo', s.repo, '-ProjectsDir', path.join(s.cfg, 'projects'), '-NoPause', ...args], { env: s.env, encoding: 'utf8', timeout: 120000 });
+      assert.strictEqual(r.error, undefined, String(r.error));
+      return r.stdout + r.stderr;
+    };
+    const chk = ps('check-trailmark-checkpoints.ps1', []);
+    assert.match(chk, /last write the state file records: session bbbb2222 /);
+    assert.match(chk, /--- session aaaa1111 /);
+    assert.match(chk, /--- session bbbb2222 /);
+    assert.match(chk, /session start, source=startup/);
+    assert.match(ps('trace-handoff-writes.ps1', ['-Session', 'bbbb2222', '-AllSessions']), / by session bbbb2222 /);
+  }
+  // The log lines name each thread apart, and never by the shared prefix.
+  const notes = fs.readdirSync(path.join(s.memdir, 'notes')).map(n => fs.readFileSync(path.join(s.memdir, 'notes', n), 'utf8')).join('\n');
+  assert.match(notes, / session=aaaa1111$/m);
+  assert.match(notes, / session=bbbb2222$/m);
+  assert.doesNotMatch(notes, /01a1e532/);
 });
 
 test('cut note: an oversized handoff stays inside injectChars and says which sections were left out', sinceTest(() => {
@@ -958,6 +1709,9 @@ test('commits since the handoff: a handoff written with git out of time says so,
       '  const p = opts && opts.cwd === REPO && PLAN.find(([call]) => { const i = a.indexOf(call[0]); return i >= 0 && JSON.stringify(a.slice(i)) === JSON.stringify(call); });',
       '  if (!p) return real.apply(this, arguments);',
       "  if (p[1] === 'slow') { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000); return p[2]; }",
+      // 'time' waits out the timeout it was given, as a call git doesn't
+      // answer is stopped only then (stampedHead's bound).
+      "  if (p[1] === 'time') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, opts.timeout);",
       "  const e = new Error(p[1] === 'time' ? 'spawnSync git ETIMEDOUT' : 'Command failed');",
       "  if (p[1] === 'time') e.code = 'ETIMEDOUT'; else e.status = 128;",
       '  throw e;',
@@ -975,6 +1729,7 @@ test('commits since the handoff: a handoff written with git out of time says so,
   const m = SHOW_HEAD.exec(late.stderr);
   assert.ok(m, late.stderr);
   assert.deepStrictEqual([m[1], m[3]], ['5000', '1']);
+  assert.ok(+m[2] >= HUNG_MIN_MS, m[0]);
   assert.throws(() => stampedHead(s), CommitsOutOfTime);
   // No call stopped, the budget spent: `branch` answers after 5 s, and the
   // calls after it are refused for lack of time (hung=0).
@@ -998,6 +1753,64 @@ test('commits since the handoff: a handoff written with git out of time says so,
   s.write('# H\n- plain\n');
   assert.strictEqual(stampedHead(s), s.g('rev-parse', '--short', 'HEAD'));
 }));
+
+// RS-T-sincecontrol: sinceInTime's control. Three session starts that each
+// say git ran out of time end in the same lookup with 30 s: one that answers
+// skips the test (CommitsOutOfTime), and one that is late too, or can't list
+// the commits, fails it. The session starts are stand-ins (a context and the
+// launcher's JBMEM_SHOW_SINCE line with no time left), and the late control is
+// gitfacts' commitsSince swapped out, so nothing here waits on git's timing.
+test('sinceInTime: three late session starts skip when the 30 s control answers, and fail when it is late too (RS-T-sincecontrol)', () => {
+  const s = sandbox();
+  s.write('# H\n');
+  // Put down raw with the repo's HEAD, as a write in time would stamp it.
+  const head = s.g('rev-parse', '--short', 'HEAD');
+  fs.writeFileSync(path.join(s.memdir, 'handoff.md'), `# H\nUpdated: 2026-11-24 10:00 | branch main | HEAD ${head} | by Claude Code\n- one\n`);
+  assert.strictEqual(stampedHead(s), head);
+  const late = { context: 'Whether HEAD has commits since the handoff isn\'t known: git ran out of time.', stderr: 'trailmark since: late elapsed=3400 left=100 budget=0 git=0\n' };
+  let calls = 0;
+  assert.throws(() => sinceInTime(s, () => { calls++; return late; }), (e) => e instanceof CommitsOutOfTime && /3 session starts in a row/.test(e.message));
+  assert.strictEqual(calls, 3);
+  // A start in time ends the tries at once.
+  calls = 0;
+  const ok = { context: 'no commits since', stderr: '' };
+  assert.strictEqual(sinceInTime(s, () => { calls++; return calls < 2 ? late : ok; }), ok);
+  assert.strictEqual(calls, 2);
+  const G = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const real = G.commitsSince;
+  for (const bad of [null, { base: head, state: 'late' }, { base: head, state: 'ok', count: 1, entries: [], unlisted: 'late' }, { base: head, state: 'ok', count: 1, entries: [], unlisted: 'error' }]) {
+    let asked = null;
+    G.commitsSince = (cwd, base, opts) => {
+      assert.strictEqual(cwd, s.repo, 'the control looked in another folder');
+      assert.deepStrictEqual(opts, SINCE_CONTROL, 'the control is not the lookup with 30 s');
+      asked = base;
+      return bad;
+    };
+    try {
+      assert.throws(() => sinceInTime(s, () => late), (e) => e instanceof assert.AssertionError && /so did the same lookup with 30 s/.test(e.message), JSON.stringify(bad));
+      assert.strictEqual(asked, head, 'the control looked up from another base');
+    } finally {
+      G.commitsSince = real;
+    }
+  }
+});
+
+// RS-T-stamphungbound: a write whose git call was stopped sooner than the
+// runner's timeout allows (a fault that cuts the hook's calls short) is a
+// failure, not a skip, even when the 30 s control gives HEAD.
+test('stampedHead: a call stopped sooner than its timeout allows fails, and one stopped after 4 s skips (RS-T-stamphungbound)', () => {
+  const s = sandbox();
+  s.write('# H\n');
+  // No HEAD on the line: put down raw, as write-handoff would stamp one.
+  fs.writeFileSync(path.join(s.memdir, 'handoff.md'), '# H\nUpdated: 2026-11-23 15:00 | branch main | by Claude Code\n');
+  s.writes.splice(0, Infinity, 'trailmark head: late budget=5000 spent=12 hung=1\n');
+  assert.throws(() => stampedHead(s), (e) => e instanceof assert.AssertionError && /stopped sooner than its timeout allows/.test(e.message));
+  // The bound's edge: a looser bound (100 ms) passed the cases above.
+  s.writes.splice(0, Infinity, 'trailmark head: late budget=5000 spent=3899 hung=1\n');
+  assert.throws(() => stampedHead(s), (e) => e instanceof assert.AssertionError && /stopped sooner than its timeout allows/.test(e.message));
+  s.writes.splice(0, Infinity, 'trailmark head: late budget=5000 spent=3900 hung=1\n');
+  assert.throws(() => stampedHead(s), CommitsOutOfTime);
+});
 
 test('fit: a small injectChars holds with a commit list, a snapshot and warnings', sinceTest(() => {
   const s = sandbox();
@@ -1054,6 +1867,39 @@ test('git pointers: a .git that leads to a network path keeps git out of the fol
   assert.ok(!fa.head, 'git ran in a folder whose config points at a share');
   assert.strictEqual(fa.gitRefused, 'network-config');
   assert.match(gf.gitFacts(ok, ['head']).head, /^[0-9a-f]{7,}$/);
+});
+
+// RS-T-commondirtime: git's rev-parse took 5 s over a worktree whose
+// commondir was 800 KB of `refs/../`. farGitConfig reads a worktree's
+// commondir and a .git file only up to 4,096 bytes, so git never starts
+// there. Each case has a repo and a folder of its own: farGitConfig keeps
+// its answer per folder for the life of the process.
+test('git pointers: a worktree\'s commondir or .git file over 4,096 bytes keeps git out (RS-T-commondirtime)', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-cdt-');
+  const fwd = p => p.replace(/\\/g, '/');
+  // A linked worktree made by hand: its .git file names worktrees/w of a
+  // repo of its own, whose commondir holds `common`.
+  const worktree = (n, common, pad = '') => {
+    const main = path.join(base, `${n}-repo`);
+    repoAt(main);
+    const wtg = path.join(main, '.git', 'worktrees', 'w');
+    fs.mkdirSync(wtg, { recursive: true });
+    const wt = path.join(base, n);
+    fs.mkdirSync(wt);
+    fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${fwd(wtg)}${pad}\n`);
+    fs.writeFileSync(path.join(wtg, 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(wtg, 'gitdir'), fwd(path.join(wt, '.git')) + '\n');
+    fs.writeFileSync(path.join(wtg, 'commondir'), common + '\n');
+    return wt;
+  };
+  // 4,095 bytes with the line break, each `refs/..` back where it started.
+  const under = '../../' + 'refs/../'.repeat(511);
+  assert.strictEqual(farGitConfig(worktree('plain', '../..')), '');
+  assert.strictEqual(farGitConfig(worktree('under', under)), '', 'a commondir of 4,095 bytes');
+  assert.strictEqual(farGitConfig(worktree('over', under + 'refs/..')), 'unreadable-config', 'a commondir of 4,102 bytes');
+  assert.strictEqual(farGitConfig(worktree('big', '../../' + 'refs/../'.repeat(100000))), 'unreadable-config', 'a commondir of 800,007 bytes');
+  assert.strictEqual(farGitConfig(worktree('dotgit', '../..', '/.'.repeat(2100))), 'unreadable-config', 'a .git file over 4,096 bytes');
 });
 
 test('git pointers: odd spellings of a network path are still caught', () => {
@@ -2430,9 +3276,11 @@ test('git pointers: a lookup that fails for another reason than "not there" keep
 const OFF_WIN = { skip: WIN && 'the system makes these failures outside Windows only' };
 const SHARE = '//evil.invalid/share/x';
 const BLOB = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
-// git's two answers for the folder `top`, made up: the tracked paths.
-const trackedIn = (top, rels, mode = '100644') => ({
-  run: (cwd, args) => (args[0] === 'rev-parse' ? { ok: true, out: `${top}\n` } : args[0] === 'ls-files' ? { ok: true, out: rels.map(p => `${mode} ${BLOB} 0\t${p}\0`).join('') } : { ok: false, out: '', why: 'error' }),
+// git's two answers for the folder `top`, made up: the tracked paths, each
+// with the tag ls-files -t gives it (`S`, skip-worktree, for those in
+// `skip`, else `H`).
+const trackedIn = (top, rels, mode = '100644', skip = []) => ({
+  run: (cwd, args) => (args[0] === 'rev-parse' ? { ok: true, out: `${top}\n` } : args[0] === 'ls-files' ? { ok: true, out: rels.map(p => `${skip.includes(p) ? 'S' : 'H'} ${mode} ${BLOB} 0\t${p}\0`).join('') } : { ok: false, out: '', why: 'error' }),
   left: () => 5000,
 });
 // A folder for one of these tests, with what makes repos and long paths in it.
@@ -2897,6 +3745,155 @@ test('git status: the time is looked at before each tracked name is looked up (R
   // The clock is the caller's, read anew each time: short from the fourth
   // look on, the answer comes at the fourth.
   assert.deepStrictEqual(check(n => (n >= 4 ? 0 : 5000)), { why: 'git-timeout', asks: 4, lookups: 2 });
+});
+
+// RS-A-missinglookups. A sparse checkout has one tracked name for each file
+// outside its patterns, and each one was looked up. git marks those entries
+// skip-worktree (`S` from ls-files -t), and git status passes over them;
+// with core.sparseCheckout on, git takes the mark off as it reads the index
+// where its own lookup finds something at the path. So a marked name is not
+// looked up where its folder's listing does not hold it, and one the listing
+// holds is checked as before.
+test('git status: a name git marks skip-worktree is not looked up where the listing does not hold it (RS-A-missinglookups)', () => {
+  const { farWorktree } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-skipwt-');
+  const t = path.join(base, 'made');
+  fs.mkdirSync(path.join(t, 'd', 'sub'), { recursive: true });
+  for (const n of ['a', 'b']) fs.writeFileSync(path.join(t, 'd', n), 'x');
+  const missing = ['d/m1', 'd/m2', 'd/m3'];
+  const rels = ['d/a', 'd/b', ...missing];
+  // seen: the tracked names looked up.
+  const ask = (names, skip) => {
+    const seen = [];
+    const real = fs.lstatSync;
+    fs.lstatSync = function (p, ...a) {
+      const rel = typeof p === 'string' ? path.relative(t, p).replace(/\\/g, '/') : '';
+      if (names.includes(rel)) seen.push(rel);
+      return real.call(this, p, ...a);
+    };
+    try { return { why: farWorktree(trackedIn(t, names, '100644', skip), t, false), seen: seen.sort() }; } finally { fs.lstatSync = real; }
+  };
+  // The control: with no mark, each name the listing does not hold is
+  // looked up.
+  assert.deepStrictEqual(ask(rels, []), { why: '', seen: missing });
+  // All three marked, none is; the middle one marked, the other two are.
+  assert.deepStrictEqual(ask(rels, missing), { why: '', seen: [] }, 'all three marked');
+  assert.deepStrictEqual(ask(rels, ['d/m2']), { why: '', seen: ['d/m1', 'd/m3'] }, 'd/m2 marked');
+  // The mark is a name's in its own folder: x/m1 marked stops no lookup of
+  // d/m1 (review round 1). And in the top folder, which holds d and x, a
+  // marked name is passed over as well.
+  fs.mkdirSync(path.join(t, 'x', 'sub'), { recursive: true });
+  for (const n of ['a', 'b']) { fs.writeFileSync(path.join(t, 'x', n), 'x'); fs.writeFileSync(path.join(t, n), 'x'); }
+  assert.deepStrictEqual(ask(['d/a', 'd/b', 'd/m1', 'x/a', 'x/b', 'x/m1'], ['x/m1']), { why: '', seen: ['d/m1'] }, 'x/m1 marked, d/m1 not');
+  assert.deepStrictEqual(ask(['a', 'b', 'm1'], []), { why: '', seen: ['m1'] }, 'm1 in the top folder, not marked');
+  assert.deepStrictEqual(ask(['a', 'b', 'm1'], ['m1']), { why: '', seen: [] }, 'm1 in the top folder, marked');
+  // A marked name that the listing holds is checked as before: a repo at
+  // d/f whose .git names a share.
+  AT_F.far(path.join(t, 'd', 'f'));
+  assert.strictEqual(ask(['d/a', 'd/b', 'd/f'], ['d/f']).why, 'submodule-pointer', 'd/f marked and listed');
+  // A submodule's line with its tag (`H 160000 ...`) is still read as a
+  // submodule's: past 2,000 of them status is not read, here below a folder
+  // that is not there.
+  const subs = Array.from({ length: 2001 }, (_, k) => `gone/s${k}`);
+  assert.strictEqual(farWorktree(trackedIn(t, subs, '160000'), t, false), 'many-submodules', '2,001 tagged submodules');
+  // With git itself. A sparse checkout leaves d/s (or d/S) out, and then a
+  // repo is made at d/s whose config git can't parse. Seen with git 2.56.1
+  // on Windows, on ext4 and on a Windows drive in WSL: git status fails on
+  // that config where ls-files -t tags the tracked name `H`, and passes it
+  // over where the tag is `S`. Wherever git status fails on it, the check
+  // has looked at d/s or d/S. `fold`: the name is d/S, which a drive that
+  // folds case finds as d/s. `kept`: sparse.expectFilesOutsideOfPatterns
+  // keeps the mark on whatever is there.
+  // git 2.35 is the first with `sparse-checkout set --no-cone`, and 2.36 the
+  // first to take the mark off for what it finds (CONFIRMED by Opus from
+  // git's source in review round 1, not re-run: no older git was run). With
+  // an older git this part is not run, and says so.
+  const ver = execFileSync('git', ['--version'], { encoding: 'utf8' }).trim();
+  const vm = /(\d+)\.(\d+)/.exec(ver);
+  if (!vm || +vm[1] < 2 || (+vm[1] === 2 && +vm[2] < 36)) { console.log(`# RS-A-missinglookups: the part with git itself needs git 2.36 or later, not run with ${ver}`); return; }
+  const realGit = { run: (cwd, args) => { const p = spawnSync('git', args, { cwd, encoding: 'utf8' }); return { ok: p.status === 0, out: p.stdout || '' }; }, left: () => 5000 };
+  const failed = {};
+  for (const [label, name, kept] of [['same', 'd/s', false], ['fold', 'd/S', false], ['kept', 'd/S', true]]) {
+    const dir = path.join(base, label);
+    const g = repoAt(dir);
+    fs.mkdirSync(path.join(dir, 'd', 'sub'), { recursive: true });
+    for (const n of ['a', 'b', 'c']) fs.writeFileSync(path.join(dir, 'd', n), n);
+    fs.writeFileSync(path.join(dir, name), 's');
+    fs.writeFileSync(path.join(dir, 'd', 'sub', 'x'), 'x');
+    g('add', '.'); g('commit', '-qm', 'sparse');
+    if (kept) g('config', 'sparse.expectFilesOutsideOfPatterns', 'true');
+    const set = spawnSync('git', ['sparse-checkout', 'set', '--no-cone', '/a', '/d/a', '/d/b', '/d/c', '/d/sub/'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(set.status, 0, `${label}: sparse-checkout set: ${set.stderr}`);
+    assert.ok(!fs.existsSync(path.join(dir, name)), `${label}: the sparse checkout took ${name} away`);
+    g('init', '-q', path.join(dir, 'd', 's'));
+    fs.appendFileSync(path.join(dir, 'd', 's', '.git', 'config'), '[core\n  broken = \n');
+    // In English whatever the machine's language: the message is read.
+    const st = spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: dir, encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', LANGUAGE: '' } });
+    failed[label] = /bad config/.test(st.stderr);
+    const tag = spawnSync('git', ['ls-files', '-t', '--', name], { cwd: dir, encoding: 'utf8' }).stdout.trim();
+    assert.strictEqual(failed[label], tag === `H ${name}`, `${label}: git status failed on the config where ${name} is tagged H (tag: ${tag}; status: ${st.stderr.trim()})`);
+    let looked = false;
+    const real = fs.lstatSync;
+    fs.lstatSync = function (p, ...a) {
+      if (typeof p === 'string' && /^d\/s(\/|$)/i.test(path.relative(dir, p).replace(/\\/g, '/'))) looked = true;
+      return real.call(this, p, ...a);
+    };
+    let why;
+    try { why = farWorktree(realGit, dir, false); } finally { fs.lstatSync = real; }
+    if (failed[label]) assert.ok(looked, `${label}: git status failed on d/s/.git/config, and the check did not look there (answer: ${why})`);
+    // And where the mark stays, the check takes it from git (it asks with
+    // -t): d/S is not looked up, and d/s is named like no tracked file.
+    if (tag === `S ${name}`) assert.deepStrictEqual({ looked, why }, { looked: false, why: '' }, `${label}: ${name} tagged S`);
+  }
+  // The shape git fails on everywhere, and the one it passes over everywhere.
+  assert.deepStrictEqual({ same: failed.same, kept: failed.kept }, { same: true, kept: false });
+});
+
+// RS-A-missinglookups, review round 1: the tag of ls-files -t puts 2 more
+// bytes on each line of the list of tracked files, and an answer past the
+// runner's buffer fails the call. A list that fits in 32 MiB without the
+// tags and not with them (N tracked names of 150 characters in a folder
+// that is not there, and `a`) is read, and status with it. N is worked out
+// from the length of an object's name, so the list fits with SHA-1 (166,936
+// names) and with SHA-256 (149,129) alike (review round 2). repoAt makes a
+// SHA-1 repo: the SHA-256 count is worked out, not run. The status count is
+// N: `a` is not changed.
+test('git status: a list of tracked files that fits in 32 MiB without the tags of -t is read with them (RS-A-missinglookups)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const dir = path.join(realTemp('jbmem-taglist-'), 'r');
+  repoAt(dir);
+  const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: dir, input: '', encoding: 'utf8' }).trim();
+  // A line: mode and space (7), the name, ` 0` and a tab (3), the path, NUL.
+  const N = Math.floor(((32 << 20) - 200) / (7 + blob.length + 3 + 150 + 1));
+  const names = Array.from({ length: N }, (_, k) => { const p = `d/${String(k).padStart(6, '0')}`; return p + 'x'.repeat(150 - p.length); });
+  const set = spawnSync('git', ['update-index', '--index-info'], { cwd: dir, input: names.map(p => `100644 ${blob}\t${p}\n`).join(''), encoding: 'utf8' });
+  assert.strictEqual(set.status, 0, set.stderr);
+  const size = (more) => spawnSync('git', ['ls-files', '--stage', ...more, '-z', '--full-name'], { cwd: dir, maxBuffer: 64 << 20 }).stdout.length;
+  const sizes = { without: size([]), with: size(['-t']) };
+  assert.ok(sizes.without <= 32 << 20 && sizes.with > 32 << 20, `the list fits in 32 MiB without the tags and not with them: ${JSON.stringify(sizes)}`);
+  const f = gitFacts(dir, ['status'], { budgetMs: 30000, callMs: 20000 });
+  assert.deepStrictEqual({ skipped: f.statusSkipped, count: f.statusCount }, { skipped: undefined, count: N });
+});
+
+// RS-A-missinglookups, review round 2: the larger buffer is for that list
+// alone. A commit subject of 33 MiB is not read (the call fails, and the
+// subject is empty). With 34 MiB for every call it was read. Cutting it to
+// one line is cheap for this test's `x` (about 50 ms), and took 4 s and 2 GB
+// for 33.5 MiB of `a \t`, a subject with many gaps (both CONFIRMED by Fable,
+// not re-run).
+test('git facts: a commit subject past 32 MiB is not read (RS-A-missinglookups)', () => {
+  const { gitFacts } = require(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'));
+  const base = realTemp('jbmem-bigsubject-');
+  const dir = path.join(base, 'r');
+  const g = repoAt(dir);
+  const msg = path.join(base, 'msg');
+  fs.writeFileSync(msg, 'x'.repeat(33 << 20));
+  g('commit', '-q', '--allow-empty', '--cleanup=verbatim', '-F', msg);
+  // The control: git gives the whole subject, and a short one is read.
+  assert.strictEqual(spawnSync('git', ['log', '-1', '--format=%s'], { cwd: dir, maxBuffer: 64 << 20 }).stdout.length, (33 << 20) + 1);
+  assert.strictEqual(gitFacts(dir, ['subject'], { budgetMs: 20000, callMs: 15000 }).subject, '');
+  g('commit', '-q', '--allow-empty', '-m', 'short');
+  assert.strictEqual(gitFacts(dir, ['subject'], { budgetMs: 20000, callMs: 15000 }).subject, 'short');
 });
 
 // The same lookup where the system makes the failure itself. A tracked name
@@ -3852,10 +4849,10 @@ test('git status: the time is looked at before each folder with a .git is checke
   // aren't measured: the looks at those files are counted.
   const run = (name, left, plain = false) => {
     const r = repo(name, plain);
-    const now = Date.now; const lstat = fs.lstatSync;
-    const start = now();
+    const lstat = fs.lstatSync;
+    const start = performance.now();
     let clock = start; let looks = 0;
-    Date.now = () => clock;
+    performance.now = () => clock;
     fs.lstatSync = (p, ...a) => {
       if (typeof p === 'string' && path.basename(p) === '.git' && /^sub\d$/.test(path.basename(path.dirname(p)))) {
         if (!looks++ && left !== null) clock = start + 5000 - left;
@@ -3867,7 +4864,7 @@ test('git status: the time is looked at before each folder with a .git is checke
       }
       return lstat(p, ...a);
     };
-    try { return { skipped: gitFacts(r, ['status'], { budgetMs: 5000 }).statusSkipped, looks }; } finally { Date.now = now; fs.lstatSync = lstat; }
+    try { return { skipped: gitFacts(r, ['status'], { budgetMs: 5000 }).statusSkipped, looks }; } finally { delete performance.now; fs.lstatSync = lstat; }
   };
   // 500 ms left when the first one is reached: it isn't checked, and the
   // other three aren't looked at.
@@ -3908,10 +4905,10 @@ test('git status: the time is looked at before each folder of tracked files (RS-
   // aren't measured: the folders looked at are counted.
   const run = (name, left, links = true) => {
     const r = repo(name, links);
-    const now = Date.now; const lstat = fs.lstatSync;
-    const start = now();
+    const lstat = fs.lstatSync;
+    const start = performance.now();
     let clock = start; let back = false; const seen = new Set();
-    Date.now = () => clock;
+    performance.now = () => clock;
     fs.lstatSync = (p, ...a) => {
       // By the path from this repo: a part of the temp folder's own path
       // may be named like one of the four (`d7`).
@@ -3927,7 +4924,7 @@ test('git status: the time is looked at before each folder of tracked files (RS-
       }
       return lstat(p, ...a);
     };
-    try { return { skipped: gitFacts(r, ['status'], { budgetMs: 5000 }).statusSkipped, folders: seen.size, back }; } finally { Date.now = now; fs.lstatSync = lstat; }
+    try { return { skipped: gitFacts(r, ['status'], { budgetMs: 5000 }).statusSkipped, folders: seen.size, back }; } finally { delete performance.now; fs.lstatSync = lstat; }
   };
   // 500 ms left once the first folder is reached: the other three aren't
   // looked at, and nothing after the folders is.
@@ -4841,9 +5838,9 @@ test('git pointers: the caller\'s time is looked at before each config file is r
     // stands still, so the 700 ms never run out.
     const quick = plain();
     shortBranch = quick.g('branch', '--show-current');
-    const now = Date.now; const t0 = now();
-    Date.now = () => t0;
-    try { short = GF.gitFacts(quick.r, ['branch'], { budgetMs: 700 }); } finally { Date.now = now; }
+    const t0 = performance.now();
+    performance.now = () => t0;
+    try { short = GF.gitFacts(quick.r, ['branch'], { budgetMs: 700 }); } finally { delete performance.now; }
     // The lines: one repo with a tracked file turned folder, a submodule and
     // a gitdir in .git/modules.
     const all = plain();
@@ -4856,8 +5853,8 @@ test('git pointers: the caller\'s time is looked at before each config file is r
     lines.length = 0;
     // The clock stands still here too: which line a check names doesn't
     // depend on how long the checks before it took.
-    Date.now = () => t0;
-    try { GF.gitFacts(all.r, ['status'], { budgetMs: 5000 }); } finally { Date.now = now; }
+    performance.now = () => t0;
+    try { GF.gitFacts(all.r, ['status'], { budgetMs: 5000 }); } finally { delete performance.now; }
   } finally {
     cp.execFileSync = realRun;
     require.cache[key] = kept; require.cache[factsKey] = keptFacts;
@@ -4889,10 +5886,10 @@ test('git pointers: the caller\'s time is looked at before each config file is r
   // gone through, 2 the second time.
   // `to`: the ms left after the jump.
   const clocked = (dir, pass, to, fn) => {
-    const now = Date.now; const lstat = fs.lstatSync;
-    const start = now();
+    const lstat = fs.lstatSync;
+    const start = performance.now();
     let clock = start; let ends = 0; let jumped = false;
-    Date.now = () => clock;
+    performance.now = () => clock;
     fs.lstatSync = (p, ...a) => {
       const rel = typeof p === 'string' ? path.relative(dir, p) : '';
       if (rel === 'i1' && ends >= pass - 1 && !jumped) { jumped = true; clock = start + 5000 - to; }
@@ -4900,7 +5897,7 @@ test('git pointers: the caller\'s time is looked at before each config file is r
       if (rel === 'i5') ends++;
       return st;
     };
-    try { const out = fn(); return { out, jumped, read: ends }; } finally { Date.now = now; fs.lstatSync = lstat; }
+    try { const out = fn(); return { out, jumped, read: ends }; } finally { delete performance.now; fs.lstatSync = lstat; }
   };
   const facts = (cwd, dir, pass = 1, to = 500, wanted = ['status']) => {
     const c = clocked(dir, pass, to, () => gitFacts(cwd, wanted, { budgetMs: 5000 }));
@@ -5072,6 +6069,14 @@ test('git pointers: finding the repo for a hook stops with the hook\'s time (RS-
   // Node's monotonic clock at 0. They move together only when the `at`th
   // config file is read, by `by` ms. So the timeouts noted say what the hook
   // had left, on any machine.
+  // The hook's script, which the launcher then starts, gets the same care
+  // (RS-T-firstcheckload in dev/release-state.md): the preload notes the
+  // timeout the launcher gives it (the hook's limit less the time gone on
+  // the clocks) and runs it with 20 s. Run with the launcher's timeout, the
+  // script had only that timeout in real time (6 s when 3 s are gone on the
+  // clocks), and under load it ran past that and was stopped. A stop now means
+  // the script ran past 20 s, though the launcher's JBMEM_SHOW_RUN line
+  // still names the timeout it gave.
   const s = sandbox();
   quoted(s.repo, path.join(s.base, 'inc'));
   let made = 0;
@@ -5080,7 +6085,9 @@ test('git pointers: finding the repo for a hook stops with the hook\'s time (RS-
     const stub = path.join(s.base, `clock${made}.js`);
     fs.writeFileSync(stub, `const cp = require('child_process');
 const fs = require('fs');
+const path = require('path');
 const real = cp.execFileSync;
+const realSpawn = cp.spawnSync;
 const t0 = Math.floor(performance.timeOrigin);
 let moved = 0; let files = 0;
 Date.now = () => t0 + moved;
@@ -5092,6 +6099,11 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   if (kind === 'file' && ++files === ${at}) moved += ${by};
   return real.call(this, file, args, { ...opts, timeout: 20000 }, ...rest);
 };
+cp.spawnSync = function (file, args, opts, ...rest) {
+  if (!(Array.isArray(args) && args.some(a => !String(a).startsWith('-') && path.basename(String(a)) === ${JSON.stringify(`hook-${name}.js`)}))) return realSpawn.call(this, file, args, opts, ...rest);
+  fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(['script', opts.timeout, '']) + String.fromCharCode(10));
+  return realSpawn.call(this, file, args, { ...opts, timeout: 20000 }, ...rest);
+};
 `);
     const cwd = payload.cwd || s.repo;
     const r = spawnSync(process.execPath, ['-r', stub, JBM, '--hook', name], { cwd, env: s.env, input: JSON.stringify({ cwd, session_id: SA, ...payload }), encoding: 'utf8' });
@@ -5099,13 +6111,14 @@ cp.execFileSync = function (file, args, opts, ...rest) {
     let calls = [];
     try { calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { calls = []; }
     const of = (kind, part = '') => calls.filter(x => x[0] === kind && String(x[2]).replace(/\\/g, '/').includes(part)).map(x => x[1]);
-    return { files: of('file'), root: of('root'), of, out: r.stdout + r.stderr };
+    return { files: of('file'), root: of('root'), script: of('script'), of, out: r.stdout + r.stderr };
   };
   // PreCompact: 5 s for git, and finding the memory folder is inside them.
   // 3 s gone at the first file: the six after it get 2 s each, and so does
-  // the call for the root.
+  // the call for the root. The script gets the hook's 9 s less the 3 s.
   let h = hook('precompact', { trigger: 'auto' }, 1, 3000);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(2000)], root: [2000] }, 'precompact, 3 s gone');
+  assert.deepStrictEqual(h.script, [6000], 'precompact, 3 s gone: the script\'s time');
   // 4.8 s gone at the second file: under 250 ms are left, so no third file
   // is read, by this check or the next, and no git is started for the root.
   // The hook still finds the memory folder and writes its snapshot there.
@@ -5114,19 +6127,23 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   fs.rmSync(snap);
   h = hook('precompact', { trigger: 'auto' }, 2, 4800);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, 3000], root: [] }, 'precompact, 4.8 s gone');
+  assert.deepStrictEqual(h.script, [4200], 'precompact, 4.8 s gone: the script\'s time');
   assert.match(fs.readFileSync(snap, 'utf8'), /^Uncommitted files: not read \(git-timeout\)$/m, 'the snapshot says the time ran out');
   // The PreToolUse hook: 3 s, of the 5 s Claude Code or Codex gives it, and
   // git calls of 1 s. 1.5 s gone at the first file: the files after it get
-  // 1.5 s each and the call for the root its 1 s.
+  // 1.5 s each and the call for the root its 1 s. The script gets the
+  // hook's 4.5 s less the 1.5 s.
   const pre = (id) => ({ tool_name: 'Bash', tool_input: { command: 'git commit -m x' }, tool_use_id: id, hook_event_name: 'PreToolUse' });
   const record = (id) => fs.existsSync(path.join(s.memdir, 'pending', `${id}.json`));
   h = hook('commit-start', pre('toolu_first1'), 1, 1500);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(1500)], root: [1000] }, 'commit-start, 1.5 s gone');
+  assert.deepStrictEqual(h.script, [3000], 'commit-start, 1.5 s gone: the script\'s time');
   assert.ok(record('toolu_first1'), 'no commit-start record: ' + h.out);
   // 2.8 s gone at the second file: no third file, no git for the root, and
   // the record is still written in the repo's memory folder.
   h = hook('commit-start', pre('toolu_first2'), 2, 2800);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, 3000], root: [] }, 'commit-start, 2.8 s gone');
+  assert.deepStrictEqual(h.script, [1700], 'commit-start, 2.8 s gone: the script\'s time');
   assert.ok(record('toolu_first2'), 'no commit-start record when the time ran out: ' + h.out);
   // The session's last command left it in another repo, one not set up: the
   // lookup from the folder the session started in has the same clock. 3 s
@@ -5139,6 +6156,7 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   fs.rmSync(snap);
   h = hook('precompact', { trigger: 'auto', cwd: path.join(away, 'in'), transcript_path: transcript }, 1, 3000);
   assert.deepStrictEqual({ files: h.files, root: h.root }, { files: [3000, ...Array(6).fill(2000)], root: [3000, 2000] }, 'the lookup from the session\'s own folder');
+  assert.deepStrictEqual(h.script, [6000], 'the lookup from the session\'s own folder: the script\'s time');
   assert.ok(fs.existsSync(snap), 'no snapshot from another repo: ' + h.out);
   // Session start: the sweep looks up the memory folder of each folder the
   // session committed in, inside its own time. 2 s gone at the first file:
@@ -5150,20 +6168,21 @@ cp.execFileSync = function (file, args, opts, ...rest) {
   const sweep = (at, by) => {
     S.updateState(s.memdir, SA, (state, rec) => { rec.start = Date.now() - 60000; rec.home = s.repo; rec.commitDirs = [other]; });
     const r = hook('session-start', { source: 'resume' }, at, by);
-    return { own: r.of('file', '/inc/'), other: r.of('file', '/inc-other/'), otherConfig: r.of('file', '/other/.git/config'), root: r.root };
+    return { own: r.of('file', '/inc/'), other: r.of('file', '/inc-other/'), otherConfig: r.of('file', '/other/.git/config'), root: r.root, script: r.script };
   };
+  // The script gets the hook's 9 s less the time gone in each case.
   assert.deepStrictEqual(sweep(1, 2000),
-    { own: Array(6).fill(3000), other: Array(6).fill(1700), otherConfig: [1700], root: [3000, 500, 500] }, 'the sweep\'s lookups');
+    { own: Array(6).fill(3000), other: Array(6).fill(1700), otherConfig: [1700], root: [3000, 500, 500], script: [7000] }, 'the sweep\'s lookups');
   // The sweep's clock runs while its lookup reads. With no time gone before
   // it, the sweep has 5 s and the lookup 3.7 s of them. The ninth file read
   // is the first one the other folder's config includes: 1 s gone there, and
   // the five files after it get 2.7 s each.
   assert.deepStrictEqual(sweep(9, 1000),
-    { own: Array(6).fill(3000), other: [3000, ...Array(5).fill(2700)], otherConfig: [3000], root: [3000, 500, 500] }, 'the sweep\'s clock runs during its lookup');
+    { own: Array(6).fill(3000), other: [3000, ...Array(5).fill(2700)], otherConfig: [3000], root: [3000, 500, 500], script: [8000] }, 'the sweep\'s clock runs during its lookup');
   // 3.6 s gone there: 0.1 s is left, so no further file is read and no git
   // is started for the other folder's root.
   assert.deepStrictEqual(sweep(9, 3600),
-    { own: Array(6).fill(3000), other: [3000], otherConfig: [3000], root: [3000, 500] }, 'the sweep\'s lookup stops with its clock');
+    { own: Array(6).fill(3000), other: [3000], otherConfig: [3000], root: [3000, 500], script: [5400] }, 'the sweep\'s lookup stops with its clock');
 });
 
 test('scan: only the folder a session started in counts; a memory folder named notes (loop round 7)', { skip: NO_LINKS }, () => {
@@ -6473,7 +7492,7 @@ test('lock: a link in place of the lock is removed under the .break lock (loop r
   // Another command is breaking the lock right now: the link must stay.
   fs.writeFileSync(lock + '.break', '');
   assert.throws(() => S.withLock(base, () => {}, { waitMs: 300 }));
-  assert.ok(fs.lstatSync(lock).isSymbolicLink(), 'a link was taken while another command held .break');
+  assert.ok((() => { try { return fs.lstatSync(lock).isSymbolicLink(); } catch { return false; } })(), 'a link was taken while another command held .break');
   fs.unlinkSync(lock + '.break');
   let ran = false;
   S.withLock(base, () => { ran = true; }, { waitMs: 1500 });
@@ -6555,6 +7574,80 @@ test('branch: a folder that is not a repo has no branch, and the Updated line ke
   assert.notStrictEqual(f.branch, 'unknown', 'not a repo is not a timeout');
   const out = S.stampUpdated('# H\nUpdated: 2026-10-01 10:00 | branch feature-x | HEAD abcdef1\n', { branch: 'unknown' });
   assert.match(out, /branch feature-x \| HEAD abcdef1/, "an unknown branch replaced the model's own");
+});
+
+// RS-T-headlate, RS-T-stampplaceholder: a handoff written with no facts
+// from git kept the template's placeholders, read "<branch>" as a branch,
+// and its next session start said nothing about the missing HEAD.
+test('stamp: with no facts from git, placeholders go, one marker says so, and session start says why there is no HEAD (RS-T-headlate)', () => {
+  const tpl = '# H\nUpdated: <YYYY-MM-DD HH:MM> | branch <branch> | HEAD <sha7>\n';
+  const out = S.stampUpdated(tpl, null, new Date(2026, 10, 23, 14, 0));
+  const line = out.split('\n')[1];
+  assert.ok(!/[<>]/.test(line), `a placeholder was kept: ${line}`);
+  assert.strictEqual(line.split(' | ').filter(p => p === 'git: no facts').length, 1, line);
+  // The model's own text is kept; a copied marker is not doubled.
+  const again = S.stampUpdated('# H\nUpdated: 2026-11-01 10:00 | branch mine | git: no facts | <sha7>\n', null).split('\n')[1];
+  assert.match(again, /\| branch mine \| git: no facts \| by (Claude Code|Codex)$/, again);
+  // With facts from git there is no marker.
+  assert.doesNotMatch(S.stampUpdated(tpl, { branch: 'main', head: 'abc1234' }), /git: no facts/);
+  // The reader takes neither a placeholder nor the marker for a branch or HEAD.
+  const raw = S.handoffStamp('Updated: 2026-11-23 14:00 | <YYYY-MM-DD HH:MM> | branch <branch> | HEAD <sha7> | by Claude Code');
+  assert.strictEqual(raw.branch, undefined, 'a placeholder was read as a branch');
+  assert.strictEqual(raw.head, undefined);
+  const st = S.handoffStamp(line);
+  assert.strictEqual(st.git, 'no facts');
+  assert.strictEqual(st.branch, undefined);
+  assert.strictEqual(st.head, undefined);
+  // Session start says why there is no HEAD, and not when there is one.
+  // write-handoff would restamp with the sandbox repo's git facts, so the
+  // line goes down raw and is read through the session-start hook.
+  const s = sandbox();
+  s.write('# H\n## Next steps\n- one\n');
+  const hf = path.join(s.memdir, 'handoff.md');
+  fs.writeFileSync(hf, `# H\n${line}\n## Next steps\n- one\n`);
+  const said = s.start().context.split('\n').find(l => l.includes('The handoff has no HEAD'));
+  assert.match(said || '', /^The handoff has no HEAD, so the commits since it are not listed\. /);
+  // It names no git command: the marker is also written where Trailmark
+  // kept git out of the folder, and plain git there can run the repo's
+  // programs (a planted gpg.program or core.fsmonitor).
+  // Every git in the line is one of its own phrases (an allowlist: a list
+  // of commands missed `git --no-pager log` and `git -c k=v log`).
+  assert.doesNotMatch(said, /\bgit(?!\s+(gave|ran|repo|for this|out of this folder)\b)/i, said);
+  // Said without a condition: the refusal warning reaches only the user.
+  assert.match(said, /Don't run git for this: Trailmark may have kept git out of this folder\./);
+  // At a budget too small for the rest, kept lines are cut to their first
+  // 150 characters: the stop is inside them (auto-review on PR 128).
+  const cfgFile = path.join(s.memdir, '.jbmem.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), budgets: { injectChars: 2000 } }));
+  const notes = Array.from({ length: 4 }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(150)}`);
+  const cutLine = S.buildInjection(s.memdir, { notes }).text.split('\n').find(l => l.includes('The handoff has no HEAD'));
+  assert.ok(cutLine && cutLine.length <= 150, `the line was not cut: ${cutLine}`);
+  assert.match(cutLine, /Don't run git for this: Trailmark may have kept git out of this folder\./, cutLine);
+  assert.doesNotMatch(cutLine, /\bgit(?!\s+(gave|ran|repo|for this|out of this folder)\b)/i, cutLine);
+  // The line's short form goes first at a tight budget: no note is cut while
+  // the line keeps its full length (auto-review round 3 on PR 128: a note
+  // lost its "never run it"). Any kept text can still push a note whose
+  // warning ends past 150 characters into the cut (RS-T-notecutorder).
+  const nodeNote = "[trailmark] The Node that ran this hook is a node program in this session's folder or the repo's top folder, not the installed one; its path isn't given here. Tell the user if asked; never run it.";
+  const steps = Array.from({ length: 40 }, (_, i) => `${i + 1}. step ${i} ${'x'.repeat(60)} -- owner: Claude`).join('\n');
+  fs.writeFileSync(hf, `# H\n${line}\n## Next actions\n${steps}\n`);
+  let cut = 0;
+  for (let n = 0; n <= 8; n++) {
+    for (const fill of [17, 33, 66]) {
+      const more = [nodeNote, ...Array.from({ length: n }, (_, i) => `[trailmark] note ${i} ${'words '.repeat(fill)}`)];
+      const text = S.buildInjection(s.memdir, { notes: more }).text;
+      if (/never run it\./.test(text)) continue;
+      cut++;
+      const said = text.split('\n').find(l => l.includes('The handoff has no HEAD'));
+      assert.strictEqual(said, "The handoff has no HEAD, so the commits since it are not listed. Don't run git for this: Trailmark may have kept git out of this folder.", `a note was cut while the line kept its full length (${n} notes of ${fill} words)`);
+    }
+  }
+  assert.ok(cut > 0, 'the sweep never cut the note');
+  fs.writeFileSync(hf, '# H\nUpdated: 2026-11-23 14:00 | branch main | HEAD abc1234 | by Claude Code\n## Next steps\n- one\n');
+  assert.doesNotMatch(s.start().context, /The handoff has no HEAD/);
+  // A HEAD with the marker (a hand-edited line): there is a HEAD, so no line.
+  fs.writeFileSync(hf, '# H\nUpdated: 2026-11-23 14:00 | branch main | HEAD abc1234 | git: no facts | by Claude Code\n## Next steps\n- one\n');
+  assert.doesNotMatch(s.start().context, /The handoff has no HEAD/);
 });
 
 test('git checks: a folder with a HEAD is probed only as git probes a bare repo; module walks skip refs/ and the loose-object folders of module gitdirs (loop round 8)', { skip: NO_LINKS }, () => {
@@ -6699,7 +7792,7 @@ test('lock: a real lock taken before .break is held is never moved aside (loop r
   try {
     assert.throws(() => S.withLock(base, () => {}, { waitMs: 200 }), /another trailmark command/);
   } finally { fs.openSync = realOpen; fs.lstatSync = realLstat; }
-  assert.match(fs.readFileSync(lock, 'utf8'), /token BBBB/, 'a live lock was moved aside');
+  assert.match(fs.existsSync(lock) ? fs.readFileSync(lock, 'utf8') : '(no lock file)', /token BBBB/, 'a live lock was moved aside');
   assert.deepStrictEqual(fs.readdirSync(base).filter(f => f.endsWith('.gone')), []);
 });
 
@@ -7624,8 +8717,15 @@ test('0.6.0 hooks: the launcher hands a hook script every payload field the hook
 // RS-F-sinceFor: one real path per key and folder of swept and commitDirsAt
 // (and of a long commitDirs) took 20 s for 130,000 keys, and session start
 // was killed holding the lock. The count of the launcher's real-path calls
-// shows it without a clock, so load can't make this pass or fail.
-test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the launcher a pass by name, not a real path per key (next version)', () => {
+// shows it without a clock, so load can't change the count. Load can still
+// stop the hook (the spy's preload counts against the launcher's time), so
+// the start takes startInTime's tries (RS-T-startdirect). The count is
+// checked after every try, a stopped one too: the launcher's sweep ends
+// before the script starts, and the launcher writes the count as it exits.
+// Checked only at the end, a launcher slowed past its limit by the very
+// regression this test is for would be stopped, made again and skipped
+// (review round 1, F1).
+test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the launcher a pass by name, not a real path per key (next version)', startTest(() => {
   const s = sandbox();
   s.write('# H\n- state\n');
   s.g('commit', '-q', '--allow-empty', '-m', 'by a script');
@@ -7643,13 +8743,24 @@ test('sweep: huge swept, commitDirsAt and commitDirs in a state file cost the la
   // sweep starts past the commit above, so the commit isn't "found".
   swept[s.repo] = now + 60000;
   S.updateState(s.memdir, SA, (state, rec) => { rec.start = now - 60000; rec.home = s.repo; rec.swept = swept; rec.commitDirsAt = joined; rec.commitDirs = dirs; });
-  const r = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env: { ...s.env, NODE_OPTIONS: `--require ${JSON.stringify(spy)}` }, input: JSON.stringify({ cwd: s.repo, source: 'resume', session_id: SA }), encoding: 'utf8', timeout: 120000 });
+  const env = { ...s.env, NODE_OPTIONS: `--require ${JSON.stringify(spy)}` };
+  const input = JSON.stringify({ cwd: s.repo, source: 'resume', session_id: SA });
+  // The state is not rewritten between tries. A full try cuts swept to 64
+  // (the sweep counts the session's folder as read, with no commit in it),
+  // but the count is checked on the first try, which always has the whole
+  // state, and a try whose sweep ran out of time cuts nothing (review round
+  // 2 of RS-T-startdirect).
+  const r = startInTime(() => {
+    fs.rmSync(count, { force: true });
+    const one = spawnSync(process.execPath, [JBM, '--hook', 'session-start'], { cwd: s.repo, env, input, encoding: 'utf8', timeout: 120000 });
+    const calls = Number(fs.readFileSync(count, 'utf8'));
+    assert.ok(calls < 2000, `${calls} real-path calls in a try (status ${one.status})`);
+    return one;
+  }, () => spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'hook-session-start.js')], { cwd: s.repo, env, input, encoding: 'utf8', timeout: 30000 }));
   assert.strictEqual(r.status, 0, String(r.stderr).slice(0, 500));
-  const calls = Number(fs.readFileSync(count, 'utf8'));
-  assert.ok(calls < 2000, `${calls} real-path calls`);
   const notes = fs.readdirSync(path.join(s.memdir, 'notes')).map(f => fs.readFileSync(path.join(s.memdir, 'notes', f), 'utf8')).join('\n');
   assert.doesNotMatch(notes, /by a script \(found later\)/);
-});
+}));
 
 // RS-F2b: rec.swept kept 12 entries, so a folder dropped past six and joined
 // after 12 newer sweeps got its command's start and a commit made there in
@@ -7751,20 +8862,23 @@ test('health: a file where the plugins folder should be is nothing to search, on
 
 // RS:651: the Claude Code skills build their commands from
 // ${CLAUDE_PLUGIN_ROOT}, without usablePath. Session start tells the user when
-// usablePath refuses the install path. The Codex note already says so.
-test('session start: an install path usablePath refuses gets a warning with no path in it, a plain one none (next version)', { skip: S.AGENT === 'Codex' && 'the Codex note already says this' }, () => {
+// usablePath refuses the install path. The Codex note already says so. The
+// start from the odd copy takes startInTime's tries (RS-T-startdirect).
+test('session start: an install path usablePath refuses gets a warning with no path in it, a plain one none (next version)', { skip: S.AGENT === 'Codex' && 'the Codex note already says this' }, startTest(() => {
   const s = sandbox();
   s.write('# H\n- state\n');
   const odd = path.join(s.base, 'a!b');
   fs.cpSync(ROOT, odd, { recursive: true, filter: (src) => path.basename(src) !== 'tests' });
-  const r = spawnSync(process.execPath, [path.join(odd, 'scripts', 'trailmark.js'), '--hook', 'session-start'],
-    { cwd: s.repo, env: s.env, input: JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB }), encoding: 'utf8' });
+  const input = JSON.stringify({ cwd: s.repo, source: 'startup', session_id: SB });
+  const r = startInTime(
+    () => spawnSync(process.execPath, [path.join(odd, 'scripts', 'trailmark.js'), '--hook', 'session-start'], { cwd: s.repo, env: s.env, input, encoding: 'utf8' }),
+    () => spawnSync(process.execPath, [path.join(odd, 'scripts', 'hook-session-start.js')], { cwd: s.repo, env: s.env, input, encoding: 'utf8', timeout: 30000 }));
   assert.strictEqual(r.status, 0, r.stderr);
   const out = JSON.parse(r.stdout);
   assert.match(out.systemMessage, /WARNING: .*trailmark is installed in a folder whose path holds a character a shell can act on/);
   assert.ok(!out.systemMessage.includes('a!b'), out.systemMessage);
   assert.doesNotMatch(s.start().message, /installed in a folder whose path/);
-});
+}));
 
 // RS:658: where the drive has no hard links, createOnce wrote in place with
 // 'wx', and on Windows that goes through a junction whose target is missing

@@ -156,8 +156,8 @@ test('sessions: per-session snapshots, start messages, notes, status and the Upd
   // The Updated line names the writing session and drops one the model copied.
   const S = require(path.join(ROOT, 'scripts', 'lib', 'store.js'));
   const t = S.stampUpdated('# H\nUpdated: 2020-01-01 00:00 | branch x | session deadbeef\n', null, new Date(2026, 9, 17, 9, 5), SB);
-  assert.strictEqual(t, '# H\nUpdated: 2026-10-17 09:05 | branch x | session 22222222 | by Claude Code\n');
-  assert.strictEqual(S.stampUpdated('# H\nUpdated: 2020-01-01 00:00 | session deadbeef\n', null, new Date(2026, 9, 17, 9, 5)), '# H\nUpdated: 2026-10-17 09:05 | by Claude Code\n');
+  assert.strictEqual(t, '# H\nUpdated: 2026-10-17 09:05 | branch x | git: no facts | session 22222222 | by Claude Code\n');
+  assert.strictEqual(S.stampUpdated('# H\nUpdated: 2020-01-01 00:00 | session deadbeef\n', null, new Date(2026, 9, 17, 9, 5)), '# H\nUpdated: 2026-10-17 09:05 | git: no facts | by Claude Code\n');
   // A session ID that isn't one (an unsubstituted ${CLAUDE_SESSION_ID}) is ignored.
   assert.strictEqual(S.cleanSession('${CLAUDE_SESSION_ID}'), '');
   assert.strictEqual(jbm(s, ['note', 'no id', '--session=${CLAUDE_SESSION_ID}']).status, 0);
@@ -323,13 +323,15 @@ test('lock: broken only when its holder is gone, and never waited on past the de
   const s = sandbox();
   jbm(s, ['init']);
   const lock = path.join(s.memdir, '.jbmem.lock');
-  const age = (ms) => { const t = new Date(Date.now() - ms); fs.utimesSync(lock, t, t); };
+  // A lock's stamp on the monotonic clock is its age where there is one
+  // (RS-T-lockagemono), so it is moved back with the mtime.
+  const age = (ms) => { assert.ok(fs.existsSync(lock), 'the lock was broken before its age was set'); const t = new Date(Date.now() - ms); const txt = fs.readFileSync(lock, 'utf8'); const m = / mono (\d+) /.exec(txt); if (m) fs.writeFileSync(lock, txt.replace(m[0], ` mono ${Number(m[1]) - ms} `)); fs.utimesSync(lock, t, t); };
   const tryLock = (waitMs) => { const t0 = Date.now(); try { S.withLock(s.memdir, () => {}, { waitMs }); return { ok: true, ms: Date.now() - t0 }; } catch (e) { return { ok: false, code: e.code, msg: e.message, ms: Date.now() - t0 }; } };
   const locked = (r) => !r.ok && r.code === 'JBMEM_LOCKED' && r.ms >= 250 && r.ms < 2500;
   // A command that crashes while holding the lock leaves it behind, labeled.
   const crash = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(path.join(ROOT, 'scripts', 'lib', 'store.js'))}).withLock(${JSON.stringify(s.memdir)}, () => process.exit(7))`]);
   assert.strictEqual(crash.status, 7);
-  assert.match(fs.readFileSync(lock, 'utf8'), new RegExp(`^pid \\d+ host ${HOST.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} since .* token [0-9a-f]+`));
+  assert.match(fs.existsSync(lock) ? fs.readFileSync(lock, 'utf8') : '(no lock file)', new RegExp(`^pid \\d+ host ${HOST.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} since .* token [0-9a-f]+ mono \\d+ plat ${process.platform}\\n$`));
   // Dead holder, under 5 s old: not broken yet. Over 5 s: broken at once.
   let r = tryLock(300);
   assert.ok(locked(r), JSON.stringify(r));

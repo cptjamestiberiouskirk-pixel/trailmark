@@ -92,12 +92,31 @@ function absoluteEntry(entry, platform) {
   return entry.startsWith('/');
 }
 
+// Windows drops the dots and spaces at the end of a name in a folder it runs
+// a program in: `repo.`, `repo `, `repo. .`, `repo\...` and `base.\repo` all
+// run it in `repo` (RS-D-findgitdot). Node opens such a name as written, so
+// the real path of that spelling can't be read. Here each name loses its end
+// of dots and spaces, and a name of nothing else goes, so the spelling counts
+// as the folder it opens. Where Windows keeps what this drops (spaces before
+// a separator, a name of dots in the middle), a PATH entry is only skipped,
+// never picked. A loop, not a regex, keeps a long run linear.
+function dropDotEnds(p) {
+  const out = [];
+  for (const name of p.split('\\')) {
+    let e = name.length;
+    while (e > 0 && (name[e - 1] === '.' || name[e - 1] === ' ')) e--;
+    if (e === 0 && name !== '') continue;
+    out.push(name.slice(0, e));
+  }
+  return out.join('\\');
+}
+
 function sameDir(a, b, platform) {
   const p = platform === 'win32' ? path.win32 : path.posix;
   const norm = x => {
     // The look-behind keeps a long run of separators linear: see pathKey.
     let r = p.resolve(x).replace(/(?<![\\/])[\\/]+$/, '');
-    if (platform === 'win32') r = r.replace(/\//g, '\\').toLowerCase();
+    if (platform === 'win32') r = dropDotEnds(r.replace(/\//g, '\\').toLowerCase());
     return r;
   };
   return norm(a) === norm(b);
@@ -109,9 +128,13 @@ function realOrNull(p, real) {
 
 // Pure lookup, for tests: { env, cwd, platform, isExec, realpath } -> absolute path or ''.
 // The working folder is skipped by name and, where both resolve, by real path,
-// which also catches other spellings of it (8.3 names, a trailing dot, \\?\,
-// a junction). A PATH entry that is a subfolder of the repo (an activated
-// .venv\Scripts, say) is not skipped: the user's own shell runs that git too.
+// which also catches other spellings of it (8.3 names, \\?\, a junction). On
+// Windows a name that ends in dots or spaces is matched as Windows opens it
+// (dropDotEnds), by name and by the real path of that spelling: `j.` runs a
+// program in `j`, which may be a junction to the repo, while Node reads `j.`
+// as another folder or none. A PATH entry that is a subfolder of the repo
+// (an activated .venv\Scripts, say) is not skipped: the user's own shell
+// runs that git too.
 function findGit({ env = process.env, cwd = process.cwd(), platform = process.platform, isExec = isExecutable, realpath = fs.realpathSync.native } = {}) {
   const p = platform === 'win32' ? path.win32 : path.posix;
   const raw = envValue(env, 'PATH') || '';
@@ -122,7 +145,21 @@ function findGit({ env = process.env, cwd = process.cwd(), platform = process.pl
       .map(x => x.trim().toLowerCase()).filter(x => x === '.exe' || x === '.com');
     names = (order.length ? [...new Set(order)] : ['.com', '.exe']).map(x => 'git' + x);
   }
-  const realCwd = cwd ? realOrNull(cwd, realpath) : null;
+  // The real paths of a folder as written and, on Windows, as Windows opens
+  // it; a match on any of them skips the entry. The root stays as written,
+  // so a UNC server `\\srv.` is not asked as `\\srv`. A `\\?\` path, which
+  // Windows opens as written, and a `\\.\` device path are not asked again.
+  const reals = x => {
+    const out = [realOrNull(x, realpath)];
+    if (platform === 'win32') {
+      const full = p.resolve(x);
+      const root = p.parse(full).root;
+      const opened = root + dropDotEnds(full.slice(root.length));
+      if (opened !== full && !/^\\\\[?.]\\/.test(full)) out.push(realOrNull(opened, realpath));
+    }
+    return out.filter(Boolean);
+  };
+  const realCwds = cwd ? reals(cwd) : [];
   for (let entry of raw.split(sep)) {
     entry = entry.trim();
     if (platform === 'win32') entry = entry.replace(/^"(.*)"$/, '$1');
@@ -131,10 +168,7 @@ function findGit({ env = process.env, cwd = process.cwd(), platform = process.pl
     const found = names.map(n => p.join(entry, n)).find(f => isExec(f));
     if (!found) continue;
     // Only an entry that has a git in it is resolved, to keep the walk cheap.
-    if (realCwd) {
-      const re = realOrNull(entry, realpath);
-      if (re && sameDir(re, realCwd, platform)) continue;
-    }
+    if (realCwds.length && reals(entry).some(re => realCwds.some(rc => sameDir(re, rc, platform)))) continue;
     return found;
   }
   return '';
@@ -220,6 +254,13 @@ function withShare(cwd, fn) {
 // about 15 times. Dropped when that check returns, since a folder can be
 // swapped for a link between two checks.
 let LSTAT_SEEN = null;
+// monoNow: the time in whole ms on Node's monotonic clock (performance.now
+// counts from performance.timeOrigin, about when the process started), for
+// the libraries' own deadlines. The system clock (Date.now) can be set back
+// or forward while one runs, which moved such a deadline (RS-T-clocksteplibs,
+// dev/release-state.md). Whole ms: execFileSync refuses a timeout that is not
+// an integer.
+const monoNow = () => Math.floor(performance.now());
 // What is left of the caller's time for git, in ms, while fn runs: a function,
 // or null where the caller has no limit (the launcher). The reading of config
 // files looks at it (farConfig, configEntries): a file with a quote in it is
@@ -1692,4 +1733,4 @@ function farLfsEntries(entries, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { withTime, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };
+module.exports = { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };

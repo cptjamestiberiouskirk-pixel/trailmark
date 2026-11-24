@@ -45,12 +45,12 @@ guard(() => {
 
   const body = [
     '---',
-    `name: ${session ? 'snapshot-' + session.slice(0, 8) : 'precompact'}`,
+    `name: ${session ? 'snapshot-' + S.shortSession(session) : 'precompact'}`,
     `description: Git snapshot taken before compaction at ${S.localDate(now)} ${S.localTime(now)}`,
     'type: project',
     `worktree: ${S.oneLine(f.toplevel || cwd, 400)}`,
     '---',
-    `Compaction (${trigger}) at ${S.localDate(now)} ${S.localTime(now)}${session ? ` in session ${session.slice(0, 8)}` : ''}. Last handoff write: ${age} earlier.`,
+    `Compaction (${trigger}) at ${S.localDate(now)} ${S.localTime(now)}${session ? ` in session ${S.shortSession(session)}` : ''}. Last handoff write: ${age} earlier.`,
     `Branch: ${branch}  HEAD: ${head}`,
     `Uncommitted files: ${skipped ? `not read (${skipped})` : count}`,
     ...shown,

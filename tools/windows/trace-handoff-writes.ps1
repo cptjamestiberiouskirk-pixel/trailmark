@@ -71,6 +71,15 @@ function Unescape([string]$s) {
   # One pass, so a Windows path keeps its \n... folder names (C:\\nina).
   return [regex]::Replace($s, '\\(u[0-9a-fA-F]{4}|.)', { param($m) $c = $m.Groups[1].Value; if ($c -eq 'n' -or $c -eq 'r' -or $c -eq 't') { ' ' } elseif ($c.Length -eq 5) { '?' } else { $c } })
 }
+# The short form trailmark gives a session ID (store.js shortSession): the last
+# 8 hex digits of a UUIDv7 (Codex thread IDs, whose first 8 are a timestamp
+# that threads started within about a minute can share), else the first 8.
+function Get-ShortSid([string]$id) {
+  $id = $id.ToLowerInvariant()
+  if ($id -match '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$') { return $id.Substring(28) }
+  if ($id.Length -gt 8) { return $id.Substring(0, 8) }
+  return $id
+}
 function FromMs($ms) {
   $n = [double]0
   if (-not [double]::TryParse([string]$ms, [Globalization.NumberStyles]::Float, $inv, [ref]$n) -or $n -le 0) { return $null }
@@ -124,7 +133,7 @@ if (-not $memDir -or -not (Test-Path -LiteralPath $memDir)) {
     $w = $state.lastWriter
     $what = $(if ($w.undo) { 'undo-handoff' } elseif ($w.rotate) { 'rotate' } else { 'write-handoff' })
     $wAt = FromMs $w.at
-    Write-Host ('  last write the state file records: ' + $what + ' by session ' + (([string]$w.session) -replace '^(.{8}).*$', '$1') + ' at ' + $(if ($wAt) { T $wAt } else { 'unknown' }) + ', version ' + [string]$w.version)
+    Write-Host ('  last write the state file records: ' + $what + ' by session ' + (Get-ShortSid ([string]$w.session)) + ' at ' + $(if ($wAt) { T $wAt } else { 'unknown' }) + ', version ' + [string]$w.version)
   } else { Write-Host '  the state file records no handoff write' }
   $hist = [IO.Path]::Combine($memDir, 'archive', 'handoff-history')
   if (Test-Path -LiteralPath $hist) {

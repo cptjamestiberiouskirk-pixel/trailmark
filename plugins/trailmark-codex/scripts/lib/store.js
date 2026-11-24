@@ -201,11 +201,14 @@ function readTextStrict(file) {
 // Windows these few error codes are retried for up to about 2 s before giving
 // up. Anywhere else they mean a real permission problem and fail at once.
 const TRANSIENT_WIN = new Set(['EPERM', 'EACCES', 'EBUSY']);
+// The 2 s, and withLock's wait below, are on Node's monotonic clock: read from
+// Date.now, a system clock set forward between tries ended them at once
+// (RS-T-clocksteplibs).
 function retryWin(fn, platform = process.platform) {
-  const deadline = Date.now() + 2000;
+  const deadline = performance.now() + 2000;
   for (let wait = 10; ; wait = Math.min(wait * 2, 200)) {
     try { return fn(); } catch (e) {
-      if (platform !== 'win32' || !TRANSIENT_WIN.has(e.code) || Date.now() > deadline) throw e;
+      if (platform !== 'win32' || !TRANSIENT_WIN.has(e.code) || performance.now() > deadline) throw e;
       sleepMs(wait);
     }
   }
@@ -270,7 +273,11 @@ function atomicWrite(file, content) {
 // "current-session" two sessions could share, counts as no session.
 const SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function cleanSession(id) { return typeof id === 'string' && SESSION_RE.test(id) ? id.toLowerCase() : ''; }
-function shortSession(id) { const c = cleanSession(id); return c ? c.slice(0, 8) : ''; }
+// The 8 hex digits that log lines, the Updated line and status show. A UUIDv7
+// (Codex thread IDs) starts with a millisecond timestamp, so threads started
+// within about a minute can share their first 8 digits: for those it is the last
+// 8, which are random. Decisions compare the full ID.
+function shortSession(id) { const c = cleanSession(id); return !c ? '' : c[14] === '7' ? c.slice(-8) : c.slice(0, 8); }
 
 // First 12 hex digits of the SHA-256 of the handoff text, or "none".
 function versionOf(text) {
@@ -303,10 +310,52 @@ function testPause() {
 //   - it is over 60 s old whatever the pid says (a hung holder, a holder on
 //     another host, or a dead holder's pid reused by another program).
 // Ages are absolute, so a lock dated in the future (clock change) still ages.
+// A system clock set forward or back while this command runs moves every
+// age read from it, so a live holder's fresh lock looked over 60 s old and
+// was broken (RS-T-lockagestep). Once the clock has moved, a lock's age is
+// at most the time this command itself has watched that same lock, on the
+// monotonic clock (lockBreakable): a short wait then breaks nothing and
+// ends with JBMEM_LOCKED, and the next command, with a clock that has not
+// moved under it, can break a lock that is really left behind. A move, once
+// seen, counts for the rest of this command's wait (a clock that steps and
+// returns leaves a lock dated in the future), and each age is read before
+// the clock is checked, so a step between the two reads counts as a move.
+// A lock and its .break file also carry a stamp on the monotonic clock
+// ("mono <ms> plat <platform>", process.hrtime: one clock for the processes
+// of a system, which does not follow the system clock). For a waiter on the
+// same host and platform a stamp can only lower an age: the age used is the
+// lower of the stamp's and the one the rules above give, so no change of
+// the system clock, and no platform caching of it, makes a live holder's
+// lock look older than its stamp says (RS-T-lockagemono). A stamp never
+// raises an age: a waiter whose monotonic clock runs ahead of the holder's
+// (a Linux time namespace, another machine with the same host name) reads
+// a fresh stamp as old (review round 1, F1). A stamp ahead of now (from an
+// earlier boot, or from such a clock) is not trusted; a file without a
+// trusted stamp (an older version's, another host's or platform's, one not
+// yet labeled) is aged by the rules above alone.
 const LOCK_DEAD_MIN_MS = 5 * 1000;
 const LOCK_UNLABELED_MS = 30 * 1000;
 const LOCK_MAX_MS = 60 * 1000;
 const HOST = String(os.hostname() || 'unknown').replace(/\s+/g, '_').slice(0, 64);
+// The wall clock less what it read at the process's start plus the monotonic
+// time since: within 2 ms on this PC unless the clock was moved, or the
+// machine slept, where the monotonic clock may stop (a sleeping machine was
+// not tested; ages are then only distrusted).
+const CLOCK_MOVED_MS = 1000;
+function clockMoved() {
+  return Math.abs(Date.now() - (performance.timeOrigin + performance.now())) > CLOCK_MOVED_MS;
+}
+const PLAT = process.platform;
+function monoNow() { return Number(process.hrtime.bigint() / 1000000n); }
+function monoStamp() { return ` mono ${monoNow()} plat ${PLAT}`; }
+// The stamp's age in ms, or null where it can't be trusted. Read from the
+// end of the text, so a label's other fields can't stand in for it.
+function monoAge(text, host) {
+  const m = / mono (\d{1,16}) plat (\S+)\n?$/.exec(text || '');
+  if (!m || host !== HOST || m[2] !== PLAT) return null;
+  const age = monoNow() - Number(m[1]);
+  return age >= 0 ? age : null;
+}
 
 // Dead only on ESRCH ("no such process"). EPERM means it exists; anything
 // else is unknown, so it counts as alive.
@@ -321,14 +370,20 @@ function lockInfo(file) {
   try { st = plainStat(file); text = readPlain(file); } catch { return null; }
   const pid = /^pid (\d+)/.exec(text);
   const host = / host (\S+)/.exec(text);
-  return { text, pid: pid ? Number(pid[1]) : 0, host: host ? host[1] : '', age: Math.abs(Date.now() - st.mtimeMs) };
+  const h = host ? host[1] : '';
+  return { text, pid: pid ? Number(pid[1]) : 0, host: h, age: Math.abs(Date.now() - st.mtimeMs), mono: monoAge(text, h) };
 }
 
-function lockBreakable(info) {
+// watchedMs: how long this command has seen this same lock (its text);
+// moved: whether this command has seen the clock move (the caller reads it
+// after info, as the default does).
+function lockBreakable(info, watchedMs = 0, moved = clockMoved()) {
   if (!info) return false;
-  if (info.age > LOCK_MAX_MS) return true;
-  if (!info.pid) return info.age > LOCK_UNLABELED_MS;
-  return info.host === HOST && info.age > LOCK_DEAD_MIN_MS && !pidAlive(info.pid);
+  const wall = moved ? Math.min(info.age, watchedMs) : info.age;
+  const age = info.mono !== null && info.mono !== undefined ? Math.min(info.mono, wall) : wall;
+  if (age > LOCK_MAX_MS) return true;
+  if (!info.pid) return age > LOCK_UNLABELED_MS;
+  return info.host === HOST && age > LOCK_DEAD_MIN_MS && !pidAlive(info.pid);
 }
 
 // Removes a lock whose holder is gone. Breaking takes a second lock
@@ -342,7 +397,8 @@ function lockBreakable(info) {
 // releases in the instant between the check and the delete, after which a new
 // holder's lock could be the one deleted. A holder 60 s into a millisecond job
 // is already a fault; this is noted rather than handled.
-function tryBreakLock(file) {
+// watch: { text, at, moved } kept by the caller across its tries.
+function tryBreakLock(file, watch = { text: null, at: 0, moved: false }) {
   // A lock is only ever created as a plain file. A link there is not one of
   // ours and is removed (the link, never what it points to); a folder is
   // reported, since what it holds isn't ours to delete.
@@ -357,7 +413,10 @@ function tryBreakLock(file) {
     else if (l.isDirectory()) { const e = new Error(`${LOCK} in the memory folder is a folder, not a lock file; remove it and run the command again`); e.code = 'JBMEM_LOCKED'; throw e; }
   } catch (e) { if (e && e.code === 'JBMEM_LOCKED') throw e; }
   const info = nonFile ? null : lockInfo(file);
-  if (!nonFile && !lockBreakable(info)) return false;
+  if (info && info.text !== watch.text) { watch.text = info.text; watch.at = performance.now(); }
+  const watched = info ? performance.now() - watch.at : 0;
+  if (clockMoved()) watch.moved = true;
+  if (!nonFile && !lockBreakable(info, watched, watch.moved)) return false;
   const brk = `${file}.break`;
   let bfd;
   try { bfd = openNew(brk); } catch {
@@ -373,10 +432,19 @@ function tryBreakLock(file) {
       }
       return false;
     }
-    try { if (b && (!b.isFile() || Math.abs(Date.now() - b.mtimeMs) > LOCK_UNLABELED_MS)) fs.unlinkSync(brk); } catch { /* gone */ }
+    // Its age is read from the system clock too: not trusted once that moved
+    // (one that is not a plain file is still removed).
+    // A trusted stamp can only lower its age (RS-T-lockagemono).
+    let bMono = null;
+    if (b && b.isFile()) { try { const bt = readPlain(brk, 512); const bh = / host (\S+)/.exec(bt); bMono = monoAge(bt, bh ? bh[1] : ''); } catch { /* gone */ } }
+    const bAge = b ? Math.abs(Date.now() - b.mtimeMs) : 0;
+    if (clockMoved()) watch.moved = true;
+    const bOld = !watch.moved && (bMono !== null ? Math.min(bMono, bAge) : bAge) > LOCK_UNLABELED_MS;
+    try { if (b && (!b.isFile() || bOld)) fs.unlinkSync(brk); } catch { /* gone */ }
     return false;
   }
   try {
+    try { fs.writeSync(bfd, `pid ${process.pid} host ${HOST}${monoStamp()}\n`); } catch { /* label only */ }
     try { fs.closeSync(bfd); } catch { /* closed */ }
     if (nonFile) {
       // Moved aside and checked again there: a real lock another command
@@ -396,7 +464,8 @@ function tryBreakLock(file) {
       return true;
     }
     const again = lockInfo(file);
-    if (again && again.text === info.text && lockBreakable(again)) { retryWin(() => fs.unlinkSync(file)); return true; }
+    if (clockMoved()) watch.moved = true;
+    if (again && again.text === info.text && lockBreakable(again, watched, watch.moved)) { retryWin(() => fs.unlinkSync(file)); return true; }
     return false;
   } catch {
     return false;
@@ -411,19 +480,20 @@ function tryBreakLock(file) {
 function withLock(dir, fn, { waitMs = 10000, holder = '' } = {}) {
   const file = path.join(dir, LOCK);
   const token = crypto.randomBytes(8).toString('hex');
-  const deadline = Date.now() + waitMs;
+  const deadline = performance.now() + waitMs;
   let fd = null;
   let lastCode = '';
+  const watch = { text: null, at: 0, moved: false };
   for (;;) {
     let broke = false;
     try { fd = openNew(file); break; } catch (e) {
       lastCode = e.code;
       // On Windows a lock that was just deleted while something still had it
       // open refuses to be created again for a moment: same as "taken".
-      if (e.code === 'EEXIST') broke = tryBreakLock(file);
+      if (e.code === 'EEXIST') broke = tryBreakLock(file, watch);
       else if (!(process.platform === 'win32' && TRANSIENT_WIN.has(e.code))) throw e;
     }
-    if (Date.now() > deadline) {
+    if (performance.now() > deadline) {
       const info = lockInfo(file);
       const err = new Error(info || lastCode === 'EEXIST'
         ? `another trailmark command is using the memory folder (lock: ${info ? oneLine(info.text || 'no label yet', 160) : 'released just now'}); wait a few seconds and run the command again`
@@ -433,7 +503,7 @@ function withLock(dir, fn, { waitMs = 10000, holder = '' } = {}) {
     }
     if (!broke) sleepMs(25 + Math.floor(Math.random() * 75));
   }
-  try { fs.writeSync(fd, `pid ${process.pid} host ${HOST}${holder ? ' session ' + holder : ''} since ${new Date().toISOString()} token ${token}\n`); } catch { /* label only */ }
+  try { fs.writeSync(fd, `pid ${process.pid} host ${HOST}${holder ? ' session ' + holder : ''} since ${new Date().toISOString()} token ${token}${monoStamp()}\n`); } catch { /* label only */ }
   try { fs.closeSync(fd); } catch { /* closed */ }
   try {
     return fn();
@@ -710,7 +780,7 @@ function otherSessions(dir, session, withinMs = 3 * 3600 * 1000, now = Date.now(
     if (!id || id === sid || !isPlainObject(r)) continue;
     const seen = Number.isFinite(r.seen) ? r.seen : 0;
     if (now - seen >= withinMs) continue;
-    out.push({ id, short: id.slice(0, 8), seen });
+    out.push({ id, short: shortSession(id), seen });
   }
   return out.sort((a, b) => b.seen - a.seen);
 }
@@ -833,6 +903,8 @@ function keepHistory(dir, text) {
 // them, the branch and HEAD from git, whatever the model wrote there. A model
 // doesn't reliably know the time: in the 2026-10-16 round-trip test it wrote a
 // time five minutes after the session had already ended.
+// The Updated line's field for a handoff written with no facts from git.
+const NO_GIT_FACTS = 'git: no facts';
 function stampUpdated(text, facts, now = new Date(), session = '') {
   const lines = text.split('\n');
   let body = 0;
@@ -868,12 +940,22 @@ function stampUpdated(text, facts, now = new Date(), session = '') {
       .replace(/^\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?\s*/, '')
       .replace(/^\|\s*/, '')
       .trim();
-    if (rest) parts.push(rest);
+    // With no facts from git, a template placeholder ("<branch>", "HEAD
+    // <sha7>", "<YYYY-MM-DD HH:MM>") is not kept as if it were one
+    // (RS-T-stampplaceholder).
+    // A plain split and trim: the same fields as /\s*\|\s*/, in linear time.
+    const real = rest.split('|').map(p => p.trim()).filter(p => p && !/<[^<>]*>/.test(p)).join(' | ');
+    if (real) parts.push(real);
   }
   // The writing session's short ID goes last, replacing any the model copied.
   const sshort = shortSession(session);
   // The agent goes after it, replacing any "by ..." the model copied.
-  const kept = parts.flatMap(p => p.split(/\s*\|\s*/)).filter(p => p && !/^session\s/.test(p) && !/^by\s/.test(p));
+  const kept = parts.flatMap(p => p.split(/\s*\|\s*/)).filter(p => p && !/^session\s/.test(p) && !/^by\s/.test(p) && !/^git:\s/.test(p));
+  // No facts from git (it ran out of time, was not found or was kept out of
+  // this folder, or this is not a repo): said on the line, so the next
+  // session start can say why there is no HEAD (RS-T-headlate). One the
+  // model copied is dropped above.
+  if (!fromGit) kept.push(NO_GIT_FACTS);
   if (sshort) kept.push(`session ${sshort}`);
   kept.push(`by ${AGENT}`);
   const line = kept.join(' | ');
@@ -1063,7 +1145,7 @@ function undoHandoff(dir, { session = '', force = false } = {}) {
       if (!mine || !prevOk) {
         const w = lastWriterOf(st);
         const known = w && w.version === curV;
-        const who = known && w.session ? `session ${w.session.slice(0, 8)}` : 'a session that gave no ID';
+        const who = known && w.session ? `session ${shortSession(w.session)}` : 'a session that gave no ID';
         let msg;
         if (!sid) msg = 'undo-handoff needs --session=<this session\'s ID> so it can check that this session wrote the current handoff. Nothing was restored. Run it with --force to undo anyway.';
         else if (!mine && known) msg = `the current handoff (version ${curV}) was written by ${who}, not this session, so undo would throw that work away. Nothing was restored. Run it with --force only if that is what you want.`;
@@ -1973,7 +2055,8 @@ function handoffStamp(text) {
   for (const p of m[0].replace(/^Updated:\s*/, '').split(/\s*\|\s*/)) {
     let x;
     if ((x = /^HEAD ([0-9a-f]{7,12})$/.exec(p))) out.head = x[1];
-    else if ((x = /^branch (\S{1,80})$/.exec(p))) out.branch = x[1];
+    else if ((x = /^branch (\S{1,80})$/.exec(p))) { if (!/^<[^<>]*>$/.test(x[1])) out.branch = x[1]; }
+    else if (p === NO_GIT_FACTS) out.git = 'no facts';
     else if ((x = /^session ([0-9a-f]{8})$/.exec(p))) out.session = x[1];
     else if ((x = /^by (Claude Code|Codex)$/.exec(p))) out.agent = x[1];
   }
@@ -2020,6 +2103,16 @@ function coveredSteps(body, entries) {
   return out;
 }
 
+// What the commits-since hints say instead of a git command: they reach the
+// model also where Trailmark kept git out of the folder (state 'late' is
+// answered before the folder is checked, trailmark.js sinceHandoff), and
+// plain git there can run the repo's programs (RS-S-sincegitadvice). The
+// refusal warning goes to the user, not the model, so this has no condition.
+// The stop comes first: at a budget too small for the rest, a kept line is
+// cut to 147 characters and "...", and the longest text before the hint is
+// about 105 (a 12-character base, a 7-digit count).
+const NO_GIT_HINT = "Don't run git for this: Trailmark may have kept git out of this folder. Before redoing work, check the next steps against the files or ask the user.";
+
 // The lines the injection adds for commits made since the handoff.
 function sinceSection(since, body, m, now) {
   if (!since) return [];
@@ -2027,12 +2120,12 @@ function sinceSection(since, body, m, now) {
   if (since.state === 'not-ancestor') return [`The handoff was written at HEAD ${since.base}, which is not in the history of the current HEAD (another branch, or rewritten history). Check what still applies before acting on it.`];
   // git was too slow to answer: said, with "git ran out of time" (the sign
   // the commit-list tests repeat on), never left out in silence.
-  if (since.state === 'late') return [`Whether HEAD has commits since the handoff's HEAD ${since.base} isn't known: git ran out of time. Run git log --oneline ${since.base}..HEAD and check the next steps against it before redoing work.`];
+  if (since.state === 'late') return [`Whether HEAD has commits since the handoff's HEAD ${since.base} isn't known: git ran out of time. ${NO_GIT_HINT}`];
   if (!since.count) return [];
   // The count came but not the list: said why, never "the newest 0 shown".
   if (!since.entries.length) {
     return [`--- COMMITS SINCE THIS HANDOFF ${m} ---`,
-      `The handoff was written at HEAD ${since.base}; HEAD has ${since.count} newer commit${since.count === 1 ? '' : 's'}, not listed: ${since.unlisted === 'late' ? 'git ran out of time' : 'git could not list them'}. Run git log --oneline ${since.base}..HEAD and check the next steps against them before redoing work.`,
+      `The handoff was written at HEAD ${since.base}; HEAD has ${since.count} newer commit${since.count === 1 ? '' : 's'}, not listed: ${since.unlisted === 'late' ? 'git ran out of time' : 'git could not list them'}. ${NO_GIT_HINT}`,
       `--- END COMMITS ${m} ---`];
   }
   const list = since.entries.map(e => `- ${e.short} ${e.subject}${e.t ? ` (${ageText(now - e.t)} ago)` : ''}`);
@@ -2066,9 +2159,12 @@ function shortNote(text, max) {
       spans.push([i, j]);
     }
   }
+  // A path is kept only with the character after it: one that ends at the
+  // cut, or with only white space between it and the cut (which trimEnd
+  // takes off), would run straight into the "..." (RS-F-fusedtail).
   let end = max - 3, tail = '...';
   for (;;) {
-    const s = spans.find(([i, j]) => i < end && j > end);
+    const s = spans.find(([i, j]) => i < end && !t.slice(j, end).trim());
     if (!s) break;
     tail = PATH_LEFT_OUT;
     end = Math.max(0, Math.min(s[0], max - tail.length));
@@ -2135,7 +2231,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   if (source === 'resume') {
     const seenAt = rec ? Math.max(rec.lastWrite || 0, rec.start || 0, rec.resumed || 0) : 0;
     if (sid && writer && writer.session !== sid && handoffTime > seenAt) {
-      const who = writer.session ? `session ${writer.session.slice(0, 8)}` : 'a session that gave no ID';
+      const who = writer.session ? `session ${shortSession(writer.session)}` : 'a session that gave no ID';
       return withNotes({
         text: `[trailmark] Resumed session. handoff.md was last written ${age} ago by ${who}, not this one. Re-read it with the ${H.skill('recall')} skill before relying on what you remember of it.`,
         summary: `resume, handoff written by ${who} (not re-injected)`,
@@ -2172,12 +2268,25 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   const add = (text, rank, { short = '', keep = false } = {}) => rest.push({ text, rank, short, keep });
   const sinceFacts = checkSinceFacts(since);
   const sinceLines = sinceSection(sinceFacts, plainBody, m, now);
+  // Written with no facts from git and no HEAD: no commits since it can
+  // be listed, and this says why (RS-T-headlate). It names no git command:
+  // the marker is also written where Trailmark kept git out of the folder
+  // (a hostile .git/config), and plain git there can run the repo's
+  // programs (Codex security review on PR 128). It says so without a
+  // condition: the refusal warning goes to the user, not to the model.
+  // The stop comes before the reason: at a budget too small for the rest,
+  // a kept line is cut to its first 150 characters (auto-review on PR 128).
+  // Its short form, the first two sentences, is what a tight budget takes
+  // first, so the line does not push other kept notes into that cut
+  // (auto-review round 3 on PR 128: a note lost its "never run it").
+  const NO_HEAD_SHORT = 'The handoff has no HEAD, so the commits since it are not listed. Don\'t run git for this: Trailmark may have kept git out of this folder.';
+  if (stamp.git === 'no facts' && !stamp.head) add('The handoff has no HEAD, so the commits since it are not listed. Don\'t run git for this: Trailmark may have kept git out of this folder. Git gave no facts when the handoff was written (it ran out of time, was not found or was kept out of this folder, or this is not a git repo). Before redoing work, check the next steps against the files or ask the user.', 5, { short: NO_HEAD_SHORT, keep: true });
   if (sinceLines.length) {
     // Kept when there are commits, or when git ran out of time before it
     // could say (one line, cut to 150 characters last, the sign first).
     const n = sinceFacts.count;
     const why = sinceFacts.unlisted === 'late' ? ': git ran out of time' : sinceFacts.unlisted ? ': git could not list them' : ' to fit the budget';
-    add(sinceLines.join('\n'), 5, { short: n ? `${n} commit${n === 1 ? '' : 's'} on HEAD since the handoff's HEAD ${sinceFacts.base}, not listed here${why}. Run git log --oneline ${sinceFacts.base}..HEAD and check the next steps against them before redoing work.` : '', keep: !!n || sinceFacts.state === 'late' });
+    add(sinceLines.join('\n'), 5, { short: n ? `${n} commit${n === 1 ? '' : 's'} on HEAD since the handoff's HEAD ${sinceFacts.base}, not listed here${why}. ${NO_GIT_HINT}` : '', keep: !!n || sinceFacts.state === 'late' });
   }
 
   // After this session's own compaction: its own snapshot. At a fresh start:
@@ -2195,7 +2304,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   } else {
     const here = x => !worktree || !x.worktree || samePath(x.worktree, worktree);
     snap = snaps.find(x => (!sid || x.session !== sid) && x.mtime > handoffTime && here(x)) || null;
-    if (snap) label = `${snap.session ? 'session ' + snap.session.slice(0, 8) : 'a session'} compacted after the last checkpoint`;
+    if (snap) label = `${snap.session ? 'session ' + shortSession(snap.session) : 'a session'} compacted after the last checkpoint`;
   }
   if (snap) {
     const body = truncateAt(framed(splitFrontmatter(readText(snap.file) || '').body.trim()), 600).text;
@@ -2268,5 +2377,5 @@ module.exports = { addCommitDirs, MAX_COMMIT_DIRS, MAX_SWEPT, addMemoryRoot, pla
   writeHandoff, stampUpdated, undoHandoff, measureHandoff, rotate,
   note, lastNote, loggedCommitShas, recordCommitStart, readCommitStart, cleanAgent, markCommitDone, openCommitStart, concurrentCommitStarts, park, listDir, search, topicFiles,
   checkCommitFacts, commitLine, knownCommits, rememberCommits, logFoundCommits, KEEP_SHAS,
-  measure, pruneReport, archiveFile, buildInjection,
+  measure, pruneReport, archiveFile, buildInjection, shortNote,
 };

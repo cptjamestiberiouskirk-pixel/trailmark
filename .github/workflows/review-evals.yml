@@ -1,0 +1,64 @@
+name: review-evals
+
+# Runs the regression reviewer of auto-review.yml on Trailmark's own past bugs
+# (dev/review-evals/cases.json) and fails when it catches fewer than
+# "evalFloor" of dev/risk-tiers.json. Weekly, and on a push to main that
+# changes what the reviewer reads or how it runs. The CLI, model and tools
+# below match auto-review.yml; dev/review-gate.test.js checks that.
+on:
+  schedule:
+    - cron: '23 5 * * 1'
+  push:
+    branches: [main]
+    paths:
+      - REVIEW.md
+      - dev/risk-tiers.json
+      - .github/workflows/auto-review.yml
+      - .github/workflows/review-evals.yml
+      - dev/review-evals/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # dev/review-evals/run.js reads each case's PR text with gh pr view.
+  pull-requests: read
+
+env:
+  CLI_VERSION: 2.1.319
+  MODEL_REGRESSION: claude-opus-5-5
+  TOOLS: 'Read,Glob,Grep'
+  READ_TOOLS: 'Read(./**),Glob,Grep'
+  DENY_TOOLS: 'Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Task,Agent,Skill,Read(//proc/**),Read(//sys/**),Read(//etc/**),Read(//tmp/**),Read(~/.*/**)'
+
+jobs:
+  evals:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    # The token secret lives in this environment. The owner limits it to main
+    # before adding the secret: by GitHub's docs, a job that names a missing
+    # one makes it with no limit (not tried here).
+    environment: auto-review
+    concurrency:
+      group: review-evals
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the reviewer CLI
+        run: |
+          set -euo pipefail
+          # As in auto-review.yml: no install scripts, the platform binary called directly.
+          npm install --prefix "$RUNNER_TEMP/cli" --ignore-scripts --no-audit --no-fund "@anthropic-ai/claude-code@$CLI_VERSION"
+          bin="$RUNNER_TEMP/cli/node_modules/@anthropic-ai/claude-code-linux-x64/claude"
+          v=$("$bin" --version)
+          case "$v" in "$CLI_VERSION "*) ;; *) echo "expected CLI $CLI_VERSION, got: $v"; exit 1 ;; esac
+          echo "CLAUDE_BIN=$bin" >> "$GITHUB_ENV"
+      - name: Run the cases
+        timeout-minutes: 110
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.REVIEW_OAUTH_TOKEN }}
+          # Read only: the causing PRs' titles and bodies.
+          GH_TOKEN: ${{ github.token }}
+        run: node dev/review-evals/run.js dev/review-evals/cases.json "$RUNNER_TEMP/evals"

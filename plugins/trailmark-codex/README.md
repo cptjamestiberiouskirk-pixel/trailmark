@@ -14,7 +14,7 @@ It's the Codex copy of [Trailmark](https://github.com/cptjamestiberiouskirk-pixe
 
 ## What it doesn't do
 
-It runs no background model, makes no network requests and sends no telemetry. Each hook starts a small launcher that only reads, running git with hardened settings. The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. That is what "the sandbox" means here: it is part of Node.js, works the same on Windows, macOS and Linux, and needs nothing installed besides Node. It isn't the Windows Sandbox feature, and it is separate from Codex's own sandbox. The one other file it writes is a small log of hook payload shapes in the plugin's own data folder (see "Checking how the hooks ran").
+It runs no background model, makes no network requests and sends no telemetry. Each hook starts a small launcher that runs git with hardened settings and writes only a few files of its own (SECURITY.md lists them). The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. That is what "the sandbox" means here: it is part of Node.js, works the same on Windows, macOS and Linux, and needs nothing installed besides Node. It isn't the Windows Sandbox feature, and it is separate from Codex's own sandbox. The launcher's own files include a small log of hook payload shapes in the plugin's own data folder (see "Checking how the hooks ran").
 
 ## Install
 
@@ -42,6 +42,8 @@ You need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines), t
    ```
 
    Single quotes keep Windows backslashes as they are. Add one entry per repo, and don't add the whole `projects` folder, which also holds Claude Code's transcripts. If the file already has a `[sandbox_workspace_write]` table, add the entry to its list. With Codex 0.169 on Windows, Codex's unelevated sandbox honored this setting in `codex exec`; its elevated sandbox and the app weren't tried. Approving each write works too.
+
+   On Windows a writable root has a second cost: the checkpoint then runs inside Codex's sandbox, where git can't run for it (with Codex 0.171's unelevated sandbox, a program started with its output read through a pipe fails to start). The Updated line reads `git: no facts` in place of the branch and HEAD, and the checkpoint can't look for commits no hook logged. The next checkpoint run outside the sandbox logs those, marked `(found later)`, and its Updated line has the branch and HEAD again.
 
 4. **Windows: keep `node` from being found in a repo folder.** Every hook starts `node` by name. If Codex runs hooks through cmd.exe, cmd looks in the current folder (the repo) before PATH, so a `node.exe` or `node.cmd` committed to a repo would run in place of Node. One user setting turns that lookup off:
 
@@ -128,7 +130,7 @@ Outside the memory folder, this copy:
 
 ## Checking how the hooks ran
 
-In a repo set up for Trailmark, each hook run that gets past its first checks (a chat start, a compaction, a commit or PR merge command, or a prompt the pause watch matched) adds one line to `payload-shapes.log` in the plugin's data folder (`PLUGIN_DATA`). The line has the event, the tool name, the payload's field names and types, the first word of the command when it's a common program name (git, gh, node, powershell and a few others; anything else shows as `other`), the exit code, and whether `CODEX_THREAD_ID` matches the session ID. It keeps no command text or output, nothing is logged for other repos, and the file stops growing at 256 KB. `JBMEM_SHAPES=off` turns it off. To find it:
+In a repo set up for Trailmark, each hook run that gets past its first checks (a chat start, a compaction, a commit or PR merge command, or a prompt the pause watch matched) adds one line to `payload-shapes.log` in the plugin's data folder (`PLUGIN_DATA`). The line has the event, the tool name, the payload's field names and types, the first word of the command when it's a common program name (git, gh, node, powershell and a few others; anything else shows as `other`), the exit code, and whether `CODEX_THREAD_ID` matches the session ID. It keeps no command text or output, nothing is logged for other repos, and the file stops growing at 256 KB. Setting `JBMEM_SHAPES` to `off`, `0`, `false` or `no`, in any case (`OFF` and `Off` count), turns it off, and nothing is written when `PLUGIN_DATA` is not an absolute path or is a network path. To find it:
 
 ```powershell
 Get-ChildItem "$env:USERPROFILE\.codex" -Recurse -Filter payload-shapes.log -ErrorAction SilentlyContinue | Select-Object FullName, Length, LastWriteTime
@@ -150,7 +152,7 @@ With the ChatGPT desktop app on Windows:
 - The app starts short `fork` chats next to a chat. Each gets the handoff and logs a start; they do no harm.
 - `CODEX_THREAD_ID` isn't set in the hooks' environment, so the skills take the session ID from the chat-start note.
 
-With `codex exec` 0.169 on Windows: a prompt that said "Pausing for a reboot now." got the pause watch's note, and the agent ran `tm-checkpoint` and saved the handoff. A prompt about not restarting a server got no note.
+With `codex exec` 0.169 on Windows: a prompt that said "Pausing for a reboot now." got the pause watch's note, and the agent ran `tm-checkpoint` and saved the handoff. In that run git gave the hook no facts, so the saved Updated line kept the template's placeholders for the date, branch and HEAD; such a line now says `git: no facts` instead. A prompt about not restarting a server got no note.
 
 Not checked yet: whether `writable_roots` applies under Codex's elevated sandbox on Windows or in the app (the unelevated sandbox honored it in `codex exec`, step 3), whether a compacted chat gets the handoff text back, the pause watch in the app, and anything on macOS or Linux, where the same hooks and skills are expected to work.
 

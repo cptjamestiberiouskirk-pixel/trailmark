@@ -38,6 +38,77 @@ test('git path: PATH entries that are relative, "." or the working folder are sk
   assert.strictEqual(findGit({ env: { ...winEnv, PATHEXT: '.COM;.EXE' }, cwd: 'C:\\repo', platform: 'win32', isExec: f => have.has(f) }), 'C:\\Program Files\\Git\\cmd\\git.com');
 });
 
+// RS-D-findgitdot: Windows runs a program in `repo` for a working folder
+// spelled `repo.`, `repo `, `repo\...` or `work.\repo`, and Node can't read
+// the real path of that spelling, so the repo's own git was picked. Asked
+// about Windows with stand-ins (the real path throws for such a name, as
+// Node's does), so every system runs it.
+test('git path: the working folder spelled with dots or spaces at a name\'s end is still skipped (RS-D-findgitdot)', () => {
+  const { findGit } = require('../scripts/lib/gitbin');
+  const git = 'C:\\Program Files\\Git\\cmd\\git.exe';
+  const have = new Set(['C:\\work\\repo\\git.exe', 'C:\\work\\repo.\\git.exe', git]);
+  const realpath = p => {
+    if (p.split('\\').some(n => n !== '.' && n !== '..' && /[. ]$/.test(n))) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    return p;
+  };
+  const find = (entry, cwd) => findGit({ env: { PATH: `${entry};C:\\Program Files\\Git\\cmd` }, cwd, platform: 'win32', isExec: f => have.has(f), realpath });
+  for (const cwd of ['C:\\work\\repo.', 'C:\\work\\repo ', 'C:\\work\\repo. .', 'C:\\work\\repo...', 'C:\\work\\repo.\\', 'C:\\work\\repo\\...', 'C:\\work\\repo\\ ', 'C:\\work.\\repo', 'C:\\WORK\\Repo.']) {
+    assert.strictEqual(find('C:\\work\\repo', cwd), git, `cwd ${JSON.stringify(cwd)}`);
+  }
+  // A PATH entry spelled so is the working folder too.
+  assert.strictEqual(find('C:\\work\\repo.', 'C:\\work\\repo'), git);
+  // With no real path for any spelling (a folder Node can't read), the match
+  // by name alone still skips them.
+  const none = () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }); };
+  const findN = (entry, cwd) => findGit({ env: { PATH: `${entry};C:\\Program Files\\Git\\cmd` }, cwd, platform: 'win32', isExec: f => have.has(f), realpath: none });
+  for (const cwd of ['C:\\work\\repo.', 'C:\\work\\repo ', 'C:\\work\\repo\\...', 'C:\\work.\\repo']) {
+    assert.strictEqual(findN('C:\\work\\repo', cwd), git, `unreadable cwd ${JSON.stringify(cwd)}`);
+  }
+  assert.strictEqual(findN('C:\\work\\repo.', 'C:\\work\\repo'), git);
+  // A junction `j` to the repo, spelled `j.` (review round 1, Fable F1 and the
+  // auto-review's note 3), with a literal folder `j.` beside it that Node
+  // reads as itself (F1's variant, F3): each matched by the real path of the
+  // spelling Windows opens.
+  const alias = p => {
+    if (p === 'C:\\work\\j.') return p;
+    if (p.split('\\').some(n => n !== '.' && n !== '..' && /[. ]$/.test(n))) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    return p === 'C:\\work\\j' ? 'C:\\work\\repo' : p;
+  };
+  const findA = (entry, cwd) => findGit({ env: { PATH: `${entry};C:\\Program Files\\Git\\cmd` }, cwd, platform: 'win32', isExec: f => have.has(f) || f === 'C:\\work\\j.\\git.exe', realpath: alias });
+  for (const cwd of ['C:\\work\\j', 'C:\\work\\j.', 'C:\\work\\j ', 'C:\\work\\j\\...']) {
+    assert.strictEqual(findA('C:\\work\\repo', cwd), git, `junction cwd ${JSON.stringify(cwd)}`);
+  }
+  assert.strictEqual(findA('C:\\work\\j.', 'C:\\work\\repo'), git);
+  // The second lookup keeps the root as written: a UNC server `srv.` is not
+  // asked as `srv` (round 2), a name below a share and a drive root spelled
+  // `C:\...` are asked as Windows opens them (round 3), and a `\\?\` path is
+  // not asked again (the auto-review's notes).
+  const asked = [];
+  const rec = q => { asked.push(q); return q; };
+  const anyGit = f => f.endsWith('git.exe');
+  findGit({ env: { PATH: '\\\\srv.\\share\\bin.' }, cwd: '\\\\srv.\\share\\repo.', platform: 'win32', isExec: anyGit, realpath: rec });
+  findGit({ env: { PATH: '\\\\?\\C:\\b.' }, cwd: '\\\\?\\C:\\repo.', platform: 'win32', isExec: anyGit, realpath: rec });
+  findGit({ env: { PATH: 'C:\\x' }, cwd: 'C:\\...', platform: 'win32', isExec: () => false, realpath: rec });
+  findGit({ env: { PATH: 'C:\\x' }, cwd: '\\\\.\\C:\\d.', platform: 'win32', isExec: () => false, realpath: rec });
+  assert.deepStrictEqual(asked, ['\\\\srv.\\share\\repo.', '\\\\srv.\\share\\repo', '\\\\srv.\\share\\bin.', '\\\\srv.\\share\\bin', '\\\\?\\C:\\repo.', '\\\\?\\C:\\b.', 'C:\\...', 'C:\\', '\\\\.\\C:\\d.']);
+  // A junction `j` below a share, spelled `j.`: skipped as on a drive.
+  const share = q => {
+    if (q.split('\\').some(n => n !== '.' && n !== '..' && /[. ]$/.test(n))) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    return q === '\\\\srv\\share\\j' ? '\\\\srv\\share\\repo' : q;
+  };
+  assert.strictEqual(findGit({ env: { PATH: `\\\\srv\\share\\repo;C:\\Program Files\\Git\\cmd` }, cwd: '\\\\srv\\share\\j.', platform: 'win32', isExec: f => f === '\\\\srv\\share\\repo\\git.exe' || f === git, realpath: share }), git);
+  // Other folders whose names only look alike are not skipped.
+  for (const cwd of ['C:\\work\\repo2', 'C:\\work\\rep', 'C:\\work\\repo.x', 'C:\\work\\.repo']) {
+    assert.strictEqual(find('C:\\work\\repo', cwd), 'C:\\work\\repo\\git.exe', `cwd ${JSON.stringify(cwd)}`);
+  }
+  // Long runs of dots and spaces are dropped in linear time (a child with a
+  // time limit, as for the regexes of RS-H-addcommitdirs).
+  const lib = JSON.stringify(path.join(__dirname, '..', 'scripts', 'lib', 'gitbin.js'));
+  const code = `const { findGit } = require(${lib}); for (const e of ['C:\\\\x' + '. '.repeat(200000) + 'y', 'C:\\\\x\\\\a' + '. '.repeat(200000)]) findGit({ env: { PATH: e }, cwd: 'C:\\\\y. ', platform: 'win32', isExec: () => false, realpath: (p) => p });`;
+  const r = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 30000 });
+  assert.strictEqual(r.status, 0, `status ${r.status}, signal ${r.signal}, ${String(r.stderr).slice(0, 300)}`);
+});
+
 test('git path: a git program in the repo is never run, even with "." on PATH', () => {
   const s = sandbox();
   jbm(s, ['init']);
@@ -527,7 +598,7 @@ test('Updated line: only the one under the title is restamped; a later body line
   assert.strictEqual(lines[1], 'Updated: 2026-10-18 09:05 | branch main | HEAD abc1234 | by Codex');
   assert.ok(lines.includes('Updated: the README is now current'), out);
   const top = S.stampUpdated(['# Handoff: x', 'Updated: old', '', 'body'].join('\n'), null, new Date(2026, 9, 18, 9, 5));
-  assert.strictEqual(top.split('\n')[1], 'Updated: 2026-10-18 09:05 | old | by Codex');
+  assert.strictEqual(top.split('\n')[1], 'Updated: 2026-10-18 09:05 | old | git: no facts | by Codex');
 });
 
 test('findTranscript: reads only the head of each transcript it scans', () => {
@@ -828,11 +899,13 @@ test('batch O4: status hides a Node path that ends like a session tag, and keeps
   assert.ok(!line.includes('abcdef12') && !line.includes('11111111'), line);
 });
 
-test('batch O5: a sandbox refusal of a long path on Windows names its length and the fix', () => {
+test('batch O5: a sandbox refusal of a long path on Windows names its length', () => {
   const { refusalText } = require(path.join(ROOT, 'scripts', 'lib', 'hookio.js'));
   const long = 'C:\\' + 'p'.repeat(260) + '\\memory\\archive';
   const e = { code: 'ERR_ACCESS_DENIED', permission: 'FileSystemWrite', resource: '\\\\?\\' + long };
-  assert.strictEqual(refusalText(e, 'win32'), `sandbox refused FileSystemWrite to \\\\?\\${long}. Nothing was written there. That path is ${long.length} characters long. On Windows the sandbox refuses writes in a memory folder whose path is about 268 characters or more. If this memory folder's path is that long, a repo at a shorter path fixes it: the folder's name repeats the repo's path.`);
+  // No limit and no shorter-path advice since RS-T-longwriter: the launcher's
+  // grants reach into a memory folder that long.
+  assert.strictEqual(refusalText(e, 'win32'), `sandbox refused FileSystemWrite to \\\\?\\${long}. Nothing was written there. That path is ${long.length} characters long.`);
   assert.match(refusalText({ ...e, resource: '\\\\?\\UNC\\srv\\' + 'q'.repeat(260) }, 'win32'), / That path is 264 characters long\./);
   assert.strictEqual(refusalText(e, 'linux'), `sandbox refused FileSystemWrite to \\\\?\\${long}. Nothing was written there.`);
   assert.doesNotMatch(refusalText({ ...e, resource: 'C:\\' + 'p'.repeat(255) }, 'win32'), /characters long/);
@@ -840,7 +913,9 @@ test('batch O5: a sandbox refusal of a long path on Windows names its length and
   assert.strictEqual(refusalText({ code: 'ERR_ACCESS_DENIED' }, 'win32'), 'sandbox refused access to a path. Nothing was written there.');
 });
 
-test('batch O5: init in a memory folder past the Windows path limit says how long the refused path is', { skip: !WIN && 'the path limit is seen on Windows only' }, (t) => {
+// Before RS-T-longwriter, init here was refused on Windows (a memory folder
+// of about 268 characters or more), and this test checked the refusal's words.
+test('batch O5, RS-T-longwriter: init sets up a memory folder of 300 characters or more, past the old Windows limit', () => {
   // Built as dev/probes/path-limit.js builds it: the memory folder's name
   // repeats the repo's path, so its path is 2 * pad + 26 characters.
   const top = realTemp('jbmem-');
@@ -857,10 +932,7 @@ test('batch O5: init in a memory folder past the Windows path limit says how lon
   const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg };
   delete env.JBMEM_DIR; delete env.CLAUDE_CODE_PROJECT_DIR_NAME; delete env.CLAUDE_CODE_ENTRYPOINT;
   const r = spawnSync(process.execPath, [JBM, 'init', '--force'], { cwd: repo, env, encoding: 'utf8' });
-  // This Node may set such a folder up: then there is no refusal to word.
-  if (r.status === 0) { t.skip(`Node ${process.version} set up a memory folder of ${memdir.length} characters`); return; }
-  const m = /sandbox refused \S+ to (\S+?)\. Nothing was written there\. That path is (\d+) characters long\. .*a repo at a shorter path fixes it: the folder's name repeats the repo's path\./.exec(r.stderr);
-  assert.ok(m, r.stderr);
-  assert.strictEqual(Number(m[2]), m[1].replace(/^\\\\\?\\/, '').length);
-  assert.ok(m[1].replace(/^\\\\\?\\/, '').toLowerCase().startsWith(memdir.toLowerCase()), r.stderr);
+  assert.strictEqual(r.status, 0, `memory folder of ${memdir.length}: ${r.stdout}${r.stderr}`);
+  assert.doesNotMatch(r.stderr, /sandbox refused/);
+  assert.ok(fs.readdirSync(memdir).length > 0, `nothing in ${memdir}`);
 });

@@ -14,6 +14,524 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A new worktree came off a stale origin/main
+
+- What went wrong: for RS-D-codexshortid, `git worktree add -b <branch> <dir> origin/main` in the main checkout made the branch at 1e96394, two merges behind (PRs 144 and 145). The fetch before it had run in another clone, which keeps its own `origin/main`.
+- Why: each clone has its own remote-tracking refs; a fetch updates only the clone it runs in.
+- Rule going forward: run `git fetch origin` in the same repository right before `git worktree add ... origin/main`, and check the new branch's `git log -1` against the merge you expect. Nothing was committed on the stale base; `git merge --ff-only origin/main` after a fetch fixed it.
+- Status: open
+
+## 2026-11-24: A probe read a cached answer for every case
+
+- What went wrong: `cdt-probe.js` (RS-T-commondirtime) rewrote one worktree's `commondir` between cases in one process, and `farGitConfig` answered `''` for all of them, the 800 KB one too, which read as "git is let run".
+- Why: `farGitConfig` keeps each answer per resolved folder for the life of the process (`farCache` in `gitbin.js`: up to 64 folders, and never a `git-timeout`), so every case after the control got the control's answer.
+- Rule going forward: a probe or test of `farGitConfig` gives each case a folder of its own, or runs it in a fresh process; a result that contradicts the code is checked for a cache before it is reported.
+- Status: open
+
+## 2026-11-24: A probe's cmd check read "no" for every path
+
+- What went wrong: `fgd-probe4.js` asked cmd `if exist "<path>"` through `spawnSync('cmd.exe', [..., '/c', ...])`, and every row read "no", the plain controls too.
+- Why: Node quotes and escapes each argument for a C runtime, and cmd doesn't parse those escapes, so the path cmd saw was not the one written.
+- Rule going forward: pass the command text wrapped in outer quotes after `/s /c`, with `windowsVerbatimArguments: true`, and put a control that must read "yes" in the same probe; read the controls before any other row.
+- Status: open
+
+## 2026-11-24: A PR skipped the docs row because its docs were not in the zip
+
+- What went wrong: PR 144 changed PLAYBOOK.md and LESSONS.md, and its body said no shipped doc changed, so no docs row ran. The auto-review's round 2 flagged it.
+- Why: "shipped" was read as "in the release zip"; CLAUDE.md's "Reviews" defines it as anything outside `dev/` and CLAUDE.md, which includes both files.
+- Rule going forward: before a round, list the diff's files outside `dev/` (`git diff --name-only <base>..HEAD | grep -Ev '^(dev/|CLAUDE\.md$)'`); any doc among them, PLAYBOOK.md and LESSONS.md included, brings the docs row.
+- Status: open
+
+## 2026-11-24: A merge-conflict edit anchored on a line's tail joined two lines
+
+- What went wrong: resolving a conflict in `dev/release-state.md` (RS-D-findgitdot after PR 139), an Edit used the tail of one side's line as its anchor and replaced it with the other side's line start, so the two versions of RS-D-csw-notes ran into one line.
+- Why: the anchor was the end of a line, not a whole line, and the replacement began a new list item without a line break.
+- Rule going forward: resolve a conflict by taking one side whole (`git checkout --theirs` or `--ours`) and re-applying the other side's edits, then compare the file with that side (`git diff origin/main -- <file>`) before committing.
+- Status: open
+
+## 2026-11-24: A reviewer's own CI watch stalled the round for an hour
+
+- What went wrong: the Opus regression reviewer of PR 143 round 2 started a background watch of CI and stopped to wait for it; it did not resume when the watch ended, and the round sat idle for an hour until it was resumed with "CI is done".
+- Why: the brief did not say whether the reviewer should wait on CI, and a subagent's own background wait can end without waking it.
+- Rule going forward: a review brief says not to watch or wait on CI (the owning session reads CI), and a round with no report after its last scratch file's time is checked and resumed, not restarted.
+- Status: open
+
+## 2026-11-24: "Read the ok lines in the CI logs" could not be done
+
+- What went wrong: the supervisor asked for the Windows job logs' ok lines of two tests before auto-merge. The logs hold only each suite's counts: `.github/run-tests.sh` keeps the TAP on the runner and `tap-annotate.js` prints failures, counts and the slowest tests. A green job could not show a skipped length.
+- Why: the condition was set without checking what the logs carry, and the test passed over a length with a diagnostic only.
+- Rule going forward: before a condition rests on CI's logs, read one job's log for what it holds. A test that must run in full on CI fails there by name instead of skipping (RS-T-longwriter: strict under `GITHUB_ACTIONS` on win32), so the green job is the proof.
+- Status: open
+
+## 2026-11-24: A skip for one length that doesn't fit dropped the lengths that do
+
+- What went wrong: the RS-T-longwriter test skipped as a whole when the temp folder was too long for one length, so 260 and 300, which fit, were not run (the auto-review on 78d31ab).
+- Why: the skip returned from the test at the first misfit.
+- Rule going forward: a test over several sizes passes over only the size that doesn't fit, with a diagnostic that names it, and skips as a whole only when none ran.
+- Status: open
+
+## 2026-11-24: A probe's output was cited before it was saved
+
+- What went wrong: the RS-T-longwriter notes cited 500, 1,000 and 4,000 characters as tested, but no saved output held those runs (the docs row of round 1, WRONG).
+- Why: the longer lengths were run by hand and read on screen.
+- Rule going forward: a note cites a probe only by a saved output file; a run read on screen is rerun with its output saved before the note says it.
+- Status: open
+
+## 2026-11-24: A wait read a "waiting" check run as finished
+
+- What went wrong: `wait-review.sh` took the `review` check run in state `waiting` as done, so a review was read before it had run.
+- Why: the script tested for "not in_progress" instead of `completed`.
+- Rule going forward: a wait on a check run loops until its status is `completed` and prints the status it read.
+- Status: open
+
+## 2026-11-24: A dash check filtered out the line it was meant to check
+
+- What went wrong: the dash check on the CLAUDE.md:74 edit piped `git diff` through `grep -v '^[-+][-+]'` to drop the `---` and `+++` headers. The changed line is a list item, so its diff lines start `-- ` and `+- ` and were dropped too. The check printed "no dash" on 0 characters.
+- Why: the filter was written for the header lines without a look at what the content lines start with, and the count it printed was not read before the commit. Seen again on the same branch after the merge of PR 138: a check with `^[-+][^-+]` read 1 of 16 changed lines; caught because it printed its count.
+- Rule going forward: a check prints how much it read, and a count of 0 is a failed check, not a pass. Pick the lines by what they are (`git show --format= <file>` and a pattern for the line), not by dropping what they aren't.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 21)
+
+## 2026-11-24: A temp file a sandboxed reader trusted was writable by the sandbox
+
+- What went wrong: PR 137's file path wrote git's output to a 0600 file in a new `mkdtemp` folder and read it back, and SECURITY.md said only a program running as you could change it. The auto-review's round 5 asked about Windows; a probe here showed the folder and file inherit Modify from `%TEMP%` for `CodexSandboxUsers` and seven more accounts, so Codex's sandbox accounts could rewrite the config list the settings check decides on. Seven review rounds had looked at the file's size and name, not at who else can write it. PR 137 was closed unmerged.
+- Why: on Windows the mode sets only the read-only bit; the folder's inherited access list decides who can write, and Codex's setup adds its sandbox accounts to the user's `%TEMP%`. The design took "a fresh folder with a random name" as owned by the reader.
+- Rule going forward: before trusting the contents of a file a check reads back, list who else can write it where it lives (`icacls` on Windows, owner and mode elsewhere, on the PC it is for), and write that into the design before the build.
+- Status: open
+
+## 2026-11-24: A size picked on one system was refused on another
+
+- What went wrong: PR 137's real-git measurement test had an "accepted size" case, a `core.worktree` of `..` and 2,000 `/.` (4,002 characters), chosen because git on this PC read it. On b0fa019 all three macOS CI jobs failed it (status 128, no output), in both copies; Linux and Windows passed.
+- Why: the case was sized against Windows alone. macOS paths stop at 1,024 bytes (Linux 4,096), and the value plus the temp folder's path is over that (INFERRED: CI's macOS jobs gave 128, and 300 `/.` is under every limit; the next push's CI settles it).
+- Rule going forward: a test case that must be accepted by the system (a path, a name, a command line) is sized under the smallest limit of the three systems CI runs (macOS 1,024 bytes for a path), or its premise is checked on each and the case skipped where it doesn't hold.
+- Status: open
+
+## 2026-11-24: A wait read the gate's observe status as a finished review
+
+- What went wrong: `wait-observe.sh` stopped at its first read on PR 137's head b0fa019 with "success | would block: high, round 3: no finished review of this head". The review job was still running; it posted round 4 (three notes, one a WRONG sentence in SECURITY.md) ten minutes later.
+- Why: in observe mode the gate's status is always "success"; whether a review of this head has finished is only in its description. The script matched on the state.
+- Rule going forward: before auto-merge, wait for the `review` check run of the head to complete (`wait-review.sh`), then read the round it posted for that sha; the observe status's state says nothing about it.
+- Status: open
+
+## 2026-11-24: A one-word code change went through sed
+
+- What went wrong: adding `fileCall, FILE_CALLS` to gitbin.js's export line was done with `sed -i`, against the rule that code and tests change only through Edit or Write. The result was checked and is what was meant.
+- Why: the change looked too small for the rule, and the export line was not open in the editor's view.
+- Rule going forward: the size of a code change doesn't exempt it; read the line, then Edit it.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 20)
+
+## 2026-11-24: "Not amplified" was settled with ordinary data
+
+- What went wrong: the supervisor's point 4 on PR 137 asked whether the other git calls' outputs are amplified. One probe with ordinary commits (made by `git commit`, each subject used once) showed them near the repo's size, and SECURITY.md and release-state said so. Round 6 built a 69 KB `.git` whose reflog names one large-subject commit 200 times, and `log -g` wrote 839 MB through the file.
+- Why: the probe measured what a normal repo makes, not what a hostile one can make. Amplification comes from a small thing repeated (a section name per key, a commit per reflog entry), and the probe had no repeats.
+- Rule going forward: to call an output not amplified, look for anything the output repeats per entry (names, objects, paths) and probe with that repeated at its largest, written by hand where git would not write it. Until then the claim stays INFERRED.
+- Status: open
+
+## 2026-11-24: A probe script's exit skipped its own clean-up
+
+- What went wrong: `csw-mut6.js` stopped on a failing baseline with `process.exit(1)` inside its `try`, so the `finally` that removes its clone never ran, and the next run refused to start because the clone was still there.
+- Why: `process.exit` ends Node at once; no `finally` runs after it. The script was copied from one whose baseline had always passed.
+- Rule going forward: in a script with clean-up in `finally`, stop with `throw` (or set `process.exitCode` and return), never `process.exit` inside the `try`.
+- Status: open
+
+## 2026-11-24: A neighbor was called reachable from a measurement of git alone
+
+- What went wrong: PR 137's gate round 3 found `git config --list` amplified on the file path. A probe showed `git config --blob` on a committed `.lfsconfig` amplified too, and it was reported to the supervisor as a CONFIRMED neighbor, and a fix was approved. The test written for that fix showed the call never runs on the file path: it comes after `check-attr --stdin`, a call with input, which the fallback never runs.
+- Why: the probe ran git directly, so it showed what git prints, not whether the launcher's file path ever makes that call. Reach was taken from the call's place in the code without reading what runs before it.
+- Rule going forward: a neighbor is CONFIRMED only once the call is driven through the same path as the finding (here, the EPERM spy). A measurement of the program alone gives the size, and the reach stays INFERRED until then.
+- Status: open
+
+## 2026-11-24: A fix that chose a program to run drew a new finding each round
+
+- What went wrong: PR 137's `realGitFor` picked the real git from folder names. Round 3 found a second wrapper and a repo-named folder; round 4 found that two callers run outside the repo, so the repo rule missed them, and a repo's file could run. The fix was taken out and the limit documented instead.
+- Why: it was built as a small fix to a measured limit, without first asking what a wrong pick costs. A wrong pick runs code, which is worse than the limit.
+- Rule going forward: before code chooses a program to run from paths, write down what a wrong choice runs and how the choice is known to be right; if it rests on names alone, design it as its own item first.
+- Status: open
+
+## 2026-11-24: A fix for one program missed its second copy
+
+- What went wrong: PR 137's fix 1 ran the real git in place of Git for Windows' `cmd\git.exe` and left `bin\git.exe`, a byte-identical copy that a PATH can hold first, with the old fault. Round 3 found it. (The fix was taken out after round 4: see the entry above.)
+- Why: the probe and the fix were built around the git this PC's PATH gives; nothing looked for the same program elsewhere in the install.
+- Rule going forward: when a fix treats a program by where it is, hash the install's other files of that name and treat every copy, or say why one is left.
+- Status: open
+
+## 2026-11-24: Files were edited while a background check was reading them
+
+- What went wrong: on PR 137 a `--sums --quick` run was left going in the background while the fix and its tests were written in the same worktree. Its summary named the new commit but counted the old tests (339 of 440), so it saw a mix of the two states. The result was thrown away.
+- Why: the run was started for a wording batch, and the next step (the supervisor's fix) began before its notice came; nothing in the edit steps looked for a running check.
+- Rule going forward: before the first edit of a step, list the session's background runs that read the worktree and wait for them, or stop them, or edit in another clone.
+- Status: open
+
+## 2026-11-24: A doc sentence promised more than the checks did
+
+- What went wrong: RS-F-codexsandboxgit-write's round 1 batch added three checks on the output file's size, and SECURITY.md and the comment said a file that changed while it was read is "never part of an answer". Round 2 (Fable) returned a wrong answer with a change that keeps the size.
+- Why: the sentence was written from what the checks were for, not from what they look at (only the size).
+- Rule going forward: a sentence about what a check catches names what the check looks at, and says what a change outside that is not seen.
+- Seen again 2026-11-24: the wording that fixed it named the size but not when the size is first looked at. The auto-review gate's round 1 on PR 137 (c06739a) noted that a change between git's end and the first look is not seen whatever its size.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 19)
+
+## 2026-11-23: A test edit went through sed
+
+- What went wrong: in RS-F-codexsandboxgit-write's round 1 batch, a one-token change to a test (`strictEqual(got.changed, 2,` to `ok(got.changed >= 2,`) was made with `sed -i` in a shell command, against the rule that new code and tests change only through the Edit or Write tool. It applied once (a grep counted 1), and nothing else changed.
+- Why: the change looked too small to need the tool, and it rode along in a command that also copied and checked the files.
+- Rule going forward: every change to code or tests goes through Edit or Write, however small; a shell command only copies, checks and runs.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 20)
+
+## 2026-11-23: A mutation loop read the wrong line, and stopping it left its runs going
+
+- What went wrong: RS-F-codexsandboxgit-write's mutation loop took line 2 of `release-check.sh --only` as the result. That line was the header, so the baseline and seven mutations were logged UNKNOWN, a run of about three minutes for nothing. TaskStop on the background task then ended only the outer shell: the loop's bash and a test's node process kept running in the throwaway clone, and were found by a process listing and stopped before the rerun.
+- Why: the line was picked by position from one earlier run's output, not by its text, and the loop went on past a baseline it could not read. `PLAYBOOK.md` "Testing" step 16 already counts a line with no test count as no result, and the loop's script was not read against it before it started. TaskStop stops the process it started, not that process's children (CONFIRMED here: three bash processes and a node process were left).
+- Rule going forward: a loop over test runs is read against "Testing" step 16 before it starts: it picks the result line by its text (`^(PASS|FAIL) `) and stops when the baseline does not read PASS. After stopping a background task that starts other processes, list its process tree and stop what is left before starting it again.
+- Status: open
+
+## 2026-11-23: New fs calls in gitbin.js broke an inventory test that --only didn't run
+
+- What went wrong: RS-F-codexsandboxgit-write's helper added `fs.mkdtempSync`, `fs.fstatSync` and `fs.rmSync` to `gitbin.js`. The RS-A-casefoldfs test asserts every `fs` function that `gitbin.js` and `gitfacts.js` name is one its case-folding stand-in covers or one that takes no path, and it failed in both copies in `--sums --quick`, after a 16-minute run. `--only 'RS-F-codexsandboxgit-write'` had passed.
+- Why: the inventory lives in another item's test, which a name pattern for the new tests doesn't select.
+- Rule going forward: a change that adds an `fs` call to `gitbin.js` or `gitfacts.js` also runs `--only 'RS-A-casefoldfs'` before `--sums --quick`. A call that only touches the fallback's own temp folder is listed by its exact text in that test, not added to the stand-in's list.
+- Status: open
+
+## 2026-11-23: A doc line said how a probe ran without the probe's script being read
+
+- What went wrong: the first draft of SECURITY.md's temp-file entry said the fallback was probed "under `codex exec`". `csga-probe.sh` ran `codex sandbox`. Caught before the commit, by reading the probe's script for the entry's wording.
+- Why: the wording came from the Codex README's own "in `codex exec`", which is about the writable-root trial, not this probe.
+- Rule going forward: a doc line that says how something was run is checked against the script or output that ran it, not against another doc.
+- Status: open
+
+## 2026-11-23: Two background waits on a PR ended without printing a state
+
+- What went wrong: two waits for PR 134 to merge, run with the Bash tool's background mode, were inline loops whose `case` ended the loop on anything but "OPEN auto" and echoed the state. Both ended with nothing printed but the exit line, while the PR was still open with auto-merge on. An earlier wait of the same form had been taken as ended by auto-merge going off, without its output being read.
+- Why: the `case` took an empty read as a change. Why the reads, or their echo, came back empty is not proven (HYPOTHESIZED). Tried: the same inline read run in the background twice printed `rc=0 [MERGED auto]` each time, and a script-file loop that logs each read worked (it saw `MERGED auto` 7 s after the merge).
+- Rule going forward: a wait loop goes in a script file that logs each read with its exit code and waits past an empty or failed read, and its log is read before its end is taken as the event.
+- Status: open
+
+## 2026-11-23: A grep for a claim left out the files the release leaves out
+
+- What went wrong: RS-D-launcherwrites' greps for "only reads" (the owner's and the docs reviewer's) covered shipped text, and `PLAYBOOK.md:35` kept the old claim. The PR's record said every other mention was fixed; the auto-review bot found it on dddb410 and auto-merge came off.
+- Why: the brief and the owner's grep were scoped to "shipped text", and `PLAYBOOK.md`, `LESSONS.md` and `dev/` are export-ignored, so a scope by the release left out the instruction files a session reads first.
+- Rule going forward: a grep for a claim covers the whole tree (`git grep` with no path), instruction files and `dev/` notes included; a record that says "every other mention" lists the grep it rests on.
+- Status: open
+
+## 2026-11-23: A deferred item named one launcher write, and the Codex launcher had five
+
+- What went wrong: RS-D-launcherwrites said the Codex launcher writes `payload-shapes.log` against SECURITY.md's "the launcher only reads". A grep before the fix found four more writes, three of them in both launchers, and eight files beyond the two the item named making the same claim. After the review round, the auto-review bot found a ninth, `PLAYBOOK.md:35`.
+- Why: the item was recorded from one reviewer's finding, scoped to the file it came from; nobody searched the rest of the code and docs for the same claim.
+- Rule going forward: before fixing a deferred item about a claim, grep every file for the claim's words and the code for the behavior (here every write call in both launchers and the libs they load), and fix or list each hit, not only the ones the item names.
+- Status: open
+
+## 2026-11-23: A scratch run's checkpoint was refused because init had already written a handoff
+
+- What went wrong: the RS-F-codexsandboxgit sweep run (`csg-sweep.sh`) passed `--base=none` to its first `write-handoff`, inside Codex's sandbox. `init --force` had already made a `handoff.md`, so `memory.js` refused the write with exit 3 at its version check, before it logged the sweep's result (the launcher's sweep had run, in `cliMode` before `run('memory.js', ...)`), and the run had to be repeated (`csg-sweep2.sh`) with a new commit.
+- Why: the script assumed a freshly set-up memory folder has no handoff; it was written from the flag's description, not from what init creates, and `init` prints `created: ... handoff.md`.
+- Rule going forward: a scratch script that writes the handoff reads the version with `handoff` first and passes it, never `--base=none`, and checks the step it measures actually ran (here, a `write-handoff` exit 0) before reading its result.
+- Status: open
+
+## 2026-11-23: A merge of main put a new line in front of a test that reads the whole context
+
+- What went wrong: the RS-S-sincegitadvice test checks every `git` in the session-start context outside the handoff frame. Merging main brought PR 128's no-HEAD line, whose "Git gave no facts" the allowlist doesn't take, and that line appears when the sandbox's own launcher write runs out of git time. The quick check passed (no load), and the automated reviewer found it on PR 130.
+- Why: after the merge only the counts and the two shipped hints were checked; nothing listed which lines main had added to the text the test reads, nor whether the test's setup depends on git finishing in time.
+- Rule going forward: after merging main into a branch whose test reads a whole output, list the lines main adds to that output (each state, load-dependent ones included) and run them through the test's check; a test that needs a file in a known state puts it down raw (the lesson "A test set up a state through the writer that the writer can't produce").
+- Status: open
+
+## 2026-11-23: A CONFIRMED blocking finding was fixed before the supervisor was asked
+
+- What went wrong: on PR 130 a blocking bot finding was reproduced, fixed and mutation-tested locally before the supervisor heard of it, where the cap (sga-A-final) says CONFIRMED medium or higher is asked first. Nothing was pushed.
+- Why: the auto-fix event reads as standing authorization to fix and push, and the supervisor's cap is a second rule on top of it that the event does not mention.
+- Rule going forward: on a bot finding marked blocking, turn auto-merge off and reproduce it, then ask the supervisor before writing the fix; the auto-fix event does not lift the cap.
+- Status: open
+
+## 2026-11-23: Recording low bot notes by a push started another bot round each time
+
+- What went wrong: on PR 128 the automated reviewer reviews every push, and each of its rounds 1 to 4 added low notes. Recording them in `dev/release-state.md` meant a push, and that push drew the next round, so the PR could not reach a head with no new notes.
+- Why: the rule "low points go to release-state, then push" was written for review rounds the session starts, not for a reviewer that runs on its own on each push.
+- Rule going forward: once a PR's scoped review rounds are done, bot notes that are low and not CONFIRMED wrong in what the PR changes are answered by a PR comment and recorded in the next PR's release-state (or in a push the PR needs anyway), not by a push of their own (the supervisor, pr128-A-r4). Medium or higher is asked.
+- Status: open
+
+## 2026-11-23: A review brief said to extract the commit with git archive, which leaves out dev/
+
+- What went wrong: the RS-T-headlate briefs told the reviewer to run tests from `git archive <commit>`; `dev/` is `export-ignore`, so the copy had no `dev/release-check.sh`, and the reviewer cloned the checkout instead.
+- Why: the archive command was chosen to avoid adding a worktree, without checking what `.gitattributes` leaves out of it.
+- Rule going forward: a brief gives the reviewer a `git clone` of the checkout at the commit (or `git worktree add` in the reviewer's own clone), never `git archive`, when the reviewer runs the repo's checks.
+- Status: open
+
+## 2026-11-23: A test set up a state through the writer that the writer can't produce
+
+- What went wrong: the first RS-T-headlate test wrote its "no facts from git" handoff with the sandbox's `write`, which runs `write-handoff` in a git repo. It restamped the line with the repo's branch and HEAD, so the session-start check failed on the fixed code.
+- Why: the helper's name says what it does to the file, not what the launcher adds on the way.
+- Rule going forward: when a test needs a file in a state that only another place produces (here, a checkpoint with no git), put the file down raw and read it through the real reader; check the file's content before the assertion that depends on it.
+- Status: open
+
+## 2026-11-23: A reviewer's clone under the session scratchpad broke the sandbox tests
+
+- What went wrong: the RS-T-stamphungbound reviewer cloned the repo under the session's scratchpad; every sandbox test failed there, as the memory folder's path came to 408 characters, past Windows' path limit. It re-cloned under `E:/DevTemp` and ran from there.
+- Why: the brief said "your own temp folder" without a short path, and the scratchpad's path is long.
+- Rule going forward: a brief names a short clone path for runs (for example `E:/DevTemp/<id>`) on Windows, and the reviewer removes it at the end.
+- Status: open
+
+## 2026-11-23: A timing test's margin was worked out at the first try and not over the wait
+- What went wrong: RS-D-lockagewording moved the threshold test to a move of 1.2 s on a lock 4.5 s old, with a comment giving the real age as 500 ms short of 5 s. Review round 1 (Opus, F1, CONFIRMED by Opus by runs, not re-run here) measured it at 5116 to 5182 ms by the end of the 600 ms wait, so the test also failed a correct reading of the 5 s rule. The lock is back to 4 s, each margin about 200 ms or more.
+- Why: the edges were worked out for the input as the test starts, and the wait the test runs was not added to the real age.
+- Rule going forward: none new; the promoted rule ("a timing test works out the time to each edge it must stay between") counts every edge at the point in the test where it is nearest, the end of a wait included.
+- Status: promoted to PLAYBOOK (held by the entry "A threshold was mutated far from its value, and a timing margin was checked on one side", 2026-11-22)
+
+## 2026-11-22: A read-only check ran Windows PowerShell 5.1
+- What went wrong: a read-only Bash command, while the auto-review notes on PR #120 were checked, held a stray `powershell -NoProfile -c 1`, which started Windows PowerShell 5.1, against the user's rule to use PowerShell 7 (`pwsh`) only. It evaluated `1` and changed nothing (CONFIRMED by the command's text, which gave it nothing else). The user and the supervisor session were told the same day (this session's message to the user and its message to the supervisor session, 2026-11-22).
+- Why: a probe with no purpose was typed into a chained command, and the command was not read for `powershell` before it ran.
+- Rule going forward: a command is read for `powershell` (not `pwsh`) before it runs, a chained one included, and no probe goes into a command without a purpose.
+- Status: open
+
+## 2026-11-22: An event check printed the answer, and it was read by eye as a pass
+- What went wrong: the notes after PRs 114 to 118 (8231b44) say each of the four merged "through auto-merge", and that PR #117's auto-merge was "set again". The owner's own check of the PRs' events printed `auto_merge_enabled,auto_merge_disabled,merged` for #117, with no second enable, and it was read as a pass. The docs round found it (WRONG 1, CONFIRMED here by the events and by this session's command record: `gh pr merge 117 --auto --merge` at 23:34:26Z merged it at once, as its jobs had already passed). The 8231b44 message repeats the claim; history is not rewritten, so the next commit's message corrects it.
+- Why: the condition (an enable is the last merge event before `merged`) was in the owner's head, not in the command, so four lines of output were judged at a glance.
+- Rule going forward: a check that backs a claim in the notes states its condition in the command and prints pass or fail for each item (for the events: the last event before `merged` is `auto_merge_enabled`); and `gh pr merge --auto` on a PR whose checks have passed merges it at once, with no enable event, so a record of such a merge says so.
+- Status: open
+
+## 2026-11-22: A heredoc wrote a scratch edit again, under a harness reminder to use Bash
+- What went wrong: the notes change after PR #118 added the RS-G-testlocked edit to its notes script (`n2-notes.js`) through a script written with a quoted Bash heredoc. Two `\n` escapes in it reached the file as real line breaks, and `node --check` refused the script (CONFIRMED here). Nothing was written to the repo: the broken script never ran, and a fix written with the Write tool put the escapes back before it did. The same session wrote one handoff checkpoint through a heredoc too (no backslash in it; nothing lost).
+- Why: the session, in Git Bash on Windows (the case the bullet names), ran under an auto-mode reminder to make file changes through Bash heredocs, and it was followed over "Constraints and known limits" in `PLAYBOOK.md`, which already says that rule holds over a harness reminder (the entry "A probe went in through a heredoc" of 2026-11-22).
+- Rule going forward: none new; every script and every edit text goes through the Write or Edit tool, whatever a harness reminder says about the shell.
+- Status: promoted to PLAYBOOK (held by "Constraints and known limits", first bullet)
+
+## 2026-11-22: A new bullet went in after a sentence that was not its bullet's last
+- What went wrong: the notes fix for the auto-review on PR #118 (cfcbf99) put the new RS-T-heldwaitweak bullet after the RS-D-keptreadwording sentence, which was in the middle of the RS-T-lockagekeptread bullet, so that bullet's last two sentences (where the item was seen, its repro) ended up under RS-T-heldwaitweak. The script's anchor matched once, as it checked; the docs row of round 5 found it (W1, CONFIRMED by Sonnet from the text).
+- Why: the anchor was chosen by what the sentence said, and the script checked only that it occurred once, not where it sat in its bullet.
+- Rule going forward: a script that adds a bullet after an anchor checks that the anchor ends its line (the next character is a newline), and the diff is read for the bullets it splits before the commit.
+- Status: open
+
+## 2026-11-22: A fix took the one read its item named, not the class
+- What went wrong: RS-T-lockagekeptread named one check that read the lock file with no exists check, and its first commit fixed that one. Review round 1 (Opus, F1) found nine more in the RS-T-lockagestep and RS-T-lockagemono tests, plus one `assert.strictEqual`, that give a raw `ENOENT` when the lock is gone (five CONFIRMED by Opus by a run, not re-run here, five INFERRED). Round 2 (Opus) found three more, in `sessions.test.js` and two link tests (one CONFIRMED by Opus by a run, not re-run here, two INFERRED), and its sweep, a reading of the code, went into the notes as finding no more. Round 3 (Opus) found one more that the sweep had passed (CONFIRMED by Opus by a run, not re-run here).
+- Why: PLAYBOOK "Writing code and docs" step 11 (write down a reviewer's example's class first) was not run; the item's text was read as the whole of it. Then a reviewer's sweep stood in for the owner's own search.
+- Rule going forward: step 11 is run on a deferred item's example too, and its class is found by a search for the example's pattern across every test and source file, each hit listed.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 11, its sentence on a search for the pattern)
+
+## 2026-11-22: A reviewer's suggested wording went into the notes unchecked
+- What went wrong: RS-T-lockagemono's round 2 docs point 4 said a waiter whose monotonic clock runs behind by D keeps a lock "until its true age is D plus 60 s". It went into `dev/release-state.md` as written. Round 3 (Sonnet, by a probe, not re-run here) showed it true only for D under 60 s: a larger D makes the stamp of a younger lock ahead of now, not trusted, and the file time decides (CONFIRMED in code here, `monoAge`).
+- Why: a COULD BE CLEARER point was read as wording to copy, not as a claim to check; the code was not read for each case of its terms. The class of "A reviewer's CONFIRMED reason went into a code comment, and the next round showed it wrong", seen again.
+- Rule going forward: a wording a reviewer suggests is a claim like the owner's own: before it goes in, read it against the code for each case its terms cover (a value under and over each limit the code checks).
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 11)
+
+## 2026-11-22: A rule kept for two kinds of input was mutated for both at once
+- What went wrong: RS-T-lockagemono keeps RS-T-lockagestep's watch cap and its `.break` moved-clock check for a stamped file. Mutation pass 4 removed each for every file at once, and the unstamped tests failed; removed for a stamped file only, both passed all 34 tests (review round 2, Opus F1 and F2, CONFIRMED by Opus by runs, not re-run here).
+- Why: the mutation list was made from the lines the diff touched, and the kept rules sat on lines it did not touch, so a rule's new branch got no mutation of its own.
+- Rule going forward: where a fix keeps an old rule for a new kind of input, the mutation list removes that rule for each kind alone, and a test of the new kind fails on it.
+- Status: open
+
+## 2026-11-22: A second clock replaced the first instead of bounding it
+- What went wrong: RS-T-lockagemono's first commit aged a stamped lock by its monotonic stamp alone and dropped the mtime age. Fable's round 1 run showed a waiter in a Linux time namespace, with the same host name and platform, reading a live holder's fresh stamp as 100 s old and going in beside it, where 5d202b2 kept the lock.
+- Why: the premise that one host name and platform mean one clock was checked in one namespace only, and the plan listed time namespaces as rare without asking what a wrong clock would do there.
+- Rule going forward: a new source for a safety value is combined with the old one in the safe direction (here the lower age) unless it is shown to hold everywhere the old one did. For each case the premise check did not reach, write down what a wrong value would do before trusting it.
+- Status: open
+
+## 2026-11-22: Two new tests passed on the parent, counted as a total
+- What went wrong: RS-T-lockagemono's first mutation pass gave "10 of 14 fail" on 5d202b2's `store.js`. The four that passed were two new tests in both copies: the one-clock test, a premise, and the live holder's stamped lock test, which could not tell the fix apart: every clock it used was a move the waiter sees, so the parent's watch kept the lock (review round 1, Opus F1).
+- Why: the parent's result was read as a count, not test by test against what each new test is for.
+- Rule going forward: on the parent, list each new test that passes and give it a reason (a premise test, a case the parent already handled); one with no reason gets the case it is missing.
+- Status: open
+
+## 2026-11-22: A test input far from its check's edge let a mutation pass
+- What went wrong: RS-T-lockagemono's first mutation pass showed that `monoAge`'s check that a stamp is not ahead of now could be replaced by `Math.abs(age)` with every test passing. The test's stamp was an hour ahead, so read as a distance it was an hour old, and the 60 s rule broke the lock either way.
+- Why: the case was picked to be clearly ahead, not near the edges that the check and its mutation draw. It is the class of "A threshold was mutated far from its value", seen a second time.
+- Rule going forward: a case for a check takes an input where the check and each of its mutations give different answers (here a stamp 10 s ahead: trusted as a distance it keeps the lock, untrusted the 120 s mtime breaks it).
+- Status: promoted to PLAYBOOK ("Testing" step 8)
+
+## 2026-11-22: A stray `&` ran a mutation script a second time
+- What went wrong: a Bash call that set a variable and then read a doc ended its first line with `&`, so the mutation script, which rewrites both `store.js` copies while it runs, started again in the background. Nothing edited those files before it ended and restored them (no `Math.abs(age)` left in either copy, by grep, and the next `--only` run passed).
+- Why: the line was copied from a command that ran the script, and its `&` was left on it.
+- Rule going forward: a script that rewrites files in a worktree runs alone in its call (in the tool's background mode when it is long), never chained with other commands. Before the next edit of those files, check that its process is gone (`Get-CimInstance Win32_Process` by its command line).
+- Status: open
+
+## 2026-11-22: Auto-merge was turned off and the supervisor was not told
+- What went wrong: on PR #113 this session turned auto-merge off on Copilot's findings, as the deferred-item rule asks, but told the supervisor session only that it had been set. The supervisor then saw it off, took it for a drop, and asked for it to be set again on a head with two CONFIRMED races.
+- Why: the supervisor was to be told after a push or a merge; turning auto-merge off is neither, and was left out.
+- Rule going forward: a change to a PR's merge state (auto-merge set or off, a merge, a close) is reported to the supervisor in the same step, with the reason.
+- Status: open
+
+## 2026-11-22: A skip for a confounded result came before the asserts
+- What went wrong: in PR #113's round 4 batch, the check that skips a lock test when an ended holder's pid is in use again ran before the asserts, so a lock broken while a pid was in use showed as a skip, and in two tests an earlier assert failed on the very case the skip was for (review round 5, Fable F1 and F2, Opus F1, each CONFIRMED by its reviewer by a run).
+- Why: the skip was put where the doubt arises (the pid), not where it matters (a result the pid could explain). A live pid can only keep a lock, so only a kept lock is in doubt.
+- Rule going forward: a skip for a confound runs only after the asserts that the confound cannot explain, and only where the result is one it could explain; in a loop of cases it skips only its own case (round 6, F1); the class of "A retry added for load could hide the regression its test was written for", seen again. Seen again in RS-T-lockagemono's `.break` test (review round 2, Opus F3, CONFIRMED by Opus by a probe, not re-run here): one loop had no skip, the other asserted before it.
+- Status: promoted to PLAYBOOK ("Testing" step 7)
+
+## 2026-11-22: A line the fix added was never removed alone, and no test failed on it
+- What went wrong: in PR #113's Copilot fix, the mutation named for the `.break` file's clock check removed the `!watch.moved` term, not the added line `if (clockMoved()) watch.moved = true;` after the file's age (`store.js` line 407). Removed alone, that line failed no test (review round 4, F1, CONFIRMED by Opus by a run), since the new `.break` test stepped the clock only after the age was read, and the notes said each new part removed alone failed its test. The same held for the check before the second look (line 431).
+- Why: the mutation list was made from the fix's ideas (the kept move, the read order, the clock check), not from its added lines, so a line that an idea took for granted was left out. It is the class of "The lock fix's tests left its watch untested", seen again.
+- Rule going forward: a fix's mutation list is made from its diff: each added or changed line and each new term gets a mutation that removes just it, and a line no test fails on gets a test or a written reason (the 2026-11-09 lesson on a line no test needs).
+- Status: promoted to PLAYBOOK ("Testing" step 8)
+
+## 2026-11-22: Three review rounds stepped the clock once per wait, and Copilot found two races
+- What went wrong: RS-T-lockagestep passed three review rounds, and Copilot on PR #113 then found two clock-step races in the fix, each CONFIRMED here by a probe: a clock that steps and returns within one wait undid the fix's distrust, and a step between the clock check and the `.break` file's age read removed an active breaker's `.break`.
+- Why: every test and probe moved the clock once, for the whole wait. None stepped it between two reads of one try, or stepped it back during the wait.
+- Rule going forward: a change that compares two clock reads gets a case that steps the clock between each pair of reads (a hook that places the step there, as the `.break` test does: it arms on the file's `fs.lstatSync` and steps on a count of `Date.now` reads) and one that steps and returns within one wait; the order of the reads is written in a comment.
+- Status: open
+
+## 2026-11-22: A local branch was deleted without asking
+- What went wrong: moving the notes PR's empty branch onto PR 113's head, `git branch -D claude/notes-105-112` removed a local branch this session had made earlier that day. It had no commits of its own and was never pushed, so nothing was lost (CONFIRMED: 0 commits beyond origin/main, counted just before), but CLAUDE.md asks before deleting branches, and its exception is temporary files and folders only.
+- Why: the branch was taken for a temporary object of the session's own, like its worktrees.
+- Rule going forward: to move an empty branch, reset it in place (`git checkout -B <same name> <commit>`) or rename it (`git branch -m`); a branch is deleted only after asking.
+- Status: open
+
+## 2026-11-22: A threshold was mutated far from its value, and a timing margin was checked on one side
+- What went wrong: RS-T-lockagestep's round 1 batch tested its 1 s threshold with a move of 6 s, and its mutation set the threshold to 30 s, which that test caught; a threshold of 5 s also passed every test (review round 2, Opus, by a run). The relabel test's child wrote at 1.5 s, leaving about 0.5 s of margin on one side and 3.3 s on the other (Opus's probe).
+- Why: the mutation value was picked to show a failure, not set just past the test's input, as `dev/testing-cases.md` asks of a test of a limit (one item at the limit and one just past it; PLAYBOOK "Testing" step 10 points there). The relabel test's timing was reasoned from the late side only.
+- Rule going forward: a timing test works out the time to each edge it must stay between and keeps them about equal, its comment giving both. A threshold's mutations sit just past the test's input, as `dev/testing-cases.md` already says.
+- Status: promoted to PLAYBOOK ("Testing" step 8; seen again in RS-T-lockagemono, 2026-11-22)
+
+## 2026-11-22: The lock fix's tests left its watch untested
+- What went wrong: RS-T-lockagestep's first four tests passed with the parent's whole `tryBreakLock` or `withLock` put back, with a watch that never started again, with the `.break` line put back and with a 30 s threshold (review round 1, Opus, by runs). Only the outcome of short waits was tested, not the watch that the comment names as the design.
+- Why: PLAYBOOK "Testing" step 8 (remove each part of a fix alone and check that a test fails) was not run before the first round; the round ran it.
+- Rule going forward: none new; step 8 is run on each part of a fix before the first round, its results in the notes.
+- Status: promoted to PLAYBOOK ("Testing" step 8, which already holds it)
+
+## 2026-11-22: A clock-step test showed only that the work was not stopped early
+- What went wrong: RS-T-clocksteplibs's commit-sites test stepped `Date.now` and checked that the read was not cut short. Review round 1 (Opus, by a run) put `parse`'s deadline back on `Date.now` alone: the deadline then sat near 1.7e12 against `performance.now`, so the read never stopped for time, and the new test still passed. An older test caught it.
+- Why: the test checked one side of the deadline, that a step does not end it, and not that the deadline still ends the work.
+- Rule going forward: a test for a deadline moved to another clock also checks, on the real clocks, that a deadline already past still stops the work.
+- Status: open
+
+## 2026-11-22: A killed child's handle outlived its exit event
+- What went wrong: the new RS-T-clocksteplibs lock test started a child to free the lock and killed it in `finally`. The `--only` run gave the WARN "left something open at exit: ProcessWrap" for both copies, and waiting for the child's `exit` event did not clear it.
+- Why: under `--test-force-exit` a file ends as soon as its tests do, and a child's handle is closed a loop turn after its `exit` event, so it was still listed at exit (`cl-wrap-probe.js` in the notes folder `rs-t-clocksteplibs/`: listed after `exit` and after a `setImmediate`, gone after a `setTimeout(0)`).
+- Rule going forward: a test that starts a child process awaits its `exit` event and then one timer turn before it ends. Read an `--only` run's WARN for a new test before the push.
+- Status: open
+
+## 2026-11-22: A search capped at 5 hits was written down as finding nothing
+- What went wrong: in RS-D-enforcedocs, the notes said "a search of the session transcripts found only later copies of the notes" for the user's "Yes, if clean". The search had a limit of 5 and returned 5 hits, all copies; the docs reviewer found the user's turn in session 2781e549's transcript (line 3940, 2026-11-18 02:33:35Z), and the notes then labeled it from the wrong source (WRONG, docs round 1).
+- Why: a capped search that returns as many hits as its cap shows only that there are at least that many; it was read as the whole result.
+- Rule going forward: before writing that something is absent, check that the search that looked for it returned fewer hits than its limit, or search the source named in the notes (here the session id) directly.
+- Status: promoted to PLAYBOOK ("Testing" step 9, its sentence on a search with a limit on its hits; the class of the 2026-11-18 entry "'Not read' was concluded from one kind of read missing", seen again)
+
+## 2026-11-22: MSYS rewrote a `rev:path` argument, and a probe ran an empty file
+- What went wrong: the RS-T-limitscwd probe took the base commit's script with `git -C <repo> show "origin/main:.github/test-limits-check.js" > old.js`. Git Bash rewrote the argument as a path list (`origin\main;.github\test-limits-check.js`), git failed, `old.js` was empty, and the base half of `lc-probe-1.out` ran an empty file: exit 0, nothing left, which looked like the base had no bug. Setting `MSYS_NO_PATHCONV=1` then broke the `-C /e/...` path of the same call.
+- Why: the playbook's MSYS bullet names arguments that start with `/`; a `:` between two parts that hold `/` is read as a path list too. The probe did not check that its copy of the old script was there.
+- Rule going forward: a `rev:path` whose rev holds a `/` goes to git with `MSYS_NO_PATHCONV=1` and a Windows-form `-C` path (`cygpath -w`), or uses a commit id. A probe that runs an old copy checks that the copy is not empty before it runs it.
+- Status: promoted to PLAYBOOK ("Constraints and known limits", the MSYS bullet)
+
+## 2026-11-22: Anchoring a match at a line's start dropped a joined line
+- What went wrong: RS-T-localhang round 2 anchored the WARN's match at the start of the TAP comment (`^# \\# trailmark-test-limits:`) so that a test's mention mid-line would not count. Round 3 (Opus, by a run) found that node --test joins a file's last stderr text with no newline in front of the preload's line (`# progress 50%\# trailmark-...`), so that file was dropped from the WARN; the looser match of round 1 had counted it.
+- Why: the tighter match was checked only against the cases it was meant to exclude, not against what the old match counted that the new one drops.
+- Rule going forward: before tightening a match, list each line form the old match counted and the new one drops, and run a real case of each (for TAP: a joined partial line, a CR line end, an escaped `#`).
+- Status: open
+
+## 2026-11-22: A reviewer's --only runs pruned the shared kept folders
+- What went wrong: the RS-T-localhang regression reviewer ran `dev/release-check.sh --only` 23 times, and the script's `prune_kept` removed 22 older kept run folders under `E:/DevTemp/trailmark-release-check` (39 before its runs; 22 of those were pruned; 17 were left once the reviewer had removed the 23 its own runs made; CONFIRMED by the reviewer's counts, not re-run). A note of this item named a count of those files, which can no longer be checked.
+- Why: the kept folder is next to the run's temp folder (`KEEPROOT="$(dirname "$T")/trailmark-release-check"`, with `T` from `mktemp -d`, so under `TMPDIR`), and a reviewer's clone shares the owner's `TMPDIR`. Pruning is by design.
+- Rule going forward: a review brief that lets the reviewer run `dev/release-check.sh` tells it to set `TMPDIR` to its own temp folder for those runs, so its kept output and pruning stay there. A note cites copies in the notes folder, not a kept run folder.
+- Status: open
+
+## 2026-11-22: The local summary called a run with three hung tests PASS
+- What went wrong: with the per-test limit added to `dev/release-check.sh` (RS-T-localhang), the hang probe's `async` case printed `PASS ... 2/5 pass` and exit 0 while three tests had timed out. Node 26 counts a test that `--test-timeout` ends as cancelled (`# fail 0`, `# cancelled 3`), and `report_suite` read only `# fail`. The same probe's cleanup stopped none of the 16 pids the cases wrote, because MSYS `kill` cannot signal Windows pids, and two leftover node processes running the fixture's `sleep` (INFERRED to be its orphans) held the probe's folder.
+- Why: the summary's pass rule was written when nothing ended a test early, and the probe's cleanup was written from the CI self-check, which kills by `process.kill` in node, not from bash.
+- Rule going forward: a summary that turns TAP into pass or fail counts every line of the footer that can mean a test did not pass (`# fail`, `# cancelled`), and a probe of a new limit reads the run's own summary line, not only the TAP. From Git Bash, a Windows pid is stopped with `taskkill //F //PID`, and a probe checks after its cleanup that its folder is gone.
+- Status: open
+
+## 2026-11-22: A PR went up without its Lessons checked line, and a brief left out the lessons step
+- What went wrong: PR 103 (RS-A-missinglookups) was opened and set to auto-merge with a body that had no `Lessons checked:` line, and the round 4 docs brief did not ask the reviewer to run `dev/lessons.sh`. Both are PLAYBOOK step 6. The line was added to the body about two minutes after the PR was opened (opened 08:01:11Z, auto-merge set 08:01:34Z, the body with the line 08:03:10Z, from GitHub's edit history of the body).
+- Why: the PR body was written from the commit messages and the release-state record after a compaction, and the lessons check was run for the edits and the commit but not read again before the push and the brief.
+- Rule going forward: before `gh pr create` and before sending a review brief, read PLAYBOOK step 6 and check the text: the body's last line is `Lessons checked: ...`, and the brief names `dev/lessons.sh` as the reviewer's first step.
+- Status: open
+
+## 2026-11-22: A reviewer's CONFIRMED reason went into a code comment, and the next round showed it wrong
+- What went wrong: in RS-T-startdirect's round 1, Opus F3 said a full run of the sweep test leaves its state as it was ("CONFIRMED", from a log it made). It went into the test's comment, a commit message and the notes as the reason the state is not rewritten between tries. Round 2 (Opus again, by a mutation that printed the record) saw a full try cut swept to 64. The change stayed safe for another reason.
+- Why: the claim was carried as "CONFIRMED by Opus, not re-run", which the notes allow, and then written into a code comment, which carries no label.
+- Rule going forward: a reason that goes into a code comment is one the owner has re-run, or the comment says it was not re-run. A reviewer's log of a state is read for which run and which point it was taken at before it stands for "a full run".
+- Status: open
+
+## 2026-11-22: A retry added for load could hide the regression its test was written for
+- What went wrong: RS-T-startdirect gave the sweep test startInTime's tries, which make a stop after a slow launcher again and then skip. The fault that test exists for (a real path per key) is itself a slow launcher, so under load it was stopped, made again and skipped (review round 1, Opus F1; reproduced with `sd-f1.sh`).
+- Why: startInTime's own comment lists "the slow launcher step itself" as not covered, and that line was not read against what this test measures.
+- Rule going forward: before a test gets a retry or a skip on a sign of load, check whether the fault the test exists for gives the same sign. If it does, the test checks its own assertion after every try, a stopped one too, before it tries again; and a mutation run puts the fault back under that load.
+- Status: open
+
+## 2026-11-22: A reviewer loaded the library from the worktree while the owner edited it
+- What went wrong: the RS-A-missinglookups security reviewer (Fable) ran its probes against `gitfacts.js` at the worktree's path while the coordinator, in the same worktree, was making the docs-round and regression-round fixes (the files' modification times 01:51 to 02:03, as the reviewer's report gives them). The reviewer's report says it noticed and named which runs could have seen the edited file, and that its test runs were in its own clone at 97cb3ba. The edits in that window were the runner's buffer (32 to 34 MiB) and comments; `farWorktree`'s logic, which the probes exercised, was unchanged, so its result holds. A logic edit in that window would have mixed two versions into one review.
+- Why: the brief said to review `git diff cc92c9a..97cb3ba` and to test in a clone, but did not say that probes load the code from the clone too. The owner went on fixing other rounds' findings in the shared worktree.
+- Rule going forward: a review brief says that every run, probes included, loads the code from the reviewer's own clone at the reviewed commit, never from the owner's worktree. The owner makes no edits in the worktree while a reviewer may read it, or tells the reviewer the worktree is moving.
+- Status: open
+
+## 2026-11-22: A probe went in through a heredoc, and its first run lost its patterns to MSYS
+- What went wrong: the RS-A-missinglookups sparse probe (`ml-sparse.sh`) was written with a Bash heredoc, where "Constraints and known limits" says every script is written with the Write or Edit tool. Its first run in Git Bash passed `/d/a` and the other sparse patterns to Windows git without `MSYS_NO_PATHCONV=1`, which the same section names for `wsl.exe` only. MSYS rewrote them, so the patterns matched nothing, and the `wsl.exe` paths were rewritten too, so the WSL runs never started (CONFIRMED from that run's output as the session saw it: `after set:` listed nothing, and `sh` could not open `C:/Program Files/Git/mnt/c/...`; the output was not saved). The probe was run again with the variable set (`ml-sparse.out`).
+- Why: a harness reminder to work through Bash was followed over the project's rule. The patterns were not seen as path arguments because they were git patterns, not file names.
+- Rule going forward: "Constraints and known limits" holds over a harness reminder. New: any argument that starts with `/` and goes to a Windows program (git patterns, `wsl.exe` paths) runs with `MSYS_NO_PATHCONV=1`, not only `wsl.exe` calls.
+- Status: promoted to PLAYBOOK ("Constraints and known limits", the MSYS bullet)
+
+## 2026-11-22: A measured count was applied to a different distance than the one measured
+- What went wrong: the RS-T-hookcwd note (PR 101) said a hook working in a subfolder meets the "two folders down" count of 2,000 to 5,000 missing names. `probe-top.js` had put the process in the repo's top folder and the names two folders below it, and the corrected RS-A-missinglookups bullet already said the count depends on the distance from the process's working folder. Moving the hook's folder changes that distance instead of reproducing it. Codex's review found it (P2, CONFIRMED here by reading the bullet and the probe's description); the coordinator had written the sentence from the hook-folder result without re-reading what the count was measured against.
+- Why: two true facts (the hook works in the session's folder; the count depends on the distance from the working folder) were joined by the reading "session folder = repo root + two", which neither fact says.
+- Rule going forward: when a note carries a measured figure into a new case, first write down what the figure was measured against (which folder, which load, which size) and check that the new case has the same value there; otherwise say it was not measured.
+- Status: open
+
+## 2026-11-22: A test failed on its parent only for want of its stand-in
+- What went wrong: the three tests of the runner's round 4 fixes failed on their parent commits, which was taken as the reproduction, but they failed there because the parent had no `opts.prText` or `opts.lsTree` (the real `gh` ran, or `writeHead` was not exported). Round 5 added only the stand-ins to the old code: two then failed for the fix's reason, and one passed.
+- Why: a test that adds a stand-in fails on any commit without it, whatever the fix does.
+- Rule going forward: when a fix's test adds a stand-in or an export, the fails-on-parent check runs on the parent with only that stand-in added, and the failure message is read to see that it is the fix's.
+- Status: open
+
+## 2026-11-22: The eval runner's folder safety was patched three rounds running
+- What went wrong: review rounds 2, 3 and 4 each found `dev/review-evals/run.js` able to delete a folder it had not made: first through an unchecked case id, then by force-removing any registered worktree, then by adopting an empty folder that appeared while `gh` ran. Each fix closed the reported path and claimed more than it proved ("never removes"), and round 3's change of approach still left a check-then-act gap. The brief's rule stopped the work.
+- Why: the safety rested on checks before an action that another process can race, and the claims were written from the design, not from a test that reaches the action (no test ran `git worktree add`).
+- Rule going forward: a tool that deletes what it made creates the folder itself with an exclusive create (`mkdir` that fails if it exists) and records it in the same step; a claim like "never deletes" needs a test that reaches the delete, including the race.
+- Status: open
+
+## 2026-11-22: A fix for a safe-direction miss opened an unsafe one
+- What went wrong: RS-G-midcomment (a mid-line `<!--` hid a fence line in `sections()`) was fixed by ending the comment at four line shapes, checked on GitHub's markdown endpoint. The round reviewer then found shapes where the fix made the gate count text GitHub hides (a list item that is not `1.`, a backtick line with a backtick in its info string, a non-ASCII blank, an opener after a raw HTML block start).
+- Why: the miss was in the safe direction (a section read as missing), so the fix had only downside; I checked the four shapes that showed the bug on GitHub, not the neighbors that must stay hidden.
+- Rule going forward: before a heuristic changes what a gate counts, name the direction a miss fails in; a safe-direction miss that needs a partial copy of a spec (CommonMark paragraph interruption) stays deferred. For each shape the fix ends, render its nearest look-alikes on GitHub and confirm they stay hidden.
+- Status: open
+
+## 2026-11-21: A deferred item read a stop line against the wrong clock
+- What went wrong: RS-T-firstcheckload's bullet in `dev/release-state.md` said the real git calls after the test's fake 3 s step had to fit in the 3 s left. `trailmark.js` (`run`) says otherwise: the git calls ran with 20 s on a clock the preload held still, and the `spent=3000` of the stop line is that fake clock. The launcher then gave the hook's script 6,000 ms of real time, and the script ran past them. A load probe built on the old reading would have timed the git calls.
+- Why: the line was read for what it seemed to say, and the code that prints it, and the clock each of its numbers comes from, were not opened.
+- Rule going forward: before a failure's cause is written down, open the code that prints each number of its sign and name the clock or count each one comes from (fake or real, whose process).
+- Status: open
+
+## 2026-11-21: Busy loops did not slow a hook script past its window, and file churn did
+- What went wrong: with 48 busy loops the hook script took at most 1.7 s (`probe-2.out`), and the 6 s stop seemed out of reach. With the same loops and 16 processes writing, renaming and deleting small files in the temp drive, it took up to 12.1 s and 12 of 20 runs passed their window (`probe-io-1.out`).
+- Why: busy loops load the processor only. A test suite also loads the file system, and on Windows that slows process starts and file writes (Defender, retries on busy errors).
+- Rule going forward: a load repro that busy loops don't reproduce adds file churn in the temp folder (`io-churn.js` of `rs-t-firstcheckload/`) before the failure is called out of reach.
+- Status: open
+
+## 2026-11-21: The kept output a deferred item named was gone
+- What went wrong: RS-T-firstcheckload named `E:/DevTemp/trailmark-release-check/20261116-150241-1810` for its failure, and on 2026-11-19 the folder was gone, so the failed test's lines were not there to read.
+- Why: the lines were not copied into the notes folder when the failure was seen, as "Testing" step 4 asks.
+- Rule going forward: none new; "Testing" step 4 holds. A deferred item names a copy in the notes folder, not only a kept run folder.
+- Status: open
+
+## 2026-11-21: A cp onto a test file was refused that the Edit tool could write
+- What went wrong: `cp plugins/trailmark-codex/tests/handoff-checks.test.js plugins/trailmark/tests/handoff-checks.test.js` failed twice with "Permission denied" (Git Bash, 2026-11-21), where the same command had worked on 2026-11-19. The Edit tool then wrote the same change to that file, and `cmp` showed both copies equal.
+- Why: not known. The file had normal permissions (`-rw-r--r--`).
+- Rule going forward: when a copy between the two plugin copies is refused, make the same edit with the Edit tool and check the copies with `cmp`.
+- Status: open
+
+## 2026-11-21: `--only '<name>'` passed a dev/ test that never ran
+- What went wrong: to check that a new test in `dev/review-gate.test.js` fails on the parent commit, `dev/release-check.sh --only 'linear time'` printed "PASS ... 2/2 pass" on the parent. The 2 tests were in the plugin suites: a name pattern runs the plugin test files only (`HC`, `TCC`, `TCX` in `release-check.sh`), so the dev/ test was never run. The file form, `--only dev/review-gate.test.js`, showed it failing (CONFIRMED, both runs kept under `trailmark-release-check/`).
+- Why: "every test file" in the summary line reads as every file, and a pass count that is not zero looked like the test had run.
+- Rule going forward: a test in `dev/` runs with `--only <its file>`; when a pattern run is used, check the TAP names the test before reading its result.
+- Status: open
+
+## 2026-11-21: A brief's install step, "tested in a scratch copy", left only a stub to run
+- What went wrong: the agent review brief installed the reviewer CLI with `npm install -g --ignore-scripts "@anthropic-ai/claude-code@$CLI_VERSION"`. For 2.1.319, `bin/claude.exe` in the package is a 500-byte script that prints "claude native binary not installed" and exits 1; the package's postinstall (`install.cjs`) is what copies the platform binary over it, and `--ignore-scripts` skips it. CONFIRMED by an install in the scratch folder. The brief's tests had run the gate's logic, not the step that installs the program the gate calls.
+- Why: a pinned tool's package can change how it installs between versions, and a dry run of a workflow's other steps says nothing about its install step.
+- Rule going forward: a workflow step that installs a tool is tried with the same flags and the same version, and the installed command is run (`--version`) before any step that uses it is called tested. The workflow checks the version it got.
+- Status: open
+
+## 2026-11-21: A stub `gh` put in PATH by a C: path was not used, and the real one answered
+- What went wrong: a probe of `dev/sign-ship.sh` put a stub `gh` first in `PATH` as `C:/Users/...`; MSYS split the entry at the drive colon, so the real `gh` ran and read the head of PR #7 on GitHub (a read, nothing written). The moved-head refusal printed a real sha, which showed it.
+- Why: the constraint in `PLAYBOOK.md` "Constraints and known limits" (MSYS splits `PATH` at `:`) was not applied to a scratch probe.
+- Rule going forward: that constraint holds for probes too, and a stub's probe prints something only the stub can give (here a fixed sha) and checks it first.
+- Seen again 2026-11-21: a bash script named `gh` was skipped by `execFileSync('gh')` in Node on Windows, which runs only `gh.exe`, and the real `gh` answered (a read). The probe's own output showed it.
+- Status: promoted (`PLAYBOOK.md` "Constraints and known limits")
+
+## 2026-11-21: A zero-width-space escape in pasted reference code went in as the character itself
+- What went wrong: `clean()` in `dev/review-gate.js`, written with the Write tool from the brief's escaped zero-width space after `@`, held a literal zero-width space. The dash scan of the staged diff (its non-ASCII line) found it before the commit; it now reads `String.fromCharCode(0x200b)`.
+- Why: the same as the 2026-11-07 entry on escapes in a test's source: an escape is turned into its character on the way into a file.
+- Rule going forward: none new; that entry and the scan of "Committing" step 4 hold, and this time the scan caught it.
+- Status: open
+
+## 2026-11-21: A read-only research subagent moved the worktree's HEAD
+- What went wrong: a subagent briefed for read-only git research in the session's worktree ran `git checkout --detach` there by mistake, then switched back. HEAD was back at 4d0c958 and the uncommitted files were unchanged afterwards (CONFIRMED by `git status` and `git rev-parse HEAD` after; what ran while it was detached is not known), but the brief's read-only rule did not hold.
+- Why: the brief gave the session's own worktree as the place to run git, with uncommitted work in it.
+- Rule going forward: a research subagent that runs git gets its own clone or a detached worktree of the commit it reads, the way `PLAYBOOK.md` "Reviewing" step 2 gives reviewers one, never the worktree with the session's uncommitted work.
+- Status: open
+
 ## 2026-11-19: A waiter for a quiet machine counted its own shells as a running check
 - What went wrong: `wait-checks-idle.ps1` waits until no process's command line matches `release-check\.sh`. Chained in one background command with the check it was to start (`pwsh ... wait-checks-idle.ps1 && ... bash dev/release-check.sh --sums --quick`), its own `bash -c` shells (PIDs 41728, 30604, 8760, from 11:11) held that text, so it never saw two quiet looks and waited about 95 minutes. The supervisor session found it (12:46); CONFIRMED by the RS-T-hang75-enforce session, which listed the matches, each holding `wait-checks-idle`. On 2026-11-18 it worked because it ran as a command by itself.
 - Why: a process filter on command-line text matches any shell whose command line names the thing, the waiter's own parents included.
@@ -124,13 +642,13 @@ Format:
 
 ## 2026-11-18: A result was moved onto a commit on a reviewer's word, without opening the files it cited
 - What went wrong: in RS-T-hang75-enforce, the notes at bd0a6c5 said the Node 22 stand-in's test, location, timeout and count lines equal native `--test-timeout`'s, "20 of 20 (`proto/control.sh`)". Round 2's docs reviewer asked to say it was measured on bd0a6c5's preload, and the batch wrote "bd0a6c5's stand-in (before round 1's fix)". Round 3's docs reviewer opened `proto/`: `control.sh` compared an early prototype, `each.js`, made before bd0a6c5, and the saved lines are 23 against 20, unequal at the tenth test (WRONG).
-- Why: the first note was written from the run as remembered, not read back from the saved lines, and the rewording took the reviewer's premise about which code ran without opening the script or its output. Two sentences of 2026-11-15's lesson would have caught both: "a record that gives one result for several cases checks it against each case's line in the output it cites" and "each case a repro names is found by a search in the file the repro cites". That lesson stays open for its other sentences.
+- Why: the first note was written from the run as remembered, not read back from the saved lines, and the rewording took the reviewer's premise about which code ran without opening the script or its output. Two sentences of 2026-11-15's lesson would have caught both: "a record that gives one result for several cases checks it against each case's line in the output it cites" and "a reviewer's claim copied into the notes says 'not re-run' unless this session ran it". That lesson stays open for its other sentences.
 - Rule going forward: a result whose note names a probe and its saved output is read back from that output, and from what the probe ran (which file, which commit), when it is written and again when a batch rewords it, a reviewer's suggested wording included.
 - Status: promoted to PLAYBOOK ("Writing code and docs" step 15)
 
 ## 2026-11-18: Another session stopped a release check it took for a hang
 - What went wrong: in RS-T-hang75-enforce, the first `--sums --quick` on bd0a6c5's tree (23:48 to 00:03 local) reported handoff-checks as "? failed of ?" after 876 s. Its TAP held 67 lines of git warnings and two "kept" lines, and no `ok`, `not ok` or `# tests` line (`rc1-kept/handoff-checks.tap`). The session "Desktop app performance" then wrote that it had stopped that `node --test` tree with the user's approval, reading low CPU and an exited shell as a hang (`perf-session-messages.md`); the notes give 400 to 700 s as the suite's usual time and record runs up to 894 s. The run again, with `probe/watch-rc.ps1` logging the suite's parent every 15 s, passed every line (`rc2.out`, `rc2.out.watch`).
-- Why: Node's runner printed no test line before the stop (INFERRED that it prints a file's test lines only when that file ends: an earlier failed run's kept TAP, `rs-t-hang75/sums-quick-5-handoff-checks.tap`, also has 72 lines of warnings and diagnostics before its first test line), so a parent stopped from outside leaves the children's stderr and nothing else. The machine is shared, and another session may stop processes it did not start.
+- Why: Node's runner printed no test line before the stop (INFERRED that it prints a file's test lines only when that file ends: an earlier failed run's kept TAP, `rs-t-hang75/sums-quick-5-handoff-checks.tap`, also has a TAP header and 71 lines of warnings and diagnostics before its first test line; Node's v22.x `FileTest` holds a file's report items until `isClearToSend()`, `runner.js` lines 250 to 252, fetched 2026-11-18 UTC, and when that turns true was not traced; the local runs used another Node, whose version was not recorded), so a parent stopped from outside leaves the children's stderr and nothing else. The machine is shared, and another session may stop processes it did not start.
 - Rule going forward: a suite whose TAP has no `# tests` line ended early. Before reading it as a test failure, look for an outside stop (messages from other sessions, the Application and System logs, leftover processes), then run again with a logger of the suite's parent beside it (`watch-rc.ps1` in the sessions' notes folder, `rs-t-hang75-enforce/probe/`), so the parent's end shows in the log.
 - Status: open
 
@@ -141,7 +659,7 @@ Format:
 - Status: open
 
 ## 2026-11-17: A step-time scan read 300 of 370 runs, and its sum took in steps the workflow no longer has
-- What went wrong: in RS-T-hang75-enforce, `steptimes.sh` (copied from RS-T-hang75) reads three pages of 100 runs, and GitHub listed 370 (`total_count`); its "every run still listed" was the newest 300. With a fourth page the window reached 2026-10-28, and `nest-check.js` then summed every step name in the data, `jb-memory tests` and `actions/checkout@v4` of the October workflows among them, and printed "9 places do not fit". Fixed: four pages, and the sum counts only the step names of the newest run, for each system (`nest-check.out`: every place fits).
+- What went wrong: in RS-T-hang75-enforce, `steptimes.sh` (copied from RS-T-hang75) reads three pages of 100 runs, and GitHub listed 370 (`total_count`, not saved then; it reads 370 for the tests.yml runs when asked again on 2026-11-22 with the data's last step start, 2026-11-18 03:40:35Z, as the cutoff); its "every run still listed" was the newest 300. With a fourth page the window reached 2026-10-28, and `nest-check.js` then summed every step name in the data, `jb-memory tests` and `actions/checkout@v4` of the October workflows among them, and printed "9 places do not fit" (that output was not saved). Fixed: four pages, and the sum counts only the step names of the newest run, for each system (`nest-check.out`: every place fits).
 - Why: the page count was fixed when fewer runs were listed, and the sum was written when every listed run had the same steps.
 - Rule going forward: a script that claims every listed run prints the API's `total_count` beside the count it read. A sum over a workflow's steps takes the steps the workflow has now, not every name in the data.
 - Status: open
@@ -303,7 +821,7 @@ Format:
 - Status: open
 
 ## 2026-11-16: A CI re-run was started with auto-merge on, before the hang lesson was read
-- What went wrong: PR #75's job "windows-latest, Node 22" hung and was cancelled at 45 min. Another session suggested re-running it and checking that auto-merge was still set; the job was re-run with auto-merge on. The open lesson "A job that hung had no time limit and left no log" says to take auto-merge off, re-run the job alone three times, and leave the merge to the user. Auto-merge came off at 21:19:37Z, 30 s after the re-run's job started (21:19:07Z) and long before it could finish.
+- What went wrong: PR #75's job "windows-latest, Node 22" hung and was cancelled at 45 min. Another session suggested re-running it and checking that auto-merge was still set; the job was re-run with auto-merge on. The lesson "A job that hung had no time limit and left no log" (open then, promoted 2026-11-19) says to take auto-merge off, re-run the job alone three times, and leave the merge to the user. Auto-merge came off at 21:19:37Z, 30 s after the re-run's job started (21:19:07Z) and long before it could finish.
 - Why: the lessons check was skipped for a step that came in as another session's suggestion, and the suggestion was taken as the plan.
 - Rule going forward: a CI failure, hang or cancel is a step like any other: run `dev/lessons.sh` with its words (`hang`, `job`, `cancel`, `rerun`) before the first command, a re-run included. A plan from another session is checked against the lessons before it is followed.
 - Status: open
@@ -1039,7 +1557,7 @@ Format:
 ## 2026-11-11: A job that hung had no time limit and left no log
 - What went wrong: on PR #50's last head the job "macos-latest, Node 22" sat in the step "trailmark tests" for 44 minutes, where that step takes 1 to 3. `tests.yml` sets no `timeout-minutes`, so GitHub's 6 hours applied and auto-merge waited on the job. A watcher here ran into its own time limit first, which says nothing about the job. A job that never answered leaves no log, so the cause could not be read afterwards: three reruns passed and it stays unproven.
 - Why: nothing in the workflow bounds a job, and the step's usual time was written down nowhere to compare with.
-- Rule going forward: a job that runs past three times its step's usual time is treated as hung. Take auto-merge off, cancel, ask for the log, compare the step's time on other heads, and rerun that job alone three times before anything merges. A watcher's own limit running out reads "still running", never "failed". A hang with no log and passing reruns is recorded as unexplained with its evidence, and the user decides the merge.
+- Rule going forward: a job that runs past three times its step's usual time is treated as hung. Take auto-merge off, cancel, ask for the log, compare the step's time on other heads, and rerun that job alone three times before anything merges. A watcher's own limit running out reads "still running", never "failed". A hang with no log and passing reruns is recorded as unexplained with its evidence, and the user decides the merge. (Partly replaced 2026-11-19, see Status.)
 - Status: promoted to PLAYBOOK ("Pushing and CI", step 4; the user chose on 2026-11-19 that a fresh head whose 9 jobs pass may auto-merge after a hang, without three reruns or the user's merge, which replaces two parts of the rule above: the three reruns "before anything merges" and the last sentence. Before that: 2026-11-16: seen a fourth time, PR #75's Windows job in "Checks added in 0.4.5", ended by the job limit; for that case the user chose "Re-run, then ask me" and merged after three passing re-runs, RS-T-hang75 in `dev/release-state.md`. Pass of 2026-11-15: seen a second time on PR 63, where auto-merge was set again on a fresh head and no job was rerun three times; which way holds is asked of the user. Also 2026-11-15: `tests.yml` has job and step limits now, section "Next version: RS-D-jobtimeout" of `dev/release-state.md`, which says what they change for that question; the question is still the user's. Review round 2 of that PR found a third hang in the data, run 42450240343 of 2026-11-08, which ran into the 6 hours with no step reported: entry "A third hang sat in the data with no note naming it")
 
 ## 2026-11-11: A case with real git was loosened, and its strict twin left out one value
@@ -1240,6 +1758,7 @@ Format:
 - Why: every test looked at the answer, and the answer was the same with and without the line. What the line saved was time, which no test measured.
 - Rule going forward: a line that no test needs gets a look at what else it does (time, memory, what is handed to the next function) before it is removed, and if it stays it gets an assertion of its own. For time, count the work (calls, sizes) where that is possible, not seconds.
 - Status: open
+
 ## 2026-11-09: A test's expected count was worked out by hand and was one off
 
 - What went wrong: the RS-F-codexwalk test expected the search to look in 45 folders. It looks in 44, so the "one fewer" case passed where it should have been cut short, and the test failed with the fix in place.
@@ -1253,6 +1772,7 @@ Format:
 - Why: three layers of escaping (the shell, the template literal, the regex) and no look at what text the script would search for.
 - Rule going forward: for an edit whose old text holds backslashes, use the Edit tool on one copy and copy the file to the other, or anchor the pair on a nearby line without backslashes.
 - Status: promoted to PLAYBOOK (seen again the same day: a pair script for test code with `\n` in it stopped the same way)
+
 ## 2026-11-09: A review's commit was copied from another reviewer's
 
 - What went wrong: the release-state note for PR 33 said Copilot reviewed b37f215. GitHub records its review on e466077. Copilot found it on PR 34.
