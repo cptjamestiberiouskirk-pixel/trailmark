@@ -79,6 +79,13 @@ test('git path: the working folder spelled with dots or spaces at a name\'s end 
     assert.strictEqual(findA('C:\\work\\repo', cwd), git, `junction cwd ${JSON.stringify(cwd)}`);
   }
   assert.strictEqual(findA('C:\\work\\j.', 'C:\\work\\repo'), git);
+  // Only a drive path is asked again as Windows opens it: a UNC server
+  // `srv.` is not looked up as `srv`, nor a `\\?\` path without its dot
+  // (review round 2, the auto-review's note 3).
+  const asked = [];
+  findGit({ env: { PATH: '\\\\srv.\\share\\bin;\\\\?\\C:\\b.' }, cwd: '\\\\srv.\\share\\repo.', platform: 'win32', isExec: () => false, realpath: q => { asked.push(q); return q; } });
+  findGit({ env: { PATH: '\\\\srv.\\share\\bin;\\\\?\\C:\\b.' }, cwd: '\\\\?\\C:\\repo.', platform: 'win32', isExec: f => f.endsWith('git.exe'), realpath: q => { asked.push(q); return q; } });
+  assert.deepStrictEqual(asked, ['\\\\srv.\\share\\repo.', '\\\\?\\C:\\repo.', '\\\\srv.\\share\\bin']);
   // Other folders whose names only look alike are not skipped.
   for (const cwd of ['C:\\work\\repo2', 'C:\\work\\rep', 'C:\\work\\repo.x', 'C:\\work\\.repo']) {
     assert.strictEqual(find('C:\\work\\repo', cwd), 'C:\\work\\repo\\git.exe', `cwd ${JSON.stringify(cwd)}`);

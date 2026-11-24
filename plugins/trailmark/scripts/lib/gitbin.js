@@ -146,12 +146,14 @@ function findGit({ env = process.env, cwd = process.cwd(), platform = process.pl
     names = (order.length ? [...new Set(order)] : ['.com', '.exe']).map(x => 'git' + x);
   }
   // The real paths of a folder as written and, on Windows, as Windows opens
-  // it; a match on any of them skips the entry.
+  // it; a match on any of them skips the entry. Only a drive path is asked
+  // again: dropDotEnds would rename a UNC server (`\\srv.` to `\\srv`), and
+  // Windows opens a `\\?\` path as written.
   const reals = x => {
     const out = [realOrNull(x, realpath)];
     if (platform === 'win32') {
       const opened = dropDotEnds(p.resolve(x));
-      if (opened !== x) out.push(realOrNull(opened, realpath));
+      if (opened !== x && /^[a-z]:\\/i.test(opened)) out.push(realOrNull(opened, realpath));
     }
     return out.filter(Boolean);
   };

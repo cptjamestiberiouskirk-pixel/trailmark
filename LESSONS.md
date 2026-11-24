@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A PR skipped the docs row because its docs were not in the zip
+
+- What went wrong: PR 144 changed PLAYBOOK.md and LESSONS.md, and its body said no shipped doc changed, so no docs row ran. The auto-review's round 2 flagged it.
+- Why: "shipped" was read as "in the release zip"; CLAUDE.md's "Reviews" defines it as anything outside `dev/` and CLAUDE.md, which includes both files.
+- Rule going forward: before a round, list the diff's files outside `dev/` (`git diff --name-only <base>..HEAD | grep -Ev '^(dev/|CLAUDE\.md$)'`); any doc among them, PLAYBOOK.md and LESSONS.md included, brings the docs row.
+- Status: open
+
 ## 2026-11-24: A merge-conflict edit anchored on a line's tail joined two lines
 
 - What went wrong: resolving a conflict in `dev/release-state.md` (RS-D-findgitdot after PR 139), an Edit used the tail of one side's line as its anchor and replaced it with the other side's line start, so the two versions of RS-D-csw-notes ran into one line.
