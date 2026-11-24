@@ -1252,37 +1252,46 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   // before that point (a cut that ignores the start lands inside it), and
   // one after it (review rounds 2 and 3: a cut that doesn't see a path
   // starting there, or leaves no room for the tail; the real note for a
-  // copy check cut short starts its path at 292). Each path ends at least 4
-  // characters before the cut that comes earlier (by 1,196 for 1,200, by
-  // 296 for 300): a path that ends 3 before a cut loses its closing quote
-  // there and runs on into the "..." (RS-F-fusedtail, deferred), and the
-  // case would rely on that. At least 23 characters go before it (at 22 the
-  // padding is empty, and oneLine folds the double space). So at 300 the
-  // early start holds for any launcher usablePath writes (up to 1,024) and
-  // the late one (272 or later) for one of up to 924; at 150 the early start
-  // holds up to 273 and the late one (122 or later) up to 174. The 924, 273
-  // and 174 are for this test's notes, which always run past the earlier
-  // cut. A note no longer than the cut is not cut, so its path may end up to
-  // 3 characters later, and each of those limits is 3 higher (927, 276 and
-  // 177). Other starts and ends are not tried (RS-T-cutsweep, deferred).
-  // Past 273 the path is left out of each of this test's notes at 300, so
-  // no path reaches the 150 cut, and that case doesn't run: its notes, cut
-  // to about 50 characters, can fit with one still whole.
+  // copy check cut short starts its path at 292). The path's closing quote
+  // sits `room` characters or more before the cut that comes earlier (1,200
+  // for the 300 case, 300 for the 150 case): 4 for a note longer than that
+  // cut, which keeps text up to the cut less 3, and 1 for a note held to
+  // that cut's length, which it doesn't cut (review round 4, F1: a cut
+  // that works only on this test's longer notes passed at the 3 launcher
+  // lengths past each limit). At least 23 characters go before the path
+  // (at 22 the padding is empty, and oneLine folds the double space). So
+  // at 300 the early start holds for any launcher usablePath writes (up to
+  // 1,024) and the late one (272 or later) for one of up to 924, 927 held;
+  // at 150 the early start holds up to 273, 276 held, and the late one (122
+  // or later) up to 174, 177 held. Every start and end at each cut is tried
+  // on shortNote itself in the next test (RS-T-cutsweep). Past 273 (276
+  // held) the path is left out of each of this test's notes at 300, so no
+  // path reaches the 150 cut, and that case doesn't run: its notes, cut to
+  // about 50 characters, can fit with one still whole.
   const L = launcher.length;
-  const at300 = Math.min(260, 1196 - L), late300 = Math.min(290, 1196 - L);
-  const at150 = Math.min(110, 296 - L), late150 = Math.min(140, 296 - L);
-  const cases = [[300, at300, 3]];
-  if (late300 >= 272) cases.push([300, late300, 3]);
-  else t.diagnostic(`a launcher of ${L} characters: no path that starts after 271 ends by 1,196, so the 300 case does not start one there`);
-  // 7 notes at 150: 7 x 300 is still over the budget, so the 150 cut is
-  // reached, and 7 x 150 leaves room for the framing, whose cut note names
-  // the full handoff path (9 notes went over on CI's longer temp paths).
-  if (at150 >= 23) cases.push([150, at150, 7]);
-  else t.diagnostic(`a launcher of ${L} characters: none of this test's notes keeps it whole at 300, so no path reaches the 150 cut, and that case does not run`);
-  if (late150 >= 122) cases.push([150, late150, 7]);
-  else if (at150 >= 23) t.diagnostic(`a launcher of ${L} characters: no path that starts after 121 ends by 296, so the 150 case does not start one there`);
-  for (const [cut, at, count] of cases) {
-    const notes = Array.from({ length: count }, (_, i) => noteAt(at, `n${i}`));
+  const earlier = { 300: 1200, 150: 300 };
+  const cases = [];
+  for (const [held, room] of [[false, 4], [true, 1]]) {
+    const kind = held ? 'notes held to the earlier cut' : 'notes longer than the earlier cut';
+    const by300 = earlier[300] - room, by150 = earlier[150] - room;
+    const at300 = Math.min(260, by300 - L), late300 = Math.min(290, by300 - L);
+    const at150 = Math.min(110, by150 - L), late150 = Math.min(140, by150 - L);
+    cases.push([300, at300, 3, held]);
+    if (late300 >= 272) cases.push([300, late300, 3, held]);
+    else t.diagnostic(`a launcher of ${L} characters, ${kind}: no path that starts after 271 ends by ${by300.toLocaleString('en-US')}, so the 300 case does not start one there`);
+    // 7 notes at 150: 7 x 300 is still over the budget, so the 150 cut is
+    // reached, and 7 x 150 leaves room for the framing, whose cut note
+    // names the full handoff path (9 notes went over on CI's longer temp
+    // paths).
+    if (at150 >= 23) cases.push([150, at150, 7, held]);
+    else t.diagnostic(`a launcher of ${L} characters, ${kind}: none keeps it whole at 300, so no path reaches the 150 cut, and that case does not run`);
+    if (late150 >= 122) cases.push([150, late150, 7, held]);
+    else if (at150 >= 23) t.diagnostic(`a launcher of ${L} characters, ${kind}: no path that starts after 121 ends by ${by150}, so the 150 case does not start one there`);
+  }
+  for (const [cut, at, count, held] of cases) {
+    const notes = Array.from({ length: count }, (_, i) => noteAt(at, `n${i}`).slice(0, held ? earlier[cut] : Infinity));
+    // A held note is not cut at the earlier cut, and keeps its closing quote.
+    if (held) assert.ok(notes[0].length <= earlier[cut] && notes[0][at + L] === '"', notes[0].slice(-40));
     assert.strictEqual(notes[0].indexOf(launcher), at);
     const { text } = S.buildInjection(s.memdir, { notes });
     assert.ok(text.length <= 2000, `${text.length} chars`);
@@ -1306,6 +1315,47 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
     assert.ok(wholeOrNone(line, at), `a note cut inside the path at 1,200: ${line.slice(-200)}`);
     assert.ok(line.endsWith('... (a path is left out here)'), line.slice(-200));
   }
+});
+
+test('shortNote: a path at any start near a cut is kept with the character after it, or left out (next version)', (t) => {
+  // RS-T-cutsweep: every start of each path shortNote knows, at each cut
+  // buildInjection makes, with a quote, a space or a bracket after the
+  // path (the Codex start note has "Launcher: <path> (run"). Review round 4
+  // found a cut blind to the last starts before it, and a path span 1 to 3
+  // characters short, both passing the test above. RS-F-fusedtail: a path
+  // that ended at the cut, or with only a space between it and the cut,
+  // was kept and ran on into the "...".
+  const LEFT = '... (a path is left out here)';
+  const paths = [path.join(ROOT, 'scripts', 'trailmark.js'), path.join(ROOT, 'skills')].map(p => S.usablePath(p)).filter(Boolean);
+  if (!paths.length) return t.skip('usablePath writes neither path here, so no note names one');
+  let runs = 0;
+  for (const p of paths) {
+    for (const max of [1200, 300, 150]) {
+      // A note no longer than the cut comes back as it is, its path's
+      // closing quote as its last character.
+      if (p.length + 2 <= max) {
+        const fits = 'a'.repeat(max - p.length - 2) + '"' + p + '"';
+        assert.strictEqual(S.shortNote(fits, max), fits);
+      }
+      for (const [open, close] of [['"', '"'], [' ', ' '], ['(', ')']]) {
+        for (let at = 2; at <= max; at++) {
+          const note = 'a'.repeat(at - 1) + open + p + close + 'more '.repeat(Math.ceil(max / 5) + 2);
+          assert.strictEqual(note.indexOf(p), at);
+          const out = S.shortNote(note, max);
+          runs++;
+          const tail = out.endsWith(LEFT) ? LEFT : out.endsWith('...') ? '...' : '';
+          const kept = out.slice(0, out.length - tail.length);
+          // Whole: the path and the character after it are kept. Left out:
+          // nothing from the path's start on is kept, and a path that
+          // starts before the cut is said to be left out.
+          const whole = kept.slice(at, at + p.length) === p && kept[at + p.length] === close;
+          const leftOut = kept.length <= at && (tail === LEFT || at >= max - 3);
+          assert.ok(tail && out.length <= max && (whole || leftOut), `cut ${max}, path ${at} to ${at + p.length}, then ${JSON.stringify(close)}: ...${out.slice(Math.max(0, at - 5))}`);
+        }
+      }
+    }
+  }
+  assert.strictEqual(runs, paths.length * 3 * (1199 + 299 + 149));
 });
 
 test('agent tag: the Updated line names the agent, and the next session is told who wrote it', () => {
