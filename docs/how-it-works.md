@@ -216,7 +216,7 @@ Nothing here decides who should write. Every session can checkpoint, or one lead
 
 ## Sandbox
 
-Every hook and skill command enters through `scripts/trailmark.js`. The launcher only reads: it finds the repo's memory folder and collects the git facts the hooks need. It then runs the real script under Node's permission model with these grants:
+Every hook and skill command enters through `scripts/trailmark.js`. The launcher leaves the memory files to the script it starts (SECURITY.md lists the few files it writes itself): it finds the repo's memory folder and collects the git facts the hooks need. It then runs the real script under Node's permission model with these grants:
 
 | Grant | Scope |
 |---|---|
@@ -326,7 +326,7 @@ All of this happens only in repos set up with `/trailmark:memory-setup`. In any 
 | PostToolUse (every tool) and UserPromptSubmit (the context watch) | Nothing below 80% of the earliest compaction point. Past it, the launcher's `git rev-parse` to find the memory folder | The session's context-watch state in the state file, when it changes |
 | UserPromptSubmit (the pause watch) | Nothing unless the prompt says the user is about to stop. Then the launcher's `git rev-parse` to find the memory folder | Nothing |
 
-Every hook goes through `scripts/trailmark.js`, which only reads. It runs git by full path, without a shell, with timeouts, and with every repo setting that could start a program switched off (`lib/gitbin.js` lists them). The git subcommands it uses are `rev-parse`, `branch`, `log` (also over the reflog), `rev-list`, `merge-base`, `status`, `ls-files`, `check-attr`, `config --show-scope`, and `config --file` to read a repo's own config files before git runs there. Then it starts the script that writes, under Node's permission model: that script can write only in the repo's memory folder, and can't start programs.
+Every hook goes through `scripts/trailmark.js`, which writes only the few files SECURITY.md lists. It runs git by full path, without a shell, with timeouts, and with every repo setting that could start a program switched off (`lib/gitbin.js` lists them). The git subcommands it uses are `rev-parse`, `branch`, `log` (also over the reflog), `rev-list`, `merge-base`, `status`, `ls-files`, `check-attr`, `config --show-scope`, and `config --file` to read a repo's own config files before git runs there. Then it starts the script that writes, under Node's permission model: that script can write only in the repo's memory folder, and can't start programs.
 
 It writes only in the memory folder listed in "Where files live": nothing in the repo, nothing in Claude Code's settings, no CLAUDE.md, no shell profile. The skills write the handoff, parked ideas and the archive in the same folder. memory-prune edits CLAUDE.md only when you ask it to.
 

@@ -14,7 +14,7 @@ It's the Codex copy of [Trailmark](https://github.com/cptjamestiberiouskirk-pixe
 
 ## What it doesn't do
 
-It runs no background model, makes no network requests and sends no telemetry. Each hook starts a small launcher that only reads, running git with hardened settings. The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. That is what "the sandbox" means here: it is part of Node.js, works the same on Windows, macOS and Linux, and needs nothing installed besides Node. It isn't the Windows Sandbox feature, and it is separate from Codex's own sandbox. The one other file it writes is a small log of hook payload shapes in the plugin's own data folder (see "Checking how the hooks ran").
+It runs no background model, makes no network requests and sends no telemetry. Each hook starts a small launcher that runs git with hardened settings and writes only a few files of its own (SECURITY.md lists them). The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. That is what "the sandbox" means here: it is part of Node.js, works the same on Windows, macOS and Linux, and needs nothing installed besides Node. It isn't the Windows Sandbox feature, and it is separate from Codex's own sandbox. The launcher's own files include a small log of hook payload shapes in the plugin's own data folder (see "Checking how the hooks ran").
 
 ## Install
 

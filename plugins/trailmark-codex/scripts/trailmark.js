@@ -4,7 +4,8 @@
 // repo, so Claude Code and Codex sessions keep one handoff. What differs for
 // Codex is marked "Codex:" below and in lib/host.js.
 //
-// Privilege separation: this launcher runs with normal rights but only reads.
+// Privilege separation: this launcher runs with normal rights and writes only
+// a few files of its own (SECURITY.md lists them; a new one goes on that list).
 // It finds the repo's memory folder, collects the few git facts the hooks
 // need, then runs the real script under Node's permission model:
 //   - writes allowed only inside that memory folder

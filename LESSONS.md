@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A deferred item named one launcher write, and both launchers had five
+
+- What went wrong: RS-D-launcherwrites said the Codex launcher writes `payload-shapes.log` against SECURITY.md's "the launcher only reads". A grep before the fix found four more writes, two in both copies' launchers, and nine more files making the same claim than the item named.
+- Why: the item was recorded from one reviewer's finding, scoped to the file it came from; nobody searched the rest of the code and docs for the same claim.
+- Rule going forward: before fixing a deferred item about a claim, grep every file for the claim's words and the code for the behavior (here every write call in both launchers and the libs they load), and fix or list each hit, not only the ones the item names.
+- Status: open
+
 ## 2026-11-23: A scratch run's checkpoint was refused because init had already written a handoff
 
 - What went wrong: the RS-F-codexsandboxgit sweep run (`csg-sweep.sh`) passed `--base=none` to its first `write-handoff`, inside Codex's sandbox. `init --force` had already made a `handoff.md`, so `memory.js` refused the write with exit 3 at its version check, before it logged the sweep's result (the launcher's sweep had run, in `cliMode` before `run('memory.js', ...)`), and the run had to be repeated (`csg-sweep2.sh`) with a new commit.

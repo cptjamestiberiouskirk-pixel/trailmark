@@ -12,13 +12,15 @@ Please don't open a public issue for anything that lets a repo, a web page or an
 
 ## What runs, and with what rights
 
-Every hook and skill command enters through `plugins/trailmark/scripts/trailmark.js` (the launcher). The launcher only reads: it finds the repo's memory folder and collects a few git facts. For the context watch it also reads the end of the session's transcript and Claude Code's settings files. For the pause watch it reads the prompt in the hook's input. It then runs the real script under Node's permission model:
+Every hook and skill command enters through `plugins/trailmark/scripts/trailmark.js` (the launcher). The launcher leaves the memory files to the script it starts (its own few writes are listed below): it finds the repo's memory folder and collects a few git facts. For the context watch it also reads the end of the session's transcript and Claude Code's settings files. For the pause watch it reads the prompt in the hook's input. It then runs the real script under Node's permission model:
 
 | Right | Granted |
 |---|---|
 | Write | The repo's memory folder only |
 | Read | The plugin folder and the memory folder, plus Claude Code's projects folder for the transcript command (in the Codex copy, Codex's `sessions` and `archived_sessions` folders instead) |
 | Child processes, worker threads, native addons, WASI | None |
+
+The launcher itself writes only these, outside the sandbox. At `init` it makes the repo's project folder in Claude Code's projects folder, or a memory folder set somewhere else, so the grant can name a folder that exists. After a write from a drop file (`--from`) exits 0, it deletes that drop file in the memory folder. `--sandbox-check` makes a folder in the system temp folder for its test writes and removes it. The Codex copy's launcher also writes `payload-shapes.log` in the plugin's data folder (`PLUGIN_DATA`), and `tool-result-dump.txt` there after you create `dump-next-tool-result` to ask for one, which it then removes.
 
 `node plugins/trailmark/scripts/trailmark.js --sandbox-check` proves this on the current machine, and the installers refuse to install when it fails. Node calls its permission model a seat belt. It stops trusted code from touching the wrong files, and it doesn't promise to contain malicious code. It also follows a symbolic link out of a granted folder.
 
