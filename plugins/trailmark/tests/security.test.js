@@ -311,3 +311,101 @@ test('0.5.1 commit hook: a background commit command that has committed in one o
   });
   assert.ok(commitLines(s).some(l => l.endsWith(`COMMIT ${sha} in="${dp(third)}" bg two (found later) session=11111111`)), notesOf(s));
 }));
+
+// ---------- RS-T-longwriter: grants on folders of 260 characters or more ----------
+
+// A folder inside parent whose path is exactly len characters and ends in
+// the names of tail, padded with folders of at most 200 characters.
+function folderOfLength(parent, len, tail) {
+  const end = path.join(...tail);
+  let pad = len - parent.length - end.length - 2;
+  assert.ok(pad >= 1, `the temp folder ${parent} is too long for a folder of ${len}`);
+  const segs = [];
+  for (let k = 0; pad > 0; k++) {
+    const n = pad <= 200 ? pad : Math.min(200, pad - 2);
+    segs.push(String.fromCharCode(97 + k).repeat(n));
+    pad -= n + 1;
+  }
+  const p = path.join(parent, ...segs, end);
+  assert.strictEqual(p.length, len, p);
+  return p;
+}
+
+// On Windows, Node refuses every file inside a granted folder whose own path
+// is 260 characters or more, so the writer could not load its own scripts
+// from a plugin folder that long (RS-T-longwriter). The launcher's grants
+// must reach into such a folder, and into a memory folder that long, and
+// must not reach a look-alike folder next to either, the folder above it, or
+// a path that climbs out of it with "..". The writer is swapped for a probe
+// after init, so the probe runs with the grants the launcher really gives.
+test('RS-T-longwriter: the sandbox reaches into plugin and memory folders of 259, 260 and 300 characters, and not next to or above them', (t) => {
+  t.diagnostic(`node ${process.version} on ${process.platform}`);
+  const s = sandbox();
+  const key = s.repo.replace(/[^a-zA-Z0-9]/g, '-');
+  const memTail = path.join('projects', key, 'memory');
+  for (const L of [259, 260, 300]) {
+    const base = path.join(s.base, `L${L}`);
+    fs.mkdirSync(base);
+    // The plugin folder (the launcher's PLUGIN_ROOT) is L long.
+    const plugin = folderOfLength(base, L, ['plugins', path.basename(ROOT)]);
+    fs.cpSync(ROOT, plugin, { recursive: true, filter: src => src !== path.join(ROOT, 'tests') });
+    // The memory folder is L long too.
+    const cfg = folderOfLength(base, L - memTail.length - 1, ['cfg']);
+    const memdir = path.join(cfg, memTail);
+    assert.strictEqual(memdir.length, L);
+    fs.mkdirSync(path.dirname(memdir), { recursive: true });
+    const env = { ...s.env, CLAUDE_CONFIG_DIR: cfg };
+    const run = (args, input) => spawnSync(process.execPath, [path.join(plugin, 'scripts', 'trailmark.js'), ...args], { cwd: s.repo, env, input, encoding: 'utf8' });
+    const init = run(['init']);
+    assert.strictEqual(init.status, 0, `L=${L} init: ${init.stdout}${init.stderr}`);
+    const w = wh(run, '# H\n- written at ' + L + '\n');
+    assert.strictEqual(w.status, 0, `L=${L} write-handoff: ${w.stdout}${w.stderr}`);
+    assert.match(fs.readFileSync(path.join(memdir, 'handoff.md'), 'utf8'), new RegExp(`- written at ${L}`));
+    // What the grants must not reach: a look-alike next to each folder, the
+    // folder above each, and a climb out of each through "..".
+    for (const d of [plugin, memdir]) {
+      fs.mkdirSync(d + 'x');
+      fs.writeFileSync(path.join(d + 'x', 'f.txt'), 'next to it\n');
+      fs.writeFileSync(path.join(path.dirname(d), 'f.txt'), 'above it\n');
+    }
+    fs.writeFileSync(path.join(plugin, 'scripts', 'memory.js'), [
+      "'use strict';",
+      "const fs = require('fs'), path = require('path');",
+      "const t = f => { try { f(); return 'allowed'; } catch (e) { return e.code === 'ERR_ACCESS_DENIED' ? 'refused' : 'error ' + e.code; } };",
+      "const P = path.join(__dirname, '..'), M = process.env.JBMEM_DIR, S = path.sep, up = d => d + S + '..' + S;",
+      'console.log(JSON.stringify({',
+      "  dir: M,",
+      "  'read in plugin': t(() => fs.readFileSync(path.join(P, 'scripts', 'lib', 'paths.js'))),",
+      "  'read in memory': t(() => fs.readFileSync(path.join(M, 'handoff.md'))),",
+      "  'write in memory': t(() => fs.writeFileSync(path.join(M, 'probe.txt'), 'x')),",
+      "  'read next to plugin': t(() => fs.readFileSync(path.join(P + 'x', 'f.txt'))),",
+      "  'read above plugin': t(() => fs.readFileSync(path.join(path.dirname(P), 'f.txt'))),",
+      "  'read up out of plugin': t(() => fs.readFileSync(up(P) + path.basename(P) + 'x' + S + 'f.txt')),",
+      "  'read next to memory': t(() => fs.readFileSync(path.join(M + 'x', 'f.txt'))),",
+      "  'write next to memory': t(() => fs.writeFileSync(path.join(M + 'x', 'w.txt'), 'x')),",
+      "  'write above memory': t(() => fs.writeFileSync(path.join(path.dirname(M), 'w.txt'), 'x')),",
+      "  'write up out of memory': t(() => fs.writeFileSync(up(M) + 'w2.txt', 'x')),",
+      '}));',
+    ].join('\n') + '\n');
+    const p = run(['handoff']);
+    assert.strictEqual(p.status, 0, `L=${L} probe: ${p.stdout}${p.stderr}`);
+    const got = JSON.parse(p.stdout.trim().split('\n').pop());
+    assert.strictEqual(got.dir.toLowerCase(), memdir.toLowerCase(), `L=${L}`);
+    delete got.dir;
+    assert.deepStrictEqual(got, {
+      'read in plugin': 'allowed',
+      'read in memory': 'allowed',
+      'write in memory': 'allowed',
+      'read next to plugin': 'refused',
+      'read above plugin': 'refused',
+      'read up out of plugin': 'refused',
+      'read next to memory': 'refused',
+      'write next to memory': 'refused',
+      'write above memory': 'refused',
+      'write up out of memory': 'refused',
+    }, `L=${L}`);
+    for (const f of [path.join(memdir + 'x', 'w.txt'), path.join(path.dirname(memdir), 'w.txt'), path.join(path.dirname(memdir), 'w2.txt')]) {
+      assert.ok(!fs.existsSync(f), `L=${L}: ${f} was written`);
+    }
+  }
+});

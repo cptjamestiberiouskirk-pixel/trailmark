@@ -172,10 +172,19 @@ function sandboxDecision(dir) {
 
 function permissionFlags({ reads, writes }) {
   const flags = ['--permission'];
+  // On Windows, Node refuses every file inside a granted folder whose own
+  // path is 260 characters or more, so the writer could not load its scripts
+  // from a plugin folder that long (RS-T-longwriter). A grant of <folder>\*
+  // next to the plain one reaches inside at any length, and nothing next to
+  // or above the folder (seen on Node 22 and 26, and tested).
+  const grant = (kind, p) => {
+    flags.push(`--allow-fs-${kind}=${p}`);
+    if (process.platform === 'win32') flags.push(`--allow-fs-${kind}=${path.join(p, '*')}`);
+  };
   // Folders above others first: Node 22 can refuse to list a folder
   // granted after one inside it.
-  for (const r of reads.slice().sort((a, b) => path.resolve(a).length - path.resolve(b).length)) flags.push(`--allow-fs-read=${path.resolve(r)}`);
-  for (const w of writes) flags.push(`--allow-fs-write=${path.resolve(w)}`);
+  for (const r of reads.slice().sort((a, b) => path.resolve(a).length - path.resolve(b).length)) grant('read', path.resolve(r));
+  for (const w of writes) grant('write', path.resolve(w));
   return flags;
 }
 
@@ -861,8 +870,9 @@ function sandboxCheck() {
     "t('start a child process',()=>cp.execFileSync(process.execPath,['--version']));",
     'console.log(JSON.stringify(r));',
   ].join('');
+  // The grants the launcher gives a script, so the check proves them.
   const r = spawnSync(process.execPath, [
-    '--permission', `--allow-fs-read=${allowed}`, `--allow-fs-write=${allowed}`,
+    ...permissionFlags({ reads: [allowed], writes: [allowed] }),
     '-e', probe, allowed, denied, base,
   ], { encoding: 'utf8', windowsHide: true, env: cleanEnv() });
   let res = {};
