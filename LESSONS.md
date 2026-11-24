@@ -14,6 +14,48 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A merge-conflict edit anchored on a line's tail joined two lines
+
+- What went wrong: resolving a conflict in `dev/release-state.md` (RS-D-findgitdot after PR 139), an Edit used the tail of one side's line as its anchor and replaced it with the other side's line start, so the two versions of RS-D-csw-notes ran into one line.
+- Why: the anchor was the end of a line, not a whole line, and the replacement began a new list item without a line break.
+- Rule going forward: resolve a conflict by taking one side whole (`git checkout --theirs` or `--ours`) and re-applying the other side's edits, then compare the file with that side (`git diff origin/main -- <file>`) before committing.
+- Status: open
+
+## 2026-11-24: A reviewer's own CI watch stalled the round for an hour
+
+- What went wrong: the Opus regression reviewer of PR 143 round 2 started a background watch of CI and stopped to wait for it; it did not resume when the watch ended, and the round sat idle for an hour until it was resumed with "CI is done".
+- Why: the brief did not say whether the reviewer should wait on CI, and a subagent's own background wait can end without waking it.
+- Rule going forward: a review brief says not to watch or wait on CI (the owning session reads CI), and a round with no report after its last scratch file's time is checked and resumed, not restarted.
+- Status: open
+
+## 2026-11-24: "Read the ok lines in the CI logs" could not be done
+
+- What went wrong: the supervisor asked for the Windows job logs' ok lines of two tests before auto-merge. The logs hold only each suite's counts: `.github/run-tests.sh` keeps the TAP on the runner and `tap-annotate.js` prints failures, counts and the slowest tests. A green job could not show a skipped length.
+- Why: the condition was set without checking what the logs carry, and the test passed over a length with a diagnostic only.
+- Rule going forward: before a condition rests on CI's logs, read one job's log for what it holds. A test that must run in full on CI fails there by name instead of skipping (RS-T-longwriter: strict under `GITHUB_ACTIONS` on win32), so the green job is the proof.
+- Status: open
+
+## 2026-11-24: A skip for one length that doesn't fit dropped the lengths that do
+
+- What went wrong: the RS-T-longwriter test skipped as a whole when the temp folder was too long for one length, so 260 and 300, which fit, were not run (the auto-review on 78d31ab).
+- Why: the skip returned from the test at the first misfit.
+- Rule going forward: a test over several sizes passes over only the size that doesn't fit, with a diagnostic that names it, and skips as a whole only when none ran.
+- Status: open
+
+## 2026-11-24: A probe's output was cited before it was saved
+
+- What went wrong: the RS-T-longwriter notes cited 500, 1,000 and 4,000 characters as tested, but no saved output held those runs (the docs row of round 1, WRONG).
+- Why: the longer lengths were run by hand and read on screen.
+- Rule going forward: a note cites a probe only by a saved output file; a run read on screen is rerun with its output saved before the note says it.
+- Status: open
+
+## 2026-11-24: A wait read a "waiting" check run as finished
+
+- What went wrong: `wait-review.sh` took the `review` check run in state `waiting` as done, so a review was read before it had run.
+- Why: the script tested for "not in_progress" instead of `completed`.
+- Rule going forward: a wait on a check run loops until its status is `completed` and prints the status it read.
+- Status: open
+
 ## 2026-11-24: A dash check filtered out the line it was meant to check
 
 - What went wrong: the dash check on the CLAUDE.md:74 edit piped `git diff` through `grep -v '^[-+][-+]'` to drop the `---` and `+++` headers. The changed line is a list item, so its diff lines start `-- ` and `+- ` and were dropped too. The check printed "no dash" on 0 characters.

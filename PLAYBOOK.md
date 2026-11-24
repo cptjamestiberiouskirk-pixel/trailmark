@@ -31,7 +31,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 - PowerShell means `pwsh` (7), never `powershell.exe` (5.1), `gsudo` runs and `-File` scripts included.
 - Node's `os.tmpdir()` uses `TEMP`/`TMP` on Windows, not `TMPDIR`. The user's `TMPDIR=E:\DevTemp` reaches tests only through `dev/release-check.sh`.
 - Defender's MPLog is readable only by administrators. The user runs elevated scripts. Claude can't.
-- Junction tests on Windows: libuv can fail with `EBUSY`/`EPERM` while the machine is busy (B8, `dev/release-state.md`). A deep temp path can also refuse init ("Windows, long paths").
+- Junction tests on Windows: libuv can fail with `EBUSY`/`EPERM` while the machine is busy (B8, `dev/release-state.md`). A deep temp path no longer refuses init: RS-T-longwriter fixed "Windows, long paths" (PR 143).
 - The writer runs under `node --permission`: it writes only in the memory folder and can't start programs. The launcher `scripts/trailmark.js` writes only the few files SECURITY.md lists.
 - Codex: the memory folder is outside the workspace, so the sandbox refuses a checkpoint's first write and the skill asks for approval, unless the folder is a writable root (MANUAL.md section 3, the Codex README step 3).
 - `main` requires the 9 jobs of `tests.yml`. Never add `paths-ignore`: a skipped workflow leaves the required jobs pending forever.
