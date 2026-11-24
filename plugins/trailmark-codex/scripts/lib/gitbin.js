@@ -171,7 +171,8 @@ function gitEnv(base = process.env) {
 // runs again with its output sent to a file: in a new folder that mkdtemp
 // makes in the system temp folder, a file with 32 random hex characters for
 // a name, created only if it doesn't exist (mode 0600), read back through
-// the handle git wrote to, and removed with its folder in a finally.
+// the handle git wrote to, and removed with its folder in a finally. On
+// Windows that run starts the real git next to cmd\git.exe (realGitFor).
 //
 // Two answers differ from the pipe's. maxBuffer is checked only after git
 // ends, so git is not stopped there: it writes all of its output to the

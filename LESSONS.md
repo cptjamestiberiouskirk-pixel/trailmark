@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: Files were edited while a background check was reading them
+
+- What went wrong: on PR 137 a `--sums --quick` run was left going in the background while the fix and its tests were written in the same worktree. Its summary named the new commit but counted the old tests (339 of 440), so it saw a mix of the two states. The result was thrown away.
+- Why: the run was started for a wording batch, and the next step (the supervisor's fix) began before its notice came; nothing in the edit steps looked for a running check.
+- Rule going forward: before the first edit of a step, list the session's background runs that read the worktree and wait for them, or stop them, or edit in another clone.
+- Status: open
+
 ## 2026-11-24: A doc sentence promised more than the checks did
 
 - What went wrong: RS-F-codexsandboxgit-write's round 1 batch added three checks on the output file's size, and SECURITY.md and the comment said a file that changed while it was read is "never part of an answer". Round 2 (Fable) returned a wrong answer with a change that keeps the size.
