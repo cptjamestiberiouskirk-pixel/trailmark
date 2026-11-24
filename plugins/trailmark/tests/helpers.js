@@ -16,8 +16,10 @@ const { execFileSync, spawnSync } = require('child_process');
 // failed (the folder is named, to look at) or JBMEM_TEST_KEEP=1 is set.
 // Folders made outside a test go when the file's tests are done.
 const tempMade = [];
-const realTemp = (prefix) => {
-  const d = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+// A parent other than the temp folder can be given: the long-path test uses
+// CI's short RUNNER_TEMP (RS-T-longwriter).
+const realTemp = (prefix, parent = os.tmpdir()) => {
+  const d = fs.realpathSync.native(fs.mkdtempSync(path.join(parent, prefix)));
   tempMade.push(d);
   return d;
 };

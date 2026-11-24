@@ -64,17 +64,18 @@ function emit(obj) {
 }
 
 // A sandbox refusal in words, for the hooks and memory.js. On Windows the
-// sandbox also refuses writes in a memory folder whose path is about 268
-// characters or more (dev/probes/path-limit.js, Node 26; why is not
-// established), and the refusal names the path in its \\?\ form. A long
-// refused path gets its length and what fixes it.
+// refusal names the path in its \\?\ form, and a refused path of 260
+// characters or more gets its length. Before RS-T-longwriter the sandbox
+// refused every write in a memory folder of about 268 characters or more,
+// and this said so; the launcher's grants now reach into a folder that long.
+// The length stays, as a clue when a long path is refused for another reason.
 const LONG_PATH = 260;
 function refusalText(e, platform = process.platform) {
   const res = e && typeof e.resource === 'string' ? e.resource : '';
   let t = `sandbox refused ${(e && e.permission) || 'access'} to ${res || 'a path'}. Nothing was written there.`;
   const plain = res.replace(/^\\\\\?\\(?:UNC\\)?/, '');
   if (platform === 'win32' && plain.length >= LONG_PATH) {
-    t += ` That path is ${plain.length} characters long. On Windows the sandbox refuses writes in a memory folder whose path is about 268 characters or more. If this memory folder's path is that long, a repo at a shorter path fixes it: the folder's name repeats the repo's path.`;
+    t += ` That path is ${plain.length} characters long.`;
   }
   return t;
 }
