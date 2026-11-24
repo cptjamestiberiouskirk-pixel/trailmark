@@ -2172,9 +2172,12 @@ function shortNote(text, max) {
       spans.push([i, j]);
     }
   }
+  // A path is kept only with the character after it: one that ends at the
+  // cut, or with only white space between it and the cut (which trimEnd
+  // takes off), would run straight into the "..." (RS-F-fusedtail).
   let end = max - 3, tail = '...';
   for (;;) {
-    const s = spans.find(([i, j]) => i < end && j > end);
+    const s = spans.find(([i, j]) => i < end && !t.slice(j, end).trim());
     if (!s) break;
     tail = PATH_LEFT_OUT;
     end = Math.max(0, Math.min(s[0], max - tail.length));
@@ -2387,5 +2390,5 @@ module.exports = { addCommitDirs, MAX_COMMIT_DIRS, MAX_SWEPT, addMemoryRoot, pla
   writeHandoff, stampUpdated, undoHandoff, measureHandoff, rotate,
   note, lastNote, loggedCommitShas, recordCommitStart, readCommitStart, cleanAgent, markCommitDone, openCommitStart, concurrentCommitStarts, park, listDir, search, topicFiles,
   checkCommitFacts, commitLine, knownCommits, rememberCommits, logFoundCommits, KEEP_SHAS,
-  measure, pruneReport, archiveFile, buildInjection,
+  measure, pruneReport, archiveFile, buildInjection, shortNote,
 };
