@@ -874,11 +874,13 @@ test('batch O4: status hides a Node path that ends like a session tag, and keeps
   assert.ok(!line.includes('abcdef12') && !line.includes('11111111'), line);
 });
 
-test('batch O5: a sandbox refusal of a long path on Windows names its length and the fix', () => {
+test('batch O5: a sandbox refusal of a long path on Windows names its length', () => {
   const { refusalText } = require(path.join(ROOT, 'scripts', 'lib', 'hookio.js'));
   const long = 'C:\\' + 'p'.repeat(260) + '\\memory\\archive';
   const e = { code: 'ERR_ACCESS_DENIED', permission: 'FileSystemWrite', resource: '\\\\?\\' + long };
-  assert.strictEqual(refusalText(e, 'win32'), `sandbox refused FileSystemWrite to \\\\?\\${long}. Nothing was written there. That path is ${long.length} characters long. On Windows the sandbox refuses writes in a memory folder whose path is about 268 characters or more. If this memory folder's path is that long, a repo at a shorter path fixes it: the folder's name repeats the repo's path.`);
+  // No limit and no shorter-path advice since RS-T-longwriter: the launcher's
+  // grants reach into a memory folder that long.
+  assert.strictEqual(refusalText(e, 'win32'), `sandbox refused FileSystemWrite to \\\\?\\${long}. Nothing was written there. That path is ${long.length} characters long.`);
   assert.match(refusalText({ ...e, resource: '\\\\?\\UNC\\srv\\' + 'q'.repeat(260) }, 'win32'), / That path is 264 characters long\./);
   assert.strictEqual(refusalText(e, 'linux'), `sandbox refused FileSystemWrite to \\\\?\\${long}. Nothing was written there.`);
   assert.doesNotMatch(refusalText({ ...e, resource: 'C:\\' + 'p'.repeat(255) }, 'win32'), /characters long/);
@@ -886,7 +888,9 @@ test('batch O5: a sandbox refusal of a long path on Windows names its length and
   assert.strictEqual(refusalText({ code: 'ERR_ACCESS_DENIED' }, 'win32'), 'sandbox refused access to a path. Nothing was written there.');
 });
 
-test('batch O5: init in a memory folder past the Windows path limit says how long the refused path is', { skip: !WIN && 'the path limit is seen on Windows only' }, (t) => {
+// Before RS-T-longwriter, init here was refused on Windows (a memory folder
+// of about 268 characters or more), and this test checked the refusal's words.
+test('batch O5, RS-T-longwriter: init sets up a memory folder of 300 characters or more, past the old Windows limit', () => {
   // Built as dev/probes/path-limit.js builds it: the memory folder's name
   // repeats the repo's path, so its path is 2 * pad + 26 characters.
   const top = realTemp('jbmem-');
@@ -903,10 +907,7 @@ test('batch O5: init in a memory folder past the Windows path limit says how lon
   const env = { ...process.env, CLAUDE_CONFIG_DIR: cfg };
   delete env.JBMEM_DIR; delete env.CLAUDE_CODE_PROJECT_DIR_NAME; delete env.CLAUDE_CODE_ENTRYPOINT;
   const r = spawnSync(process.execPath, [JBM, 'init', '--force'], { cwd: repo, env, encoding: 'utf8' });
-  // This Node may set such a folder up: then there is no refusal to word.
-  if (r.status === 0) { t.skip(`Node ${process.version} set up a memory folder of ${memdir.length} characters`); return; }
-  const m = /sandbox refused \S+ to (\S+?)\. Nothing was written there\. That path is (\d+) characters long\. .*a repo at a shorter path fixes it: the folder's name repeats the repo's path\./.exec(r.stderr);
-  assert.ok(m, r.stderr);
-  assert.strictEqual(Number(m[2]), m[1].replace(/^\\\\\?\\/, '').length);
-  assert.ok(m[1].replace(/^\\\\\?\\/, '').toLowerCase().startsWith(memdir.toLowerCase()), r.stderr);
+  assert.strictEqual(r.status, 0, `memory folder of ${memdir.length}: ${r.stdout}${r.stderr}`);
+  assert.doesNotMatch(r.stderr, /sandbox refused/);
+  assert.ok(fs.readdirSync(memdir).length > 0, `nothing in ${memdir}`);
 });
