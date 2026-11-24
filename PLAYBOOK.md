@@ -73,6 +73,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 16. Before a new name goes into existing code (a `const` in a test, a variable in a script), search the file for it. After an edit to a test file, `node --check <file>` runs before any test run.
 17. A sentence that states an exception, or that changes what a model does (a skill, an instruction file), names its scope and what it is an exception to. Before it goes in it is read against every rule of its paragraph and every case its words reach, not only the case it was written for. A test that pins its exact text proves the text, not the behavior.
 18. A new reason to keep git out in `farGitConfig` switches where `repoRoot` takes the root from. Before the first push the root is compared with the parent commit's: in a fresh process with both sets of scripts, on Windows and in WSL with the same probe script, for shapes where git works and for shapes where git fails, each shape plain and with an older reason to keep git out (a config that includes a share), and on Windows also from a session folder of 300 characters. The tests assert `localRepoRoot` next to each new refusal.
+19. A sentence about what a check catches names what the check looks at and from when it looks (a file's size, from the first look after git ends), and says what it doesn't see on each of those two counts.
 
 ## Testing
 
