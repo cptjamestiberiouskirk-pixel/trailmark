@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-23: Two background waits on a PR ended without printing a state
+
+- What went wrong: two waits for PR 134 to merge, run with the Bash tool's background mode, were inline loops whose `case` ended the loop on anything but "OPEN auto" and echoed the state. Both ended with nothing printed but the exit line, while the PR was still open with auto-merge on. An earlier wait of the same form had been taken as ended by auto-merge going off, without its output being read.
+- Why: the `case` took an empty read as a change. Why the reads, or their echo, came back empty is not proven (HYPOTHESIZED). Tried: the same inline read run in the background twice printed `rc=0 [MERGED auto]` each time, and a script-file loop that logs each read worked (it saw `MERGED auto` 7 s after the merge).
+- Rule going forward: a wait loop goes in a script file that logs each read with its exit code and waits past an empty or failed read, and its log is read before its end is taken as the event.
+- Status: open
+
 ## 2026-11-23: A grep for a claim left out the files the release leaves out
 
 - What went wrong: RS-D-launcherwrites' greps for "only reads" (the owner's and the docs reviewer's) covered shipped text, and `PLAYBOOK.md:35` kept the old claim. The PR's record said every other mention was fixed; the auto-review bot found it on dddb410 and auto-merge came off.
@@ -631,7 +638,7 @@ Format:
 - Status: open
 
 ## 2026-11-16: A CI re-run was started with auto-merge on, before the hang lesson was read
-- What went wrong: PR #75's job "windows-latest, Node 22" hung and was cancelled at 45 min. Another session suggested re-running it and checking that auto-merge was still set; the job was re-run with auto-merge on. The open lesson "A job that hung had no time limit and left no log" says to take auto-merge off, re-run the job alone three times, and leave the merge to the user. Auto-merge came off at 21:19:37Z, 30 s after the re-run's job started (21:19:07Z) and long before it could finish.
+- What went wrong: PR #75's job "windows-latest, Node 22" hung and was cancelled at 45 min. Another session suggested re-running it and checking that auto-merge was still set; the job was re-run with auto-merge on. The lesson "A job that hung had no time limit and left no log" (open then, promoted 2026-11-19) says to take auto-merge off, re-run the job alone three times, and leave the merge to the user. Auto-merge came off at 21:19:37Z, 30 s after the re-run's job started (21:19:07Z) and long before it could finish.
 - Why: the lessons check was skipped for a step that came in as another session's suggestion, and the suggestion was taken as the plan.
 - Rule going forward: a CI failure, hang or cancel is a step like any other: run `dev/lessons.sh` with its words (`hang`, `job`, `cancel`, `rerun`) before the first command, a re-run included. A plan from another session is checked against the lessons before it is followed.
 - Status: open
@@ -1367,7 +1374,7 @@ Format:
 ## 2026-11-11: A job that hung had no time limit and left no log
 - What went wrong: on PR #50's last head the job "macos-latest, Node 22" sat in the step "trailmark tests" for 44 minutes, where that step takes 1 to 3. `tests.yml` sets no `timeout-minutes`, so GitHub's 6 hours applied and auto-merge waited on the job. A watcher here ran into its own time limit first, which says nothing about the job. A job that never answered leaves no log, so the cause could not be read afterwards: three reruns passed and it stays unproven.
 - Why: nothing in the workflow bounds a job, and the step's usual time was written down nowhere to compare with.
-- Rule going forward: a job that runs past three times its step's usual time is treated as hung. Take auto-merge off, cancel, ask for the log, compare the step's time on other heads, and rerun that job alone three times before anything merges. A watcher's own limit running out reads "still running", never "failed". A hang with no log and passing reruns is recorded as unexplained with its evidence, and the user decides the merge.
+- Rule going forward: a job that runs past three times its step's usual time is treated as hung. Take auto-merge off, cancel, ask for the log, compare the step's time on other heads, and rerun that job alone three times before anything merges. A watcher's own limit running out reads "still running", never "failed". A hang with no log and passing reruns is recorded as unexplained with its evidence, and the user decides the merge. (Replaced 2026-11-19, see Status.)
 - Status: promoted to PLAYBOOK ("Pushing and CI", step 4; the user chose on 2026-11-19 that a fresh head whose 9 jobs pass may auto-merge after a hang, without three reruns or the user's merge, which replaces two parts of the rule above: the three reruns "before anything merges" and the last sentence. Before that: 2026-11-16: seen a fourth time, PR #75's Windows job in "Checks added in 0.4.5", ended by the job limit; for that case the user chose "Re-run, then ask me" and merged after three passing re-runs, RS-T-hang75 in `dev/release-state.md`. Pass of 2026-11-15: seen a second time on PR 63, where auto-merge was set again on a fresh head and no job was rerun three times; which way holds is asked of the user. Also 2026-11-15: `tests.yml` has job and step limits now, section "Next version: RS-D-jobtimeout" of `dev/release-state.md`, which says what they change for that question; the question is still the user's. Review round 2 of that PR found a third hang in the data, run 42450240343 of 2026-11-08, which ran into the 6 hours with no step reported: entry "A third hang sat in the data with no note naming it")
 
 ## 2026-11-11: A case with real git was loosened, and its strict twin left out one value
