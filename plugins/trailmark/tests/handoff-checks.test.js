@@ -1372,6 +1372,81 @@ test('agent tag: the Updated line names the agent, and the next session is told 
   assert.match(s.start(SB).context, new RegExp(`updated .* ago by ${other}\\)`));
 });
 
+test('short session IDs: two Codex thread IDs from the same minute are told apart (RS-D-codexshortid)', () => {
+  // Codex thread IDs are UUIDv7, which start with a millisecond timestamp.
+  // These two share their first 8 digits, as the Codex runs t1 and t4a did.
+  const T1 = '01a1e532-8d05-7a11-8b11-1111aaaa1111';
+  const T2 = '01a1e532-e22c-7b22-9c22-2222bbbb2222';
+  assert.strictEqual(S.shortSession(T1), 'aaaa1111');
+  assert.strictEqual(S.shortSession(T2.toUpperCase()), 'bbbb2222');
+  // Any other version (Claude Code's are v4) keeps its first 8.
+  assert.strictEqual(S.shortSession(SA), '11111111');
+  assert.strictEqual(S.shortSession('01a1e532-8d05-6a11-8b11-1111aaaa1111'), '01a1e532');
+  assert.strictEqual(S.shortSession('01a1e532-8d05-7a11'), '');
+  const s = sandbox();
+  const f = path.join(s.memdir, 'handoff.md');
+  const updated = () => /^Updated: .*$/m.exec(fs.readFileSync(f, 'utf8'))[0];
+  s.start(T1);
+  s.start(T2);
+  s.write('# H\n- state\n', T1);
+  assert.match(updated(), / \| session aaaa1111 \| by /);
+  s.write('# H\n- state 2\n', T2);
+  assert.match(updated(), / \| session bbbb2222 \| by /);
+  // A resume after the other thread wrote, and an undo of its write.
+  const resumed = s.jbm(['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'resume', session_id: T1 }));
+  assert.match(resumed.stdout, /session bbbb2222/);
+  const undo = s.jbm(['undo-handoff', `--session=${T1}`]);
+  assert.notStrictEqual(undo.status, 0);
+  assert.match(undo.stdout + undo.stderr, /session bbbb2222/);
+  // The other thread's snapshot, and session start's label for it.
+  s.jbm(['--hook', 'precompact'], JSON.stringify({ cwd: s.repo, trigger: 'auto', session_id: T2 }));
+  const snap = fs.readFileSync(path.join(s.memdir, 'snapshots', `${T2}.md`), 'utf8');
+  assert.match(snap, /^name: snapshot-bbbb2222$/m);
+  assert.match(snap, / in session bbbb2222\. /);
+  const ctx = s.start(T1).context;
+  assert.match(ctx, /session bbbb2222 compacted after the last checkpoint/);
+  assert.match(ctx, /bbbb2222 \(last active /);
+  const st = s.jbm(['status', `--session=${T1}`]);
+  assert.strictEqual(st.status, 0, st.stderr);
+  assert.match(st.stdout, /last handoff write: session bbbb2222[ ,]/);
+  assert.match(st.stdout, /other sessions active in the last 3 h: bbbb2222 /);
+  assert.match(st.stdout, /this session \(aaaa1111\)/);
+  // A thread with no transcript here, while another session has one (the
+  // Claude Code copy then warns, naming the thread).
+  fs.writeFileSync(path.join(path.dirname(s.memdir), `${SA}.jsonl`), '{}\n');
+  const tr = s.jbm(['transcript', '--session=01a1e532-ffff-7c33-8d33-3333cccc3333']);
+  assert.match(tr.stdout + tr.stderr, /session cccc3333/);
+  // A thread that started here but has no transcript.
+  const tr1 = s.jbm(['transcript', `--session=${T1}`]);
+  assert.match(tr1.stdout + tr1.stderr, /session aaaa1111/);
+  // The Windows checkers (tools/windows) read the same short form.
+  if (WIN && S.AGENT === 'Claude Code') {
+    // A copy laid out as in the release, so the logs they keep next to
+    // themselves land in the temp folder.
+    const top = path.join(s.base, 'tool');
+    fs.cpSync(path.join(ROOT, 'scripts'), path.join(top, 'plugins', 'trailmark', 'scripts'), { recursive: true });
+    const ps = (name, args) => {
+      const at = path.join(top, 'tools', 'windows', name);
+      fs.mkdirSync(path.dirname(at), { recursive: true });
+      fs.copyFileSync(path.join(ROOT, '..', '..', 'tools', 'windows', name), at);
+      const r = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', at, '-Repo', s.repo, '-ProjectsDir', path.join(s.cfg, 'projects'), '-NoPause', ...args], { env: s.env, encoding: 'utf8', timeout: 120000 });
+      assert.strictEqual(r.error, undefined, String(r.error));
+      return r.stdout + r.stderr;
+    };
+    const chk = ps('check-trailmark-checkpoints.ps1', []);
+    assert.match(chk, /last write the state file records: session bbbb2222 /);
+    assert.match(chk, /--- session aaaa1111 /);
+    assert.match(chk, /--- session bbbb2222 /);
+    assert.match(chk, /session start, source=startup/);
+    assert.match(ps('trace-handoff-writes.ps1', ['-Session', 'bbbb2222', '-AllSessions']), / by session bbbb2222 /);
+  }
+  // The log lines name each thread apart, and never by the shared prefix.
+  const notes = fs.readdirSync(path.join(s.memdir, 'notes')).map(n => fs.readFileSync(path.join(s.memdir, 'notes', n), 'utf8')).join('\n');
+  assert.match(notes, / session=aaaa1111$/m);
+  assert.match(notes, / session=bbbb2222$/m);
+  assert.doesNotMatch(notes, /01a1e532/);
+});
+
 test('cut note: an oversized handoff stays inside injectChars and says which sections were left out', sinceTest(() => {
   const s = sandbox();
   const sec = (name, n) => `## ${name}\n` + Array.from({ length: n }, (_, i) => `- ${name} item ${i} ${'x'.repeat(70)}`).join('\n');

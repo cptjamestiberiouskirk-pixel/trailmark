@@ -122,6 +122,15 @@ function Span([TimeSpan]$d) {
   if ($m -lt 2880) { return ('{0} h {1} min' -f [int][Math]::Floor($m / 60), ($m % 60)) }
   return ('{0} days' -f [int][Math]::Floor($m / 1440))
 }
+# The short form trailmark gives a session ID (store.js shortSession): the last
+# 8 hex digits of a UUIDv7 (Codex thread IDs, whose first 8 are a timestamp
+# that threads started within about a minute can share), else the first 8.
+function Get-ShortSid([string]$id) {
+  $id = $id.ToLowerInvariant()
+  if ($id -match '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$') { return $id.Substring(28) }
+  if ($id.Length -gt 8) { return $id.Substring(0, 8) }
+  return $id
+}
 function FromMs($ms) {
   $n = [double]0
   if (-not [double]::TryParse([string]$ms, [Globalization.NumberStyles]::Float, $inv, [ref]$n) -or $n -le 0) { return $null }
@@ -279,7 +288,7 @@ $state = $null
 try { $state = Get-Content -LiteralPath (Join-Path $memDir '.jbmem-state.json') -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
 if ($null -eq $state) { Write-Host '  no readable .jbmem-state.json, so no sessions to list'; Done 1 }
 
-# Notes: "- HH:MM <text> session=<first 8 of the ID>", one file per local day.
+# Notes: "- HH:MM <text> session=<short ID (Get-ShortSid)>", one file per local day.
 $notes = New-Object System.Collections.ArrayList
 $notesDir = Join-Path $memDir 'notes'
 if (Test-Path -LiteralPath $notesDir) {
@@ -313,7 +322,7 @@ if ($cur) {
   $lw = $state.lastWriter
   $lwAt = $(if ($lw) { FromMs $lw.at } else { $null })
   $lwVer = $(if ($lw -and ([string]$lw.version) -match '^[0-9a-f]{12}$') { [string]$lw.version } else { '' })
-  $lwWho = $(if ($lw -and ([string]$lw.session) -match '^[0-9a-f]{8}') { 'session ' + ([string]$lw.session).Substring(0, 8) } else { 'no session named' })
+  $lwWho = $(if ($lw -and ([string]$lw.session) -match '^[0-9a-f]{8}') { 'session ' + (Get-ShortSid ([string]$lw.session)) } else { 'no session named' })
   Write-Host ('  file last changed ' + (When $fileTime) + '; last write the state file records: ' + $(if ($lwAt) { $lwWho + ' at ' + (When $lwAt) + $(if ($lwVer) { ', version ' + $lwVer } else { '' }) } else { 'none' }) + '; version now: ' + $(if ($handoffVersion) { $handoffVersion } else { 'unknown' }))
   $odd = New-Object System.Collections.ArrayList
   if ($cur.Odd) { [void]$odd.Add('the Updated line: ' + $cur.Odd) }
@@ -601,7 +610,7 @@ if ($state.sessions) {
     $lastAct = FromMs $rec.seen
     if ($tf) { $w = (Get-Item -LiteralPath $tf).LastWriteTime; if ($null -eq $lastAct -or $w -gt $lastAct) { $lastAct = $w } }
     if ($null -eq $lastAct -or $lastAct -lt $since) { continue }
-    [void]$sessions.Add([pscustomobject]@{ Id = $id; Short = $id.Substring(0, 8); Rec = $rec; File = $tf; Last = $lastAct })
+    [void]$sessions.Add([pscustomobject]@{ Id = $id; Short = (Get-ShortSid $id); Rec = $rec; File = $tf; Last = $lastAct })
   }
 }
 $sessions = @($sessions | Sort-Object Last -Descending)
