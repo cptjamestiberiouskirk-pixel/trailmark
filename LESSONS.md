@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-23: A grep for a claim left out the files the release leaves out
+
+- What went wrong: RS-D-launcherwrites' greps for "only reads" (the owner's and the docs reviewer's) covered shipped text, and `PLAYBOOK.md:35` kept the old claim. The PR's record said every other mention was fixed; the auto-review bot found it on dddb410 and auto-merge came off.
+- Why: the brief and the owner's grep were scoped to "shipped text", and `PLAYBOOK.md`, `LESSONS.md` and `dev/` are export-ignored, so a scope by the release left out the instruction files a session reads first.
+- Rule going forward: a grep for a claim covers the whole tree (`git grep` with no path), instruction files and `dev/` notes included; a record that says "every other mention" lists the grep it rests on.
+- Status: open
+
+## 2026-11-23: A deferred item named one launcher write, and the Codex launcher had five
+
+- What went wrong: RS-D-launcherwrites said the Codex launcher writes `payload-shapes.log` against SECURITY.md's "the launcher only reads". A grep before the fix found four more writes, three of them in both launchers, and eight files beyond the two the item named making the same claim. After the review round, the auto-review bot found a ninth, `PLAYBOOK.md:35`.
+- Why: the item was recorded from one reviewer's finding, scoped to the file it came from; nobody searched the rest of the code and docs for the same claim.
+- Rule going forward: before fixing a deferred item about a claim, grep every file for the claim's words and the code for the behavior (here every write call in both launchers and the libs they load), and fix or list each hit, not only the ones the item names.
+- Status: open
+
 ## 2026-11-23: A scratch run's checkpoint was refused because init had already written a handoff
 
 - What went wrong: the RS-F-codexsandboxgit sweep run (`csg-sweep.sh`) passed `--base=none` to its first `write-handoff`, inside Codex's sandbox. `init --force` had already made a `handoff.md`, so `memory.js` refused the write with exit 3 at its version check, before it logged the sweep's result (the launcher's sweep had run, in `cliMode` before `run('memory.js', ...)`), and the run had to be repeated (`csg-sweep2.sh`) with a new commit.

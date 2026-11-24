@@ -68,7 +68,7 @@ The other files differ on purpose. Codex-specific code is in `scripts/lib/host.j
 
   `dev/release-check.sh --sums` does this and then runs every check CI runs, with one summary at the end (`--quick` skips the two long suites). `CLAUDE.md`, `PLAYBOOK.md`, `LESSONS.md` and `dev/` are kept out of the release zip and out of `SHA256SUMS`.
 
-- Keep the sandbox rule: the launcher (`scripts/trailmark.js`) only reads, and only the script it starts under Node's permission model writes, inside the repo's memory folder. Anything new that reads a path from the memory folder or from command text treats it as untrusted, as SECURITY.md describes.
+- Keep the sandbox rule: the launcher (`scripts/trailmark.js`) writes only the few files SECURITY.md lists, and everything else is written by the script it starts under Node's permission model, inside the repo's memory folder. A new write in the launcher goes on that list. Anything new that reads a path from the memory folder or from command text treats it as untrusted, as SECURITY.md describes.
 
 ## Docs
 

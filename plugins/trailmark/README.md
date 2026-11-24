@@ -18,7 +18,7 @@ That's what a fresh session receives: the handoff, then the commits made since i
 
 ## What it doesn't do
 
-Trailmark runs no background model and makes no network requests, and there's no telemetry. Each hook starts a small launcher that only reads: it runs git with hardened settings to look up commits and status. The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. Nothing is written inside your repo, unless you approve moving a stable rule into `.claude/rules` or CLAUDE.md during `/trailmark:memory-prune`.
+Trailmark runs no background model and makes no network requests, and there's no telemetry. Each hook starts a small launcher: it runs git with hardened settings to look up commits and status, and writes only a few files of its own (SECURITY.md lists them). The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. Nothing is written inside your repo, unless you approve moving a stable rule into `.claude/rules` or CLAUDE.md during `/trailmark:memory-prune`.
 
 ## Install
 

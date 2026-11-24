@@ -22,7 +22,7 @@ Claude updates the note at milestones (a commit, a merged PR, a subagent's resul
 - One shared note for Claude Code and Codex in the same repo; its `Updated:` line names the agent that wrote it last.
 - Opt-in per repo. Nothing happens in a repo until you set it up there.
 
-Trailmark runs no background model and makes no network requests, and there's no telemetry. Each hook starts a small launcher that only reads: it runs git with hardened settings to look up commits and status. The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. [SECURITY.md](SECURITY.md) has the full model and its limits.
+Trailmark runs no background model and makes no network requests, and there's no telemetry. Each hook starts a small launcher: it runs git with hardened settings to look up commits and status, and writes only a few files of its own. The part that writes runs under Node's permission model, which lets it write only in the repo's memory folder and start no programs. [SECURITY.md](SECURITY.md) has the full model and its limits.
 
 ## What you need
 
