@@ -1794,6 +1794,39 @@ test('git pointers: a .git that leads to a network path keeps git out of the fol
   assert.match(gf.gitFacts(ok, ['head']).head, /^[0-9a-f]{7,}$/);
 });
 
+// RS-T-commondirtime: git's rev-parse took 5 s over a worktree whose
+// commondir was 800 KB of `refs/../`. farGitConfig reads a worktree's
+// commondir and a .git file only up to 4,096 bytes, so git never starts
+// there. Each case has a repo and a folder of its own: farGitConfig keeps
+// its answer per folder for the life of the process.
+test('git pointers: a worktree\'s commondir or .git file over 4,096 bytes keeps git out (RS-T-commondirtime)', () => {
+  const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-cdt-');
+  const fwd = p => p.replace(/\\/g, '/');
+  // A linked worktree made by hand: its .git file names worktrees/w of a
+  // repo of its own, whose commondir holds `common`.
+  const worktree = (n, common, pad = '') => {
+    const main = path.join(base, `${n}-repo`);
+    repoAt(main);
+    const wtg = path.join(main, '.git', 'worktrees', 'w');
+    fs.mkdirSync(wtg, { recursive: true });
+    const wt = path.join(base, n);
+    fs.mkdirSync(wt);
+    fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${fwd(wtg)}${pad}\n`);
+    fs.writeFileSync(path.join(wtg, 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(wtg, 'gitdir'), fwd(path.join(wt, '.git')) + '\n');
+    fs.writeFileSync(path.join(wtg, 'commondir'), common + '\n');
+    return wt;
+  };
+  // 4,095 bytes with the line break, each `refs/..` back where it started.
+  const under = '../../' + 'refs/../'.repeat(511);
+  assert.strictEqual(farGitConfig(worktree('plain', '../..')), '');
+  assert.strictEqual(farGitConfig(worktree('under', under)), '', 'a commondir of 4,095 bytes');
+  assert.strictEqual(farGitConfig(worktree('over', under + 'refs/..')), 'unreadable-config', 'a commondir of 4,102 bytes');
+  assert.strictEqual(farGitConfig(worktree('big', '../../' + 'refs/../'.repeat(100000))), 'unreadable-config', 'a commondir of 800,007 bytes');
+  assert.strictEqual(farGitConfig(worktree('dotgit', '../..', '/.'.repeat(2100))), 'unreadable-config', 'a .git file over 4,096 bytes');
+});
+
 test('git pointers: odd spellings of a network path are still caught', () => {
   const { farGitConfig } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
   const base = realTemp('jbmem-far2-');
