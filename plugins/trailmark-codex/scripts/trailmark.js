@@ -1037,7 +1037,9 @@ function cliMode(args) {
   // starts, the file must be inside the memory folder, like the drop files
   // the skills write there. A drop file (incoming-handoff*.md,
   // incoming-park*.md, incoming-note*.md, incoming-search*.md) is removed once
-  // the command succeeds; any other file is left alone.
+  // the command succeeds, but only in a repo set up for trailmark (search
+  // also runs in one that isn't, whose folder is not trailmark's); any other
+  // file is left alone.
   let stdin;
   let from;
   let childArgs = args;
@@ -1078,7 +1080,7 @@ function cliMode(args) {
     if (sweep) facts.sweep = sweep;
   }
   const code = run('memory.js', childArgs, { dir: loc.dir, method: loc.method, root: loc.root, cwd, stdin, from, reads, writes, facts, dirMissing });
-  if (code === 0 && dropFile) { try { fs.unlinkSync(dropFile); } catch { /* left in place; the next write replaces it */ } }
+  if (code === 0 && dropFile && S.isEnabled(loc.dir)) { try { fs.unlinkSync(dropFile); } catch { /* left in place; the next write replaces it */ } }
   // A sweep with no start to read from, said here: memory.js reports only a
   // sweep that ran or ran out of time. This write records when the session
   // is known from (store.js, rec.first), so the next sweep starts there.

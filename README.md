@@ -100,7 +100,7 @@ In Codex:
 
 1. Set the repo up. If you also use Claude Code in it, run `/trailmark:memory-setup` there. For a repo you use only from Codex, run the `init` command in [MANUAL.md](MANUAL.md), section 8, step 6, yourself in a terminal.
 2. Start a new Codex chat in the repo and ask the agent to run the `tm-memory-setup` skill. It runs the sandbox check and confirms the chat got the handoff. Codex shows a `[trailmark]` message only when there is a warning, so don't wait for a status line.
-3. Work as usual. Ask the agent to run `tm-checkpoint` whenever you want the note brought up to date, and `tm-session-end` before you stop. Codex asks you to approve each checkpoint's write, since the note lives outside the workspace.
+3. Work as usual. Ask the agent to run `tm-checkpoint` whenever you want the note brought up to date, and `tm-session-end` before you stop. Codex asks you to approve each checkpoint's write, since the note lives outside the workspace. Parking an idea, a note and a search ask too: each first saves its text in a file there.
 
 ## Codex
 

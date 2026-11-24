@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A review fix refused a route another client needed
+
+- What went wrong: Q62 round 1 found that a `--from` search in a repo not set up let the launcher remove the file. The fix refused a `--from` search there. Round 2 found that this stopped Codex's only search route in such a repo, which worked at 54f50a3.
+- Why: the fix blocked the input that led to the effect instead of guarding the effect itself (the removal), and it was checked only against the finding's repro, not against each client that sends that input.
+- Rule going forward: fix a finding at the effect it names where possible. Before a fix refuses an input, list who sends it (each skill, both copies) and test that their routes still work.
+- Status: open
+
 ## 2026-11-24: A skill edit broke a test that --quick skips
 
 - What went wrong: Q62 changed the recall and park skills, and `hardening.test.js` "skills: note and search text goes in single quotes" (a long suite, which `--sums --quick` skips) failed on the new `search --from="<memory folder>/..."` line in the Claude Code copy. The docs reviewer pointed at the test's title; `--only` on it reproduced the failure before any push.

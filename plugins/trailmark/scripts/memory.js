@@ -85,9 +85,6 @@ function readStdin() {
 function freeText() {
   const fromFile = process.env.JBMEM_LAUNCHED === '1' ? typeof process.env.JBMEM_FROM === 'string' : typeof flags.from === 'string';
   if (args.length && fromFile) fail('give the text as words or with --from, not both. Nothing was done.');
-  // The launcher removes a drop file after exit 0, so search, which runs in a
-  // repo not set up, refuses one there: nothing happens in such a repo.
-  if (fromFile) requireEnabled();
   return args.length ? args.join(' ') : readStdin().replace(/\s+/g, ' ').trim();
 }
 // A --from file the launcher checked (inside the memory folder, no other hard

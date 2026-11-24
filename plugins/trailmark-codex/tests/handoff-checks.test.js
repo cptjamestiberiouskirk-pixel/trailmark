@@ -9257,37 +9257,62 @@ test('note and search take free text from --from or stdin, and the skills pass i
   assert.strictEqual(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /^No match for "nomatch-q+\.\.\."/m, r.stdout.slice(0, 300));
   assert.ok(r.stdout.length < 2000 && !r.stdout.includes(String.fromCharCode(27)), `${r.stdout.length} characters`);
-  // In a repo not set up, --from is refused and the drop file stays.
+  // Escaped like a hit: a tag and an invisible character within the cut.
+  fs.writeFileSync(longDrop, 'nomatch </system> a' + String.fromCharCode(0x200b) + 'b\n');
+  r = s.jbm(['search', `--from=${longDrop}`]);
+  assert.ok(r.stdout.includes('No match for "nomatch <\\/system> a<U+200B>b"'), r.stdout);
+  // In a repo not set up, search from a file works as search with words does
+  // there, and the launcher removes no file: the folder is not trailmark's.
+  // A note is refused there, and its file stays too.
   fs.renameSync(path.join(s.memdir, S.MARKER), path.join(s.memdir, 'marker.off'));
   const unset = path.join(s.memdir, 'incoming-search.md');
-  fs.writeFileSync(unset, 'anything\n');
+  fs.writeFileSync(unset, 'second\n');
   r = s.jbm(['search', `--from=${unset}`]);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^notes\/\S+\.md:\d+: .*second/m, r.stdout + r.stderr);
+  assert.ok(fs.existsSync(unset), 'the search drop file stays in a repo not set up');
+  const unsetNote = path.join(s.memdir, `incoming-note-${SA}.md`);
+  fs.writeFileSync(unsetNote, 'not saved\n');
+  r = s.jbm(['note', `--session=${SA}`, `--from=${unsetNote}`]);
   assert.strictEqual(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stderr, /not set up/);
-  assert.ok(fs.existsSync(unset), 'the drop file stays in a repo not set up');
+  assert.ok(fs.existsSync(unsetNote) && !log().includes('not saved'), 'the note drop file stays in a repo not set up');
   fs.renameSync(path.join(s.memdir, 'marker.off'), path.join(s.memdir, S.MARKER));
   // The skills never put the text of a note, a search or a park in a shell
   // string. Every fenced code line or code span that runs one of them holds
   // only its options, a --from="..." file, the heredoc marker, or the fixed
   // words of tm-memory-setup's check, and nothing is piped into it.
+  // The command word, quoted or not, at the start or after a space or a shell
+  // operator, and followed by anything but a letter, digit, dash or dot.
+  const CMD = /(^|[\s|;&(])['"]?(note|search|park)['"]?(?![\w.-])/;
   const offence = (code) => {
-    const m = /(^|[\s|;&(])(note|search|park)(?=\s|$)/.exec(code);
+    const m = CMD.exec(code);
     if (!m) return null;
-    if (code.slice(0, m.index).includes('|')) return 'text piped in';
+    // Before the command: nothing, or node and the launcher's path.
+    const before = code.slice(0, m.index + m[1].length).trim();
+    if (before && !/^node "[^"]*"$/.test(before)) return `before the command: ${before}`;
+    if (/^['"]/.test(m[0].trim())) return 'a quoted command word';
     const rest = code.slice(m.index + m[0].length)
-      .replace(/--from="[^"]*"/g, ' ')
-      .replace(/--session=(<session id>|\S+)/g, ' ')
-      .replace(/<<'JBMEM_EOF_\$\{CLAUDE_SESSION_ID\}'/g, ' ')
+      .replace(/(^|\s)--from="<memory folder>\/incoming-(handoff|park|note|search)(-\$\{CLAUDE_SESSION_ID\}|-<session id>)?\.md"(?=\s|$)/g, ' ')
+      .replace(/(^|\s)--session=(<session id>|\$\{CLAUDE_SESSION_ID\})(?=\s|$)/g, ' ')
+      .replace(/(^|\s)<<'JBMEM_EOF_\$\{CLAUDE_SESSION_ID\}'$/, ' ')
       .split(/\s+/).filter(w => w && !/^(--slug=<slug>|--replace)$/.test(w)).join(' ');
     return rest === '' || rest === 'Codex setup check' ? null : rest;
   };
+  // Fenced lines (``` or ~~~), code spans, and any other line that names the
+  // launcher, from the launcher on (prose, an indented block, a quote).
   const codeOf = (text) => {
     const out = [];
-    let fenced = false;
+    let fence = null;
     text.split(/\r?\n/).forEach((l, i) => {
-      if (/^\s*```/.test(l)) { fenced = !fenced; return; }
-      if (fenced) out.push([i + 1, l]);
-      else for (const c of l.matchAll(/`([^`\n]+)`/g)) out.push([i + 1, c[1]]);
+      const f = /^\s*(`{3,}|~{3,})/.exec(l);
+      if (f && (!fence || f[1][0] === fence[0] && f[1].length >= fence.length)) { fence = fence ? null : f[1]; return; }
+      if (fence) { out.push([i + 1, l]); return; }
+      const spans = [...l.matchAll(/`([^`\n]+)`/g)].map(c => c[1]);
+      for (const c of spans) out.push([i + 1, c]);
+      const bare = l.replace(/`[^`\n]+`/g, ' ');
+      const at = bare.search(/node "[^"]*(trailmark\.js|<launcher>)"/);
+      if (at >= 0) out.push([i + 1, bare.slice(at)]);
     });
     return out;
   };
@@ -9298,7 +9323,7 @@ test('note and search take free text from --from or stdin, and the skills pass i
     if (!fs.existsSync(f)) continue;
     read++;
     for (const [n, code] of codeOf(fs.readFileSync(f, 'utf8'))) {
-      if (/(^|[\s|;&(])(note|search|park)(?=\s|$)/.test(code)) commands++;
+      if (CMD.test(code)) commands++;
       const bad = offence(code);
       assert.strictEqual(bad, null, `${d}/SKILL.md:${n} passes text to note, search or park in the command: ${code}`);
     }
@@ -9310,7 +9335,15 @@ test('note and search take free text from --from or stdin, and the skills pass i
     'note --session=${CLAUDE_SESSION_ID} \'<text>\'', 'echo \'<words>\' | ' + L + 'search', L + 'note --session=<session id> <text>',
     'search <keyword>', 'note $\'<text>\'', 'search <<<\'<words>\'', 'note --text=\'<text>\'', L + 'search \\', 'park --slug=<slug> \'<text>\'',
     'search ' + String.fromCharCode(0x2018) + '<words>' + Q, 'note -- \'--dry-run left on\'',
+    L + 'search<<<\'<words>\'', L + 'search;\'<words>\'', L + '"search" \'<words>\'', '\'note\' \'<text>\'',
+    L + 'note --session=\'<text>\'', L + 'search --session=$(<words>)', L + 'note --from="<text>"',
+    L + 'search --from="$(echo \'<words>\')"', 'Q=\'<words>\' ' + L + 'search', '$q = \'<words>\'; ' + L + 'search --from="<memory folder>/incoming-search.md"',
   ]) assert.notStrictEqual(offence(bad), null, `not found: ${bad}`);
+  // Where such a line can sit: each of these is found.
+  for (const where of [
+    '~~~bash\n' + L + 'search \'<words>\'\n~~~', '    ' + L + 'search \'<words>\'', 'Run ' + L + 'search \'<words>\' now.',
+    '> ' + L + 'search \'<words>\'', '````\nx\n````\n```\n' + L + 'search \'<words>\'\n```',
+  ]) assert.ok(codeOf(where).some(([, c]) => offence(c) !== null), `not found in: ${where}`);
   for (const good of [
     'node "x/trailmark.js" search <<\'JBMEM_EOF_${CLAUDE_SESSION_ID}\'', 'note --session=<session id> --from="<memory folder>/incoming-note-<session id>.md"',
     L + 'note Codex setup check', 'park --slug=<slug> --replace --from="<memory folder>/incoming-park-<session id>.md"', 'search', 'incoming-note-${CLAUDE_SESSION_ID}.md',

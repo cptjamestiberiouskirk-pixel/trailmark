@@ -31,7 +31,7 @@ node "<launcher>" search --from="<memory folder>/incoming-search-<session id>.md
 node "<launcher>" note --session=<session id> --from="<memory folder>/incoming-note-<session id>.md"
 ```
 
-The text is read as one line: line breaks become spaces. A note's file is removed once the note is saved. A search runs without the write approval, so its file can stay behind: if a file of that name is already there, replace its text. If the command fails, the file stays: fix what the error names and run the command again.
+The text is read as one line: line breaks become spaces. A note's file is removed once the note is saved. Creating a search's file asks for approval, but the search command runs without it, so trailmark may not be allowed to remove the file afterwards, and in a repo not set up for Trailmark it leaves the file in place: if a file of that name is already there, replace its text. If the command fails, the file stays: fix what the error names and run the command again.
 
 ## How to answer
 

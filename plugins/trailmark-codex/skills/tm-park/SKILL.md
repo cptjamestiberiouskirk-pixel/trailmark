@@ -26,7 +26,7 @@ Every command here runs Trailmark through its launcher, written below as `<launc
    node "<launcher>" search --from="<memory folder>/incoming-search-<session id>.md"
    ```
 
-   The keyword goes through a file, never on the command line: PowerShell ends a single-quoted string at a curly single quote too, and a `$(...)` after it runs. Before the search, create `incoming-search-<session id>.md` in the memory folder holding just the keyword, as step 4 describes for the park file (the folder, the tool, and the retry with escalated permissions). If a file of that name is already there, replace its text: a search runs without the write approval, so its file can stay behind.
+   The keyword goes through a file, never on the command line: PowerShell ends a single-quoted string at a curly single quote too, and a `$(...)` after it runs. Before the search, create `incoming-search-<session id>.md` in the memory folder holding just the keyword, as step 4 describes for the park file (the folder, the tool, and the retry with escalated permissions). If a file of that name is already there, replace its text: creating the file asks for approval, but the search command runs without it, so trailmark may not be allowed to remove the file afterwards.
 
    If it's already parked or already in the handoff, say where and stop. If `park` later says the file exists, another session may have parked the same slug a moment ago: read it, and pick a new slug unless it is the same idea.
 
