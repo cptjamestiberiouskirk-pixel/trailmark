@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A one-word code change went through sed
+
+- What went wrong: adding `fileCall, FILE_CALLS` to gitbin.js's export line was done with `sed -i`, against the rule that code and tests change only through Edit or Write. The result was checked and is what was meant.
+- Why: the change looked too small for the rule, and the export line was not open in the editor's view.
+- Rule going forward: the size of a code change doesn't exempt it; read the line, then Edit it.
+- Status: open
+
 ## 2026-11-24: "Not amplified" was settled with ordinary data
 
 - What went wrong: the supervisor's point 4 on PR 137 asked whether the other git calls' outputs are amplified. One probe with ordinary commits (made by `git commit`, each subject used once) showed them near the repo's size, and SECURITY.md and release-state said so. Round 6 built a 69 KB `.git` whose reflog names one large-subject commit 200 times, and `log -g` wrote 839 MB through the file.

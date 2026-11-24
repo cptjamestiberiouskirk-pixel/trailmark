@@ -9094,8 +9094,11 @@ function pipeRefusedSpy(base, opts = {}) {
     'cp.spawnSync = function (file, args, o) {',
     "  if (!(o && Array.isArray(o.stdio) && typeof o.stdio[1] === 'number')) return spawn.apply(this, arguments);",
     "  note({ k: 'file', a: args || [], cwd: o.cwd, env: envKey(o.env), timeout: o.timeout, stdin: o.stdio[0], stderr: o.stdio[2], hide: o.windowsHide });",
-    "  if (FAKESIG && (args || []).includes('--tm-fake-signal')) return { pid: 0, output: [null, null, null], stdout: null, stderr: null, status: null, signal: 'SIGTERM' };",
-    '  const r = spawn.apply(this, arguments);',
+    "  if (FAKESIG && o.env && o.env.TM_FAKE_SIGNAL) return { pid: 0, output: [null, null, null], stdout: null, stderr: null, status: null, signal: 'SIGTERM' };",
+    // A stand-in program for this file run (the tests' own node code), so a
+    // call the file path allows can stand for one that sleeps or prints a
+    // set number of bytes. Set only by tests, in the call's env.
+    "  const r = o.env && o.env.TM_STAND ? spawn.call(this, process.execPath, ['-e', o.env.TM_STAND], o) : spawn.apply(this, arguments);",
     "  if (SWAP && lastOpened) { try { fs.unlinkSync(lastOpened); fs.writeFileSync(lastOpened, 'FORGED'); note({ k: 'swapped' }); } catch (e) { note({ k: 'swap-refused', code: e.code }); } }",
     '  return r;',
     '};',
@@ -9206,67 +9209,219 @@ catch (e) { process.stdout.write(JSON.stringify({ code: e.code, syscall: e.sysca
   assert.ok(e.code === 'EPERM' && /^spawnSync /.test(String(e.syscall)), r.stdout);
 });
 
-test('RS-F-codexsandboxgit-write: the call that hands git text on stdin is not run again, so status is skipped (filter-check) while the calls before it go through the file', () => {
+// After review round 6: only the calls FILE_CALLS lists (gitbin.js) may run
+// with their output in a file, since a small repo can make the others (log,
+// ls-files, status) print far more than it holds. If this fails because the
+// list changed, or a call it doesn't list reached the file, measure the new
+// call's output against a repo made to blow it up before adding it.
+test('RS-F-codexsandboxgit-write: the file path allows only the listed calls, each an exact form; every other git call the launcher makes gets the pipe\'s refusal', () => {
+  const { FILE_CALLS, fileCall, GIT_GLOBAL } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const G = GIT_GLOBAL.length;
+  const forms = FILE_CALLS.map(t => t.slice(t[0] === '--version' ? 0 : G).map(a => (typeof a === 'symbol' ? '<file>' : a)).join(' '));
+  assert.deepStrictEqual(forms, [
+    '--version',
+    'config --file <file> --no-includes --null --list',
+    'rev-parse --path-format=absolute --git-common-dir',
+    'rev-parse --show-toplevel',
+    'branch --no-color --show-current',
+    'rev-parse --short HEAD',
+  ], 'the file path\'s list changed');
+  for (const t of FILE_CALLS.slice(1)) assert.deepStrictEqual(t.slice(0, G), GIT_GLOBAL, 'a listed call without the global options');
+  // The config list needs a bound under maxBuffer; the others need none, and
+  // one argument more or less is not the call.
+  const list = [...GIT_GLOBAL, 'config', '--file', 'f', '--no-includes', '--null', '--list'];
+  assert.deepStrictEqual([fileCall(list, 10, 10), fileCall(list, 11, 10), fileCall(list, undefined, 10), fileCall(list, NaN, 10)], [true, false, false, false]);
+  assert.deepStrictEqual([fileCall(['--version']), fileCall(['--version', '-x']), fileCall([...GIT_GLOBAL, 'rev-parse', '--short', 'HEAD~1']), fileCall([...GIT_GLOBAL.slice(1), 'rev-parse', '--show-toplevel']), fileCall('--version')], [true, false, false, false, false]);
+  // Every entry point under the pipe-refused spy: only listed calls ran
+  // through the file, and the rest asked for the pipe and stopped there.
   const s = sandbox();
+  s.g('config', 'trailmark.probe', 'a"b'); // read by git config --file
+  const head = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: s.repo, encoding: 'utf8' }).trim();
+  const lib = (f) => JSON.stringify(path.join(ROOT, 'scripts', 'lib', f));
+  const script = `const gf = require(${lib('gitfacts.js')}), paths = require(${lib('paths.js')}), gb = require(${lib('gitbin.js')});
+const repo = ${JSON.stringify(s.repo)}, o = { budgetMs: 20000, callMs: 15000 };
+const out = {};
+out.facts = gf.gitFacts(repo, ['branch', 'head', 'subject', 'status', 'toplevel'], o);
+out.since = gf.commitsSince(repo, ${JSON.stringify(head)}, o);
+out.sweep = gf.sweepCommits([{ dir: repo, since: Date.now() - 3600000 }], { homeCwd: repo, budgetMs: 20000 });
+out.root = paths.repoRoot(repo);
+out.far = gb.farGitConfig(repo);
+process.stdout.write(JSON.stringify(out));`;
   const spy = pipeRefusedSpy(s.base);
-  const r = spawnSync(process.execPath, [...spy.args, '-e', `const f = require(${JSON.stringify(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'))}).gitFacts(${JSON.stringify(s.repo)}, ['status'], { budgetMs: 20000, callMs: 15000 }); process.stdout.write(JSON.stringify(f));`],
-    { cwd: s.repo, env: spy.childEnv, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [...spy.args, '-e', script], { cwd: s.repo, env: spy.childEnv, encoding: 'utf8' });
   assert.strictEqual(r.status, 0, r.stderr);
-  const f = JSON.parse(r.stdout);
+  const out = JSON.parse(r.stdout);
   const log = spy.log();
-  assert.strictEqual(f.statusSkipped, 'filter-check', JSON.stringify(f));
-  assert.ok(gitVerbs(log, 'file').some(v => /^ls-files -z$/.test(v)), JSON.stringify(gitVerbs(log, 'file')));
-  // check-attr asked for the pipe with its input once, and never ran through a file.
-  assert.deepStrictEqual(log.filter(e => e.k === 'pipe' && e.input).map(e => gitVerbs([{ ...e, k: 'x' }], 'x')[0]), ['check-attr -z --stdin filter']);
-  assert.ok(!gitVerbs(log, 'file').some(v => /check-attr/.test(v)), JSON.stringify(gitVerbs(log, 'file')));
+  const files = log.filter(e => e.k === 'file'), pipes = log.filter(e => e.k === 'pipe');
+  for (const f of files) assert.ok(fileCall(f.a, 0, 1), 'a call off the list ran through the file: ' + f.a.slice(f.a[0] === '--version' ? 0 : G).join(' '));
+  // The premise: the facts the list is for came, and calls off it were asked for.
+  assert.ok(out.facts.branch && /^[0-9a-f]{7,}$/.test(out.facts.head) && out.facts.toplevel && out.far === '', JSON.stringify(out));
+  const verbs = gitVerbs(log, 'pipe');
+  for (const off of [/^log /, /^ls-files /]) assert.ok(verbs.some(v => off.test(v)), `no ${off} asked for: ${JSON.stringify(verbs)}`);
+  assert.ok(!gitVerbs(log, 'file').some(v => /^(log|ls-files|status|check-attr|rev-list|merge-base) /.test(v)), JSON.stringify(gitVerbs(log, 'file')));
+  assert.ok(out.facts.statusSkipped && !out.facts.subject, JSON.stringify(out.facts));
+  assert.ok(pipes.length > files.length, `${pipes.length} pipes, ${files.length} files`);
   assert.deepStrictEqual(spy.leftIn(spy.tmp), []);
+});
+
+// Each listed call, measured with real git against a repo made to blow its
+// output up: at most a fixed size, or the one repo file it reads plus a
+// constant, never a multiple of it (the supervisor's condition 2 after
+// round 6). A call that fails this comes off FILE_CALLS.
+test('RS-F-codexsandboxgit-write: each call the file path allows prints at most a fixed size or one repo file plus a constant, with real git and inputs made to blow it up', () => {
+  const { gitPath, gitEnv, GIT_GLOBAL, configListBound } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-filebound-');
+  const git = gitPath(base);
+  assert.ok(git, 'no git on PATH');
+  const C = 512; // newline, prefixes and the folder git runs in
+  const run = (cwd, args) => {
+    const r = spawnSync(git, [...GIT_GLOBAL, ...args], { cwd, env: { ...gitEnv(), GIT_CEILING_DIRECTORIES: base }, maxBuffer: 256 * 1024 * 1024, encoding: 'buffer' });
+    return { status: r.status, out: r.stdout ? r.stdout.length : 0 };
+  };
+  const size = (f) => fs.statSync(f).size;
+  const seen = {};
+  // --version: the program's own, no repo input.
+  const v = spawnSync(git, ['--version'], { cwd: base, encoding: 'buffer' });
+  seen.version = { out: v.stdout.length };
+  assert.ok(v.status === 0 && v.stdout.length <= 200, JSON.stringify(seen.version));
+  // A symbolic HEAD that names a ref of 200,000 characters.
+  const a = path.join(base, 'a'); repoAt(a);
+  fs.writeFileSync(path.join(a, '.git', 'HEAD'), 'ref: refs/heads/' + 'h'.repeat(200000) + '\n');
+  for (const args of [['branch', '--no-color', '--show-current'], ['rev-parse', '--short', 'HEAD']]) {
+    const got = run(a, args);
+    seen[`huge HEAD: ${args.join(' ')}`] = { ...got, input: size(path.join(a, '.git', 'HEAD')) };
+    assert.ok(got.out <= size(path.join(a, '.git', 'HEAD')) + C, `${args.join(' ')}: ${JSON.stringify(got)}`);
+  }
+  // That ref in packed-refs, with 50 more as long: HEAD resolves to a commit.
+  const b = path.join(base, 'b'); repoAt(b);
+  const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: b, encoding: 'utf8' }).trim();
+  const long = (i) => 'refs/heads/' + String(i) + 'p'.repeat(200000);
+  fs.writeFileSync(path.join(b, '.git', 'packed-refs'), '# pack-refs with: peeled fully-peeled sorted\n' + Array.from({ length: 51 }, (_, i) => `${sha} ${long(i)}\n`).join(''));
+  fs.writeFileSync(path.join(b, '.git', 'HEAD'), `ref: ${long(0)}\n`);
+  for (const args of [['rev-parse', '--short', 'HEAD'], ['branch', '--no-color', '--show-current']]) {
+    const got = run(b, args);
+    seen[`packed-refs: ${args.join(' ')}`] = { ...got, input: size(path.join(b, '.git', 'HEAD')) };
+    assert.ok(got.out <= size(path.join(b, '.git', 'HEAD')) + C, `${args.join(' ')}: ${JSON.stringify(got)}`);
+  }
+  // git refuses names that long (a ref's path, about 200 characters on
+  // Windows), so the same with the longest it reads, 150 characters.
+  const b2 = path.join(base, 'b2'); repoAt(b2);
+  const sha2 = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: b2, encoding: 'utf8' }).trim();
+  const ref150 = 'refs/heads/' + 'q'.repeat(150);
+  fs.writeFileSync(path.join(b2, '.git', 'packed-refs'), `# pack-refs with: peeled fully-peeled sorted\n${sha2} ${ref150}\n`);
+  fs.writeFileSync(path.join(b2, '.git', 'HEAD'), `ref: ${ref150}\n`);
+  for (const args of [['rev-parse', '--short', 'HEAD'], ['branch', '--no-color', '--show-current']]) {
+    const got = run(b2, args);
+    seen[`read ref of 150: ${args.join(' ')}`] = { ...got, input: size(path.join(b2, '.git', 'HEAD')) };
+    assert.ok(got.status === 0 && got.out <= size(path.join(b2, '.git', 'HEAD')) + C, `${args.join(' ')}: ${JSON.stringify(got)}`);
+  }
+  assert.ok(seen['read ref of 150: rev-parse --short HEAD'].out <= 64, JSON.stringify(seen));
+  assert.ok(seen['read ref of 150: branch --no-color --show-current'].out >= 150, 'the premise: git printed the long name');
+  // A core.worktree of 100,000 characters that comes back to the folder.
+  const c = path.join(base, 'c'); repoAt(c);
+  // Written into the file: a command line can't hold it on Windows.
+  fs.appendFileSync(path.join(c, '.git', 'config'), '[core]\n\tworktree = ..' + '/.'.repeat(50000) + '\n');
+  const top = run(c, ['rev-parse', '--show-toplevel']);
+  seen['long core.worktree: rev-parse --show-toplevel'] = { ...top, input: size(path.join(c, '.git', 'config')) };
+  assert.ok(top.out <= size(path.join(c, '.git', 'config')) + C, JSON.stringify(top));
+  // git refuses that one too (its folder can't be entered); 2,000 '/.' it reads.
+  const c2 = path.join(base, 'c2'); repoAt(c2);
+  fs.appendFileSync(path.join(c2, '.git', 'config'), '[core]\n\tworktree = ..' + '/.'.repeat(2000) + '\n');
+  const top2 = run(c2, ['rev-parse', '--show-toplevel']);
+  seen['core.worktree read: rev-parse --show-toplevel'] = { ...top2, input: size(path.join(c2, '.git', 'config')) };
+  assert.ok(top2.status === 0 && top2.out <= size(path.join(c2, '.git', 'config')) + C, JSON.stringify(top2));
+  // A linked worktree whose commondir file is 100,000 characters long.
+  const d = path.join(base, 'd'); repoAt(d);
+  execFileSync('git', ['worktree', 'add', '-q', path.join(base, 'dw')], { cwd: d });
+  const cd = path.join(d, '.git', 'worktrees', 'dw', 'commondir');
+  fs.writeFileSync(cd, '../..' + '/.'.repeat(50000) + '\n');
+  const common = run(path.join(base, 'dw'), ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  seen['long commondir: rev-parse --git-common-dir'] = { ...common, input: size(cd) };
+  assert.ok(common.out <= size(cd) + C, JSON.stringify(common));
+  // The config list at the edge of its bound: under 8 MiB, the most the file
+  // path lets through, and what git prints is under the bound.
+  const e = path.join(base, 'cfg');
+  const keys = Math.floor((8 * 1024 * 1024 - 60100) / 60005) - 3;
+  const text = '[' + 'a'.repeat(60000) + ']\n' + 'b\n'.repeat(keys);
+  fs.writeFileSync(e, text);
+  const bound = configListBound(text);
+  const list = run(base, ['config', '--file', e, '--no-includes', '--null', '--list']);
+  seen['config at the bound edge'] = { ...list, bound };
+  assert.ok(bound <= 8 * 1024 * 1024 && bound > 7.5 * 1024 * 1024, `the premise: a bound at the edge, ${bound}`);
+  assert.ok(list.status === 0 && list.out <= bound, JSON.stringify(seen['config at the bound edge']));
+  // The premise: git read the long commondir.
+  assert.strictEqual(common.status, 0, JSON.stringify(common));
+  process.stdout.write(`# filebound ${JSON.stringify(seen)}\n`);
+});
+
+// No git call is added unseen: a new one is either on the file path's list
+// (and the test above fails) or gets the refusal; this count makes it seen.
+test('RS-F-codexsandboxgit-write: the launcher\'s git call sites are the ones counted when the file path\'s list was made', () => {
+  const src = (f) => fs.readFileSync(path.join(ROOT, 'scripts', 'lib', f), 'utf8');
+  const count = (text, re) => (text.match(re) || []).length;
+  const gf = src('gitfacts.js'), gb = src('gitbin.js'), pa = src('paths.js');
+  assert.deepStrictEqual({
+    runnerCalls: count(gf, /\br\.run\(/g),
+    factCalls: count(gf, /\bgit\(\[/g),
+    gitOutputCalls: count(gf, /\bgitOutput\(/g) + count(gb, /\bgitOutput\(/g) + count(pa, /\bgitOutput\(/g),
+    rootCalls: count(pa, /\brun\(\[/g),
+  }, { runnerCalls: 24, factCalls: 3, gitOutputCalls: 5, rootCalls: 2 }, 'a git call was added or removed: decide whether it may run through the file (FILE_CALLS in gitbin.js) and update this count');
 });
 
 test('RS-F-codexsandboxgit-write: gitOutput through the file keeps execFileSync\'s answers (text, exit status, timeout, maxBuffer) and removes its folder after each', () => {
   const s = sandbox();
-  // A subject with characters outside ASCII and a config read with NULs: the
-  // file is read as the pipe's text was.
-  fs.writeFileSync(path.join(s.repo, 'b'), 'b');
-  s.g('add', 'b');
-  s.g('commit', '-qm', 'Grüße été 中');
+  // A config value with characters outside ASCII, read with NULs: the file
+  // is read as the pipe's text was.
+  s.g('config', 'trailmark.probe', 'Grüße été 中');
   // A folder with a HEAD and no .git: farGitConfig asks git --version
   // (bareRefused), the fourth call site.
   const bare = path.join(s.base, 'bare-like');
   fs.mkdirSync(path.join(bare, 'objects'), { recursive: true });
   fs.mkdirSync(path.join(bare, 'refs'));
   fs.writeFileSync(path.join(bare, 'HEAD'), 'ref: refs/heads/main\n');
+  // A folder in no repo, for git's own failure (exit 128).
+  const none = path.join(s.base, 'no-repo');
+  fs.mkdirSync(none);
   const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  // Only the calls FILE_CALLS lists reach the file. For a sleep or a set
+  // number of bytes, the file run is git --version with the spy's stand-in
+  // (TM_STAND), and the pipe run is node with the same code.
+  const cfg = path.join(s.repo, '.git', 'config');
   const calls = [
-    ['git', ['log', '-1', '--format=%s%x00%H']],
-    ['git', ['config', '--null', '--list']],
-    ['git', ['ls-files', '-z']],
-    ['git', ['rev-parse', '--verify', '-q', 'no-such-ref']],
-    ['node', ['-e', 'setTimeout(() => {}, 20000)'], { timeout: 1500 }],
-    ['node', ['-e', "process.stdout.write('x'.repeat(1000))"], { maxBuffer: 1000 }],
-    ['node', ['-e', "process.stdout.write('x'.repeat(1001))"], { maxBuffer: 1000 }],
+    [['GG', 'config', '--file', cfg, '--no-includes', '--null', '--list'], { fileBound: 4096 }],
+    [['GG', 'branch', '--no-color', '--show-current']],
+    [['GG', 'rev-parse', '--short', 'HEAD']],
+    [['GG', 'rev-parse', '--show-toplevel'], { cwd: none, env: { GIT_CEILING_DIRECTORIES: s.base } }],
+    [null, { timeout: 1500 }, 'setTimeout(() => {}, 20000)'],
+    [null, { maxBuffer: 1000 }, "process.stdout.write('x'.repeat(1000))"],
+    [null, { maxBuffer: 1000 }, "process.stdout.write('x'.repeat(1001))"],
   ];
-  const script = `const { gitOutput, gitPath, gitEnv, farGitConfig } = require(${JSON.stringify(lib)});
-const calls = ${JSON.stringify(calls)}, out = [];
-for (const [b, args, o = {}] of calls) {
-  const bin = b === 'git' ? gitPath(${JSON.stringify(s.repo)}) : process.execPath;
+  const script = (mode) => `const { gitOutput, gitPath, gitEnv, farGitConfig, GIT_GLOBAL } = require(${JSON.stringify(lib)});
+const calls = ${JSON.stringify(calls)}, out = [], viaFile = ${mode === 'file'};
+for (const [a, o = {}, stand] of calls) {
   const t0 = Date.now();
-  try { out.push({ ok: gitOutput(bin, args, { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000, ...o }) }); }
+  const env = { ...gitEnv(), ...(o.env || {}) };
+  let bin = gitPath(${JSON.stringify(s.repo)}), args = a && (a[0] === 'GG' ? [...GIT_GLOBAL, ...a.slice(1)] : a);
+  if (stand && viaFile) { args = ['--version']; env.TM_STAND = stand; }
+  if (stand && !viaFile) { bin = process.execPath; args = ['-e', stand]; }
+  try { out.push({ ok: gitOutput(bin, args, { cwd: ${JSON.stringify(s.repo)}, timeout: 15000, ...o, env }) }); }
   catch (e) { out.push({ code: e.code === undefined ? null : e.code, status: e.status === undefined ? null : e.status, ms: Date.now() - t0 }); }
 }
 out.push({ far: farGitConfig(${JSON.stringify(bare)}) });
 process.stdout.write(JSON.stringify(out));`;
-  const run = (args, env) => { const r = spawnSync(process.execPath, [...args, '-e', script], { cwd: s.repo, env, encoding: 'utf8' }); assert.strictEqual(r.status, 0, r.stderr); return JSON.parse(r.stdout); };
+  const run = (args, env, mode) => { const r = spawnSync(process.execPath, [...args, '-e', script(mode)], { cwd: s.repo, env, encoding: 'utf8' }); assert.strictEqual(r.status, 0, r.stderr); return JSON.parse(r.stdout); };
   const spy = pipeRefusedSpy(s.base);
-  const viaFile = run(spy.args, spy.childEnv);
-  const viaPipe = run([], process.env);
+  const viaFile = run(spy.args, spy.childEnv, 'file');
+  const viaPipe = run([], process.env, 'pipe');
   const log = spy.log();
   // The premise: every call above was refused its pipe and went through a file.
-  assert.ok(gitVerbs(log, 'file').some(v => v === '--version'), 'git --version not through a file: ' + JSON.stringify(gitVerbs(log, 'file')));
+  assert.strictEqual(log.filter(e => e.k === 'file').length, calls.length + 1, 'not every call went through a file: ' + JSON.stringify(gitVerbs(log, 'file')));
   assert.strictEqual(log.filter(e => e.k === 'file').length, log.filter(e => e.k === 'mkdtemp').length, 'one folder for each run through a file');
   const plain = o => ({ ...o, ms: undefined });
   assert.deepStrictEqual(viaFile.slice(0, 4).map(plain), viaPipe.slice(0, 4).map(plain), 'text and exit status as through the pipe');
-  assert.ok(/Grüße été 中\0[0-9a-f]{40}/.test(viaFile[0].ok), JSON.stringify(viaFile[0]));
-  assert.deepStrictEqual({ code: viaFile[3].code, status: viaFile[3].status }, { code: null, status: 1 }, 'git\'s exit status, no code');
+  assert.ok(viaFile[0].ok.includes('trailmark.probe\nGrüße été 中\0'), JSON.stringify(viaFile[0]));
+  assert.ok(/^[0-9a-f]{7,}\n$/.test(viaFile[2].ok), JSON.stringify(viaFile[2]));
+  assert.deepStrictEqual({ code: viaFile[3].code, status: viaFile[3].status }, { code: null, status: 128 }, 'git\'s exit status, no code');
   assert.strictEqual(viaFile[4].code, 'ETIMEDOUT', JSON.stringify(viaFile[4]));
   assert.ok(viaFile[4].ms < 12000, `the timeout of 1.5 s stopped the child only after ${viaFile[4].ms} ms`);
   assert.deepStrictEqual(viaFile[5], { ok: 'x'.repeat(1000) }, 'exactly maxBuffer is read');
@@ -9281,9 +9436,9 @@ test('RS-F-codexsandboxgit-write: a file swapped under the same name after git w
   // A config with a quote in it: farGitConfig reads it with git config --file.
   s.g('config', 'trailmark.probe', 'a"b');
   const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
-  const script = `const { gitOutput, gitPath, gitEnv } = require(${JSON.stringify(lib)});
+  const script = `const { gitOutput, gitPath, gitEnv, GIT_GLOBAL } = require(${JSON.stringify(lib)});
 const bin = gitPath(${JSON.stringify(s.repo)}), o = { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000 };
-process.stdout.write(JSON.stringify([gitOutput(bin, ['--version'], o), gitOutput(bin, ['config', '--file', ${JSON.stringify(path.join(s.repo, '.git', 'config'))}, '--no-includes', '--null', '--list'], o)]));`;
+process.stdout.write(JSON.stringify([gitOutput(bin, ['--version'], o), gitOutput(bin, [...GIT_GLOBAL, 'config', '--file', ${JSON.stringify(path.join(s.repo, '.git', 'config'))}, '--no-includes', '--null', '--list'], { ...o, fileBound: 4096 })]));`;
   const run = (args, env) => { const r = spawnSync(process.execPath, [...args, '-e', script], { cwd: s.repo, env, encoding: 'utf8' }); assert.strictEqual(r.status, 0, r.stderr); return JSON.parse(r.stdout); };
   const spy = pipeRefusedSpy(s.base, { swap: true });
   const viaFile = run(spy.args, spy.childEnv);
@@ -9395,13 +9550,23 @@ process.stdout.write(JSON.stringify(farGitConfig(${JSON.stringify(s.repo)})));`;
   fs.writeFileSync(cfg, start + '[' + 'a'.repeat(60000) + ']\n' + 'b\n'.repeat(400));
   const over = viaFile('over');
   assert.notStrictEqual(over.far, '', JSON.stringify(over));
-  assert.deepStrictEqual({ pipes: over.pipes, files: over.files }, { pipes: 0, files: 0 }, 'git was started for a config whose output could pass maxBuffer');
+  assert.deepStrictEqual({ pipes: over.pipes, files: over.files }, { pipes: 1, files: 0 }, 'git ran through the file for a config whose output could pass maxBuffer');
   assert.strictEqual(viaPipe(), over.far, 'the pipe and the file path differ');
   // Under: the same name and 100 keys print about 6 MB, under maxBuffer.
   fs.writeFileSync(cfg, start + '[' + 'a'.repeat(60000) + ']\n' + 'b\n'.repeat(100));
   const under = viaFile('under');
   assert.deepStrictEqual(under, { far: '', pipes: 1, files: 1 });
   assert.strictEqual(viaPipe(), '');
+  // Review round 6, F2: the bound is loose for many short sections (here
+  // 866 KB that git prints as about 1 MB, a bound of 8.9 MB). The pipe stops
+  // git itself, so it reads such a config as it did before the bound; only
+  // the file path refuses it.
+  // One branch with a 208-character name sets the longest header.
+  fs.writeFileSync(cfg, start + `[branch "${'x'.repeat(208)}"]\n\tremote = origin\n` + Array.from({ length: 12000 }, (_, i) => `[branch "b${i}"]\n\tremote = origin\n\tmerge = refs/heads/b${i}\n`).join(''));
+  const loose = viaFile('loose');
+  assert.deepStrictEqual({ pipes: loose.pipes, files: loose.files }, { pipes: 1, files: 0 }, JSON.stringify(loose));
+  assert.notStrictEqual(loose.far, '');
+  assert.strictEqual(viaPipe(), '', 'the pipe refused a config whose output is under maxBuffer');
 });
 
 // git config --blob on a committed .lfsconfig prints a long section name once
@@ -9447,13 +9612,16 @@ process.stdout.write(JSON.stringify(gitFacts(${JSON.stringify(r)}, ['status'], {
   // Under: the same name and 100 keys print about 6 MB, under the buffer.
   const under = lfsRepo('[lfs]\n\tbatch = true\n[' + 'a'.repeat(60000) + ']\n' + 'b\n'.repeat(100));
   assert.strictEqual(viaPipe(under), '', 'the premise: the pipe reads a .lfsconfig under the buffer');
-  // Through the file, status stops at check-attr and the blob is never read.
-  // If this fails because check-attr (a call with input) or config --blob ran
-  // through the file, a .lfsconfig can now reach the file path, where git is
-  // not stopped at the buffer: give the blob the bound configEntries has
-  // (configListBound in gitbin.js) before letting it through.
+  // Through the file, status stops at its first call off the file path's
+  // list (FILE_CALLS) and the blob is never read. If this fails because
+  // check-attr (a call with input) or config --blob ran through the file, a
+  // .lfsconfig can now reach the file path, where git is not stopped at the
+  // buffer: give the blob the bound configEntries has (configListBound in
+  // gitbin.js) before letting it through.
   for (const [r, tag] of [[over, 'over'], [under, 'under']]) {
-    assert.deepStrictEqual(viaFile(r, tag), { skipped: 'filter-check', checkAttr: 1, checkAttrFiles: 0, blobPipes: 0, blobFiles: 0 }, tag);
+    const got = viaFile(r, tag);
+    assert.ok(got.skipped && got.skipped !== '', `${tag}: status was not skipped: ${JSON.stringify(got)}`);
+    assert.deepStrictEqual({ ...got, skipped: undefined }, { skipped: undefined, checkAttr: 0, checkAttrFiles: 0, blobPipes: 0, blobFiles: 0 }, tag);
   }
 });
 
@@ -9488,8 +9656,8 @@ test('RS-F-codexsandboxgit-write: the file is read to its end over short reads, 
   const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
   const script = `const { gitOutput, gitEnv } = require(${JSON.stringify(lib)});
 const out = [];
-try { out.push(gitOutput(process.execPath, ['-e', "process.stdout.write('y'.repeat(1000))"], { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000 })); } catch (e) { out.push({ code: e.code }); }
-try { gitOutput(process.execPath, ['-e', '0', '--tm-fake-signal'], { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000 }); out.push('ran'); } catch (e) { out.push({ status: e.status, signal: e.signal, code: e.code === undefined ? null : e.code }); }
+try { out.push(gitOutput(process.execPath, ['--version'], { cwd: ${JSON.stringify(s.repo)}, env: { ...gitEnv(), TM_STAND: "process.stdout.write('y'.repeat(1000))" }, timeout: 15000 })); } catch (e) { out.push({ code: e.code }); }
+try { gitOutput(process.execPath, ['--version'], { cwd: ${JSON.stringify(s.repo)}, env: { ...gitEnv(), TM_FAKE_SIGNAL: '1' }, timeout: 15000 }); out.push('ran'); } catch (e) { out.push({ status: e.status, signal: e.signal, code: e.code === undefined ? null : e.code }); }
 process.stdout.write(JSON.stringify(out));`;
   const spy = pipeRefusedSpy(s.base, { shortReads: true, fakeSignal: true });
   const r = spawnSync(process.execPath, [...spy.args, '-e', script], { cwd: s.repo, env: spy.childEnv, encoding: 'utf8' });
@@ -9503,10 +9671,10 @@ process.stdout.write(JSON.stringify(out));`;
 test('RS-F-codexsandboxgit-write: only a refused spawn (EPERM from spawnSync) and only a call without input runs again; any other error is thrown as it came, with no folder made', () => {
   const s = sandbox();
   const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
-  const script = `const { gitOutput, gitPath, gitEnv } = require(${JSON.stringify(lib)});
+  const script = `const { gitOutput, gitPath, gitEnv, GIT_GLOBAL } = require(${JSON.stringify(lib)});
 const out = [];
 for (const input of [undefined, 'x']) {
-  try { gitOutput(gitPath(${JSON.stringify(s.repo)}), ['rev-parse', 'HEAD'], { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000, input }); out.push('ok'); }
+  try { gitOutput(gitPath(${JSON.stringify(s.repo)}), [...GIT_GLOBAL, 'rev-parse', '--short', 'HEAD'], { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000, input }); out.push('ok'); }
   catch (e) { out.push(e.code); }
 }
 process.stdout.write(JSON.stringify(out));`;

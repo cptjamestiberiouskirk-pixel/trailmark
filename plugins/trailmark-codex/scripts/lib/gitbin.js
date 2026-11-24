@@ -180,18 +180,45 @@ function gitEnv(base = process.env) {
 // size changed while it was read gives JBMEM_OUTPUT_CHANGED. Each is an
 // error, as a refusal is.
 //
-// A call that hands git text on stdin isn't run again (it would need a
-// second file): its EPERM is thrown as it came. So is the first EPERM when
-// the temp folder can't be made (a sandbox that keeps %TEMP% out too): the
-// same answer as before this fallback, and no other folder is tried.
-function gitOutput(bin, args, { cwd, env, timeout, maxBuffer = 1024 * 1024, input } = {}) {
+// Only the calls in FILE_CALLS run again, and only without input: any other
+// call's EPERM is thrown as it came, the same answer as before this
+// fallback. So is the first EPERM when the temp folder can't be made (a
+// sandbox that keeps %TEMP% out too), and no other folder is tried.
+//
+// fileBound: for a call whose output the repo sets (the config list), the
+// most it can print, worked out by the caller; on the file path it runs
+// only when that is at most maxBuffer. The pipe doesn't look at it.
+function gitOutput(bin, args, { cwd, env, timeout, maxBuffer = 1024 * 1024, input, fileBound } = {}) {
   const opts = { cwd, env, encoding: 'utf8', timeout, maxBuffer, windowsHide: true };
   try {
     return execFileSync(bin, args, { ...opts, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'], ...(input === undefined ? {} : { input }) });
   } catch (e) {
-    if (input !== undefined || !spawnRefused(e)) throw e;
+    if (input !== undefined || !spawnRefused(e) || !fileCall(args, fileBound, maxBuffer)) throw e;
     return gitOutputViaFile(bin, args, opts, e);
   }
+}
+
+// The only git calls that may run with their output in a file (PR 137, after
+// review round 6). Each prints a fixed size, or one path or ref name git
+// read from one repo file, or the config list held under maxBuffer by its
+// bound: none prints a multiple of the repo's own data. The log, ls-files
+// and status calls are not here: a small repo can make them print far more
+// than it holds (one large subject named by many reflog entries), and with
+// no reader to stop, git would write all of it. ANY_ONE stands for the
+// config file's path, and marks the call that needs a bound.
+const ANY_ONE = Symbol('one argument');
+const FILE_CALLS = Object.freeze([
+  ['--version'],
+  [...GIT_GLOBAL, 'config', '--file', ANY_ONE, '--no-includes', '--null', '--list'],
+  [...GIT_GLOBAL, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+  [...GIT_GLOBAL, 'rev-parse', '--show-toplevel'],
+  [...GIT_GLOBAL, 'branch', '--no-color', '--show-current'],
+  [...GIT_GLOBAL, 'rev-parse', '--short', 'HEAD'],
+].map(t => Object.freeze(t)));
+function fileCall(args, bound, max) {
+  if (!Array.isArray(args)) return false;
+  return FILE_CALLS.some(t => t.length === args.length && t.every((a, i) => (
+    a === ANY_ONE ? typeof args[i] === 'string' && Number.isFinite(bound) && bound <= max : a === args[i])));
 }
 
 // The spawn itself was refused (EPERM from spawnSync), not git: git's own
@@ -639,12 +666,6 @@ function configEntries(file) {
   // (a submodule's worktree = ../../sub, say): with nothing to decode, the
   // text is read here without starting git, as git reads such a file.
   if (!/[\\"]|\/\/|%\(|include/i.test(st)) { const e = plainConfig(st); if (e) return e; }
-  // An output that could pass maxBuffer is unsafe before git starts, as
-  // the pipe answers once git passes it: on the file path git is not stopped
-  // at maxBuffer, and through Git for Windows' wrapper not by the timeout
-  // either. git reads the file again by its name, so a rewrite between this
-  // read and git's (by a process running as this user) is not bounded here.
-  if (configListBound(st) > CONFIG_MAX) return UNSAFE;
   const bin = gitPath(__dirname);
   if (!bin) return UNSAFE;
   // No longer than the caller has left, in whole ms (Node refuses another
@@ -653,9 +674,16 @@ function configEntries(file) {
   const left = TIME_LEFT ? TIME_LEFT() : Infinity;
   const timeout = Number.isFinite(left) ? Math.max(1, Math.min(3000, Math.floor(left))) : 3000;
   try {
+    // fileBound: on the file path git is not stopped at maxBuffer (and
+    // through Git for Windows' wrapper not by the timeout either), so there
+    // git runs only when its output can't pass it; a config that could gets
+    // the pipe's refusal, UNSAFE here. The pipe stops git itself, so it reads
+    // such a config as before. git reads the file again by its name, so a
+    // rewrite between this read and git's (by a process running as this
+    // user) is not bounded here.
     const out = gitOutput(bin, [...GIT_GLOBAL, 'config', '--file', file, '--no-includes', '--null', '--list'], {
       cwd: __dirname, env: { ...gitEnv(), GIT_CEILING_DIRECTORIES: path.dirname(__dirname) },
-      timeout, maxBuffer: CONFIG_MAX,
+      timeout, maxBuffer: CONFIG_MAX, fileBound: configListBound(st),
     });
     return out.split('\0').filter(Boolean).map(r => {
       const i = r.indexOf('\n');
@@ -1812,4 +1840,4 @@ function farLfsEntries(entries, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, gitOutput, configListBound, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };
+module.exports = { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, gitOutput, configListBound, fileCall, FILE_CALLS, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };
