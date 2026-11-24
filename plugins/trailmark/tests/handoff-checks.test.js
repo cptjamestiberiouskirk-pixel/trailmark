@@ -1260,13 +1260,14 @@ test('injection: a note shortened to fit is never cut inside the launcher\'s pat
   // padding is empty, and oneLine folds the double space). So at 300 the
   // early start holds for any launcher usablePath writes (up to 1,024) and
   // the late one (272 or later) for one of up to 924; at 150 the early start
-  // holds up to 273 and the late one (122 or later) up to 174. These limits
-  // are for this test's notes, which always run past the earlier cut: a
-  // shorter note keeps its path whole up to 3 lengths further, and other
-  // starts and ends are not tried (RS-T-cutsweep, deferred). Past 273 the
-  // path is left out of each of this test's notes at 300, so no path
-  // reaches the 150 cut, and that case doesn't run: its notes, cut to about
-  // 50 characters, can fit with one still whole.
+  // holds up to 273 and the late one (122 or later) up to 174. The 924, 273
+  // and 174 are for this test's notes, which always run past the earlier
+  // cut. A note no longer than the cut is not cut, so its path may end up to
+  // 3 characters later, and each of those limits is 3 higher (927, 276 and
+  // 177). Other starts and ends are not tried (RS-T-cutsweep, deferred).
+  // Past 273 the path is left out of each of this test's notes at 300, so
+  // no path reaches the 150 cut, and that case doesn't run: its notes, cut
+  // to about 50 characters, can fit with one still whole.
   const L = launcher.length;
   const at300 = Math.min(260, 1196 - L), late300 = Math.min(290, 1196 - L);
   const at150 = Math.min(110, 296 - L), late150 = Math.min(140, 296 - L);
