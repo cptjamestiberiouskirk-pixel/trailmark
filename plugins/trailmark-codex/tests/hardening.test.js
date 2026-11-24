@@ -38,6 +38,37 @@ test('git path: PATH entries that are relative, "." or the working folder are sk
   assert.strictEqual(findGit({ env: { ...winEnv, PATHEXT: '.COM;.EXE' }, cwd: 'C:\\repo', platform: 'win32', isExec: f => have.has(f) }), 'C:\\Program Files\\Git\\cmd\\git.com');
 });
 
+// RS-D-findgitdot: Windows runs a program in `repo` for a working folder
+// spelled `repo.`, `repo `, `repo\...` or `work.\repo`, and Node can't read
+// the real path of that spelling, so the repo's own git was picked. Asked
+// about Windows with stand-ins (the real path throws for such a name, as
+// Node's does), so every system runs it.
+test('git path: the working folder spelled with dots or spaces at a name\'s end is still skipped (RS-D-findgitdot)', () => {
+  const { findGit } = require('../scripts/lib/gitbin');
+  const git = 'C:\\Program Files\\Git\\cmd\\git.exe';
+  const have = new Set(['C:\\work\\repo\\git.exe', 'C:\\work\\repo.\\git.exe', git]);
+  const realpath = p => {
+    if (p.split('\\').some(n => n !== '.' && n !== '..' && /[. ]$/.test(n))) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    return p;
+  };
+  const find = (entry, cwd) => findGit({ env: { PATH: `${entry};C:\\Program Files\\Git\\cmd` }, cwd, platform: 'win32', isExec: f => have.has(f), realpath });
+  for (const cwd of ['C:\\work\\repo.', 'C:\\work\\repo ', 'C:\\work\\repo. .', 'C:\\work\\repo...', 'C:\\work\\repo.\\', 'C:\\work\\repo\\...', 'C:\\work\\repo\\ ', 'C:\\work.\\repo', 'C:\\WORK\\Repo.']) {
+    assert.strictEqual(find('C:\\work\\repo', cwd), git, `cwd ${JSON.stringify(cwd)}`);
+  }
+  // A PATH entry spelled so is the working folder too.
+  assert.strictEqual(find('C:\\work\\repo.', 'C:\\work\\repo'), git);
+  // Other folders whose names only look alike are not skipped.
+  for (const cwd of ['C:\\work\\repo2', 'C:\\work\\rep', 'C:\\work\\repo.x', 'C:\\work\\.repo']) {
+    assert.strictEqual(find('C:\\work\\repo', cwd), 'C:\\work\\repo\\git.exe', `cwd ${JSON.stringify(cwd)}`);
+  }
+  // Long runs of dots and spaces are dropped in linear time (a child with a
+  // time limit, as for the regexes of RS-H-addcommitdirs).
+  const lib = JSON.stringify(path.join(__dirname, '..', 'scripts', 'lib', 'gitbin.js'));
+  const code = `const { findGit } = require(${lib}); for (const e of ['C:\\\\x' + '. '.repeat(200000) + 'y', 'C:\\\\x\\\\a' + '. '.repeat(200000)]) findGit({ env: { PATH: e }, cwd: 'C:\\\\y. ', platform: 'win32', isExec: () => false, realpath: (p) => p });`;
+  const r = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 30000 });
+  assert.strictEqual(r.status, 0, `status ${r.status}, signal ${r.signal}, ${String(r.stderr).slice(0, 300)}`);
+});
+
 test('git path: a git program in the repo is never run, even with "." on PATH', () => {
   const s = sandbox();
   jbm(s, ['init']);

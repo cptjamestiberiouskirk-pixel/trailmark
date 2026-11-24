@@ -92,12 +92,31 @@ function absoluteEntry(entry, platform) {
   return entry.startsWith('/');
 }
 
+// Windows drops the dots and spaces at the end of a name in a folder it runs
+// a program in: `repo.`, `repo `, `repo. .`, `repo\...` and `base.\repo` all
+// run it in `repo` (RS-D-findgitdot). Node opens such a name as written, so
+// the real path of that spelling can't be read. Here each name loses its end
+// of dots and spaces, and a name of nothing else goes, so the spelling counts
+// as the folder it opens. Where Windows keeps what this drops (spaces before
+// a separator, a name of dots in the middle), a PATH entry is only skipped,
+// never picked. A loop, not a regex, keeps a long run linear.
+function dropDotEnds(p) {
+  const out = [];
+  for (const name of p.split('\\')) {
+    let e = name.length;
+    while (e > 0 && (name[e - 1] === '.' || name[e - 1] === ' ')) e--;
+    if (e === 0 && name !== '') continue;
+    out.push(name.slice(0, e));
+  }
+  return out.join('\\');
+}
+
 function sameDir(a, b, platform) {
   const p = platform === 'win32' ? path.win32 : path.posix;
   const norm = x => {
     // The look-behind keeps a long run of separators linear: see pathKey.
     let r = p.resolve(x).replace(/(?<![\\/])[\\/]+$/, '');
-    if (platform === 'win32') r = r.replace(/\//g, '\\').toLowerCase();
+    if (platform === 'win32') r = dropDotEnds(r.replace(/\//g, '\\').toLowerCase());
     return r;
   };
   return norm(a) === norm(b);
@@ -109,8 +128,9 @@ function realOrNull(p, real) {
 
 // Pure lookup, for tests: { env, cwd, platform, isExec, realpath } -> absolute path or ''.
 // The working folder is skipped by name and, where both resolve, by real path,
-// which also catches other spellings of it (8.3 names, a trailing dot, \\?\,
-// a junction). A PATH entry that is a subfolder of the repo (an activated
+// which also catches other spellings of it (8.3 names, \\?\, a junction). A
+// name that ends in dots or spaces has no real path to read, so it is matched
+// by name as Windows opens it (dropDotEnds). A PATH entry that is a subfolder of the repo (an activated
 // .venv\Scripts, say) is not skipped: the user's own shell runs that git too.
 function findGit({ env = process.env, cwd = process.cwd(), platform = process.platform, isExec = isExecutable, realpath = fs.realpathSync.native } = {}) {
   const p = platform === 'win32' ? path.win32 : path.posix;
