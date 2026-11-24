@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: An escape in an Edit became the character itself
+
+- What went wrong: for RS-S-curlyquote, the new test was written through the Edit tool with the JavaScript escape for U+2019 (backslash, `u2019`) in a string literal, and the file got the curly quote itself. Writing this lesson did the same. The added-line byte check for non-ASCII caught it before the commit.
+- Why: the escape sequence in the tool's text was turned into the character it names on the way to the file.
+- Rule going forward: in code written through Edit or Write, build a character outside printable ASCII with `String.fromCharCode(0x...)` (or `new RegExp` from a string with a doubled backslash), and byte-grep the added lines for non-ASCII before the commit.
+- Status: open
+
+## 2026-11-24: A read-only sweep missed a site that a test then found
+
+- What went wrong: the Q61 sweep for free text in shell commands listed the recall and park skills but not `tm-memory-setup` step 3 (`note '<one line: Codex setup check>'`). The Q62 test, which scans every skill for a quoted note or search after the command, found it.
+- Why: the sweep searched by reading and grep for known command shapes; the test applied one pattern to every line of every skill.
+- Rule going forward: when a sweep's finding becomes a fix, add a test that scans every file of that kind for the pattern, and treat the sweep's site list as a start, not the whole.
+- Status: open
+
 ## 2026-11-24: A new worktree came off a stale origin/main
 
 - What went wrong: for RS-D-codexshortid, `git worktree add -b <branch> <dir> origin/main` in the main checkout made the branch at 1e96394, two merges behind (PRs 144 and 145). The fetch before it had run in another clone, which keeps its own `origin/main`.
