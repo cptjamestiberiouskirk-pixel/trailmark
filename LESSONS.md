@@ -18,8 +18,8 @@ Format:
 
 - What went wrong: the dash check on the CLAUDE.md:74 edit piped `git diff` through `grep -v '^[-+][-+]'` to drop the `---` and `+++` headers. The changed line is a list item, so its diff lines start `-- ` and `+- ` and were dropped too. The check printed "no dash" on 0 characters.
 - Why: the filter was written for the header lines without a look at what the content lines start with, and the count it printed was not read before the commit.
-- Rule going forward: a check prints how much it read, and a count of 0 is a failed check, not a pass. Pick the lines by what they are (`git show --format= <file>` and a pattern for the line), not by dropping what they aren't.
-- Status: open
+- Rule going forward: a check prints how much it read, and a count of 0 is a failed check, not a pass. Pick the lines by what they are (`git show --format= <file>` and a pattern for the line), not by dropping what they aren't. Seen again on the same branch after the merge of PR 138: a check with `^[-+][^-+]` read 1 of 16 changed lines; caught because it printed its count.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 21)
 
 ## 2026-11-24: A temp file a sandboxed reader trusted was writable by the sandbox
 
@@ -47,7 +47,7 @@ Format:
 - What went wrong: adding `fileCall, FILE_CALLS` to gitbin.js's export line was done with `sed -i`, against the rule that code and tests change only through Edit or Write. The result was checked and is what was meant.
 - Why: the change looked too small for the rule, and the export line was not open in the editor's view.
 - Rule going forward: the size of a code change doesn't exempt it; read the line, then Edit it.
-- Status: open
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 20)
 
 ## 2026-11-24: "Not amplified" was settled with ordinary data
 
@@ -104,7 +104,7 @@ Format:
 - What went wrong: in RS-F-codexsandboxgit-write's round 1 batch, a one-token change to a test (`strictEqual(got.changed, 2,` to `ok(got.changed >= 2,`) was made with `sed -i` in a shell command, against the rule that new code and tests change only through the Edit or Write tool. It applied once (a grep counted 1), and nothing else changed.
 - Why: the change looked too small to need the tool, and it rode along in a command that also copied and checked the files.
 - Rule going forward: every change to code or tests goes through Edit or Write, however small; a shell command only copies, checks and runs.
-- Status: open
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 20)
 
 ## 2026-11-23: A mutation loop read the wrong line, and stopping it left its runs going
 
