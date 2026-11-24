@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-23: A scratch run's checkpoint was refused because init had already written a handoff
+
+- What went wrong: the RS-F-codexsandboxgit sweep run (`csg-sweep.sh`) passed `--base=none` to its first `write-handoff`, inside Codex's sandbox. `init --force` had already made a `handoff.md`, so the write was refused with exit 3 before the launcher's sweep ran, and the run had to be repeated (`csg-sweep2.sh`) with a new commit.
+- Why: the script assumed a freshly set-up memory folder has no handoff; it was written from the flag's description, not from what init creates, and `init` prints `created: ... handoff.md`.
+- Rule going forward: a scratch script that writes the handoff reads the version with `handoff` first and passes it, never `--base=none`, and checks the step it measures actually ran (here, a `write-handoff` exit 0) before reading its result.
+- Status: open
+
 ## 2026-11-23: A merge of main put a new line in front of a test that reads the whole context
 
 - What went wrong: the RS-S-sincegitadvice test checks every `git` in the session-start context outside the handoff frame. Merging main brought PR 128's no-HEAD line, whose "Git gave no facts" the allowlist doesn't take, and that line appears when the sandbox's own launcher write runs out of git time. The quick check passed (no load), and the automated reviewer found it on PR 130.
