@@ -9322,6 +9322,141 @@ process.stdout.write(JSON.stringify(out));`;
   }
 });
 
+// The auto-review's round 3 on PR 137 (security-1): `git config --list`
+// prints a section's name once per key, so a small config can ask for an
+// output of gigabytes, and on the file path git is not stopped at maxBuffer.
+// The config read now bounds that output from the file's text before git
+// starts.
+test('RS-F-codexsandboxgit-write: configListBound is at least what real git prints with --null --list, for one-line headers, bare keys, continuations, CRLF, CR alone, escaped subsections and a long repeated header', () => {
+  const { configListBound, gitPath } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  assert.strictEqual(typeof configListBound, 'function', 'gitbin.js has no configListBound');
+  const base = realTemp('jbmem-');
+  const git = gitPath(base);
+  assert.ok(git, 'no git on PATH');
+  const BS = String.fromCharCode(92);
+  const cases = {
+    'header and key on one line': '[s] a=1\n[t] b\n',
+    'a bare key': '[s]\n\tb\n\tc\n',
+    'a continuation': `[s]\n\ta = one ${BS}\n two ${BS}\n three\n`,
+    'CRLF': '[s]\r\n\ta = 1\r\n\tb\r\n',
+    'CR alone': '[s]\r\ta = 1\r\tb\r',
+    'an escaped subsection': `[s "a${BS}"b${BS}${BS}c"]\n\tk = "v ${BS}"q${BS}""\n`,
+    'a byte-order mark': '﻿[s]\n\tb\n',
+    'an indented header': '  [s "x"]\n\tk = 1\n',
+    'a long header, many keys': '[' + 'a'.repeat(2000) + ']\n' + 'b\n'.repeat(2000),
+    'long headers with a key each': ('[' + 'h'.repeat(1000) + '] k = "v"\n').repeat(500),
+    // Counted in bytes, and found after spaces or a byte-order mark.
+    // git takes letters past ASCII only in a subsection's name.
+    'a long header of 2-byte letters, many keys': '[s "' + 'é'.repeat(1000) + '"]\n' + 'b\n'.repeat(1000),
+    'a long indented header, many keys': '  [' + 'i'.repeat(1000) + ']\n' + 'b\n'.repeat(500),
+    'a long header after a byte-order mark, many keys': '﻿[' + 'm'.repeat(1000) + ']\n' + 'b\n'.repeat(500),
+    'long values of 3-byte letters': '[s]\n' + ('\tk = ' + '€'.repeat(1000) + '\n').repeat(200),
+  };
+  const seen = {};
+  for (const [name, text] of Object.entries(cases)) {
+    const f = path.join(base, `c${Object.keys(seen).length}`);
+    fs.writeFileSync(f, text);
+    const r = spawnSync(git, ['config', '--file', f, '--no-includes', '--null', '--list'], { maxBuffer: 64 * 1024 * 1024 });
+    const out = r.stdout ? r.stdout.length : 0;
+    seen[name] = { status: r.status, out, bound: configListBound(text) };
+    assert.ok(out <= configListBound(text), `${name}: git printed ${out} bytes, the bound is ${configListBound(text)}`);
+  }
+  // Premise: git read the cases (CR alone aside, which it may refuse), and
+  // the long header was repeated as expected.
+  for (const [name, v] of Object.entries(seen)) if (name !== 'CR alone') assert.strictEqual(v.status, 0, `${name}: ${JSON.stringify(v)}`);
+  assert.ok(seen['a long header, many keys'].out >= 2000 * 2003, JSON.stringify(seen['a long header, many keys']));
+  assert.ok(seen['long headers with a key each'].out >= 500 * 1004, JSON.stringify(seen['long headers with a key each']));
+  assert.ok(seen['a long header of 2-byte letters, many keys'].out >= 1000 * 2005,JSON.stringify(seen['a long header of 2-byte letters, many keys']));
+  for (const name of ['a long indented header, many keys', 'a long header after a byte-order mark, many keys']) assert.ok(seen[name].out >= 500 * 1003, `${name}: ${JSON.stringify(seen[name])}`);
+  assert.ok(seen['long values of 3-byte letters'].out >= 200 * 3005, JSON.stringify(seen['long values of 3-byte letters']));
+});
+
+test('RS-F-codexsandboxgit-write: a config whose --list output could pass maxBuffer is unsafe before git starts, through the pipe and through the file alike, and one just under it is still read through the file', () => {
+  const s = sandbox();
+  const cfg = path.join(s.repo, '.git', 'config');
+  const start = fs.readFileSync(cfg, 'utf8') + '[trailmark]\n\tk = "v"\n';
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  const script = `const { farGitConfig } = require(${JSON.stringify(lib)});
+process.stdout.write(JSON.stringify(farGitConfig(${JSON.stringify(s.repo)})));`;
+  const viaPipe = () => {
+    const r = spawnSync(process.execPath, ['-e', script], { cwd: s.repo, encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout);
+  };
+  const viaFile = (tag) => {
+    const spy = pipeRefusedSpy(path.join(s.base, tag));
+    const r = spawnSync(process.execPath, [...spy.args, '-e', script], { cwd: s.repo, env: spy.childEnv, encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.deepStrictEqual(spy.leftIn(spy.tmp), []);
+    const runs = spy.log().filter(e => (e.k === 'pipe' || e.k === 'file') && e.a.includes('--list'));
+    return { far: JSON.parse(r.stdout), pipes: runs.filter(e => e.k === 'pipe').length, files: runs.filter(e => e.k === 'file').length };
+  };
+  // Over: a 60,000-character section name and 400 keys ask for about 24 MB.
+  fs.writeFileSync(cfg, start + '[' + 'a'.repeat(60000) + ']\n' + 'b\n'.repeat(400));
+  const over = viaFile('over');
+  assert.notStrictEqual(over.far, '', JSON.stringify(over));
+  assert.deepStrictEqual({ pipes: over.pipes, files: over.files }, { pipes: 0, files: 0 }, 'git was started for a config whose output could pass maxBuffer');
+  assert.strictEqual(viaPipe(), over.far, 'the pipe and the file path differ');
+  // Under: the same name and 100 keys print about 6 MB, under maxBuffer.
+  fs.writeFileSync(cfg, start + '[' + 'a'.repeat(60000) + ']\n' + 'b\n'.repeat(100));
+  const under = viaFile('under');
+  assert.deepStrictEqual(under, { far: '', pipes: 1, files: 1 });
+  assert.strictEqual(viaPipe(), '');
+});
+
+// git config --blob on a committed .lfsconfig prints a long section name once
+// per key, as --list on a file does (60 KB gave 6 MB). Only the pipe, which
+// stops git at the buffer, reads it: farLfsConfig runs after check-attr, which
+// sends git its paths on stdin, and a call with stdin is never run through the
+// file. If that changes, the blob needs the same bound as configEntries.
+test('RS-F-codexsandboxgit-write: a committed .lfsconfig is read only through the pipe, which stops a --list output past the buffer, and never through the file', () => {
+  const base = realTemp('jbmem-lfsbound-');
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitfacts.js');
+  let n = 0;
+  // git-lfs set up as `git lfs install --local` does, and a .lfsconfig only in the index and HEAD.
+  const lfsRepo = (text) => {
+    const r = path.join(base, 'r' + (n++)); repoAt(r);
+    fs.writeFileSync(path.join(r, '.gitattributes'), '*.bin filter=lfs\n');
+    fs.writeFileSync(path.join(r, 'x.bin'), 'x');
+    fs.writeFileSync(path.join(r, '.lfsconfig'), text);
+    execFileSync('git', ['-c', 'filter.lfs.clean=cat', 'add', '.'], { cwd: r });
+    execFileSync('git', ['-c', 'filter.lfs.clean=cat', 'commit', '-qm', 'lfs'], { cwd: r });
+    execFileSync('git', ['config', 'filter.lfs.process', 'git-lfs filter-process'], { cwd: r });
+    fs.rmSync(path.join(r, '.lfsconfig'));
+    return r;
+  };
+  const script = (r) => `const { gitFacts } = require(${JSON.stringify(lib)});
+process.stdout.write(JSON.stringify(gitFacts(${JSON.stringify(r)}, ['status'], { budgetMs: 30000, callMs: 20000 }).statusSkipped || ''));`;
+  const viaPipe = (r) => {
+    const p = spawnSync(process.execPath, ['-e', script(r)], { cwd: r, encoding: 'utf8' });
+    assert.strictEqual(p.status, 0, p.stderr);
+    return JSON.parse(p.stdout);
+  };
+  const viaFile = (r, tag) => {
+    const spy = pipeRefusedSpy(path.join(base, tag));
+    const p = spawnSync(process.execPath, [...spy.args, '-e', script(r)], { cwd: r, env: spy.childEnv, encoding: 'utf8' });
+    assert.strictEqual(p.status, 0, p.stderr);
+    assert.deepStrictEqual(spy.leftIn(spy.tmp), []);
+    const runs = spy.log().filter(e => e.k === 'pipe' || e.k === 'file');
+    const n = (k, w) => runs.filter(e => e.k === k && e.a.includes(w)).length;
+    return { skipped: JSON.parse(p.stdout), checkAttr: n('pipe', 'check-attr'), checkAttrFiles: n('file', 'check-attr'), blobPipes: n('pipe', '--blob'), blobFiles: n('file', '--blob') };
+  };
+  // Over: a 60,000-character section name and 600 keys ask for about 36 MB, past the runner's 32 MiB.
+  const over = lfsRepo('[lfs]\n\tbatch = true\n[' + 'a'.repeat(60000) + ']\n' + 'b\n'.repeat(600));
+  assert.strictEqual(viaPipe(over), 'lfs-config', 'the pipe let an output past the buffer through');
+  // Under: the same name and 100 keys print about 6 MB, under the buffer.
+  const under = lfsRepo('[lfs]\n\tbatch = true\n[' + 'a'.repeat(60000) + ']\n' + 'b\n'.repeat(100));
+  assert.strictEqual(viaPipe(under), '', 'the premise: the pipe reads a .lfsconfig under the buffer');
+  // Through the file, status stops at check-attr and the blob is never read.
+  // If this fails because check-attr (a call with input) or config --blob ran
+  // through the file, a .lfsconfig can now reach the file path, where git is
+  // not stopped at the buffer: give the blob the bound configEntries has
+  // (configListBound in gitbin.js) before letting it through.
+  for (const [r, tag] of [[over, 'over'], [under, 'under']]) {
+    assert.deepStrictEqual(viaFile(r, tag), { skipped: 'filter-check', checkAttr: 1, checkAttrFiles: 0, blobPipes: 0, blobFiles: 0 }, tag);
+  }
+});
+
 test('RS-F-codexsandboxgit-write: the run through the file gets the pipe run\'s cwd, env and timeout, no stdin or stderr, a hidden window, a name of its own, and its handle closed', () => {
   const s = sandbox();
   const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');

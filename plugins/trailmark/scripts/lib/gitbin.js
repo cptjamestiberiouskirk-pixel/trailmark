@@ -171,7 +171,7 @@ function gitEnv(base = process.env) {
 // runs again with its output sent to a file: in a new folder that mkdtemp
 // makes in the system temp folder, a file with 32 random hex characters for
 // a name, created only if it doesn't exist (mode 0600), read back through
-// the handle git wrote to, and removed with its folder in a finally.
+// the handle git wrote to, and its folder's removal tried in a finally.
 //
 // Two answers differ from the pipe's. maxBuffer is checked only after git
 // ends, so git is not stopped there: it writes all of its output to the
@@ -605,10 +605,27 @@ function plainConfig(text) {
   }
   return out;
 }
+// An upper bound, in bytes, on what `git config --file <f> --null --list`
+// prints for this text. Each entry is its section's name, a dot, its key, a
+// newline, its value and a NUL. Keys and values come from the entry's own
+// lines, so together they are at most the file's size (escapes and quotes
+// only shorten them); a section's name is at most as long as its header
+// line (a line that starts with [ after any space, BOM included); and no
+// line starts more than one entry. So a long section name repeated for many
+// keys, which makes a small file print gigabytes (the auto-review's round 3
+// on PR 137), counts in full. Bytes as UTF-8: a byte git reads as it is but
+// JavaScript replaced with U+FFFD counts as 3, never fewer than git's.
+function configListBound(text) {
+  const lines = text.split('\n');
+  let header = 0;
+  for (const l of lines) if (/^\s*\[/.test(l)) header = Math.max(header, Buffer.byteLength(l));
+  return Buffer.byteLength(text) + lines.length * (header + 3);
+}
 // [key, value] pairs of one config file as git reads it, includes not
 // followed; null when the file is missing, UNSAFE when git can't read it.
+const CONFIG_MAX = 8 * 1024 * 1024;
 function configEntries(file) {
-  const st = readSmall(file, 8 * 1024 * 1024);
+  const st = readSmall(file, CONFIG_MAX);
   if (st === null || st === UNSAFE) return st;
   // No backslash, no quote, no '//', no %( and no include: no value in it
   // can name a network path or another file, so git isn't started for it.
@@ -622,6 +639,12 @@ function configEntries(file) {
   // (a submodule's worktree = ../../sub, say): with nothing to decode, the
   // text is read here without starting git, as git reads such a file.
   if (!/[\\"]|\/\/|%\(|include/i.test(st)) { const e = plainConfig(st); if (e) return e; }
+  // An output that could pass maxBuffer is unsafe before git starts, as
+  // the pipe answers once git passes it: on the file path git is not stopped
+  // at maxBuffer, and through Git for Windows' wrapper not by the timeout
+  // either. git reads the file again by its name, so a rewrite between this
+  // read and git's (by a process running as this user) is not bounded here.
+  if (configListBound(st) > CONFIG_MAX) return UNSAFE;
   const bin = gitPath(__dirname);
   if (!bin) return UNSAFE;
   // No longer than the caller has left, in whole ms (Node refuses another
@@ -632,7 +655,7 @@ function configEntries(file) {
   try {
     const out = gitOutput(bin, [...GIT_GLOBAL, 'config', '--file', file, '--no-includes', '--null', '--list'], {
       cwd: __dirname, env: { ...gitEnv(), GIT_CEILING_DIRECTORIES: path.dirname(__dirname) },
-      timeout, maxBuffer: 8 * 1024 * 1024,
+      timeout, maxBuffer: CONFIG_MAX,
     });
     return out.split('\0').filter(Boolean).map(r => {
       const i = r.indexOf('\n');
@@ -1789,4 +1812,4 @@ function farLfsEntries(entries, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, gitOutput, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };
+module.exports = { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, gitOutput, configListBound, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };

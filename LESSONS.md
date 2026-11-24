@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A probe script's exit skipped its own clean-up
+
+- What went wrong: `csw-mut6.js` stopped on a failing baseline with `process.exit(1)` inside its `try`, so the `finally` that removes its clone never ran, and the next run refused to start because the clone was still there.
+- Why: `process.exit` ends Node at once; no `finally` runs after it. The script was copied from one whose baseline had always passed.
+- Rule going forward: in a script with clean-up in `finally`, stop with `throw` (or set `process.exitCode` and return), never `process.exit` inside the `try`.
+- Status: open
+
+## 2026-11-24: A neighbor was called reachable from a measurement of git alone
+
+- What went wrong: PR 137's gate round 3 found `git config --list` amplified on the file path. A probe showed `git config --blob` on a committed `.lfsconfig` amplified too, and it was reported to the supervisor as a CONFIRMED neighbor, and a fix was approved. The test written for that fix showed the call never runs on the file path: it comes after `check-attr --stdin`, a call with input, which the fallback never runs.
+- Why: the probe ran git directly, so it showed what git prints, not whether the launcher's file path ever makes that call. Reach was taken from the call's place in the code without reading what runs before it.
+- Rule going forward: a neighbor is CONFIRMED only once the call is driven through the same path as the finding (here, the EPERM spy). A measurement of the program alone gives the size, and the reach stays INFERRED until then.
+- Status: open
+
 ## 2026-11-24: A fix that chose a program to run drew a new finding each round
 
 - What went wrong: PR 137's `realGitFor` picked the real git from folder names. Round 3 found a second wrapper and a repo-named folder; round 4 found that two callers run outside the repo, so the repo rule missed them, and a repo's file could run. The fix was taken out and the limit documented instead.
