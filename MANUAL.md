@@ -195,7 +195,14 @@ You call the skills by their full names:
 
 Type the full name. Claude Code's own `/rewind` answers to `checkpoint`, so `/checkpoint` alone opens that instead.
 
-This section describes Claude Code. In Codex the same things happen at a new chat, a commit, a PR merge and a compaction, with these differences: there is no reminder after a subagent's result and no context watch, the pause watch asks the agent to run `tm-checkpoint` and shows you no message, the `[trailmark]` message at a chat's start is shown only when it holds a warning, and the skills have other names, which you ask the agent to run (section 8). The Codex copy's README has the full list under "How it differs from the Claude Code plugin".
+This section describes Claude Code. In Codex the same things happen at a new chat, a commit, a PR merge and a compaction, with these differences:
+
+- There is no reminder after a subagent's result, and no context watch.
+- The pause watch asks the agent to run `tm-checkpoint` and shows you no message.
+- The `[trailmark]` message at a chat's start is shown only when it holds a warning.
+- The skills have other names, which you ask the agent to run (section 8).
+
+The Codex copy's README has the full list under "How it differs from the Claude Code plugin".
 
 Several sessions can work in one repo at once. Every handoff write names the version it started from, and a write based on an older version is refused. The skill then merges the other session's changes and writes again, so neither session can silently undo the other's checkpoint.
 

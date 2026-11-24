@@ -130,7 +130,7 @@ Outside the memory folder, this copy:
 
 ## Checking how the hooks ran
 
-In a repo set up for Trailmark, each hook run that gets past its first checks (a chat start, a compaction, a commit or PR merge command, or a prompt the pause watch matched) adds one line to `payload-shapes.log` in the plugin's data folder (`PLUGIN_DATA`). The line has the event, the tool name, the payload's field names and types, the first word of the command when it's a common program name (git, gh, node, powershell and a few others; anything else shows as `other`), the exit code, and whether `CODEX_THREAD_ID` matches the session ID. It keeps no command text or output, nothing is logged for other repos, and the file stops growing at 256 KB. `JBMEM_SHAPES=off` turns it off. To find it:
+In a repo set up for Trailmark, each hook run that gets past its first checks (a chat start, a compaction, a commit or PR merge command, or a prompt the pause watch matched) adds one line to `payload-shapes.log` in the plugin's data folder (`PLUGIN_DATA`). The line has the event, the tool name, the payload's field names and types, the first word of the command when it's a common program name (git, gh, node, powershell and a few others; anything else shows as `other`), the exit code, and whether `CODEX_THREAD_ID` matches the session ID. It keeps no command text or output, nothing is logged for other repos, and the file stops growing at 256 KB. `JBMEM_SHAPES=off` turns it off (so do `0`, `false` and `no`), and nothing is written when `PLUGIN_DATA` is not an absolute path or is a network path. To find it:
 
 ```powershell
 Get-ChildItem "$env:USERPROFILE\.codex" -Recurse -Filter payload-shapes.log -ErrorAction SilentlyContinue | Select-Object FullName, Length, LastWriteTime
@@ -152,7 +152,7 @@ With the ChatGPT desktop app on Windows:
 - The app starts short `fork` chats next to a chat. Each gets the handoff and logs a start; they do no harm.
 - `CODEX_THREAD_ID` isn't set in the hooks' environment, so the skills take the session ID from the chat-start note.
 
-With `codex exec` 0.169 on Windows: a prompt that said "Pausing for a reboot now." got the pause watch's note, and the agent ran `tm-checkpoint` and saved the handoff. A prompt about not restarting a server got no note.
+With `codex exec` 0.169 on Windows: a prompt that said "Pausing for a reboot now." got the pause watch's note, and the agent ran `tm-checkpoint` and saved the handoff. In that run git gave the hook no facts, so the saved Updated line kept the template's placeholders for the date, branch and HEAD; such a line now says `git: no facts` instead. A prompt about not restarting a server got no note.
 
 Not checked yet: whether `writable_roots` applies under Codex's elevated sandbox on Windows or in the app (the unelevated sandbox honored it in `codex exec`, step 3), whether a compacted chat gets the handoff text back, the pause watch in the app, and anything on macOS or Linux, where the same hooks and skills are expected to work.
 
