@@ -9426,8 +9426,9 @@ test('RS-F-codexsandboxgit-write: realGitFor picks the real git next to cmd\\git
   const same = (a, b) => a.toLowerCase() === String(b).toLowerCase();
   // files: the paths that exist. real: where a path's real path leads
   // (null: it can't be read); any other existing path is its own real path.
-  const pick = (bin, files, real = {}, platform = 'win32') => realGitFor(bin, {
+  const pick = (bin, files, real = {}, platform = 'win32', cwd = 'D:\\repo') => realGitFor(bin, {
     platform,
+    cwd,
     isExec: f => files.some(x => same(x, f)),
     realpath: f => {
       const k = Object.keys(real).find(x => same(x, f));
@@ -9460,8 +9461,8 @@ test('RS-F-codexsandboxgit-write: realGitFor picks the real git next to cmd\\git
   assert.strictEqual(pick('C:\\Tools\\git.exe', [...all, 'C:\\Tools\\git.exe'], { 'C:\\Tools\\git.exe': wrapper }), cand('ucrt64'), 'a link to cmd\\git.exe is the wrapper');
   // Bin's real path can't be read: kept.
   assert.strictEqual(pick(wrapper, all, { [wrapper]: null }), wrapper);
-  // Not cmd\git.exe: kept, whatever is next to it.
-  for (const bin of [`${W}\\bin\\git.exe`, cand('mingw64'), `${W}\\cmd\\git.com`, `${W}\\cmdx\\git.exe`, `${W}\\cmd\\sub\\git.exe`, 'C:\\node\\node.exe']) {
+  // Not cmd\git.exe or bin\git.exe: kept, whatever is next to it.
+  for (const bin of [cand('mingw64'), `${W}\\cmd\\git.com`, `${W}\\cmdx\\git.exe`, `${W}\\cmd\\sub\\git.exe`, `${W}\\binx\\git.exe`, 'C:\\node\\node.exe']) {
     assert.strictEqual(pick(bin, [...all, bin]), bin, bin);
   }
   // Case does not matter on Windows.
@@ -9470,6 +9471,60 @@ test('RS-F-codexsandboxgit-write: realGitFor picks the real git next to cmd\\git
   assert.strictEqual(pick('/usr/bin/git', ['/usr/bin/git'], {}, 'linux'), '/usr/bin/git');
   assert.strictEqual(pick(wrapper, all, {}, 'linux'), wrapper);
   assert.strictEqual(pick('', all), '');
+});
+
+// Round 3 on PR 137. F1: Git for Windows' bin\git.exe is a second copy of
+// the wrapper (the same bytes as cmd\git.exe), and a timeout through it left
+// the real git running too. F2: the install is named by its folders only, so
+// a repo sitting where a candidate is would have run the repo's git.
+test('RS-F-codexsandboxgit-write: realGitFor takes bin\\git.exe as a wrapper too but never the real git in ucrt64\\bin, and passes over a candidate in the call\'s working folder or a candidate folder that holds it', () => {
+  const { realGitFor } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const W = 'C:\\Program Files\\Git';
+  const wrapper = `${W}\\cmd\\git.exe`;
+  const binW = `${W}\\bin\\git.exe`;
+  const cand = d => `${W}\\${d}\\bin\\git.exe`;
+  const same = (a, b) => a.toLowerCase() === String(b).toLowerCase();
+  const pick = (bin, files, { real = {}, cwd = 'D:\\repo' } = {}) => realGitFor(bin, {
+    platform: 'win32',
+    cwd,
+    isExec: f => files.some(x => same(x, f)),
+    realpath: f => {
+      const k = Object.keys(real).find(x => same(x, f));
+      if (k !== undefined && real[k] !== null) return real[k];
+      if (k !== undefined || !files.some(x => same(x, f))) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      return String(f);
+    },
+  });
+  const all = [wrapper, binW, cand('ucrt64'), cand('mingw64'), cand('clangarm64')];
+  // F1: bin\git.exe is the wrapper as cmd\git.exe is, in any case, and so
+  // is a link to it; with no candidate it is kept.
+  assert.strictEqual(pick(binW, all), cand('ucrt64'));
+  assert.ok(same(cand('ucrt64'), pick(`${W}\\BIN\\Git.exe`, all)), 'upper case');
+  assert.strictEqual(pick(binW, [binW, cand('mingw64')]), cand('mingw64'));
+  assert.strictEqual(pick(binW, [binW]), binW);
+  assert.strictEqual(pick('C:\\Tools\\git.exe', [...all, 'C:\\Tools\\git.exe'], { real: { 'C:\\Tools\\git.exe': binW } }), cand('ucrt64'), 'a link to bin\\git.exe');
+  // The real git is in a folder named bin as well: it is not a wrapper,
+  // whatever is under it.
+  for (const d of ['ucrt64', 'mingw64', 'clangarm64', 'UCRT64']) {
+    const nested = `${W}\\${d}\\ucrt64\\bin\\git.exe`;
+    assert.strictEqual(pick(cand(d), [...all, cand(d), nested]), cand(d), `${d}\\bin\\git.exe`);
+  }
+  // F2: the call's working folder, by name and by real path. A candidate
+  // inside it, or a candidate folder that holds it, is passed over.
+  assert.strictEqual(pick(wrapper, all, { cwd: `${W}\\ucrt64` }), cand('mingw64'), 'the repo is the ucrt64 folder');
+  assert.strictEqual(pick(wrapper, all, { cwd: `${W}\\ucrt64\\sub\\dir` }), cand('mingw64'), 'the repo is in the ucrt64 folder');
+  assert.strictEqual(pick(wrapper, all, { cwd: `${W}\\ucrt64\\bin` }), cand('mingw64'));
+  assert.strictEqual(pick(wrapper, all, { cwd: `${W}\\UCRT64\\` }), cand('mingw64'), 'case and a trailing separator');
+  assert.strictEqual(pick(binW, all, { cwd: `${W}\\ucrt64` }), cand('mingw64'), 'bin\\git.exe and the repo in ucrt64');
+  assert.strictEqual(pick(wrapper, all, { cwd: W }), wrapper, 'the repo holds the whole install');
+  assert.strictEqual(pick(wrapper, all, { cwd: 'C:\\' }), wrapper, 'the repo is the drive');
+  assert.strictEqual(pick(wrapper, [...all, 'C:\\PROGRA~1\\Git\\ucrt64'], { cwd: 'C:\\PROGRA~1\\Git\\ucrt64', real: { 'C:\\PROGRA~1\\Git\\ucrt64': `${W}\\ucrt64` } }), cand('mingw64'), 'a short name for the folder');
+  assert.strictEqual(pick(wrapper, [...all, 'D:\\link'], { cwd: 'D:\\link', real: { 'D:\\link': `${W}\\ucrt64` } }), cand('mingw64'), 'a junction to the ucrt64 folder');
+  assert.strictEqual(pick(wrapper, [wrapper, cand('ucrt64')], { cwd: `${W}\\ucrt64` }), wrapper, 'F2 as Fable ran it');
+  // A folder whose name only starts like a candidate's is another folder.
+  assert.strictEqual(pick(wrapper, all, { cwd: `${W}\\ucrt64x` }), cand('ucrt64'));
+  assert.strictEqual(pick(wrapper, all, { cwd: `${W}\\cmd` }), cand('ucrt64'));
+  assert.strictEqual(pick(wrapper, all, { cwd: 'D:\\repo' }), cand('ucrt64'));
 });
 
 test('RS-F-codexsandboxgit-write: on Windows a real junction out of a stand-in install is refused, and a real candidate inside it is picked', { skip: !WIN && 'cmd\\git.exe and junctions are Windows' }, () => {
@@ -9496,17 +9551,25 @@ test('RS-F-codexsandboxgit-write: with the pipe refused, the run through the fil
   const wrapper = path.join(root, 'cmd', 'git.exe');
   const realGit = path.join(root, 'ucrt64', 'bin', 'git.exe');
   for (const f of [wrapper, realGit]) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, ''); }
+  // Round 3 on PR 137, F1: Git for Windows' second wrapper, bin\git.exe.
+  const binWrapper = path.join(root, 'bin', 'git.exe');
+  fs.mkdirSync(path.dirname(binWrapper), { recursive: true });
+  fs.writeFileSync(binWrapper, '');
   const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
   const script = `const { gitOutput, gitEnv } = require(${JSON.stringify(lib)});
-try { gitOutput(${JSON.stringify(wrapper)}, ['--version'], { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000 }); } catch (e) { /* the stand-ins are empty files */ }`;
-  const run = () => {
+const [bin, cwd] = process.argv.slice(1);
+try { gitOutput(bin, ['--version'], { cwd, env: gitEnv(), timeout: 15000 }); } catch (e) { /* the stand-ins are empty files */ }`;
+  const run = (bin = wrapper, cwd = s.repo) => {
     const spy = pipeRefusedSpy(path.join(s.base, `spy-${Math.random().toString(16).slice(2)}`));
-    const r = spawnSync(process.execPath, [...spy.args, '-e', script], { cwd: s.repo, env: spy.childEnv, encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [...spy.args, '-e', script, bin, cwd], { cwd: s.repo, env: spy.childEnv, encoding: 'utf8' });
     assert.strictEqual(r.status, 0, r.stderr);
     const log = spy.log();
     return { pipes: log.filter(e => e.k === 'pipe').map(e => String(e.bin).toLowerCase()), files: log.filter(e => e.k === 'file').map(e => String(e.bin).toLowerCase()) };
   };
   assert.deepStrictEqual(run(), { pipes: [wrapper.toLowerCase()], files: [realGit.toLowerCase()] });
+  assert.deepStrictEqual(run(binWrapper), { pipes: [binWrapper.toLowerCase()], files: [realGit.toLowerCase()] }, 'bin\\git.exe');
+  // F2: a call whose working folder is the ucrt64 folder keeps the wrapper.
+  assert.deepStrictEqual(run(wrapper, path.join(root, 'ucrt64')), { pipes: [wrapper.toLowerCase()], files: [wrapper.toLowerCase()] }, 'the working folder holds the candidate');
   fs.rmSync(path.join(root, 'ucrt64'), { recursive: true });
   assert.deepStrictEqual(run(), { pipes: [wrapper.toLowerCase()], files: [wrapper.toLowerCase()] });
 });

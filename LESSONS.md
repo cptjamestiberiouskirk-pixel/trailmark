@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A fix for one program missed its second copy
+
+- What went wrong: PR 137's fix 1 ran the real git in place of Git for Windows' `cmd\git.exe` and left `bin\git.exe`, a byte-identical copy that a PATH can hold first, with the old fault. Round 3 found it.
+- Why: the probe and the fix were built around the git this PC's PATH gives; nothing looked for the same program elsewhere in the install.
+- Rule going forward: when a fix treats a program by where it is, hash the install's other files of that name and treat every copy, or say why one is left.
+- Status: open
+
 ## 2026-11-24: Files were edited while a background check was reading them
 
 - What went wrong: on PR 137 a `--sums --quick` run was left going in the background while the fix and its tests were written in the same worktree. Its summary named the new commit but counted the old tests (339 of 440), so it saw a mix of the two states. The result was thrown away.
