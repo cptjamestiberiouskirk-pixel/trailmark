@@ -9324,9 +9324,11 @@ test('RS-F-codexsandboxgit-write: each call the file path allows prints at most 
   const top = run(c, ['rev-parse', '--show-toplevel']);
   seen['long core.worktree: rev-parse --show-toplevel'] = { ...top, input: size(path.join(c, '.git', 'config')) };
   assert.ok(top.out <= size(path.join(c, '.git', 'config')) + C, JSON.stringify(top));
-  // git refuses that one too (its folder can't be entered); 2,000 '/.' it reads.
+  // git refuses that one too (its folder can't be entered). 300 '/.' it
+  // reads on every system: 2,000 read on Windows and Linux, and gave 128 on
+  // macOS, whose paths stop at 1,024 bytes.
   const c2 = path.join(base, 'c2'); repoAt(c2);
-  fs.appendFileSync(path.join(c2, '.git', 'config'), '[core]\n\tworktree = ..' + '/.'.repeat(2000) + '\n');
+  fs.appendFileSync(path.join(c2, '.git', 'config'), '[core]\n\tworktree = ..' + '/.'.repeat(300) + '\n');
   const top2 = run(c2, ['rev-parse', '--show-toplevel']);
   seen['core.worktree read: rev-parse --show-toplevel'] = { ...top2, input: size(path.join(c2, '.git', 'config')) };
   assert.ok(top2.status === 0 && top2.out <= size(path.join(c2, '.git', 'config')) + C, JSON.stringify(top2));

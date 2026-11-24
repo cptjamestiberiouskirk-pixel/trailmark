@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A size picked on one system was refused on another
+
+- What went wrong: PR 137's real-git measurement test had an "accepted size" case, a `core.worktree` of `..` and 2,000 `/.` (4,002 characters), chosen because git on this PC read it. On b0fa019 all three macOS CI jobs failed it (status 128, no output), in both copies; Linux and Windows passed.
+- Why: the case was sized against Windows alone. macOS paths stop at 1,024 bytes (Linux 4,096), and the value plus the temp folder's path is over that (INFERRED: CI's macOS jobs gave 128, and 300 `/.` is under every limit; the next push's CI settles it).
+- Rule going forward: a test case that must be accepted by the system (a path, a name, a command line) is sized under the smallest limit of the three systems CI runs (macOS 1,024 bytes for a path), or its premise is checked on each and the case skipped where it doesn't hold.
+- Status: open
+
+## 2026-11-24: A wait read the gate's observe status as a finished review
+
+- What went wrong: `wait-observe.sh` stopped at its first read on PR 137's head b0fa019 with "success | would block: high, round 3: no finished review of this head". The review job was still running; it posted round 4 (three notes, one a WRONG sentence in SECURITY.md) ten minutes later.
+- Why: in observe mode the gate's status is always "success"; whether a review of this head has finished is only in its description. The script matched on the state.
+- Rule going forward: before auto-merge, wait for the `review` check run of the head to complete (`wait-review.sh`), then read the round it posted for that sha; the observe status's state says nothing about it.
+- Status: open
+
 ## 2026-11-24: A one-word code change went through sed
 
 - What went wrong: adding `fileCall, FILE_CALLS` to gitbin.js's export line was done with `sed -i`, against the rule that code and tests change only through Edit or Write. The result was checked and is what was meant.

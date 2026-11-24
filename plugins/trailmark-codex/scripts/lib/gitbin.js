@@ -680,8 +680,8 @@ function configEntries(file) {
     // git runs only when its output can't pass it; a config that could gets
     // the pipe's refusal, UNSAFE here. The pipe stops git itself, so it reads
     // such a config as before. git reads the file again by its name, so a
-    // rewrite between this read and git's (by a process running as this
-    // user) is not bounded here.
+    // rewrite between this read and git's (by anyone who can write the file)
+    // is not bounded here.
     const out = gitOutput(bin, [...GIT_GLOBAL, 'config', '--file', file, '--no-includes', '--null', '--list'], {
       cwd: __dirname, env: { ...gitEnv(), GIT_CEILING_DIRECTORIES: path.dirname(__dirname) },
       timeout, maxBuffer: CONFIG_MAX, fileBound: configListBound(st),
