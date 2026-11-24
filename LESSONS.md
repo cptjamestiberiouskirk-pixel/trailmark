@@ -19,7 +19,8 @@ Format:
 - What went wrong: RS-F-codexsandboxgit-write's round 1 batch added three checks on the output file's size, and SECURITY.md and the comment said a file that changed while it was read is "never part of an answer". Round 2 (Fable) returned a wrong answer with a change that keeps the size.
 - Why: the sentence was written from what the checks were for, not from what they look at (only the size).
 - Rule going forward: a sentence about what a check catches names what the check looks at, and says what a change outside that is not seen.
-- Status: open
+- Seen again 2026-11-24: the wording that fixed it named the size but not when the size is first looked at. The auto-review gate's round 1 on PR 137 (c06739a) noted that a change between git's end and the first look is not seen whatever its size.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 19)
 
 ## 2026-11-23: A test edit went through sed
 

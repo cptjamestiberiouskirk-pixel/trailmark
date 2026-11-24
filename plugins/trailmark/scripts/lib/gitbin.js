@@ -227,12 +227,13 @@ function gitOutputViaFile(bin, args, { cwd, env, timeout, maxBuffer }, refused) 
       if (n === 0) break;
       got += n;
     }
-    // A file whose size is not as git left it (cut short, or grown, also
-    // grown and cut back between the two looks at its size) is an error: a
-    // cut list of config keys would read as a local path. A change that
-    // keeps the size is not seen (round 2, F1): only a process running as
-    // this user, or with more rights, can make one, and such a process can
-    // change .git/config after the check as well.
+    // A file whose size changes after the first look at it (cut short, or
+    // grown, also grown and cut back between the two looks) is an error: a
+    // cut list of config keys would read as a local path. Not seen: a
+    // change made between git's end and the first look, whatever its size,
+    // and one after that look that keeps the size (round 2, F1). Only a
+    // process running as this user, or with more rights, can make either,
+    // and such a process can change .git/config after the check as well.
     const more = fs.readSync(fd, Buffer.alloc(1), 0, 1, size);
     if (got !== size || more !== 0 || fs.fstatSync(fd).size !== size) {
       const e = new Error('git\'s output file changed while it was read');
