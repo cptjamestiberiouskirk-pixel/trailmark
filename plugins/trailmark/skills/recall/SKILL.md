@@ -12,7 +12,7 @@ Every command here runs Trailmark from the path shown, `${CLAUDE_PLUGIN_ROOT}/sc
 | Need | Command |
 |---|---|
 | Current handoff | `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" handoff` |
-| Search everything (handoff, archive, parked, notes, topic files) | `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" search '<words>'` |
+| Search everything (handoff, archive, parked, notes, topic files) | `search`, with the words passed as shown below the table |
 | Parked ideas, archive files, daily notes, topic files | `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" list parked` (or `archive`, `notes`, `topics`) |
 | What loads every session and what it costs | `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" budget` |
 | Set up or not, handoff age | `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" status` |
@@ -20,9 +20,20 @@ Every command here runs Trailmark from the path shown, `${CLAUDE_PLUGIN_ROOT}/sc
 | Restore the handoff from before the last write | `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" undo-handoff --session=${CLAUDE_SESSION_ID}` (refused unless this session wrote the current version; tell the user rather than forcing it) |
 | Who wrote the handoff last, other sessions active in this repo | `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" status --session=${CLAUDE_SESSION_ID}` |
 | Older handoff versions (last 20 overwrites) | `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" list history`, then read the file you need from the memory folder |
-| One-line note in today's log | `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" note --session=${CLAUDE_SESSION_ID} '<text>'` |
+| One-line note in today's log | `note --session=${CLAUDE_SESSION_ID}`, with the text passed as shown below the table |
 
-Put search words and note text in single quotes, never double quotes: inside double quotes Bash runs `$(...)` and backticks, and PowerShell runs `$(...)` and expands `$name`. Write a single quote inside the text as `'\''` in Bash or `''` in PowerShell. A note that has to start with `--` goes after a lone `--`, for example `note --session=${CLAUDE_SESSION_ID} -- '--dry-run left on'`; otherwise it is read as an option.
+Search words and note text never go on the command line, in quotes or not. PowerShell ends a single-quoted string at a curly single quote too, and a `$(...)` after it runs. Pass them on stdin with the Bash tool:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" search <<'JBMEM_EOF_${CLAUDE_SESSION_ID}'
+<words>
+JBMEM_EOF_${CLAUDE_SESSION_ID}
+node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" note --session=${CLAUDE_SESSION_ID} <<'JBMEM_EOF_${CLAUDE_SESSION_ID}'
+<text>
+JBMEM_EOF_${CLAUDE_SESSION_ID}
+```
+
+The text is read as one line: line breaks become spaces. A line that starts with `JBMEM_EOF` is refused: indent it by two spaces. If the marker shows a placeholder in braces instead of this session's ID, or with PowerShell only, pass the text in a file: take the memory folder from the first line of `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" dir`, save the text with the Write tool as `incoming-search-${CLAUDE_SESSION_ID}.md` (or `incoming-note-${CLAUDE_SESSION_ID}.md`) in that folder, then run `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" search --from="<memory folder>/incoming-search-${CLAUDE_SESSION_ID}.md"` (or `note --session=${CLAUDE_SESSION_ID} --from="<memory folder>/incoming-note-${CLAUDE_SESSION_ID}.md"`). If the command shows a placeholder in braces where the ID belongs, name the file `incoming-search.md` or `incoming-note.md`. The file is removed once the command succeeds. Write each command with the full trailmark.js path as shown.
 
 ## How to answer
 

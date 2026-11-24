@@ -9192,3 +9192,67 @@ test('git pointers: two names JavaScript lower-cases alike are two names, and a 
     assert.deepStrictEqual(lists(() => farGitConfig(above('above-vary', true))), lists(() => farGitConfig(above('above-same', false))), `a session folder through a link in another case ${notes.join()}`);
   }
 });
+
+// PowerShell 7 ends a '...' string at a curly single quote (U+2018 to U+201B)
+// as well, so free text a skill puts in single quotes can end the string, and
+// a $(...) after it runs. note and search take the text from --from or stdin
+// instead, which no shell parses (RS-S-curlyquote).
+test('note and search take free text from --from or stdin, and the skills pass it no other way (RS-S-curlyquote)', () => {
+  const s = sandbox();
+  const Q = String.fromCharCode(0x2019);
+  const log = () => fs.readFileSync(path.join(s.memdir, 'notes', `${S.localDate()}.md`), 'utf8');
+  // On stdin, as the Bash heredoc sends it: saved as written.
+  const first = `don${Q}t run $(echo PWNED) or \`echo PWNED\`; it${Q}s 'quoted'`;
+  let r = s.jbm(['note', `--session=${SA}`], first + '\n');
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.ok(log().includes(first), log());
+  // From a drop file, as the PowerShell route sends it: one line, and the
+  // drop file is gone after the run.
+  const noteDrop = path.join(s.memdir, `incoming-note-${SA}.md`);
+  fs.writeFileSync(noteDrop, `second${Q}s\n  note \t line\n`);
+  r = s.jbm(['note', `--session=${SA}`, `--from=${noteDrop}`]);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.ok(log().includes(`second${Q}s note line session=`), log());
+  assert.ok(!fs.existsSync(noteDrop), 'the note drop file is removed');
+  // A file that is not a drop file stays, and words with --from are refused.
+  const kept = path.join(s.memdir, 'kept.txt');
+  fs.writeFileSync(kept, 'third note');
+  r = s.jbm(['note', `--from=${kept}`, 'extra']);
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /not both/);
+  assert.ok(!log().includes('third note') && fs.existsSync(kept), log());
+  // search from a drop file: the drop file is not a hit, and it is removed.
+  const searchDrop = path.join(s.memdir, `incoming-search-${SA}.md`);
+  fs.writeFileSync(searchDrop, 'run $(echo\n');
+  r = s.jbm(['search', `--from=${searchDrop}`]);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^notes\/\S+\.md:\d+: .*run \$\(echo PWNED\)/m);
+  assert.doesNotMatch(r.stdout, /incoming-/);
+  assert.ok(!fs.existsSync(searchDrop), 'the search drop file is removed');
+  // search on stdin, and with words as before.
+  r = s.jbm(['search'], `don${Q}t\n`);
+  assert.match(r.stdout, /^notes\/\S+\.md:\d+: .*don/m, r.stdout + r.stderr);
+  r = s.jbm(['search', 'second']);
+  assert.match(r.stdout, /^notes\/\S+\.md:\d+: .*second/m, r.stdout + r.stderr);
+  // A drop file a failed run left behind is not a hit either.
+  fs.writeFileSync(path.join(s.memdir, 'incoming-note.md'), 'zebra-left-behind');
+  r = s.jbm(['search', 'zebra-left-behind']);
+  assert.match(r.stdout, /^No match for "zebra-left-behind"/m, r.stdout + r.stderr);
+  // The skills never put the text of a note or a search in a shell string: a
+  // note or search command has no quote after a space (a --from="..." path
+  // has none before its quote). Any quote counts: straight, or a curly one
+  // from U+2018 to U+201F.
+  const skills = path.join(ROOT, 'skills');
+  const quoted = new RegExp('(trailmark\\.js|<launcher>)"\\s+(note|search)\\b[^`]*\\s[\'"\\u2018-\\u201f]');
+  let read = 0;
+  for (const d of fs.readdirSync(skills)) {
+    const f = path.join(skills, d, 'SKILL.md');
+    if (!fs.existsSync(f)) continue;
+    read++;
+    fs.readFileSync(f, 'utf8').split(/\r?\n/).forEach((l, i) => {
+      assert.doesNotMatch(l, quoted, `${d}/SKILL.md:${i + 1} passes note or search text in quotes`);
+    });
+  }
+  assert.ok(read >= 6, `skills read: ${read}`);
+  assert.match('node "x/trailmark.js" search \'<words>\'', quoted, 'the check finds the old form');
+});

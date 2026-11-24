@@ -89,13 +89,18 @@ const HOOKS = {
   'commit-start': { script: 'hook-commit-start.js', facts: [] },
   'pause-watch': { script: 'hook-pause-watch.js', facts: [] }, // pause: see pauseWatch below
 };
-const STDIN_COMMANDS = new Set(['write-handoff', 'park']);
+// note and search take their text this way too when no words follow the
+// command, so the skills never put free text in a shell string: PowerShell 7
+// ends a '...' string at a curly single quote as well, and a $(...) after it
+// would run (RS-S-curlyquote).
+const STDIN_COMMANDS = new Set(['write-handoff', 'park', 'note', 'search']);
 
 // The drop files the skills write for --from: incoming-handoff.md,
-// incoming-park.md, or either with a session ID. Only these are removed after
-// a successful save; any other file named with --from is left in place.
+// incoming-park.md, incoming-note.md, incoming-search.md, or any of them with
+// a session ID. Only these are removed after a successful run; any other file
+// named with --from is left in place.
 const SESSION_ID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const DROP_RE = new RegExp(`^incoming-(handoff|park)(-${SESSION_ID})?\\.md$`, process.platform === 'win32' ? 'i' : '');
+const DROP_RE = new RegExp(`^incoming-(handoff|park|note|search)(-${SESSION_ID})?\\.md$`, process.platform === 'win32' ? 'i' : '');
 
 // True when file is inside dir, by name and, when both exist, by real path,
 // so a link inside the memory folder can't point --from somewhere else.
@@ -246,7 +251,7 @@ function run(script, args, { dir, method, root, cwd, stdin, from, payload, reads
   const r = spawnSync(process.execPath, nodeArgs, {
     cwd,
     env,
-    // Text on stdin for write-handoff and park reaches the script as it is
+    // Text on stdin for the STDIN_COMMANDS reaches the script as it is
     // ('inherit'); a --from file, the script opens itself. The launcher never
     // writes a script's stdin: on macOS, spawnSync sometimes deadlocks while
     // it writes a big input to a child (seen in CI, 0.6.0).
@@ -273,7 +278,7 @@ function run(script, args, { dir, method, root, cwd, stdin, from, payload, reads
 // with EAGAIN whenever the writer hasn't sent anything yet (seen in the
 // six-writer test, 2026-10-18). tty.isatty(0) answers "is it a terminal?"
 // without that side effect. Hooks treat a failed read as an empty payload.
-// write-handoff and park don't come here: memory.js reads their text itself
+// The STDIN_COMMANDS don't come here: memory.js reads their text itself
 // and reports a failed read, so a write never goes ahead with text it didn't get.
 function readAllStdin() {
   try { return fs.readFileSync(0); } catch {
@@ -1023,7 +1028,7 @@ function cliMode(args) {
       dirMissing = true;
     }
   }
-  // write-handoff and park take their text on stdin, or from a file named with
+  // write-handoff, park, note and search take their text on stdin, or from a file named with
   // --from=<path>. The file route is for PowerShell, which won't pipe text into
   // a command without manual approval. The launcher checks the file and the
   // script opens it in the memory folder, which it may read anyway, so it
@@ -1031,8 +1036,8 @@ function cliMode(args) {
   // launcher reads neither. Because this check happens before the sandbox
   // starts, the file must be inside the memory folder, like the drop files
   // the skills write there. A drop file (incoming-handoff*.md,
-  // incoming-park*.md) is removed once its text is saved; any other file is
-  // left alone.
+  // incoming-park*.md, incoming-note*.md, incoming-search*.md) is removed once
+  // the command succeeds; any other file is left alone.
   let stdin;
   let from;
   let childArgs = args;

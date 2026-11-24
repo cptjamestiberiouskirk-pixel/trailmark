@@ -116,7 +116,7 @@ Outside the memory folder, this copy:
 | Setup | `trailmark:memory-setup` creates the folder | Set the repo up from Claude Code. `init` is refused here, since a folder guessed by this copy could split the handoff in two. For a repo used only from Codex, run `init --force` yourself (Install, step 6) |
 | Finding trailmark.js | `${CLAUDE_PLUGIN_ROOT}` in skills | Codex doesn't fill in skill text, so the chat-start note gives the launcher's full path and the session ID, and the skills use those |
 | Hooks | `args` arrays, `if` filters, PostToolUseFailure | One command string per hook, the same for PowerShell, cmd and sh. The PostToolUse hook starts on every shell command and leaves at once unless it's a commit or a PR merge |
-| Writing text | heredoc, or a drop file in PowerShell | Always a drop file in the memory folder (`incoming-handoff-<session id>.md`), then `--from` |
+| Writing text | heredoc, or a drop file in PowerShell | Always a drop file in the memory folder (`incoming-handoff-<session id>.md`, and `incoming-note-...` or `incoming-search-...` for a note's or a search's words), then `--from` |
 | Failed commands | PostToolUseFailure | Codex runs PostToolUse after a failed command too. Its exit code, read from the chat's record, decides: a failed commit command still logs the commits it made, with no reminder; a failed PR merge isn't logged |
 | Shell | Bash or PowerShell tool | Codex calls its shell tool Bash whatever runs it. On Windows a command is read as PowerShell, the agent's default. Set `JBMEM_CODEX_SHELL=bash` if the agent runs in Git Bash or WSL |
 | Chat-start message | Always shown | Codex shows it as a warning, so it's sent only for a real warning (an old Node, other Trailmark copies, a handoff cut short) |

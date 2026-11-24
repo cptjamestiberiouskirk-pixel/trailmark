@@ -1689,8 +1689,9 @@ function search(dir, query, max = 40) {
   if (!q) return [];
   const hits = [];
   for (const rel of walkMd(dir)) {
-    // Skip copies of the handoff, which would repeat every hit many times.
-    if (rel === HANDOFF_PREV || rel.startsWith('archive/handoff-history/')) continue;
+    // Skip copies of the handoff, which would repeat every hit many times, and
+    // drop files, so a query passed with --from doesn't find itself.
+    if (rel === HANDOFF_PREV || rel.startsWith('archive/handoff-history/') || (!rel.includes('/') && /^incoming-/.test(rel))) continue;
     const lines = (readText(path.join(dir, rel)) || '').split(/\r?\n/);
     lines.forEach((l, i) => {
       if (hits.length < max && l.toLowerCase().includes(q)) hits.push({ file: rel, line: i + 1, text: oneLine(l, 200) });

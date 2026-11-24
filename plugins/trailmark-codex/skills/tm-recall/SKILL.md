@@ -14,7 +14,7 @@ Every command here runs Trailmark through its launcher, written below as `<launc
 | Need | Command |
 |---|---|
 | Current handoff | `node "<launcher>" handoff` |
-| Search everything (handoff, archive, parked, notes, topic files) | `node "<launcher>" search '<words>'` |
+| Search everything (handoff, archive, parked, notes, topic files) | `search`, with the words passed as shown below the table |
 | Parked ideas, archive files, daily notes, topic files | `node "<launcher>" list parked` (or `archive`, `notes`, `topics`) |
 | What loads every session and what it costs | `node "<launcher>" budget` |
 | Set up or not, handoff age | `node "<launcher>" status` |
@@ -22,9 +22,16 @@ Every command here runs Trailmark through its launcher, written below as `<launc
 | Restore the handoff from before the last write | `node "<launcher>" undo-handoff --session=<session id>` (refused unless this session wrote the current version; tell the user rather than forcing it) |
 | Who wrote the handoff last, other sessions active in this repo | `node "<launcher>" status --session=<session id>` |
 | Older handoff versions (last 20 overwrites) | `node "<launcher>" list history`, then read the file you need from the memory folder |
-| One-line note in today's log | `node "<launcher>" note --session=<session id> '<text>'` |
+| One-line note in today's log | `note --session=<session id>`, with the text passed as shown below the table |
 
-Put search words and note text in single quotes, never double quotes: inside double quotes Bash runs `$(...)` and backticks, and PowerShell runs `$(...)` and expands `$name`. Write a single quote inside the text as `'\''` in Bash or `''` in PowerShell. A note that has to start with `--` goes after a lone `--`, for example `note --session=<session id> -- '--dry-run left on'`; otherwise it is read as an option.
+Search words and note text go through a file, never on the command line, in quotes or not: PowerShell ends a single-quoted string at a curly single quote too, and a `$(...)` after it runs. Get the memory folder from the first line of `node "<launcher>" dir`, then create the file `incoming-search-<session id>.md` (or `incoming-note-<session id>.md`) in that folder with your file-editing tool (apply_patch), holding just the words or the text. If the note gave no session ID, name it `incoming-search.md` or `incoming-note.md`. Creating the file is a write in the memory folder: if it fails as described above, retry it with escalated permissions in the same way. Then run:
+
+```text
+node "<launcher>" search --from="<memory folder>/incoming-search-<session id>.md"
+node "<launcher>" note --session=<session id> --from="<memory folder>/incoming-note-<session id>.md"
+```
+
+The text is read as one line: line breaks become spaces. The file is removed once the command succeeds. If the command fails, it stays: fix what the error names and run the command again.
 
 ## How to answer
 

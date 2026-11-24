@@ -23,10 +23,10 @@ Every command here runs Trailmark through its launcher, written below as `<launc
 
    ```text
    node "<launcher>" list parked
-   node "<launcher>" search '<keyword>'
+   node "<launcher>" search --from="<memory folder>/incoming-search-<session id>.md"
    ```
 
-   Keep the keyword in single quotes. Inside double quotes the shell would run `$(...)`, and in Bash backticks too; PowerShell would also expand `$name`. Write a single quote in it as `'\''` in Bash or `''` in PowerShell.
+   The keyword goes through a file, never on the command line: PowerShell ends a single-quoted string at a curly single quote too, and a `$(...)` after it runs. Before the search, create `incoming-search-<session id>.md` in the memory folder holding just the keyword, as step 4 describes for the park file (the folder, the tool, and the retry with escalated permissions). The file is removed once the search succeeds.
 
    If it's already parked or already in the handoff, say where and stop. If `park` later says the file exists, another session may have parked the same slug a moment ago: read it, and pick a new slug unless it is the same idea.
 
