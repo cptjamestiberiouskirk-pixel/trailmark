@@ -147,8 +147,8 @@ function findGit({ env = process.env, cwd = process.cwd(), platform = process.pl
   }
   // The real paths of a folder as written and, on Windows, as Windows opens
   // it; a match on any of them skips the entry. The root stays as written,
-  // so a UNC server `\\srv.` is not asked as `\\srv`, and a `\\?\` or `\\.\`
-  // path, which Windows opens as written, is not asked again.
+  // so a UNC server `\\srv.` is not asked as `\\srv`. A `\\?\` path, which
+  // Windows opens as written, and a `\\.\` device path are not asked again.
   const reals = x => {
     const out = [realOrNull(x, realpath)];
     if (platform === 'win32') {
