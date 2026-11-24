@@ -27,7 +27,7 @@ f31f76ba74260381fad218d7927387f314690a76a5a8dac8fbf4f269a3d7216a *./CHANGELOG.md
 71b690b15ec0b8f77c4cbee65895e1b9cefae06d4effe68e9799e6c9993367bd *./migrate-from-jb-memory.cmd
 39259ec03dcb411c48cabcf0a1a4ffa2bc43ccce6d3ff46dcf9de96d85735ebb *./plugins/trailmark-codex/.codex-plugin/plugin.json
 2d172f3f7cebcf8c0ffd6db4720e86ce14fd91a6b152e07dc6102eb3c2f6ffc4 *./plugins/trailmark-codex/LICENSE
-85d7b0e5c76c72795e0de758cb231fbd4a272849f7dec84bc9c3b90bc4b7288d *./plugins/trailmark-codex/README.md
+46309d7138b6e7cd36e5f18166d0744ba03745efae3196457db3859a66648103 *./plugins/trailmark-codex/README.md
 b1eb975b75c348a279e781ecf3a514e1b0265f8ad0198657a3c0a8fa41e4b664 *./plugins/trailmark-codex/hooks/hooks.json
 39259ec03dcb411c48cabcf0a1a4ffa2bc43ccce6d3ff46dcf9de96d85735ebb *./plugins/trailmark-codex/plugin.json
 99162c38fe4e1132b253b429b0ce1c894a8f7ee0e44a408939acfea59efaaa42 *./plugins/trailmark-codex/scripts/hook-commit-start.js
