@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A new worktree came off a stale origin/main
+
+- What went wrong: for RS-D-codexshortid, `git worktree add -b <branch> <dir> origin/main` in the main checkout made the branch at 1e96394, two merges behind (PRs 144 and 145). The fetch before it had run in another clone, which keeps its own `origin/main`.
+- Why: each clone has its own remote-tracking refs; a fetch updates only the clone it runs in.
+- Rule going forward: run `git fetch origin` in the same repository right before `git worktree add ... origin/main`, and check the new branch's `git log -1` against the merge you expect. Nothing was committed on the stale base; `git merge --ff-only origin/main` after a fetch fixed it.
+- Status: open
+
 ## 2026-11-24: A probe read a cached answer for every case
 
 - What went wrong: `cdt-probe.js` (RS-T-commondirtime) rewrote one worktree's `commondir` between cases in one process, and `farGitConfig` answered `''` for all of them, the 800 KB one too, which read as "git is let run".

@@ -273,7 +273,11 @@ function atomicWrite(file, content) {
 // "current-session" two sessions could share, counts as no session.
 const SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function cleanSession(id) { return typeof id === 'string' && SESSION_RE.test(id) ? id.toLowerCase() : ''; }
-function shortSession(id) { const c = cleanSession(id); return c ? c.slice(0, 8) : ''; }
+// The 8 hex digits that log lines, the Updated line and status show. A UUIDv7
+// (Codex thread IDs) starts with a millisecond timestamp, so threads started
+// within about a minute can share their first 8 digits: for those it is the last
+// 8, which are random. Decisions compare the full ID.
+function shortSession(id) { const c = cleanSession(id); return !c ? '' : c[14] === '7' ? c.slice(-8) : c.slice(0, 8); }
 
 // First 12 hex digits of the SHA-256 of the handoff text, or "none".
 function versionOf(text) {
@@ -793,7 +797,7 @@ function otherSessions(dir, session, withinMs = 3 * 3600 * 1000, now = Date.now(
     if (!id || id === sid || !isPlainObject(r)) continue;
     const seen = Number.isFinite(r.seen) ? r.seen : 0;
     if (now - seen >= withinMs) continue;
-    out.push({ id, short: id.slice(0, 8), seen });
+    out.push({ id, short: shortSession(id), seen });
   }
   return out.sort((a, b) => b.seen - a.seen);
 }
@@ -1158,7 +1162,7 @@ function undoHandoff(dir, { session = '', force = false } = {}) {
       if (!mine || !prevOk) {
         const w = lastWriterOf(st);
         const known = w && w.version === curV;
-        const who = known && w.session ? `session ${w.session.slice(0, 8)}` : 'a session that gave no ID';
+        const who = known && w.session ? `session ${shortSession(w.session)}` : 'a session that gave no ID';
         let msg;
         if (!sid) msg = 'undo-handoff needs --session=<this session\'s ID> so it can check that this session wrote the current handoff. Nothing was restored. Run it with --force to undo anyway.';
         else if (!mine && known) msg = `the current handoff (version ${curV}) was written by ${who}, not this session, so undo would throw that work away. Nothing was restored. Run it with --force only if that is what you want.`;
@@ -2244,7 +2248,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   if (source === 'resume') {
     const seenAt = rec ? Math.max(rec.lastWrite || 0, rec.start || 0, rec.resumed || 0) : 0;
     if (sid && writer && writer.session !== sid && handoffTime > seenAt) {
-      const who = writer.session ? `session ${writer.session.slice(0, 8)}` : 'a session that gave no ID';
+      const who = writer.session ? `session ${shortSession(writer.session)}` : 'a session that gave no ID';
       return withNotes({
         text: `[trailmark] Resumed session. handoff.md was last written ${age} ago by ${who}, not this one. Re-read it with the trailmark:recall skill before relying on what you remember of it.`,
         summary: `resume, handoff written by ${who} (not re-injected)`,
@@ -2317,7 +2321,7 @@ function buildInjection(dir, { source = 'startup', now = Date.now(), session = '
   } else {
     const here = x => !worktree || !x.worktree || samePath(x.worktree, worktree);
     snap = snaps.find(x => (!sid || x.session !== sid) && x.mtime > handoffTime && here(x)) || null;
-    if (snap) label = `${snap.session ? 'session ' + snap.session.slice(0, 8) : 'a session'} compacted after the last checkpoint`;
+    if (snap) label = `${snap.session ? 'session ' + shortSession(snap.session) : 'a session'} compacted after the last checkpoint`;
   }
   if (snap) {
     const body = truncateAt(framed(splitFrontmatter(readText(snap.file) || '').body.trim()), 600).text;

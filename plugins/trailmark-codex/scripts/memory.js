@@ -126,7 +126,7 @@ function clock(ms) { return `${S.localDate(new Date(ms))} ${S.localTime(new Date
 function writerText(w) {
   if (!w) return 'unknown (no record)';
   const ws = S.cleanSession(w.session);
-  const who = ws ? `session ${ws.slice(0, 8)}${ws === session ? ' (this session)' : ''}` : 'a session that gave no ID';
+  const who = ws ? `session ${S.shortSession(ws)}${ws === session ? ' (this session)' : ''}` : 'a session that gave no ID';
   const how = w.undo === true ? ' (undo)' : w.rotate === true ? ' (rotate)' : '';
   return `${who}${how} at ${Number.isFinite(w.at) && w.at > 0 ? clock(w.at) : 'an unknown time'}`;
 }
@@ -249,7 +249,7 @@ switch (cmd) {
       console.log(`  other sessions active in the last 3 h: ${others.length ? others.map(o => `${o.short} (${S.ageText(Date.now() - (o.seen || 0))} ago)`).join(', ') : 'none'}`);
       if (session) {
         const rec = S.sessionRecord(dir, session);
-        console.log(`  this session (${session.slice(0, 8)}): ${rec ? `started ${rec.start ? clock(rec.start) : 'unknown'}, last checkpoint ${rec.lastWrite ? clock(rec.lastWrite) : 'none yet'}` : 'no record yet'}`);
+        console.log(`  this session (${S.shortSession(session)}): ${rec ? `started ${rec.start ? clock(rec.start) : 'unknown'}, last checkpoint ${rec.lastWrite ? clock(rec.lastWrite) : 'none yet'}` : 'no record yet'}`);
       }
     }
     break;
@@ -408,9 +408,9 @@ switch (cmd) {
     // this repo): another chat's transcript, from another project, is not
     // this repo's to read.
     const rec = S.sessionRecord(dir, session);
-    if (!rec) fail(`session ${session.slice(0, 8)} has not started in this repo, so its transcript is not read here. Nothing was read.`);
+    if (!rec) fail(`session ${S.shortSession(session)} has not started in this repo, so its transcript is not read here. Nothing was read.`);
     file = findCodexTranscript(session, rec.transcript);
-    if (!file || !fs.existsSync(file)) fail(`no Codex transcript found for session ${session.slice(0, 8)}. Nothing was read.`);
+    if (!file || !fs.existsSync(file)) fail(`no Codex transcript found for session ${S.shortSession(session)}. Nothing was read.`);
     let since = 0;
     let basis = '';
     if (flags.since === 'checkpoint') {
