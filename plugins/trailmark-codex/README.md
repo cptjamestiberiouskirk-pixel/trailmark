@@ -43,6 +43,8 @@ You need Node.js 24.22.1 or later (22.23.4 or 26.12.1 on those release lines), t
 
    Single quotes keep Windows backslashes as they are. Add one entry per repo, and don't add the whole `projects` folder, which also holds Claude Code's transcripts. If the file already has a `[sandbox_workspace_write]` table, add the entry to its list. With Codex 0.169 on Windows, Codex's unelevated sandbox honored this setting in `codex exec`; its elevated sandbox and the app weren't tried. Approving each write works too.
 
+   On Windows a writable root has a second cost: the checkpoint then runs inside Codex's sandbox, where git can't run for it (with Codex 0.171's unelevated sandbox, a program started with its output read through a pipe fails to start). The Updated line reads `git: no facts` in place of the branch and HEAD, and the checkpoint can't look for commits no hook logged. The next checkpoint run outside the sandbox logs those, marked `(found later)`, and its Updated line has the branch and HEAD again.
+
 4. **Windows: keep `node` from being found in a repo folder.** Every hook starts `node` by name. If Codex runs hooks through cmd.exe, cmd looks in the current folder (the repo) before PATH, so a `node.exe` or `node.cmd` committed to a repo would run in place of Node. One user setting turns that lookup off:
 
    ```powershell
