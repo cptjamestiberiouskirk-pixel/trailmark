@@ -79,13 +79,24 @@ test('git path: the working folder spelled with dots or spaces at a name\'s end 
     assert.strictEqual(findA('C:\\work\\repo', cwd), git, `junction cwd ${JSON.stringify(cwd)}`);
   }
   assert.strictEqual(findA('C:\\work\\j.', 'C:\\work\\repo'), git);
-  // Only a drive path is asked again as Windows opens it: a UNC server
-  // `srv.` is not looked up as `srv`, nor a `\\?\` path without its dot
-  // (review round 2, the auto-review's note 3).
+  // The second lookup keeps the root as written: a UNC server `srv.` is not
+  // asked as `srv` (round 2), a name below a share and a drive root spelled
+  // `C:\...` are asked as Windows opens them (round 3), and a `\\?\` path is
+  // not asked again (the auto-review's notes).
   const asked = [];
-  findGit({ env: { PATH: '\\\\srv.\\share\\bin;\\\\?\\C:\\b.' }, cwd: '\\\\srv.\\share\\repo.', platform: 'win32', isExec: () => false, realpath: q => { asked.push(q); return q; } });
-  findGit({ env: { PATH: '\\\\srv.\\share\\bin;\\\\?\\C:\\b.' }, cwd: '\\\\?\\C:\\repo.', platform: 'win32', isExec: f => f.endsWith('git.exe'), realpath: q => { asked.push(q); return q; } });
-  assert.deepStrictEqual(asked, ['\\\\srv.\\share\\repo.', '\\\\?\\C:\\repo.', '\\\\srv.\\share\\bin']);
+  const rec = q => { asked.push(q); return q; };
+  const anyGit = f => f.endsWith('git.exe');
+  findGit({ env: { PATH: '\\\\srv.\\share\\bin.' }, cwd: '\\\\srv.\\share\\repo.', platform: 'win32', isExec: anyGit, realpath: rec });
+  findGit({ env: { PATH: '\\\\?\\C:\\b.' }, cwd: '\\\\?\\C:\\repo.', platform: 'win32', isExec: anyGit, realpath: rec });
+  findGit({ env: { PATH: 'C:\\x' }, cwd: 'C:\\...', platform: 'win32', isExec: () => false, realpath: rec });
+  findGit({ env: { PATH: 'C:\\x' }, cwd: '\\\\.\\C:\\d.', platform: 'win32', isExec: () => false, realpath: rec });
+  assert.deepStrictEqual(asked, ['\\\\srv.\\share\\repo.', '\\\\srv.\\share\\repo', '\\\\srv.\\share\\bin.', '\\\\srv.\\share\\bin', '\\\\?\\C:\\repo.', '\\\\?\\C:\\b.', 'C:\\...', 'C:\\', '\\\\.\\C:\\d.']);
+  // A junction `j` below a share, spelled `j.`: skipped as on a drive.
+  const share = q => {
+    if (q.split('\\').some(n => n !== '.' && n !== '..' && /[. ]$/.test(n))) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    return q === '\\\\srv\\share\\j' ? '\\\\srv\\share\\repo' : q;
+  };
+  assert.strictEqual(findGit({ env: { PATH: `\\\\srv\\share\\repo;C:\\Program Files\\Git\\cmd` }, cwd: '\\\\srv\\share\\j.', platform: 'win32', isExec: f => f === '\\\\srv\\share\\repo\\git.exe' || f === git, realpath: share }), git);
   // Other folders whose names only look alike are not skipped.
   for (const cwd of ['C:\\work\\repo2', 'C:\\work\\rep', 'C:\\work\\repo.x', 'C:\\work\\.repo']) {
     assert.strictEqual(find('C:\\work\\repo', cwd), 'C:\\work\\repo\\git.exe', `cwd ${JSON.stringify(cwd)}`);

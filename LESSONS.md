@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A probe's cmd check read "no" for every path
+
+- What went wrong: `fgd-probe4.js` asked cmd `if exist "<path>"` through `spawnSync('cmd.exe', [..., '/c', ...])`, and every row read "no", the plain controls too.
+- Why: Node quotes and escapes each argument for a C runtime, and cmd doesn't parse those escapes, so the path cmd saw was not the one written.
+- Rule going forward: pass the command text wrapped in outer quotes after `/s /c`, with `windowsVerbatimArguments: true`, and put a control that must read "yes" in the same probe; read the controls before any other row.
+- Status: open
+
 ## 2026-11-24: A PR skipped the docs row because its docs were not in the zip
 
 - What went wrong: PR 144 changed PLAYBOOK.md and LESSONS.md, and its body said no shipped doc changed, so no docs row ran. The auto-review's round 2 flagged it.
