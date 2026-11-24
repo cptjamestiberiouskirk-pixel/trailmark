@@ -75,7 +75,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 18. A new reason to keep git out in `farGitConfig` switches where `repoRoot` takes the root from. Before the first push the root is compared with the parent commit's: in a fresh process with both sets of scripts, on Windows and in WSL with the same probe script, for shapes where git works and for shapes where git fails, each shape plain and with an older reason to keep git out (a config that includes a share), and on Windows also from a session folder of 300 characters. The tests assert `localRepoRoot` next to each new refusal.
 19. A sentence about what a check catches names what the check looks at and from when it looks (a file's size, from the first look after git ends), and says what it doesn't see on each of those two counts.
 20. Code and tests change only through the Edit or Write tool, however small the change: read the line, then Edit it. A shell command (`sed -i`, a heredoc, a redirect) only copies, checks and runs files.
-21. A check over a diff or a file prints how much it read, and a count of 0 read is a failed check. Pick the lines by what they are (drop only `--- ` and `+++ ` headers), never by a pattern that drops what they aren't: a changed list item's diff line starts `-- ` or `+- `.
+21. A check over a diff or a file prints how much it read, and a count of 0 read is a failed check. Pick the lines by what they are (drop only the header lines, `--- a/`, `+++ b/` or `/dev/null`: a removed line `-- x` shows as `--- x`), never by a pattern that drops what they aren't: a changed list item's diff line starts `-- ` or `+- `.
 
 ## Testing
 

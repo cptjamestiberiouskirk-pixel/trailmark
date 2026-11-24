@@ -17,8 +17,8 @@ Format:
 ## 2026-11-24: A dash check filtered out the line it was meant to check
 
 - What went wrong: the dash check on the CLAUDE.md:74 edit piped `git diff` through `grep -v '^[-+][-+]'` to drop the `---` and `+++` headers. The changed line is a list item, so its diff lines start `-- ` and `+- ` and were dropped too. The check printed "no dash" on 0 characters.
-- Why: the filter was written for the header lines without a look at what the content lines start with, and the count it printed was not read before the commit.
-- Rule going forward: a check prints how much it read, and a count of 0 is a failed check, not a pass. Pick the lines by what they are (`git show --format= <file>` and a pattern for the line), not by dropping what they aren't. Seen again on the same branch after the merge of PR 138: a check with `^[-+][^-+]` read 1 of 16 changed lines; caught because it printed its count.
+- Why: the filter was written for the header lines without a look at what the content lines start with, and the count it printed was not read before the commit. Seen again on the same branch after the merge of PR 138: a check with `^[-+][^-+]` read 1 of 16 changed lines; caught because it printed its count.
+- Rule going forward: a check prints how much it read, and a count of 0 is a failed check, not a pass. Pick the lines by what they are (`git show --format= <file>` and a pattern for the line), not by dropping what they aren't.
 - Status: promoted to PLAYBOOK ("Writing code and docs" step 21)
 
 ## 2026-11-24: A temp file a sandboxed reader trusted was writable by the sandbox
