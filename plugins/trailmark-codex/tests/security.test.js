@@ -391,19 +391,24 @@ test('RS-T-longwriter: the sandbox reaches into plugin and memory folders of 259
   const s = sandbox();
   const key = s.repo.replace(/[^a-zA-Z0-9]/g, '-');
   const memTail = path.join('projects', key, 'memory');
+  const ran = [];
   for (const L of [259, 260, 300]) {
     const base = path.join(s.base, `L${L}`);
     fs.mkdirSync(base);
     // The plugin folder (the launcher's PLUGIN_ROOT) is L long.
     const plugin = folderOfLength(base, L, ['plugins', path.basename(ROOT)]);
-    // The memory folder is L long too.
-    const cfg = folderOfLength(base, L - memTail.length - 1, ['cfg']);
-    // The memory folder's name repeats the repo's path, so a temp folder over
-    // about 110 characters leaves no room at 259 (review round 1, Opus).
-    if (!plugin || !cfg) { t.skip(`the temp folder ${s.base} is too long for folders of ${L} characters`); return; }
+    // The memory folder is L long too, where the temp folder leaves room: its
+    // name repeats the repo's path, so a temp folder over about 110
+    // characters leaves none at 259 (review round 1, Opus). Each length that
+    // doesn't fit is passed over alone, and a plugin folder that fits is
+    // still tried with a shorter memory folder (the auto-review on 78d31ab).
+    const long = folderOfLength(base, L - memTail.length - 1, ['cfg']);
+    if (!plugin) { t.diagnostic(`L=${L}: passed over, the temp folder ${s.base} is too long for a plugin folder of ${L}`); continue; }
+    if (!long) t.diagnostic(`L=${L}: the memory folder is shorter than ${L}, the temp folder ${s.base} leaves no room`);
+    const cfg = long || path.join(base, 'cfg');
     fs.cpSync(ROOT, plugin, { recursive: true, filter: src => src !== path.join(ROOT, 'tests') });
     const memdir = path.join(cfg, memTail);
-    assert.strictEqual(memdir.length, L);
+    if (long) assert.strictEqual(memdir.length, L);
     fs.mkdirSync(path.dirname(memdir), { recursive: true });
     const env = { ...s.env, CLAUDE_CONFIG_DIR: cfg };
     const run = (args, input) => spawnSync(process.execPath, [path.join(plugin, 'scripts', 'trailmark.js'), ...args], { cwd: s.repo, env, input, encoding: 'utf8' });
@@ -458,7 +463,9 @@ test('RS-T-longwriter: the sandbox reaches into plugin and memory folders of 259
     for (const f of [path.join(memdir + 'x', 'w.txt'), path.join(path.dirname(memdir), 'w.txt'), path.join(path.dirname(memdir), 'w2.txt')]) {
       assert.ok(!fs.existsSync(f), `L=${L}: ${f} was written`);
     }
+    ran.push(L);
   }
+  if (!ran.length) t.skip(`the temp folder ${s.base} is too long for a plugin folder of 300 characters`);
 });
 
 // A memory folder missing at launch (a repo not set up) is granted as it is:
