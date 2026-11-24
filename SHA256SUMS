@@ -63,7 +63,7 @@ c0704aea54e588b9f3bd3811d28ea26cb4292a7bca92fac4f961af3429670803 *./plugins/trai
 d3eb9d256f99f4b1be61da72ee3c73f37cad0dbfa02aabdbce244cc9c7922b5f *./plugins/trailmark-codex/tests/hardening.test.js
 209c46764fb859b7effb80d7fe5819882e07f1498b5fcfc389752b0841e995fb *./plugins/trailmark-codex/tests/helpers.js
 a7b3faf67be5742e30de943d83745367d0e2c933329de39241552545126a2651 *./plugins/trailmark-codex/tests/pause-watch.test.js
-f065f0cf10e0d7850d242fa3b29f321013bacebf229e52b18fc885b3d31faf50 *./plugins/trailmark-codex/tests/security.test.js
+4b306c1cf26a31c5653a936602fd54545fa56696eb4a031e66552e062c5d17e4 *./plugins/trailmark-codex/tests/security.test.js
 bc6a6950e5c5b981455b0c40632142c1d972a1617e5bfe435abb62527c2dd163 *./plugins/trailmark-codex/tests/sessions.test.js
 5aec66ad40a96815bbfd94712d08ee59f9e6a586c207ae6e6eed15268347e460 *./plugins/trailmark-codex/tests/sweep.test.js
 c4639be388dedef69e648ff60ba7996d8007f34dc3c91fdc2395ba4b10c0bfaf *./plugins/trailmark/.claude-plugin/icon.png
@@ -106,7 +106,7 @@ b19bd844c519ebe8c42d34e80a1dbf84ad1162c69fa52c8922874d8122beed69 *./plugins/trai
 2d86fff89c83896d21aaed379e66516d15b807ced5bb2b152646d2a0ab76337c *./plugins/trailmark/tests/hardening.test.js
 fc776c992644088419b7c22a3aa9c591f04d9684d3c8740bea293bd26ec19981 *./plugins/trailmark/tests/helpers.js
 d60f045862bedca1d80d12f056ab42ce829a3799e917a14d68d9d264b78b1d01 *./plugins/trailmark/tests/pause-watch.test.js
-ee72f07158289468c8a3c40babfa6e84c6d91bfd7907c33a24971d1ea93e2504 *./plugins/trailmark/tests/security.test.js
+ebfef7ac86eef6b9ff17004780929dfc3c543c09f033d35f3e9e6feabdde0c96 *./plugins/trailmark/tests/security.test.js
 74afd4e320b92c7bfd5601d4f1b22aefae5fe2b37ce92ae10dd3a25824d1d592 *./plugins/trailmark/tests/sessions.test.js
 b7d3e39e70e9a4ade98aa834e52b09035b285dd60a106be9ce3ad766f38cc0e5 *./plugins/trailmark/tests/sweep.test.js
 fbfb824e44c91d4754c0fdfde7807c0f9b798fa8b8dd635faadcb133a79bb318 *./tools/install-check.js
