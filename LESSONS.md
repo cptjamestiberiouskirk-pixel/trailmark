@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A dash check filtered out the line it was meant to check
+
+- What went wrong: the dash check on the CLAUDE.md:74 edit piped `git diff` through `grep -v '^[-+][-+]'` to drop the `---` and `+++` headers. The changed line is a list item, so its diff lines start `-- ` and `+- ` and were dropped too. The check printed "no dash" on 0 characters.
+- Why: the filter was written for the header lines without a look at what the content lines start with, and the count it printed was not read before the commit.
+- Rule going forward: a check prints how much it read, and a count of 0 is a failed check, not a pass. Pick the lines by what they are (`git show --format= <file>` and a pattern for the line), not by dropping what they aren't.
+- Status: open
+
 ## 2026-11-23: Two background waits on a PR ended without printing a state
 
 - What went wrong: two waits for PR 134 to merge, run with the Bash tool's background mode, were inline loops whose `case` ended the loop on anything but "OPEN auto" and echoed the state. Both ended with nothing printed but the exit line, while the PR was still open with auto-merge on. An earlier wait of the same form had been taken as ended by auto-merge going off, without its output being read.
