@@ -9057,33 +9057,73 @@ test('git pointers: two names JavaScript lower-cases alike are two names, and a 
 // opts.swap: once git has written its file, the spy unlinks it and makes a
 // new file under the same name with FORGED in it (another writer in the temp
 // folder), and logs whether that worked.
+// opts.change: the file changes while it is read, timed so that one check
+// alone can see it. The first fstat is the one after git ends, the second
+// the one after the read. 'cut-restore': cut to half after the first and
+// written back before the second (only the count of bytes read sees it);
+// 'grow-restore': four bytes added after the first and cut off before the
+// second (only the read past the end sees them); 'grow-late': four bytes
+// added just before the second (only the second fstat sees them).
+// opts.shortReads: a read of the file gives at most 7 bytes, as a read may.
+// opts.fakeSignal: a run through the file whose arguments hold
+// --tm-fake-signal is not started; its result says SIGTERM ended it.
+// Each spawn's options are logged (cwd, a digest of env, timeout, stdin,
+// stderr, windowsHide), and each handle on a trailmark-git- file as it is
+// opened and closed.
 function pipeRefusedSpy(base, opts = {}) {
-  const { code = 'EPERM', syscall = 'spawnSync ', mkdtemp = true, swap = false } = opts;
+  const { code = 'EPERM', syscall = 'spawnSync ', mkdtemp = true, swap = false, change = '', shortReads = false, fakeSignal = false } = opts;
   const tmp = path.join(base, 'spy-tmp');
   fs.mkdirSync(tmp, { recursive: true });
   const log = path.join(base, 'spy-log.jsonl');
   const spy = path.join(base, 'pipe-refused-spy.js');
   fs.writeFileSync(spy, [
-    "const cp = require('child_process'), fs = require('fs');",
-    `const LOG = ${JSON.stringify(log)}, CODE = ${JSON.stringify(code)}, SYSCALL = ${JSON.stringify(syscall)}, MKDTEMP = ${mkdtemp}, SWAP = ${swap};`,
+    "const cp = require('child_process'), fs = require('fs'), path = require('path'), crypto = require('crypto');",
+    `const LOG = ${JSON.stringify(log)}, CODE = ${JSON.stringify(code)}, SYSCALL = ${JSON.stringify(syscall)}, MKDTEMP = ${mkdtemp}, SWAP = ${swap}, CHANGE = ${JSON.stringify(change)}, SHORT = ${shortReads}, FAKESIG = ${fakeSignal};`,
     'let lastOpened = null;',
+    'const tracked = new Map();',
     "const note = o => fs.appendFileSync(LOG, JSON.stringify(o) + '\\n');",
-    'const exec = cp.execFileSync, spawn = cp.spawnSync, open = fs.openSync, mk = fs.mkdtempSync;',
+    "const envKey = env => crypto.createHash('sha1').update(JSON.stringify(env === undefined ? null : env)).digest('hex');",
+    'const exec = cp.execFileSync, spawn = cp.spawnSync, open = fs.openSync, mk = fs.mkdtempSync, fstat = fs.fstatSync, read = fs.readSync, close = fs.closeSync;',
     'cp.execFileSync = function (file, args, o) {',
     "  if (o && Array.isArray(o.stdio) && o.stdio[1] === 'pipe') {",
-    "    note({ k: 'pipe', a: args || [], input: o.input !== undefined });",
+    "    note({ k: 'pipe', a: args || [], input: o.input !== undefined, cwd: o.cwd, env: envKey(o.env), timeout: o.timeout });",
     "    const e = new Error('spawnSync ' + file + ' ' + CODE); e.code = CODE; e.errno = -4048; e.syscall = SYSCALL + file; e.path = file; e.spawnargs = args; throw e;",
     '  }',
     '  return exec.apply(this, arguments);',
     '};',
     'cp.spawnSync = function (file, args, o) {',
     "  if (!(o && Array.isArray(o.stdio) && typeof o.stdio[1] === 'number')) return spawn.apply(this, arguments);",
-    "  note({ k: 'file', a: args || [] });",
+    "  note({ k: 'file', a: args || [], cwd: o.cwd, env: envKey(o.env), timeout: o.timeout, stdin: o.stdio[0], stderr: o.stdio[2], hide: o.windowsHide });",
+    "  if (FAKESIG && (args || []).includes('--tm-fake-signal')) return { pid: 0, output: [null, null, null], stdout: null, stderr: null, status: null, signal: 'SIGTERM' };",
     '  const r = spawn.apply(this, arguments);',
     "  if (SWAP && lastOpened) { try { fs.unlinkSync(lastOpened); fs.writeFileSync(lastOpened, 'FORGED'); note({ k: 'swapped' }); } catch (e) { note({ k: 'swap-refused', code: e.code }); } }",
     '  return r;',
     '};',
-    "fs.openSync = function (p, flags, mode) { if (/trailmark-git-/.test(String(p))) { note({ k: 'open', flags, mode }); lastOpened = String(p); } return open.apply(this, arguments); };",
+    "fs.openSync = function (p, flags, mode) { const fd = open.apply(this, arguments); if (/trailmark-git-/.test(String(p))) { note({ k: 'open', flags, mode, fd, name: path.basename(String(p)) }); lastOpened = String(p); tracked.set(fd, { n: 0 }); } return fd; };",
+    "fs.closeSync = function (fd) { if (tracked.has(fd)) { note({ k: 'close', fd }); tracked.delete(fd); } return close.apply(this, arguments); };",
+    'fs.readSync = function (fd, buf, off, len, pos) {',
+    '  if (SHORT && tracked.has(fd) && typeof len === \'number\') return read.call(this, fd, buf, off, Math.min(len, 7), pos);',
+    '  return read.apply(this, arguments);',
+    '};',
+    'fs.fstatSync = function (fd) {',
+    '  const t = tracked.get(fd);',
+    '  if (!t || !CHANGE) return fstat.apply(this, arguments);',
+    '  t.n += 1;',
+    '  if (t.n === 1) {',
+    '    const st = fstat.apply(this, arguments);',
+    '    t.size = st.size;',
+    "    if (CHANGE === 'cut-restore') { t.saved = Buffer.alloc(st.size); read.call(fs, fd, t.saved, 0, st.size, 0); fs.ftruncateSync(fd, Math.floor(st.size / 2)); }",
+    "    if (CHANGE === 'grow-restore') fs.writeSync(fd, 'MORE', st.size);",
+    "    note({ k: 'changed', how: CHANGE, size: st.size });",
+    '    return st;',
+    '  }',
+    '  if (t.n === 2) {',
+    "    if (CHANGE === 'cut-restore') fs.writeSync(fd, t.saved, 0, t.saved.length, 0);",
+    "    if (CHANGE === 'grow-restore') fs.ftruncateSync(fd, t.size);",
+    "    if (CHANGE === 'grow-late') fs.writeSync(fd, 'MORE', t.size);",
+    '  }',
+    '  return fstat.apply(this, arguments);',
+    '};',
     'fs.mkdtempSync = function (p) {',
     "  if (!/trailmark-git-/.test(String(p))) return mk.apply(this, arguments);",
     "  if (!MKDTEMP) { note({ k: 'mkdtemp-refused' }); const e = new Error('EPERM: mkdtemp'); e.code = 'EPERM'; throw e; }",
@@ -9155,6 +9195,15 @@ test('RS-F-codexsandboxgit-write: when the temp folder can\'t be made either, th
   // anywhere under the test's folder (the memory folder included).
   assert.deepStrictEqual(log.filter(e => e.k === 'file' || e.k === 'open' || e.k === 'mkdtemp'), []);
   assert.deepStrictEqual(spy.leftIn(s.base), []);
+  // The error thrown is the refused spawn's, as before the fallback, not
+  // the one mkdtemp threw.
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  const r = spawnSync(process.execPath, [...spy.args, '-e', `const { gitOutput, gitPath, gitEnv } = require(${JSON.stringify(lib)});
+try { gitOutput(gitPath(${JSON.stringify(s.repo)}), ['--version'], { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000 }); process.stdout.write('ran'); }
+catch (e) { process.stdout.write(JSON.stringify({ code: e.code, syscall: e.syscall || null })); }`], { cwd: s.repo, env: spy.childEnv, encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const e = JSON.parse(r.stdout);
+  assert.ok(e.code === 'EPERM' && /^spawnSync /.test(String(e.syscall)), r.stdout);
 });
 
 test('RS-F-codexsandboxgit-write: the call that hands git text on stdin is not run again, so status is skipped (filter-check) while the calls before it go through the file', () => {
@@ -9246,6 +9295,76 @@ process.stdout.write(JSON.stringify([gitOutput(bin, ['--version'], o), gitOutput
   assert.deepStrictEqual(spy.leftIn(spy.tmp), []);
 });
 
+test('RS-F-codexsandboxgit-write: a file that changes while it is read (cut short, grown, grown and cut back) is an error, and the config check fails closed on it', () => {
+  const s = sandbox();
+  // A config with a quote in it: farGitConfig reads it with git config --file.
+  s.g('config', 'trailmark.probe', 'a"b');
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  const script = `const { gitOutput, gitPath, gitEnv, farGitConfig } = require(${JSON.stringify(lib)});
+let out; try { out = { ok: gitOutput(gitPath(${JSON.stringify(s.repo)}), ['--version'], { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000 }) }; } catch (e) { out = { code: e.code }; }
+out.far = farGitConfig(${JSON.stringify(s.repo)});
+process.stdout.write(JSON.stringify(out));`;
+  const run = (o) => {
+    const spy = pipeRefusedSpy(path.join(s.base, o.change || 'none'), o);
+    const r = spawnSync(process.execPath, [...spy.args, '-e', script], { cwd: s.repo, env: spy.childEnv, encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.deepStrictEqual(spy.leftIn(spy.tmp), []);
+    return { ...JSON.parse(r.stdout), changed: spy.log().filter(e => e.k === 'changed').length };
+  };
+  const plain = run({});
+  assert.ok(/^git version \d/.test(plain.ok) && plain.far === '', JSON.stringify(plain));
+  for (const change of ['cut-restore', 'grow-restore', 'grow-late']) {
+    const got = run({ change });
+    // The premise: the spy changed both files (git --version, then the config read).
+    assert.ok(got.changed >= 2, `${change}: ${JSON.stringify(got)}`);
+    assert.strictEqual(got.code, 'JBMEM_OUTPUT_CHANGED', `${change}: ${JSON.stringify(got)}`);
+    assert.ok(got.far !== '', `${change}: the config check let the folder through: ${JSON.stringify(got)}`);
+  }
+});
+
+test('RS-F-codexsandboxgit-write: the run through the file gets the pipe run\'s cwd, env and timeout, no stdin or stderr, a hidden window, a name of its own, and its handle closed', () => {
+  const s = sandbox();
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  // A cwd and an env that differ from the child's own.
+  const script = `const { gitOutput, gitPath, gitEnv } = require(${JSON.stringify(lib)});
+const o = { cwd: ${JSON.stringify(s.base)}, env: { ...gitEnv(), TM_MARK: 'x' }, timeout: 12345 };
+gitOutput(gitPath(${JSON.stringify(s.repo)}), ['--version'], o);
+gitOutput(gitPath(${JSON.stringify(s.repo)}), ['--version'], o);`;
+  const spy = pipeRefusedSpy(s.base);
+  const r = spawnSync(process.execPath, [...spy.args, '-e', script], { cwd: s.repo, env: spy.childEnv, encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const log = spy.log();
+  const pipes = log.filter(e => e.k === 'pipe'), files = log.filter(e => e.k === 'file');
+  assert.strictEqual(files.length, 2, JSON.stringify(log));
+  files.forEach((f, i) => {
+    assert.deepStrictEqual({ cwd: f.cwd, env: f.env, timeout: f.timeout }, { cwd: pipes[i].cwd, env: pipes[i].env, timeout: pipes[i].timeout }, 'as the pipe run');
+    assert.deepStrictEqual({ cwd: f.cwd, timeout: f.timeout, stdin: f.stdin, stderr: f.stderr, hide: f.hide }, { cwd: s.base, timeout: 12345, stdin: 'ignore', stderr: 'ignore', hide: true });
+  });
+  // The env was handed on, not left to the child (a digest of no env differs).
+  assert.notStrictEqual(files[0].env, require('crypto').createHash('sha1').update('null').digest('hex'));
+  const opens = log.filter(e => e.k === 'open');
+  assert.ok(opens.every(o => /^[0-9a-f]{32}$/.test(o.name)) && new Set(opens.map(o => o.name)).size === opens.length, JSON.stringify(opens));
+  assert.deepStrictEqual(log.filter(e => e.k === 'close').map(e => e.fd).sort(), opens.map(e => e.fd).sort(), 'each handle closed');
+  assert.deepStrictEqual(spy.leftIn(spy.tmp), []);
+});
+
+test('RS-F-codexsandboxgit-write: the file is read to its end over short reads, and an end by a signal is carried as the pipe carries it', () => {
+  const s = sandbox();
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  const script = `const { gitOutput, gitEnv } = require(${JSON.stringify(lib)});
+const out = [];
+try { out.push(gitOutput(process.execPath, ['-e', "process.stdout.write('y'.repeat(1000))"], { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000 })); } catch (e) { out.push({ code: e.code }); }
+try { gitOutput(process.execPath, ['-e', '0', '--tm-fake-signal'], { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000 }); out.push('ran'); } catch (e) { out.push({ status: e.status, signal: e.signal, code: e.code === undefined ? null : e.code }); }
+process.stdout.write(JSON.stringify(out));`;
+  const spy = pipeRefusedSpy(s.base, { shortReads: true, fakeSignal: true });
+  const r = spawnSync(process.execPath, [...spy.args, '-e', script], { cwd: s.repo, env: spy.childEnv, encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const [text, sig] = JSON.parse(r.stdout);
+  assert.strictEqual(text, 'y'.repeat(1000), 'read over many short reads');
+  assert.deepStrictEqual(sig, { status: null, signal: 'SIGTERM', code: null }, 'the signal, as execFileSync gives it');
+  assert.deepStrictEqual(spy.leftIn(spy.tmp), []);
+});
+
 test('RS-F-codexsandboxgit-write: only a refused spawn (EPERM from spawnSync) and only a call without input runs again; any other error is thrown as it came, with no folder made', () => {
   const s = sandbox();
   const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
@@ -9283,7 +9402,13 @@ test('RS-F-codexsandboxgit-write: under Node\'s permission model (the writer), a
   const script = `const { gitOutput, gitPath, gitEnv } = require(${JSON.stringify(lib)});
 try { gitOutput(gitPath(${JSON.stringify(s.repo)}), ['--version'], { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000 }); process.stdout.write('ran'); }
 catch (e) { process.stdout.write(String(e.code)); }`;
-  const r = spawnSync(process.execPath, ['--permission', `--allow-fs-read=*`, `--allow-fs-write=${tmp}`, '-e', script], { cwd: s.repo, env: { ...process.env, TEMP: tmp, TMP: tmp, TMPDIR: tmp }, encoding: 'utf8' });
+  // A spy that says on stderr each time a trailmark-git- folder is asked
+  // for: the folder would be gone by the end (the finally), so only this
+  // tells "no fallback" from "a fallback that cleaned up".
+  const spy = path.join(s.base, 'mkdtemp-spy.js');
+  fs.writeFileSync(spy, "const fs = require('fs'), mk = fs.mkdtempSync; fs.mkdtempSync = function (p) { if (/trailmark-git-/.test(String(p))) process.stderr.write('MKDTEMP\\n'); return mk.apply(this, arguments); };\n");
+  const r = spawnSync(process.execPath, ['--permission', `--allow-fs-read=*`, `--allow-fs-write=${tmp}`, '--require', spy, '-e', script], { cwd: s.repo, env: { ...process.env, TEMP: tmp, TMP: tmp, TMPDIR: tmp }, encoding: 'utf8' });
   assert.strictEqual(r.stdout, 'ERR_ACCESS_DENIED', r.stderr);
+  assert.ok(!/MKDTEMP/.test(r.stderr), 'the fallback ran: ' + r.stderr);
   assert.deepStrictEqual(fs.readdirSync(tmp), [], 'the fallback made a folder');
 });

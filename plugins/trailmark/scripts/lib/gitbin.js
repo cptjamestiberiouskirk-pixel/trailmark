@@ -164,16 +164,26 @@ function gitEnv(base = process.env) {
 // git's output as execFileSync gives it: the text, or a thrown error (code
 // ETIMEDOUT for a timeout, ENOBUFS past maxBuffer, .status for git's exit
 // code). Every git call of the launcher goes through here.
-// In Codex 0.171's unelevated Windows sandbox, a program started with a pipe
-// for its output fails to start: the spawn throws EPERM (RS-F-codexsandboxgit
-// in dev/release-state.md). Then, and only then, git runs again with its
-// output sent to a file: in a new folder that mkdtemp makes in the system
-// temp folder, a file with 32 random hex characters for a name, created
-// only if it doesn't exist (mode 0600), read back through the handle git
-// wrote to, and removed with its folder in a finally. A call that hands git text on stdin isn't run again (it would
-// need a second file): its EPERM is thrown as it came. So is the first EPERM
-// when the temp folder can't be made (a sandbox that keeps %TEMP% out too):
-// the same answer as before this fallback, and no other folder is tried.
+//
+// In Codex 0.171's unelevated Windows sandbox, a program started with a
+// pipe for its output fails to start: the spawn throws EPERM
+// (RS-F-codexsandboxgit in dev/release-state.md). Then, and only then, git
+// runs again with its output sent to a file: in a new folder that mkdtemp
+// makes in the system temp folder, a file with 32 random hex characters for
+// a name, created only if it doesn't exist (mode 0600), read back through
+// the handle git wrote to, and removed with its folder in a finally.
+//
+// Two answers differ from the pipe's. maxBuffer is checked only after git
+// ends, so git is not stopped there: it writes all of its output to the
+// file, and an output past maxBuffer gives ENOBUFS once git ends, or
+// ETIMEDOUT if git is still running when the timeout comes. A file that
+// changed while it was read gives JBMEM_OUTPUT_CHANGED. Each is an error, as
+// a refusal is.
+//
+// A call that hands git text on stdin isn't run again (it would need a
+// second file): its EPERM is thrown as it came. So is the first EPERM when
+// the temp folder can't be made (a sandbox that keeps %TEMP% out too): the
+// same answer as before this fallback, and no other folder is tried.
 function gitOutput(bin, args, { cwd, env, timeout, maxBuffer = 1024 * 1024, input } = {}) {
   const opts = { cwd, env, encoding: 'utf8', timeout, maxBuffer, windowsHide: true };
   try {
@@ -216,6 +226,15 @@ function gitOutputViaFile(bin, args, { cwd, env, timeout, maxBuffer }, refused) 
       const n = fs.readSync(fd, buf, got, size - got, got);
       if (n === 0) break;
       got += n;
+    }
+    // A file that is not as git left it (cut short, or grown, also grown and
+    // cut back between the two looks at its size) is an error, never part
+    // of an answer: a cut list of config keys would read as a local path.
+    const more = fs.readSync(fd, Buffer.alloc(1), 0, 1, size);
+    if (got !== size || more !== 0 || fs.fstatSync(fd).size !== size) {
+      const e = new Error('git\'s output file changed while it was read');
+      e.code = 'JBMEM_OUTPUT_CHANGED';
+      throw e;
     }
     return buf.toString('utf8', 0, got);
   } finally {

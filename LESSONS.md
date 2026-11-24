@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-23: A test edit went through sed
+
+- What went wrong: in RS-F-codexsandboxgit-write's round 1 batch, a one-token change to a test (`strictEqual(got.changed, 2,` to `ok(got.changed >= 2,`) was made with `sed -i` in a shell command, against the rule that new code and tests change only through the Edit or Write tool. It applied once (a grep counted 1), and nothing else changed.
+- Why: the change looked too small to need the tool, and it rode along in a command that also copied and checked the files.
+- Rule going forward: every change to code or tests goes through Edit or Write, however small; a shell command only copies, checks and runs.
+- Status: open
+
 ## 2026-11-23: A mutation loop read the wrong line, and stopping it left its runs going
 
 - What went wrong: RS-F-codexsandboxgit-write's mutation loop took line 2 of `release-check.sh --only` as the result. That line was the header, so the baseline and seven mutations were logged UNKNOWN, a run of about three minutes for nothing. TaskStop on the background task then ended only the outer shell: the loop's bash and a test's node process kept running in the throwaway clone, and were found by a process listing and stopped before the rerun.
