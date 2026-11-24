@@ -14,6 +14,27 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-23: A mutation loop read the wrong line, and stopping it left its runs going
+
+- What went wrong: RS-F-codexsandboxgit-write's mutation loop took line 2 of `release-check.sh --only` as the result. That line was the header, so the baseline and seven mutations were logged UNKNOWN, a run of about three minutes for nothing. TaskStop on the background task then ended only the outer shell: the loop's bash and a test's node process kept running in the throwaway clone, and were found by a process listing and stopped before the rerun.
+- Why: the line was picked by position from one earlier run's output, not by its text, and the loop went on past a baseline it could not read. `PLAYBOOK.md` "Testing" step 16 already counts a line with no test count as no result, and the loop's script was not read against it before it started. TaskStop stops the process it started, not that process's children (CONFIRMED here: three bash processes and a node process were left).
+- Rule going forward: a loop over test runs is read against "Testing" step 16 before it starts: it picks the result line by its text (`^(PASS|FAIL) `) and stops when the baseline does not read PASS. After stopping a background task that starts other processes, list its process tree and stop what is left before starting it again.
+- Status: open
+
+## 2026-11-23: New fs calls in gitbin.js broke an inventory test that --only didn't run
+
+- What went wrong: RS-F-codexsandboxgit-write's helper added `fs.mkdtempSync`, `fs.fstatSync` and `fs.rmSync` to `gitbin.js`. The RS-A-casefoldfs test asserts every `fs` function that `gitbin.js` and `gitfacts.js` name is one its case-folding stand-in covers or one that takes no path, and it failed in both copies in `--sums --quick`, after a 16-minute run. `--only 'RS-F-codexsandboxgit-write'` had passed.
+- Why: the inventory lives in another item's test, which a name pattern for the new tests doesn't select.
+- Rule going forward: a change that adds an `fs` call to `gitbin.js` or `gitfacts.js` also runs `--only 'RS-A-casefoldfs'` before `--sums --quick`. A call that only touches the fallback's own temp folder is listed by its exact text in that test, not added to the stand-in's list.
+- Status: open
+
+## 2026-11-23: A doc line said how a probe ran without the probe's script being read
+
+- What went wrong: the first draft of SECURITY.md's temp-file entry said the fallback was probed "under `codex exec`". `csga-probe.sh` ran `codex sandbox`. Caught before the commit, by reading the probe's script for the entry's wording.
+- Why: the wording came from the Codex README's own "in `codex exec`", which is about the writable-root trial, not this probe.
+- Rule going forward: a doc line that says how something was run is checked against the script or output that ran it, not against another doc.
+- Status: open
+
 ## 2026-11-23: Two background waits on a PR ended without printing a state
 
 - What went wrong: two waits for PR 134 to merge, run with the Bash tool's background mode, were inline loops whose `case` ended the loop on anything but "OPEN auto" and echoed the state. Both ended with nothing printed but the exit line, while the PR was still open with auto-merge on. An earlier wait of the same form had been taken as ended by auto-merge going off, without its output being read.

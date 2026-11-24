@@ -44,7 +44,8 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const crypto = require('crypto');
+const { execFileSync, spawnSync } = require('child_process');
 
 const GIT_GLOBAL = [
   '--no-pager', '--no-optional-locks',
@@ -158,6 +159,69 @@ function gitEnv(base = process.env) {
   for (const [k, v] of Object.entries(base)) if (!DROP_ENV.test(k)) env[k] = v;
   // Not a protocol name anything uses, so no transport is allowed.
   return { ...env, GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: 'jbmem-none', GIT_TERMINAL_PROMPT: '0' };
+}
+
+// git's output as execFileSync gives it: the text, or a thrown error (code
+// ETIMEDOUT for a timeout, ENOBUFS past maxBuffer, .status for git's exit
+// code). Every git call of the launcher goes through here.
+// In Codex 0.171's unelevated Windows sandbox, a program started with a pipe
+// for its output fails to start: the spawn throws EPERM (RS-F-codexsandboxgit
+// in dev/release-state.md). Then, and only then, git runs again with its
+// output sent to a file: in a new folder that mkdtemp makes in the system
+// temp folder, a file with 32 random hex characters for a name, created
+// only if it doesn't exist (mode 0600), read back through the handle git
+// wrote to, and removed with its folder in a finally. A call that hands git text on stdin isn't run again (it would
+// need a second file): its EPERM is thrown as it came. So is the first EPERM
+// when the temp folder can't be made (a sandbox that keeps %TEMP% out too):
+// the same answer as before this fallback, and no other folder is tried.
+function gitOutput(bin, args, { cwd, env, timeout, maxBuffer = 1024 * 1024, input } = {}) {
+  const opts = { cwd, env, encoding: 'utf8', timeout, maxBuffer, windowsHide: true };
+  try {
+    return execFileSync(bin, args, { ...opts, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'], ...(input === undefined ? {} : { input }) });
+  } catch (e) {
+    if (input !== undefined || !spawnRefused(e)) throw e;
+    return gitOutputViaFile(bin, args, opts, e);
+  }
+}
+
+// The spawn itself was refused (EPERM from spawnSync), not git: git's own
+// failure has a status and no code.
+function spawnRefused(e) {
+  return !!e && e.code === 'EPERM' && typeof e.syscall === 'string' && e.syscall.startsWith('spawnSync');
+}
+
+function gitOutputViaFile(bin, args, { cwd, env, timeout, maxBuffer }, refused) {
+  let dir;
+  try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trailmark-git-')); } catch { throw refused; }
+  let fd;
+  try {
+    const file = path.join(dir, crypto.randomBytes(16).toString('hex'));
+    fd = fs.openSync(file, 'wx+', 0o600);
+    const r = spawnSync(bin, args, { cwd, env, timeout, stdio: ['ignore', fd, 'ignore'], windowsHide: true });
+    const size = fs.fstatSync(fd).size;
+    if (r.error) throw r.error;
+    if (r.status !== 0) {
+      const e = new Error(`git ended with ${r.status === null ? `signal ${r.signal}` : `status ${r.status}`}`);
+      e.status = r.status;
+      e.signal = r.signal;
+      throw e;
+    }
+    if (size > maxBuffer) { const e = new Error('git wrote more than maxBuffer'); e.code = 'ENOBUFS'; throw e; }
+    // Read through the handle git wrote to, never by the path again: a file
+    // unlinked and made anew under the same name (CONFIRMED possible on
+    // Windows while this handle is open) would be another file's text.
+    const buf = Buffer.alloc(size);
+    let got = 0;
+    while (got < size) {
+      const n = fs.readSync(fd, buf, got, size - got, got);
+      if (n === 0) break;
+      got += n;
+    }
+    return buf.toString('utf8', 0, got);
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* already closed */ } }
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* left in the temp folder */ }
+  }
 }
 
 // A repo's own files can send git to a network share even when the folder
@@ -540,9 +604,9 @@ function configEntries(file) {
   const left = TIME_LEFT ? TIME_LEFT() : Infinity;
   const timeout = Number.isFinite(left) ? Math.max(1, Math.min(3000, Math.floor(left))) : 3000;
   try {
-    const out = execFileSync(bin, [...GIT_GLOBAL, 'config', '--file', file, '--no-includes', '--null', '--list'], {
+    const out = gitOutput(bin, [...GIT_GLOBAL, 'config', '--file', file, '--no-includes', '--null', '--list'], {
       cwd: __dirname, env: { ...gitEnv(), GIT_CEILING_DIRECTORIES: path.dirname(__dirname) },
-      encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+      timeout, maxBuffer: 8 * 1024 * 1024,
     });
     return out.split('\0').filter(Boolean).map(r => {
       const i = r.indexOf('\n');
@@ -1171,7 +1235,7 @@ function bareRefused() {
   const bin = gitPath(__dirname);
   if (!bin) return false;
   try {
-    const v = /git version (\d+)\.(\d+)/.exec(execFileSync(bin, ['--version'], { cwd: __dirname, env: gitEnv(), encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }));
+    const v = /git version (\d+)\.(\d+)/.exec(gitOutput(bin, ['--version'], { cwd: __dirname, env: gitEnv(), timeout: 3000 }));
     bareRefusedCache = !!v && (+v[1] > 2 || (+v[1] === 2 && +v[2] >= 38));
   } catch { /* unknown: old */ }
   return bareRefusedCache;
@@ -1699,4 +1763,4 @@ function farLfsEntries(entries, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };
+module.exports = { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, gitOutput, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };

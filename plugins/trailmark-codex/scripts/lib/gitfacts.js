@@ -7,9 +7,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
 const { oneLine, displayPath, inside } = require('./store');
-const { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, gitPath, gitEnv, GIT_GLOBAL, MAX_GIT_PATH, notThere, nothingIn, allSeen } = require('./gitbin');
+const { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, gitPath, gitEnv, gitOutput, GIT_GLOBAL, MAX_GIT_PATH, notThere, nothingIn, allSeen } = require('./gitbin');
 
 // The snapshot shows 20 status lines. JBMEM_GIT is one environment variable,
 // and Linux caps a variable at 128 KiB (the comment on PAYLOAD_MAX in
@@ -60,11 +59,7 @@ function runner(budgetMs, callMs = 4000) {
     const bin = gitPath(cwd);
     if (!bin) return { ok: false, out: '', why: 'no-git' };
     try {
-      const out = execFileSync(bin, [...GIT_GLOBAL, ...args], {
-        cwd, env: gitEnv(), encoding: 'utf8', timeout: left, maxBuffer: buffer,
-        stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'], windowsHide: true,
-        ...(input === undefined ? {} : { input }),
-      });
+      const out = gitOutput(bin, [...GIT_GLOBAL, ...args], { cwd, env: gitEnv(), timeout: left, maxBuffer: buffer, input });
       return { ok: true, out };
     } catch (e) {
       if (e && e.code === 'ETIMEDOUT') { r.hung = r.late = true; return { ok: false, out: '', why: 'timeout' }; }

@@ -25,8 +25,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
-const { farGitConfig, localRepoRoot, gitPath, gitEnv, GIT_GLOBAL, withTime } = require('./gitbin');
+const { farGitConfig, localRepoRoot, gitPath, gitEnv, gitOutput, GIT_GLOBAL, withTime } = require('./gitbin');
 
 function configDir() {
   return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -75,9 +74,7 @@ function git(cwd, args, timeout = 3000) {
   if (far) { const e = new Error(`git not run: the repo's .git points at a network path (${far})`); e.code = 'JBMEM_FAR'; throw e; }
   const bin = gitPath(cwd);
   if (!bin) { const e = new Error('git not found on PATH'); e.code = 'ENOENT'; throw e; }
-  return execFileSync(bin, [...GIT_GLOBAL, ...args], {
-    cwd, env: gitEnv(), encoding: 'utf8', timeout, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
-  }).trim();
+  return gitOutput(bin, [...GIT_GLOBAL, ...args], { cwd, env: gitEnv(), timeout }).trim();
 }
 
 // A git call that wasn't started because the caller's time ran out: handled

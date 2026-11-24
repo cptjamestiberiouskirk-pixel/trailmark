@@ -3453,12 +3453,20 @@ test('git status: a tracked name is looked up where the listing of its folder do
   }
   // LOOKS is what its comment says: each function of fs that the two library
   // files name is in it, or is the native realpath (which the stand-in also
-  // covers), or takes no path (closeSync and readSync take an open file,
-  // constants is a table).
+  // covers), or takes no path (closeSync, readSync and fstatSync take an open
+  // file, constants is a table), or is one of the two calls gitbin.js's
+  // fallback for a refused pipe makes on its own folder in the system temp
+  // folder, never on a name from a repo (mkdtempSync, rmSync;
+  // RS-F-codexsandboxgit-write).
+  const TEMP_ONLY = { 'gitbin.js': ['fs.mkdtempSync', 'fs.rmSync'], 'gitfacts.js': [] };
   for (const f of ['gitbin.js', 'gitfacts.js']) {
-    const named = new Set(fs.readFileSync(path.join(ROOT, 'scripts', 'lib', f), 'utf8').match(/(?<![A-Za-z])fs\.[A-Za-z]+(?:\.native)?/g));
+    const text = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', f), 'utf8');
+    const named = new Set(text.match(/(?<![A-Za-z])fs\.[A-Za-z]+(?:\.native)?/g));
     assert.ok(named.has('fs.lstatSync') && named.has('fs.readdirSync'), `${f}: the search finds the names`);
-    for (const n of named) assert.ok([...LOOKS.map(l => `fs.${l}`), 'fs.realpathSync.native', 'fs.closeSync', 'fs.readSync', 'fs.constants'].includes(n), `${f} names ${n}`);
+    for (const n of named) assert.ok([...LOOKS.map(l => `fs.${l}`), 'fs.realpathSync.native', 'fs.closeSync', 'fs.readSync', 'fs.fstatSync', 'fs.constants', ...TEMP_ONLY[f]].includes(n), `${f} names ${n}`);
+    // Each of those is named once, in the fallback, on its folder only.
+    const CALL = { 'fs.mkdtempSync': "fs.mkdtempSync(path.join(os.tmpdir(), 'trailmark-git-'))", 'fs.rmSync': 'fs.rmSync(dir, { recursive: true, force: true })' };
+    for (const n of TEMP_ONLY[f]) assert.deepStrictEqual([text.split(`${n}(`).length - 1, text.includes(CALL[n])], [1, true], `${f}: ${n} is called once, as ${CALL[n]}`);
   }
   // The shape that was found, in the top folder, one folder down and three
   // down: the repo at f is checked, and its .git names a share.
@@ -9032,4 +9040,250 @@ test('git pointers: two names JavaScript lower-cases alike are two names, and a 
     };
     assert.deepStrictEqual(lists(() => farGitConfig(above('above-vary', true))), lists(() => farGitConfig(above('above-same', false))), `a session folder through a link in another case ${notes.join()}`);
   }
+});
+
+// ---------- RS-F-codexsandboxgit-write: git's output through a temp file ----------
+
+// In Codex 0.171's unelevated Windows sandbox, execFileSync with a pipe for
+// stdout throws EPERM (code EPERM, errno -4048, syscall "spawnSync git"; the
+// probe csga-probe.out in the item's notes). This machine and CI have no
+// such sandbox, so a spy loaded with --require (in the launcher only: it
+// drops NODE_* for its child) throws that error for every execFileSync call
+// that asks for a stdout pipe, and logs each spawnSync with a file for
+// stdout, each open and each mkdtemp of a trailmark-git- folder. The child's
+// temp folder is the test's own, so what is left in it can be counted.
+// opts.code and opts.syscall change the error; opts.mkdtemp false makes the
+// trailmark-git- mkdtemp fail with EPERM (Codex with %TEMP% kept out).
+// opts.swap: once git has written its file, the spy unlinks it and makes a
+// new file under the same name with FORGED in it (another writer in the temp
+// folder), and logs whether that worked.
+function pipeRefusedSpy(base, opts = {}) {
+  const { code = 'EPERM', syscall = 'spawnSync ', mkdtemp = true, swap = false } = opts;
+  const tmp = path.join(base, 'spy-tmp');
+  fs.mkdirSync(tmp, { recursive: true });
+  const log = path.join(base, 'spy-log.jsonl');
+  const spy = path.join(base, 'pipe-refused-spy.js');
+  fs.writeFileSync(spy, [
+    "const cp = require('child_process'), fs = require('fs');",
+    `const LOG = ${JSON.stringify(log)}, CODE = ${JSON.stringify(code)}, SYSCALL = ${JSON.stringify(syscall)}, MKDTEMP = ${mkdtemp}, SWAP = ${swap};`,
+    'let lastOpened = null;',
+    "const note = o => fs.appendFileSync(LOG, JSON.stringify(o) + '\\n');",
+    'const exec = cp.execFileSync, spawn = cp.spawnSync, open = fs.openSync, mk = fs.mkdtempSync;',
+    'cp.execFileSync = function (file, args, o) {',
+    "  if (o && Array.isArray(o.stdio) && o.stdio[1] === 'pipe') {",
+    "    note({ k: 'pipe', a: args || [], input: o.input !== undefined });",
+    "    const e = new Error('spawnSync ' + file + ' ' + CODE); e.code = CODE; e.errno = -4048; e.syscall = SYSCALL + file; e.path = file; e.spawnargs = args; throw e;",
+    '  }',
+    '  return exec.apply(this, arguments);',
+    '};',
+    'cp.spawnSync = function (file, args, o) {',
+    "  if (!(o && Array.isArray(o.stdio) && typeof o.stdio[1] === 'number')) return spawn.apply(this, arguments);",
+    "  note({ k: 'file', a: args || [] });",
+    '  const r = spawn.apply(this, arguments);',
+    "  if (SWAP && lastOpened) { try { fs.unlinkSync(lastOpened); fs.writeFileSync(lastOpened, 'FORGED'); note({ k: 'swapped' }); } catch (e) { note({ k: 'swap-refused', code: e.code }); } }",
+    '  return r;',
+    '};',
+    "fs.openSync = function (p, flags, mode) { if (/trailmark-git-/.test(String(p))) { note({ k: 'open', flags, mode }); lastOpened = String(p); } return open.apply(this, arguments); };",
+    'fs.mkdtempSync = function (p) {',
+    "  if (!/trailmark-git-/.test(String(p))) return mk.apply(this, arguments);",
+    "  if (!MKDTEMP) { note({ k: 'mkdtemp-refused' }); const e = new Error('EPERM: mkdtemp'); e.code = 'EPERM'; throw e; }",
+    "  const d = mk.apply(this, arguments); note({ k: 'mkdtemp', d }); return d;",
+    '};',
+  ].join('\n'));
+  return {
+    tmp,
+    env: { NODE_OPTIONS: `--require ${spy}`, TEMP: tmp, TMP: tmp, TMPDIR: tmp },
+    args: ['--require', spy],
+    childEnv: { ...process.env, TEMP: tmp, TMP: tmp, TMPDIR: tmp },
+    log: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)) : []),
+    // trailmark-git- folders and 32-hex files anywhere under `dir`.
+    leftIn: (dir) => {
+      const found = [];
+      const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (/^trailmark-git-|^[0-9a-f]{32}$/.test(e.name)) found.push(f); if (e.isDirectory() && !e.isSymbolicLink()) walk(f); } };
+      walk(dir);
+      return found;
+    },
+  };
+}
+const gitVerbs = (entries, kind) => entries.filter(e => e.k === kind).map(e => e.a.filter(x => !/^-c$|=/.test(x) && !x.startsWith('--no-')).join(' '));
+
+test('RS-F-codexsandboxgit-write: with the pipe refused (EPERM), git runs again with its output in a temp file, the Updated line has the branch and HEAD, and the folder is gone', () => {
+  const s = sandbox();
+  // A config value with a quote and a backslash in it: gitbin reads such a
+  // file with git config --file, the third call site.
+  s.g('config', 'trailmark.probe', 'a"b');
+  const spy = pipeRefusedSpy(s.base);
+  Object.assign(s.env, spy.env);
+  s.write('# H\nUpdated: <YYYY-MM-DD HH:MM> | branch <branch> | HEAD <sha7>\n\n## Next actions\n- one\n');
+  delete s.env.NODE_OPTIONS;
+  const st = S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8'));
+  const branch = execFileSync('git', ['branch', '--show-current'], { cwd: s.repo, encoding: 'utf8' }).trim();
+  const head = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: s.repo, encoding: 'utf8' }).trim();
+  const log = spy.log();
+  assert.ok(log.some(e => e.k === 'pipe'), 'the spy refused no pipe: ' + JSON.stringify(log.slice(0, 5)));
+  assert.deepStrictEqual({ branch: st.branch, head: st.head, git: st.git }, { branch, head, git: undefined }, JSON.stringify(st));
+  // Each call site went through the file: gitfacts' runner (branch), paths.js
+  // (the repo's root) and gitbin's config read.
+  const viaFile = gitVerbs(log, 'file');
+  for (const want of [/^branch --show-current$/, /rev-parse .*--git-common-dir/, /^config --file .* --list$/]) {
+    assert.ok(viaFile.some(v => want.test(v)), `no ${want} through a file: ${JSON.stringify(viaFile)}`);
+  }
+  // Each file was created only if it didn't exist (and opened for reading
+  // too, to be read back through the same handle), mode 0600.
+  const opens = log.filter(e => e.k === 'open');
+  assert.ok(opens.length >= viaFile.length && opens.every(o => o.flags === 'wx+' && o.mode === 0o600), JSON.stringify(opens));
+  // Each folder was made in the temp folder (os.tmpdir()), never next to the repo.
+  const made = log.filter(e => e.k === 'mkdtemp');
+  assert.ok(made.length >= viaFile.length && made.every(e => path.dirname(e.d) === spy.tmp), JSON.stringify(made));
+  assert.deepStrictEqual(spy.leftIn(spy.tmp), [], 'a trailmark-git- folder was left');
+  assert.deepStrictEqual(spy.leftIn(s.base).filter(f => !f.startsWith(spy.tmp)), [], 'a temp file outside the temp folder');
+});
+
+test('RS-F-codexsandboxgit-write: when the temp folder can\'t be made either, there are no git facts, as before the fallback, and nothing is written anywhere else', () => {
+  const s = sandbox();
+  const spy = pipeRefusedSpy(s.base, { mkdtemp: false });
+  Object.assign(s.env, spy.env);
+  s.write('# H\nUpdated: <YYYY-MM-DD HH:MM> | branch <branch> | HEAD <sha7>\n\n## Next actions\n- one\n');
+  delete s.env.NODE_OPTIONS;
+  const st = S.handoffStamp(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8'));
+  const log = spy.log();
+  // Premise: the pipe was refused and the fallback tried its folder.
+  assert.ok(log.some(e => e.k === 'pipe') && log.some(e => e.k === 'mkdtemp-refused'), JSON.stringify(log.slice(0, 5)));
+  assert.strictEqual(st.git, 'no facts', JSON.stringify(st));
+  assert.ok(!st.head, JSON.stringify(st));
+  // No git run through a file, no file opened, and no folder or 32-hex file
+  // anywhere under the test's folder (the memory folder included).
+  assert.deepStrictEqual(log.filter(e => e.k === 'file' || e.k === 'open' || e.k === 'mkdtemp'), []);
+  assert.deepStrictEqual(spy.leftIn(s.base), []);
+});
+
+test('RS-F-codexsandboxgit-write: the call that hands git text on stdin is not run again, so status is skipped (filter-check) while the calls before it go through the file', () => {
+  const s = sandbox();
+  const spy = pipeRefusedSpy(s.base);
+  const r = spawnSync(process.execPath, [...spy.args, '-e', `const f = require(${JSON.stringify(path.join(ROOT, 'scripts', 'lib', 'gitfacts.js'))}).gitFacts(${JSON.stringify(s.repo)}, ['status'], { budgetMs: 20000, callMs: 15000 }); process.stdout.write(JSON.stringify(f));`],
+    { cwd: s.repo, env: spy.childEnv, encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const f = JSON.parse(r.stdout);
+  const log = spy.log();
+  assert.strictEqual(f.statusSkipped, 'filter-check', JSON.stringify(f));
+  assert.ok(gitVerbs(log, 'file').some(v => /^ls-files -z$/.test(v)), JSON.stringify(gitVerbs(log, 'file')));
+  // check-attr asked for the pipe with its input once, and never ran through a file.
+  assert.deepStrictEqual(log.filter(e => e.k === 'pipe' && e.input).map(e => gitVerbs([{ ...e, k: 'x' }], 'x')[0]), ['check-attr -z --stdin filter']);
+  assert.ok(!gitVerbs(log, 'file').some(v => /check-attr/.test(v)), JSON.stringify(gitVerbs(log, 'file')));
+  assert.deepStrictEqual(spy.leftIn(spy.tmp), []);
+});
+
+test('RS-F-codexsandboxgit-write: gitOutput through the file keeps execFileSync\'s answers (text, exit status, timeout, maxBuffer) and removes its folder after each', () => {
+  const s = sandbox();
+  // A subject with characters outside ASCII and a config read with NULs: the
+  // file is read as the pipe's text was.
+  fs.writeFileSync(path.join(s.repo, 'b'), 'b');
+  s.g('add', 'b');
+  s.g('commit', '-qm', 'Grüße été 中');
+  // A folder with a HEAD and no .git: farGitConfig asks git --version
+  // (bareRefused), the fourth call site.
+  const bare = path.join(s.base, 'bare-like');
+  fs.mkdirSync(path.join(bare, 'objects'), { recursive: true });
+  fs.mkdirSync(path.join(bare, 'refs'));
+  fs.writeFileSync(path.join(bare, 'HEAD'), 'ref: refs/heads/main\n');
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  const calls = [
+    ['git', ['log', '-1', '--format=%s%x00%H']],
+    ['git', ['config', '--null', '--list']],
+    ['git', ['ls-files', '-z']],
+    ['git', ['rev-parse', '--verify', '-q', 'no-such-ref']],
+    ['node', ['-e', 'setTimeout(() => {}, 20000)'], { timeout: 1500 }],
+    ['node', ['-e', "process.stdout.write('x'.repeat(1000))"], { maxBuffer: 1000 }],
+    ['node', ['-e', "process.stdout.write('x'.repeat(1001))"], { maxBuffer: 1000 }],
+  ];
+  const script = `const { gitOutput, gitPath, gitEnv, farGitConfig } = require(${JSON.stringify(lib)});
+const calls = ${JSON.stringify(calls)}, out = [];
+for (const [b, args, o = {}] of calls) {
+  const bin = b === 'git' ? gitPath(${JSON.stringify(s.repo)}) : process.execPath;
+  const t0 = Date.now();
+  try { out.push({ ok: gitOutput(bin, args, { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000, ...o }) }); }
+  catch (e) { out.push({ code: e.code === undefined ? null : e.code, status: e.status === undefined ? null : e.status, ms: Date.now() - t0 }); }
+}
+out.push({ far: farGitConfig(${JSON.stringify(bare)}) });
+process.stdout.write(JSON.stringify(out));`;
+  const run = (args, env) => { const r = spawnSync(process.execPath, [...args, '-e', script], { cwd: s.repo, env, encoding: 'utf8' }); assert.strictEqual(r.status, 0, r.stderr); return JSON.parse(r.stdout); };
+  const spy = pipeRefusedSpy(s.base);
+  const viaFile = run(spy.args, spy.childEnv);
+  const viaPipe = run([], process.env);
+  const log = spy.log();
+  // The premise: every call above was refused its pipe and went through a file.
+  assert.ok(gitVerbs(log, 'file').some(v => v === '--version'), 'git --version not through a file: ' + JSON.stringify(gitVerbs(log, 'file')));
+  assert.strictEqual(log.filter(e => e.k === 'file').length, log.filter(e => e.k === 'mkdtemp').length, 'one folder for each run through a file');
+  const plain = o => ({ ...o, ms: undefined });
+  assert.deepStrictEqual(viaFile.slice(0, 4).map(plain), viaPipe.slice(0, 4).map(plain), 'text and exit status as through the pipe');
+  assert.ok(/Grüße été 中\0[0-9a-f]{40}/.test(viaFile[0].ok), JSON.stringify(viaFile[0]));
+  assert.deepStrictEqual({ code: viaFile[3].code, status: viaFile[3].status }, { code: null, status: 1 }, 'git\'s exit status, no code');
+  assert.strictEqual(viaFile[4].code, 'ETIMEDOUT', JSON.stringify(viaFile[4]));
+  assert.ok(viaFile[4].ms < 12000, `the timeout of 1.5 s stopped the child only after ${viaFile[4].ms} ms`);
+  assert.deepStrictEqual(viaFile[5], { ok: 'x'.repeat(1000) }, 'exactly maxBuffer is read');
+  assert.strictEqual(viaFile[6].code, 'ENOBUFS', 'one byte over maxBuffer: ' + JSON.stringify(viaFile[6]));
+  assert.deepStrictEqual([viaPipe[5].ok === 'x'.repeat(1000), viaPipe[6].code], [true, 'ENOBUFS'], 'the pipe draws the line at the same place');
+  assert.deepStrictEqual(viaFile[7], viaPipe[7], 'farGitConfig on a bare-like folder');
+  assert.deepStrictEqual(spy.leftIn(spy.tmp), [], 'a trailmark-git- folder was left');
+});
+
+test('RS-F-codexsandboxgit-write: a file swapped under the same name after git wrote it is not read: the answer for the two checks that guard git (git --version, git config --file) is git\'s own', () => {
+  const s = sandbox();
+  // A config with a quote in it: farGitConfig reads it with git config --file.
+  s.g('config', 'trailmark.probe', 'a"b');
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  const script = `const { gitOutput, gitPath, gitEnv } = require(${JSON.stringify(lib)});
+const bin = gitPath(${JSON.stringify(s.repo)}), o = { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000 };
+process.stdout.write(JSON.stringify([gitOutput(bin, ['--version'], o), gitOutput(bin, ['config', '--file', ${JSON.stringify(path.join(s.repo, '.git', 'config'))}, '--no-includes', '--null', '--list'], o)]));`;
+  const run = (args, env) => { const r = spawnSync(process.execPath, [...args, '-e', script], { cwd: s.repo, env, encoding: 'utf8' }); assert.strictEqual(r.status, 0, r.stderr); return JSON.parse(r.stdout); };
+  const spy = pipeRefusedSpy(s.base, { swap: true });
+  const viaFile = run(spy.args, spy.childEnv);
+  const log = spy.log();
+  // The premise: both ran through a file, and each file was swapped.
+  assert.deepStrictEqual([log.filter(e => e.k === 'file').length, log.filter(e => e.k === 'swapped').length], [2, 2], JSON.stringify(log.filter(e => e.k !== 'pipe')));
+  assert.deepStrictEqual(viaFile, run([], process.env), 'the text read is git\'s, not the swapped file\'s');
+  assert.ok(/^git version \d/.test(viaFile[0]) && viaFile[1].includes('trailmark.probe\na"b'), JSON.stringify(viaFile));
+  assert.deepStrictEqual(spy.leftIn(spy.tmp), []);
+});
+
+test('RS-F-codexsandboxgit-write: only a refused spawn (EPERM from spawnSync) and only a call without input runs again; any other error is thrown as it came, with no folder made', () => {
+  const s = sandbox();
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  const script = `const { gitOutput, gitPath, gitEnv } = require(${JSON.stringify(lib)});
+const out = [];
+for (const input of [undefined, 'x']) {
+  try { gitOutput(gitPath(${JSON.stringify(s.repo)}), ['rev-parse', 'HEAD'], { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000, input }); out.push('ok'); }
+  catch (e) { out.push(e.code); }
+}
+process.stdout.write(JSON.stringify(out));`;
+  const cases = [
+    [{ code: 'EPERM' }, ['ok', 'EPERM']],
+    [{ code: 'EACCES' }, ['EACCES', 'EACCES']],
+    [{ code: 'ENOENT' }, ['ENOENT', 'ENOENT']],
+    [{ code: 'EPERM', syscall: 'open ' }, ['EPERM', 'EPERM']],
+    [{ code: 'EPERM', syscall: 'spawn ' }, ['EPERM', 'EPERM']],
+  ];
+  cases.forEach(([o, want], i) => {
+    const spy = pipeRefusedSpy(path.join(s.base, 'case' + i), o);
+    const r = spawnSync(process.execPath, [...spy.args, '-e', script], { cwd: s.repo, env: spy.childEnv, encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.deepStrictEqual(JSON.parse(r.stdout), want, JSON.stringify(o));
+    const made = spy.log().filter(e => e.k === 'mkdtemp').length;
+    assert.strictEqual(made, want[0] === 'ok' ? 1 : 0, `${JSON.stringify(o)}: ${made} folders made`);
+    assert.deepStrictEqual(spy.leftIn(spy.tmp), []);
+  });
+});
+
+test('RS-F-codexsandboxgit-write: under Node\'s permission model (the writer), a spawn is refused with ERR_ACCESS_DENIED, so the fallback writes nothing', (t) => {
+  if (!process.allowedNodeEnvironmentFlags.has('--permission')) { t.skip(`Node ${process.version} has no --permission`); return; }
+  const s = sandbox();
+  const tmp = path.join(s.base, 'perm-tmp');
+  fs.mkdirSync(tmp);
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  const script = `const { gitOutput, gitPath, gitEnv } = require(${JSON.stringify(lib)});
+try { gitOutput(gitPath(${JSON.stringify(s.repo)}), ['--version'], { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000 }); process.stdout.write('ran'); }
+catch (e) { process.stdout.write(String(e.code)); }`;
+  const r = spawnSync(process.execPath, ['--permission', `--allow-fs-read=*`, `--allow-fs-write=${tmp}`, '-e', script], { cwd: s.repo, env: { ...process.env, TEMP: tmp, TMP: tmp, TMPDIR: tmp }, encoding: 'utf8' });
+  assert.strictEqual(r.stdout, 'ERR_ACCESS_DENIED', r.stderr);
+  assert.deepStrictEqual(fs.readdirSync(tmp), [], 'the fallback made a folder');
 });
