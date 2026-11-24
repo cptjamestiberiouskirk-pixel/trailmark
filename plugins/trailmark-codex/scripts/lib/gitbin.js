@@ -167,11 +167,12 @@ function gitEnv(base = process.env) {
 //
 // In Codex 0.171's unelevated Windows sandbox, a program started with a
 // pipe for its output fails to start: the spawn throws EPERM
-// (RS-F-codexsandboxgit in dev/release-state.md). Then, and only then, git
-// runs again with its output sent to a file: in a new folder that mkdtemp
-// makes in the system temp folder, a file with 32 random hex characters for
-// a name, created only if it doesn't exist (mode 0600), read back through
-// the handle git wrote to, and its folder's removal tried in a finally.
+// (RS-F-codexsandboxgit in dev/release-state.md). Then, and only for a call
+// in FILE_CALLS (below), git runs again with its output sent to a file: in a
+// new folder that mkdtemp makes in the system temp folder, a file with 32
+// random hex characters for a name, created only if it doesn't exist (mode
+// 0600), read back through the handle git wrote to, and its folder's removal
+// tried in a finally.
 //
 // Two answers differ from the pipe's. maxBuffer is checked only after git
 // ends, so git is not stopped there: it writes all of its output to the
