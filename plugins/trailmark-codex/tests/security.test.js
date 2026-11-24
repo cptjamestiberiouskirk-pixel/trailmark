@@ -9,7 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
-const { dp, ROOT, sandbox, versionNow, wh, J, JBM, jbm, SA, notesOf,
+const { dp, ROOT, realTemp, sandbox, versionNow, wh, J, JBM, jbm, SA, notesOf,
   ageReflogs, multiFolder, commitLines, tick, settle, sweepTest,
   GIT_TIMEOUT_STUB } = require('./helpers.js');
 // Tool-use IDs: this file counts its own, and helpers.js counts for its
@@ -391,9 +391,17 @@ test('RS-T-longwriter: the sandbox reaches into plugin and memory folders of 259
   const s = sandbox();
   const key = s.repo.replace(/[^a-zA-Z0-9]/g, '-');
   const memTail = path.join('projects', key, 'memory');
+  // On CI's Windows runners every length must run in full, so a length that
+  // doesn't fit fails the test by name: a green job can't show a length
+  // passed over. The folders go under the runner's short RUNNER_TEMP there,
+  // so only a real problem fails. Elsewhere a length that doesn't fit is
+  // passed over with the reason.
+  const strict = process.env.GITHUB_ACTIONS === 'true' && process.platform === 'win32';
+  const root = strict && process.env.RUNNER_TEMP ? realTemp('lw-', process.env.RUNNER_TEMP) : s.base;
+  const short = (why) => { if (strict) assert.fail(`${why}; on CI's Windows runners every length must run`); t.diagnostic(why); };
   const ran = [];
   for (const L of [259, 260, 300]) {
-    const base = path.join(s.base, `L${L}`);
+    const base = path.join(root, `L${L}`);
     fs.mkdirSync(base);
     // The plugin folder (the launcher's PLUGIN_ROOT) is L long.
     const plugin = folderOfLength(base, L, ['plugins', path.basename(ROOT)]);
@@ -403,8 +411,8 @@ test('RS-T-longwriter: the sandbox reaches into plugin and memory folders of 259
     // doesn't fit is passed over alone, and a plugin folder that fits is
     // still tried with a shorter memory folder (the auto-review on 78d31ab).
     const long = folderOfLength(base, L - memTail.length - 1, ['cfg']);
-    if (!plugin) { t.diagnostic(`L=${L}: passed over, the temp folder ${s.base} is too long for a plugin folder of ${L}`); continue; }
-    if (!long) t.diagnostic(`L=${L}: the memory folder is shorter than ${L}, the temp folder ${s.base} leaves no room`);
+    if (!plugin) { short(`L=${L}: passed over, the folder ${root} is too long for a plugin folder of ${L}`); continue; }
+    if (!long) short(`L=${L}: the memory folder is shorter than ${L}, the folder ${root} and the repo's path ${s.repo} leave no room`);
     const cfg = long || path.join(base, 'cfg');
     fs.cpSync(ROOT, plugin, { recursive: true, filter: src => src !== path.join(ROOT, 'tests') });
     const memdir = path.join(cfg, memTail);
@@ -432,6 +440,7 @@ test('RS-T-longwriter: the sandbox reaches into plugin and memory folders of 259
       'console.log(JSON.stringify({',
       "  dir: M,",
       "  'read in plugin': t(() => fs.readFileSync(path.join(P, 'scripts', 'lib', 'paths.js'))),",
+      "  'write in plugin': t(() => fs.writeFileSync(path.join(P, 'scripts', 'w.txt'), 'x')),",
       "  'read in memory': t(() => fs.readFileSync(path.join(M, 'handoff.md'))),",
       "  'write in memory': t(() => fs.writeFileSync(path.join(M, 'probe.txt'), 'x')),",
       "  'read next to plugin': t(() => fs.readFileSync(path.join(P + 'x', 'f.txt'))),",
@@ -450,6 +459,7 @@ test('RS-T-longwriter: the sandbox reaches into plugin and memory folders of 259
     delete got.dir;
     assert.deepStrictEqual(got, {
       'read in plugin': 'allowed',
+      'write in plugin': 'refused',
       'read in memory': 'allowed',
       'write in memory': 'allowed',
       'read next to plugin': 'refused',
@@ -460,7 +470,7 @@ test('RS-T-longwriter: the sandbox reaches into plugin and memory folders of 259
       'write above memory': 'refused',
       'write up out of memory': 'refused',
     }, `L=${L}`);
-    for (const f of [path.join(memdir + 'x', 'w.txt'), path.join(path.dirname(memdir), 'w.txt'), path.join(path.dirname(memdir), 'w2.txt')]) {
+    for (const f of [path.join(plugin, 'scripts', 'w.txt'), path.join(memdir + 'x', 'w.txt'), path.join(path.dirname(memdir), 'w.txt'), path.join(path.dirname(memdir), 'w2.txt')]) {
       assert.ok(!fs.existsSync(f), `L=${L}: ${f} was written`);
     }
     ran.push(L);
