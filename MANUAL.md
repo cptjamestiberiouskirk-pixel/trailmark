@@ -291,7 +291,7 @@ The Codex copy keeps the same handoff in the same folder as the Claude Code plug
 1. Add the marketplace from the release folder (section 3 says where to keep it). If you use Claude Code too, `./install.sh --codex` or `install.ps1 -Codex` installs the Claude Code plugin and then adds it. The installer needs the `claude` command, so for Codex alone add it by hand: `codex plugin marketplace add <release folder>`.
 2. Restart the ChatGPT desktop app, open Plugins, choose the `trailmark-codex` marketplace and install `trailmark-codex`. Newer Codex CLIs can install it instead with `codex plugin add trailmark-codex@trailmark-codex`. With Codex 0.169 on Windows, the app (after a restart) and `codex exec` ran the hooks of the Codex copy installed that way.
 3. Review and trust the hooks when the app asks. Each should read `node -e "...PLUGIN_ROOT..." trailmark --hook <name>`. Codex asks again after any change to them.
-4. Checkpoints write outside the workspace, so Codex's sandbox refuses the first try and the skill asks you to approve the write. That is the safer default. `plugins/trailmark-codex/README.md`, step 3, explains how to skip the prompts with a writable root and what that costs.
+4. Checkpoints write outside the workspace, so Codex's sandbox refuses the first try and the skill asks you to approve the write. Parking an idea, a note and a search do the same: each first saves its text in a file in the memory folder. That is the safer default. `plugins/trailmark-codex/README.md`, step 3, explains how to skip the prompts with a writable root and what that costs.
 5. On Windows, set `NoDefaultCurrentDirectoryInExePath` (section 9), then restart the app once more so Codex's commands get it.
 6. Set the repo up, if Claude Code hasn't. For a repo used only from Codex, run this yourself in a terminal outside Codex, from the repo's top folder (add `--public` for a public repo):
 
@@ -430,7 +430,7 @@ The test scripts that call the model use `claude -p`, which uses your Claude Cod
 | Each worktree of a bare repo has its own handoff | Worktrees share a memory folder through a main checkout's `.git`, and a bare repo has none | Nothing to fix. Set up each worktree you use |
 | Codex never shows the handoff | The hooks aren't trusted (they must be trusted again after an update that changes them); the app wasn't restarted | Trust the hooks in the app; restart it |
 | Codex shows no `[trailmark]` line at a chat's start | Nothing, when the chat has the handoff: Codex shows that message as a warning, so the Codex copy sends it only when there is one. When the chat doesn't have the handoff, see the row above | Ask the agent to run `tm-memory-setup`, whose step 4 checks that a new chat gets the handoff |
-| Codex asks you to approve every checkpoint | The memory folder is outside the workspace, so Codex's sandbox refuses the write until you approve it | Nothing to fix. Section 8, step 4, says how to skip the prompts and what that costs |
+| Codex asks you to approve every checkpoint, park, note or search | The memory folder is outside the workspace, so Codex's sandbox refuses the write until you approve it (a search writes its words to a file there first) | Nothing to fix. Section 8, step 4, says how to skip the prompts and what that costs |
 | trailmark-watchdog reports two names that differ only by case | A case-sensitive folder holds both | Remove one. The pair can't be accepted |
 
 ## 14. Uninstall

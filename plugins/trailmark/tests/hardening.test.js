@@ -277,13 +277,16 @@ test('skill names: hook text, script messages and skills name trailmark skills i
   assert.strictEqual(S.CHECKPOINT_SKILL, 'trailmark:checkpoint');
 });
 
-test('skills: note and search text goes in single quotes; heredocs end at a per-session marker', (t) => {
+// Note and search text goes on stdin or in a --from file (RS-S-curlyquote,
+// handoff-checks); a --from="<memory folder>/..." path is the one double quote
+// such a command may hold.
+test('skills: note and search text is never in double quotes; heredocs end at a per-session marker', (t) => {
   const dir = path.join(ROOT, 'skills');
   const all = fs.readdirSync(dir).map(d => [d, fs.readFileSync(path.join(dir, d, 'SKILL.md'), 'utf8')]);
   for (const [name, text] of all) {
     // 0.3.5: a skill that runs trailmark.js says to stop when its path fails, never to go looking for another copy.
     if (/trailmark\.js/.test(text)) assert.match(text, /Don't look for trailmark\.js or memory\.js anywhere else, and don't run another copy/, `${name}: no rule against running another trailmark.js`);
-    assert.doesNotMatch(text, /trailmark\.js" (note|search)[^`\n]*"</, `${name}: double-quoted note or search text`);
+    assert.doesNotMatch(text, /trailmark\.js" (note|search)[^`\n]*[^=`\n]"</, `${name}: double-quoted note or search text`);
     assert.doesNotMatch(text, /^\s*JBMEM_EOF\s*$/m, `${name}: bare heredoc marker`);
     const opens = text.match(/<<'([^']+)'/g) || [];
     for (const o of opens) {

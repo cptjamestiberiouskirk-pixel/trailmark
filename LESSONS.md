@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A skill edit broke a test that --quick skips
+
+- What went wrong: Q62 changed the recall and park skills, and `hardening.test.js` "skills: note and search text goes in single quotes" (a long suite, which `--sums --quick` skips) failed on the new `search --from="<memory folder>/..."` line in the Claude Code copy. The docs reviewer pointed at the test's title; `--only` on it reproduced the failure before any push.
+- Why: the per-push rule runs `--only` for new and changed tests, and this test was neither, though it reads the files the change edited.
+- Rule going forward: before a push that changes a skill, a doc a test reads, or a message a test matches, grep the tests for the file's name or the changed text (`grep -ln 'SKILL.md\|<text>' plugins/*/tests/*.js`) and run `--only` on each test that reads it.
+- Status: open
+
 ## 2026-11-24: An escape in an Edit became the character itself
 
 - What went wrong: for RS-S-curlyquote, the new test was written through the Edit tool with the JavaScript escape for U+2019 (backslash, `u2019`) in a string literal, and the file got the curly quote itself. Writing this lesson did the same. The added-line byte check for non-ASCII caught it before the commit.

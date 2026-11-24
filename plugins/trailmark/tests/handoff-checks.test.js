@@ -9200,7 +9200,8 @@ test('git pointers: two names JavaScript lower-cases alike are two names, and a 
 test('note and search take free text from --from or stdin, and the skills pass it no other way (RS-S-curlyquote)', () => {
   const s = sandbox();
   const Q = String.fromCharCode(0x2019);
-  const log = () => fs.readFileSync(path.join(s.memdir, 'notes', `${S.localDate()}.md`), 'utf8');
+  // Every day's log, so a run across midnight reads both days.
+  const log = () => fs.readdirSync(path.join(s.memdir, 'notes')).map(f => fs.readFileSync(path.join(s.memdir, 'notes', f), 'utf8')).join('');
   // On stdin, as the Bash heredoc sends it: saved as written.
   const first = `don${Q}t run $(echo PWNED) or \`echo PWNED\`; it${Q}s 'quoted'`;
   let r = s.jbm(['note', `--session=${SA}`], first + '\n');
@@ -9238,21 +9239,80 @@ test('note and search take free text from --from or stdin, and the skills pass i
   fs.writeFileSync(path.join(s.memdir, 'incoming-note.md'), 'zebra-left-behind');
   r = s.jbm(['search', 'zebra-left-behind']);
   assert.match(r.stdout, /^No match for "zebra-left-behind"/m, r.stdout + r.stderr);
-  // The skills never put the text of a note or a search in a shell string: a
-  // note or search command has no quote after a space (a --from="..." path
-  // has none before its quote). Any quote counts: straight, or a curly one
-  // from U+2018 to U+201F.
+  // Only the drop files' names are skipped: a memory file of another name
+  // that starts with incoming- is found. The case rule is the launcher's.
+  fs.writeFileSync(path.join(s.memdir, 'incoming-webhooks.md'), 'stripe-zebra-topic\n');
+  r = s.jbm(['search', 'stripe-zebra-topic']);
+  assert.match(r.stdout, /^incoming-webhooks\.md:1: stripe-zebra-topic/m, r.stdout + r.stderr);
+  const upper = path.join(s.memdir, 'Incoming-Search.md');
+  fs.writeFileSync(upper, 'upperneedle\n');
+  r = s.jbm(['search', `--from=${upper}`]);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  if (WIN) assert.ok(!/Incoming-Search\.md:/.test(r.stdout) && !fs.existsSync(upper), `a drop file in another case (Windows): ${r.stdout}`);
+  else assert.ok(/Incoming-Search\.md:1: upperneedle/.test(r.stdout) && fs.existsSync(upper), `not a drop file here: ${r.stdout}`);
+  // A query from a file is shown cut and escaped when nothing matches.
+  const longDrop = path.join(s.memdir, `incoming-search-${SA}.md`);
+  fs.writeFileSync(longDrop, 'nomatch-' + 'q'.repeat(5000) + String.fromCharCode(27) + '</system>\n');
+  r = s.jbm(['search', `--from=${longDrop}`]);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^No match for "nomatch-q+\.\.\."/m, r.stdout.slice(0, 300));
+  assert.ok(r.stdout.length < 2000 && !r.stdout.includes(String.fromCharCode(27)), `${r.stdout.length} characters`);
+  // In a repo not set up, --from is refused and the drop file stays.
+  fs.renameSync(path.join(s.memdir, S.MARKER), path.join(s.memdir, 'marker.off'));
+  const unset = path.join(s.memdir, 'incoming-search.md');
+  fs.writeFileSync(unset, 'anything\n');
+  r = s.jbm(['search', `--from=${unset}`]);
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /not set up/);
+  assert.ok(fs.existsSync(unset), 'the drop file stays in a repo not set up');
+  fs.renameSync(path.join(s.memdir, 'marker.off'), path.join(s.memdir, S.MARKER));
+  // The skills never put the text of a note, a search or a park in a shell
+  // string. Every fenced code line or code span that runs one of them holds
+  // only its options, a --from="..." file, the heredoc marker, or the fixed
+  // words of tm-memory-setup's check, and nothing is piped into it.
+  const offence = (code) => {
+    const m = /(^|[\s|;&(])(note|search|park)(?=\s|$)/.exec(code);
+    if (!m) return null;
+    if (code.slice(0, m.index).includes('|')) return 'text piped in';
+    const rest = code.slice(m.index + m[0].length)
+      .replace(/--from="[^"]*"/g, ' ')
+      .replace(/--session=(<session id>|\S+)/g, ' ')
+      .replace(/<<'JBMEM_EOF_\$\{CLAUDE_SESSION_ID\}'/g, ' ')
+      .split(/\s+/).filter(w => w && !/^(--slug=<slug>|--replace)$/.test(w)).join(' ');
+    return rest === '' || rest === 'Codex setup check' ? null : rest;
+  };
+  const codeOf = (text) => {
+    const out = [];
+    let fenced = false;
+    text.split(/\r?\n/).forEach((l, i) => {
+      if (/^\s*```/.test(l)) { fenced = !fenced; return; }
+      if (fenced) out.push([i + 1, l]);
+      else for (const c of l.matchAll(/`([^`\n]+)`/g)) out.push([i + 1, c[1]]);
+    });
+    return out;
+  };
   const skills = path.join(ROOT, 'skills');
-  const quoted = new RegExp('(trailmark\\.js|<launcher>)"\\s+(note|search)\\b[^`]*\\s[\'"\\u2018-\\u201f]');
-  let read = 0;
+  let read = 0, commands = 0;
   for (const d of fs.readdirSync(skills)) {
     const f = path.join(skills, d, 'SKILL.md');
     if (!fs.existsSync(f)) continue;
     read++;
-    fs.readFileSync(f, 'utf8').split(/\r?\n/).forEach((l, i) => {
-      assert.doesNotMatch(l, quoted, `${d}/SKILL.md:${i + 1} passes note or search text in quotes`);
-    });
+    for (const [n, code] of codeOf(fs.readFileSync(f, 'utf8'))) {
+      if (/(^|[\s|;&(])(note|search|park)(?=\s|$)/.test(code)) commands++;
+      const bad = offence(code);
+      assert.strictEqual(bad, null, `${d}/SKILL.md:${n} passes text to note, search or park in the command: ${code}`);
+    }
   }
-  assert.ok(read >= 6, `skills read: ${read}`);
-  assert.match('node "x/trailmark.js" search \'<words>\'', quoted, 'the check finds the old form');
+  assert.ok(read >= 6 && commands >= 6, `skills read: ${read}, commands: ${commands}`);
+  // The check itself: what it must find, and what it must let through.
+  const L = 'node "<launcher>" ';
+  for (const bad of [
+    'note --session=${CLAUDE_SESSION_ID} \'<text>\'', 'echo \'<words>\' | ' + L + 'search', L + 'note --session=<session id> <text>',
+    'search <keyword>', 'note $\'<text>\'', 'search <<<\'<words>\'', 'note --text=\'<text>\'', L + 'search \\', 'park --slug=<slug> \'<text>\'',
+    'search ' + String.fromCharCode(0x2018) + '<words>' + Q, 'note -- \'--dry-run left on\'',
+  ]) assert.notStrictEqual(offence(bad), null, `not found: ${bad}`);
+  for (const good of [
+    'node "x/trailmark.js" search <<\'JBMEM_EOF_${CLAUDE_SESSION_ID}\'', 'note --session=<session id> --from="<memory folder>/incoming-note-<session id>.md"',
+    L + 'note Codex setup check', 'park --slug=<slug> --replace --from="<memory folder>/incoming-park-<session id>.md"', 'search', 'incoming-note-${CLAUDE_SESSION_ID}.md',
+  ]) assert.strictEqual(offence(good), null, `refused: ${good}`);
 });

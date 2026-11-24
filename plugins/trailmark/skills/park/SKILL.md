@@ -28,7 +28,7 @@ Every command here runs Trailmark from the path shown, `${CLAUDE_PLUGIN_ROOT}/sc
    JBMEM_EOF_${CLAUDE_SESSION_ID}
    ```
 
-   The keyword goes on stdin, never on the command line: PowerShell ends a single-quoted string at a curly single quote too, and a `$(...)` after it runs. With PowerShell only, or if the marker shows a placeholder in braces, save the keyword with the Write tool as `incoming-search-${CLAUDE_SESSION_ID}.md` in the memory folder (step 4 says how to find it) and run `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" search --from="<memory folder>/incoming-search-${CLAUDE_SESSION_ID}.md"`.
+   The keyword goes on stdin, never on the command line: PowerShell ends a single-quoted string at a curly single quote too, and a `$(...)` after it runs. With PowerShell only, or if the marker shows a placeholder in braces, save the keyword with the Write tool as `incoming-search-${CLAUDE_SESSION_ID}.md` in the memory folder (step 4 says how to find it) and run `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" search --from="<memory folder>/incoming-search-${CLAUDE_SESSION_ID}.md"`. If the command shows a placeholder in braces where the ID belongs, name the file `incoming-search.md` instead, in the file and in the command.
 
    If it's already parked or already in the handoff, say where and stop. If `park` later says the file exists, another session may have parked the same slug a moment ago: read it, and pick a new slug unless it is the same idea.
 
