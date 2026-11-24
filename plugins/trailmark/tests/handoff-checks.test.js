@@ -9067,9 +9067,9 @@ test('git pointers: two names JavaScript lower-cases alike are two names, and a 
 // opts.shortReads: a read of the file gives at most 7 bytes, as a read may.
 // opts.fakeSignal: a run through the file whose arguments hold
 // --tm-fake-signal is not started; its result says SIGTERM ended it.
-// Each spawn's options are logged (cwd, a digest of env, timeout, stdin,
-// stderr, windowsHide), and each handle on a trailmark-git- file as it is
-// opened and closed.
+// Each spawn's binary and options are logged (cwd, a digest of env, timeout,
+// stdin, stderr, windowsHide), and each handle on a trailmark-git- file as
+// it is opened and closed.
 function pipeRefusedSpy(base, opts = {}) {
   const { code = 'EPERM', syscall = 'spawnSync ', mkdtemp = true, swap = false, change = '', shortReads = false, fakeSignal = false } = opts;
   const tmp = path.join(base, 'spy-tmp');
@@ -9086,14 +9086,14 @@ function pipeRefusedSpy(base, opts = {}) {
     'const exec = cp.execFileSync, spawn = cp.spawnSync, open = fs.openSync, mk = fs.mkdtempSync, fstat = fs.fstatSync, read = fs.readSync, close = fs.closeSync;',
     'cp.execFileSync = function (file, args, o) {',
     "  if (o && Array.isArray(o.stdio) && o.stdio[1] === 'pipe') {",
-    "    note({ k: 'pipe', a: args || [], input: o.input !== undefined, cwd: o.cwd, env: envKey(o.env), timeout: o.timeout });",
+    "    note({ k: 'pipe', bin: file, a: args || [], input: o.input !== undefined, cwd: o.cwd, env: envKey(o.env), timeout: o.timeout });",
     "    const e = new Error('spawnSync ' + file + ' ' + CODE); e.code = CODE; e.errno = -4048; e.syscall = SYSCALL + file; e.path = file; e.spawnargs = args; throw e;",
     '  }',
     '  return exec.apply(this, arguments);',
     '};',
     'cp.spawnSync = function (file, args, o) {',
     "  if (!(o && Array.isArray(o.stdio) && typeof o.stdio[1] === 'number')) return spawn.apply(this, arguments);",
-    "  note({ k: 'file', a: args || [], cwd: o.cwd, env: envKey(o.env), timeout: o.timeout, stdin: o.stdio[0], stderr: o.stdio[2], hide: o.windowsHide });",
+    "  note({ k: 'file', bin: file, a: args || [], cwd: o.cwd, env: envKey(o.env), timeout: o.timeout, stdin: o.stdio[0], stderr: o.stdio[2], hide: o.windowsHide });",
     "  if (FAKESIG && (args || []).includes('--tm-fake-signal')) return { pid: 0, output: [null, null, null], stdout: null, stderr: null, status: null, signal: 'SIGTERM' };",
     '  const r = spawn.apply(this, arguments);',
     "  if (SWAP && lastOpened) { try { fs.unlinkSync(lastOpened); fs.writeFileSync(lastOpened, 'FORGED'); note({ k: 'swapped' }); } catch (e) { note({ k: 'swap-refused', code: e.code }); } }",
@@ -9411,4 +9411,102 @@ catch (e) { process.stdout.write(String(e.code)); }`;
   assert.strictEqual(r.stdout, 'ERR_ACCESS_DENIED', r.stderr);
   assert.ok(!/MKDTEMP/.test(r.stderr), 'the fallback ran: ' + r.stderr);
   assert.deepStrictEqual(fs.readdirSync(tmp), [], 'the fallback made a folder');
+});
+
+// The gate's note 3 on PR 137: Git for Windows' cmd\git.exe only starts the
+// real git, and a timeout stops cmd\git.exe alone, so through a file the
+// real git went on writing (a probe of 2026-11-24 in release-state). The
+// file path runs the real git next to cmd\git.exe instead (realGitFor).
+test('RS-F-codexsandboxgit-write: realGitFor picks the real git next to cmd\\git.exe from a fixed list in a fixed order, only where its real path stays in the install, and keeps any other bin', () => {
+  const { realGitFor } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  assert.strictEqual(typeof realGitFor, 'function', 'gitbin.js has no realGitFor');
+  const W = 'C:\\Program Files\\Git';
+  const wrapper = `${W}\\cmd\\git.exe`;
+  const cand = d => `${W}\\${d}\\bin\\git.exe`;
+  const same = (a, b) => a.toLowerCase() === String(b).toLowerCase();
+  // files: the paths that exist. real: where a path's real path leads
+  // (null: it can't be read); any other existing path is its own real path.
+  const pick = (bin, files, real = {}, platform = 'win32') => realGitFor(bin, {
+    platform,
+    isExec: f => files.some(x => same(x, f)),
+    realpath: f => {
+      const k = Object.keys(real).find(x => same(x, f));
+      if (k !== undefined && real[k] !== null) return real[k];
+      if (k !== undefined || !files.some(x => same(x, f))) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      return String(f);
+    },
+  });
+  const all = [wrapper, cand('ucrt64'), cand('mingw64'), cand('clangarm64')];
+  // The order: ucrt64, then mingw64, then clangarm64.
+  assert.strictEqual(pick(wrapper, all), cand('ucrt64'));
+  assert.strictEqual(pick(wrapper, [wrapper, cand('mingw64'), cand('clangarm64')]), cand('mingw64'));
+  assert.strictEqual(pick(wrapper, [wrapper, cand('clangarm64')]), cand('clangarm64'));
+  // No candidate: the wrapper is kept.
+  assert.strictEqual(pick(wrapper, [wrapper]), wrapper);
+  // A candidate whose real path leads out of the install (a junction, a
+  // link) is refused and the next one is tried; with none left, the wrapper.
+  assert.strictEqual(pick(wrapper, all, { [cand('ucrt64')]: 'D:\\elsewhere\\ucrt64\\bin\\git.exe' }), cand('mingw64'));
+  assert.strictEqual(pick(wrapper, [wrapper, cand('ucrt64')], { [cand('ucrt64')]: 'D:\\elsewhere\\git.exe' }), wrapper);
+  assert.strictEqual(pick(wrapper, [wrapper, cand('ucrt64')], { [cand('ucrt64')]: `${W}\\cmd\\git.exe` }), wrapper, 'a candidate that leads back to the wrapper');
+  // A candidate whose real path can't be read is passed over, and so is one
+  // that is there but not a file (a folder named git.exe).
+  assert.strictEqual(pick(wrapper, [wrapper, cand('ucrt64')], { [cand('ucrt64')]: null }), wrapper);
+  assert.strictEqual(pick(wrapper, [wrapper, cand('mingw64')], { [cand('ucrt64')]: cand('ucrt64') }), cand('mingw64'), 'a folder named git.exe');
+  // The install is the one bin's real path is in: a short name that leads
+  // to cmd\git.exe picks from there, and a bin named cmd\git.exe that leads
+  // somewhere else is not a wrapper.
+  assert.strictEqual(pick('C:\\PROGRA~1\\Git\\cmd\\git.exe', all, { 'C:\\PROGRA~1\\Git\\cmd\\git.exe': wrapper }), cand('ucrt64'));
+  assert.strictEqual(pick('C:\\Tools\\cmd\\git.exe', [...all, 'C:\\Tools\\cmd\\git.exe'], { 'C:\\Tools\\cmd\\git.exe': 'D:\\other\\git.exe' }), 'C:\\Tools\\cmd\\git.exe');
+  assert.strictEqual(pick('C:\\Tools\\git.exe', [...all, 'C:\\Tools\\git.exe'], { 'C:\\Tools\\git.exe': wrapper }), cand('ucrt64'), 'a link to cmd\\git.exe is the wrapper');
+  // Bin's real path can't be read: kept.
+  assert.strictEqual(pick(wrapper, all, { [wrapper]: null }), wrapper);
+  // Not cmd\git.exe: kept, whatever is next to it.
+  for (const bin of [`${W}\\bin\\git.exe`, cand('mingw64'), `${W}\\cmd\\git.com`, `${W}\\cmdx\\git.exe`, `${W}\\cmd\\sub\\git.exe`, 'C:\\node\\node.exe']) {
+    assert.strictEqual(pick(bin, [...all, bin]), bin, bin);
+  }
+  // Case does not matter on Windows.
+  assert.ok(same(cand('ucrt64'), pick(`${W}\\CMD\\GIT.EXE`, all)), 'upper case');
+  // Not Windows: kept.
+  assert.strictEqual(pick('/usr/bin/git', ['/usr/bin/git'], {}, 'linux'), '/usr/bin/git');
+  assert.strictEqual(pick(wrapper, all, {}, 'linux'), wrapper);
+  assert.strictEqual(pick('', all), '');
+});
+
+test('RS-F-codexsandboxgit-write: on Windows a real junction out of a stand-in install is refused, and a real candidate inside it is picked', { skip: !WIN && 'cmd\\git.exe and junctions are Windows' }, () => {
+  const { realGitFor } = require(path.join(ROOT, 'scripts', 'lib', 'gitbin.js'));
+  const base = realTemp('jbmem-');
+  const root = path.join(base, 'Git');
+  const out = path.join(base, 'elsewhere');
+  for (const d of [path.join(root, 'cmd'), path.join(out, 'bin')]) fs.mkdirSync(d, { recursive: true });
+  const wrapper = path.join(root, 'cmd', 'git.exe');
+  fs.writeFileSync(wrapper, '');
+  fs.writeFileSync(path.join(out, 'bin', 'git.exe'), '');
+  fs.symlinkSync(out, path.join(root, 'ucrt64'), 'junction');
+  // Premise: the candidate's path exists through the junction.
+  assert.ok(fs.statSync(path.join(root, 'ucrt64', 'bin', 'git.exe')).isFile());
+  assert.strictEqual(realGitFor(wrapper), wrapper, 'a junction out of the install was taken');
+  fs.mkdirSync(path.join(root, 'mingw64', 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'mingw64', 'bin', 'git.exe'), '');
+  assert.strictEqual(String(realGitFor(wrapper)).toLowerCase(), path.join(root, 'mingw64', 'bin', 'git.exe').toLowerCase());
+});
+
+test('RS-F-codexsandboxgit-write: with the pipe refused, the run through the file goes to the real git next to cmd\\git.exe, the pipe run keeps the bin it was given, and with no real git the file run keeps it too', { skip: !WIN && 'cmd\\git.exe is Windows' }, () => {
+  const s = sandbox();
+  const root = path.join(s.base, 'Git');
+  const wrapper = path.join(root, 'cmd', 'git.exe');
+  const realGit = path.join(root, 'ucrt64', 'bin', 'git.exe');
+  for (const f of [wrapper, realGit]) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, ''); }
+  const lib = path.join(ROOT, 'scripts', 'lib', 'gitbin.js');
+  const script = `const { gitOutput, gitEnv } = require(${JSON.stringify(lib)});
+try { gitOutput(${JSON.stringify(wrapper)}, ['--version'], { cwd: ${JSON.stringify(s.repo)}, env: gitEnv(), timeout: 15000 }); } catch (e) { /* the stand-ins are empty files */ }`;
+  const run = () => {
+    const spy = pipeRefusedSpy(path.join(s.base, `spy-${Math.random().toString(16).slice(2)}`));
+    const r = spawnSync(process.execPath, [...spy.args, '-e', script], { cwd: s.repo, env: spy.childEnv, encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    const log = spy.log();
+    return { pipes: log.filter(e => e.k === 'pipe').map(e => String(e.bin).toLowerCase()), files: log.filter(e => e.k === 'file').map(e => String(e.bin).toLowerCase()) };
+  };
+  assert.deepStrictEqual(run(), { pipes: [wrapper.toLowerCase()], files: [realGit.toLowerCase()] });
+  fs.rmSync(path.join(root, 'ucrt64'), { recursive: true });
+  assert.deepStrictEqual(run(), { pipes: [wrapper.toLowerCase()], files: [wrapper.toLowerCase()] });
 });

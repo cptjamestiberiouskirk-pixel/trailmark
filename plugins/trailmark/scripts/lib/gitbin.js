@@ -200,14 +200,42 @@ function spawnRefused(e) {
   return !!e && e.code === 'EPERM' && typeof e.syscall === 'string' && e.syscall.startsWith('spawnSync');
 }
 
+// Git for Windows' cmd\git.exe only starts the real git, and a timeout stops
+// cmd\git.exe alone: through a file, the real git went on writing after the
+// call had ended (a probe of 2026-11-24, RS-F-codexsandboxgit-write in
+// dev/release-state.md). So the file path runs the real git: only when
+// bin's real path is <root>\cmd\git.exe, the first of
+// <root>\{ucrt64,mingw64,clangarm64}\bin\git.exe that is a file and whose
+// own real path is that same path (no junction or link out of the install).
+// No PATH search and nothing from the environment. Otherwise, and on other
+// systems, bin as it is. The pipe path keeps bin.
+const REAL_GIT_DIRS = ['ucrt64', 'mingw64', 'clangarm64'];
+function realGitFor(bin, { platform = process.platform, isExec = isExecutable, realpath = fs.realpathSync.native } = {}) {
+  if (platform !== 'win32' || !bin) return bin;
+  const w = path.win32;
+  const real = realOrNull(bin, realpath);
+  if (!real) return bin;
+  const cmdDir = w.dirname(real);
+  if (w.basename(real).toLowerCase() !== 'git.exe' || w.basename(cmdDir).toLowerCase() !== 'cmd') return bin;
+  const root = w.dirname(cmdDir);
+  for (const d of REAL_GIT_DIRS) {
+    const want = w.join(root, d, 'bin', 'git.exe');
+    if (!isExec(want)) continue;
+    const got = realOrNull(want, realpath);
+    if (got && sameDir(got, want, 'win32')) return want;
+  }
+  return bin;
+}
+
 function gitOutputViaFile(bin, args, { cwd, env, timeout, maxBuffer }, refused) {
+  const run = realGitFor(bin);
   let dir;
   try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trailmark-git-')); } catch { throw refused; }
   let fd;
   try {
     const file = path.join(dir, crypto.randomBytes(16).toString('hex'));
     fd = fs.openSync(file, 'wx+', 0o600);
-    const r = spawnSync(bin, args, { cwd, env, timeout, stdio: ['ignore', fd, 'ignore'], windowsHide: true });
+    const r = spawnSync(run, args, { cwd, env, timeout, stdio: ['ignore', fd, 'ignore'], windowsHide: true });
     const size = fs.fstatSync(fd).size;
     if (r.error) throw r.error;
     if (r.status !== 0) {
@@ -1786,4 +1814,4 @@ function farLfsEntries(entries, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, gitOutput, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };
+module.exports = { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, gitOutput, realGitFor, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };
