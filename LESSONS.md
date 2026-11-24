@@ -14,7 +14,7 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
-## 2026-11-24: A deferred item named one launcher write, and the Codex launcher had five
+## 2026-11-23: A deferred item named one launcher write, and the Codex launcher had five
 
 - What went wrong: RS-D-launcherwrites said the Codex launcher writes `payload-shapes.log` against SECURITY.md's "the launcher only reads". A grep before the fix found four more writes, three of them in both launchers, and eight files beyond the two the item named making the same claim.
 - Why: the item was recorded from one reviewer's finding, scoped to the file it came from; nobody searched the rest of the code and docs for the same claim.
