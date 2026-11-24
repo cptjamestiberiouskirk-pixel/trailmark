@@ -18,7 +18,7 @@ Format:
 
 - What went wrong: the RS-S-sincegitadvice test checks every `git` in the session-start context outside the handoff frame. Merging main brought PR 128's no-HEAD line, whose "Git gave no facts" the allowlist doesn't take, and that line appears when the sandbox's own launcher write runs out of git time. The quick check passed (no load), and the automated reviewer found it on PR 130.
 - Why: after the merge only the counts and the two shipped hints were checked; nothing listed which lines main had added to the text the test reads, nor whether the test's setup depends on git finishing in time.
-- Rule going forward: after merging main into a branch whose test reads a whole output, list the lines main adds to that output (each state, load-dependent ones included) and run them through the test's check; a test that needs a file in a known state puts it down raw (lesson of 2026-11-23 on writers).
+- Rule going forward: after merging main into a branch whose test reads a whole output, list the lines main adds to that output (each state, load-dependent ones included) and run them through the test's check; a test that needs a file in a known state puts it down raw (the lesson "A test set up a state through the writer that the writer can't produce").
 - Status: open
 
 ## 2026-11-23: A CONFIRMED blocking finding was fixed before the supervisor was asked
