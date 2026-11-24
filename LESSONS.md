@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A probe read a cached answer for every case
+
+- What went wrong: `cdt-probe.js` (RS-T-commondirtime) rewrote one worktree's `commondir` between cases in one process, and `farGitConfig` answered `''` for all of them, the 800 KB one too, which read as "git is let run".
+- Why: `farGitConfig` keeps each answer per resolved folder for the life of the process (`farCache` in `gitbin.js`: up to 64 folders, and never a `git-timeout`), so every case after the control got the control's answer.
+- Rule going forward: a probe or test of `farGitConfig` gives each case a folder of its own, or runs it in a fresh process; a result that contradicts the code is checked for a cache before it is reported.
+- Status: open
+
 ## 2026-11-24: A probe's cmd check read "no" for every path
 
 - What went wrong: `fgd-probe4.js` asked cmd `if exist "<path>"` through `spawnSync('cmd.exe', [..., '/c', ...])`, and every row read "no", the plain controls too.
