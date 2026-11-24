@@ -176,9 +176,9 @@ function gitEnv(base = process.env) {
 // Two answers differ from the pipe's. maxBuffer is checked only after git
 // ends, so git is not stopped there: it writes all of its output to the
 // file, and an output past maxBuffer gives ENOBUFS once git ends, or
-// ETIMEDOUT if git is still running when the timeout comes. A file that
-// changed while it was read gives JBMEM_OUTPUT_CHANGED. Each is an error, as
-// a refusal is.
+// ETIMEDOUT if git is still running when the timeout comes. A file whose
+// size changed while it was read gives JBMEM_OUTPUT_CHANGED. Each is an
+// error, as a refusal is.
 //
 // A call that hands git text on stdin isn't run again (it would need a
 // second file): its EPERM is thrown as it came. So is the first EPERM when
@@ -227,9 +227,12 @@ function gitOutputViaFile(bin, args, { cwd, env, timeout, maxBuffer }, refused) 
       if (n === 0) break;
       got += n;
     }
-    // A file that is not as git left it (cut short, or grown, also grown and
-    // cut back between the two looks at its size) is an error, never part
-    // of an answer: a cut list of config keys would read as a local path.
+    // A file whose size is not as git left it (cut short, or grown, also
+    // grown and cut back between the two looks at its size) is an error: a
+    // cut list of config keys would read as a local path. A change that
+    // keeps the size is not seen (round 2, F1): only a process running as
+    // this user, or with more rights, can make one, and such a process can
+    // change .git/config after the check as well.
     const more = fs.readSync(fd, Buffer.alloc(1), 0, 1, size);
     if (got !== size || more !== 0 || fs.fstatSync(fd).size !== size) {
       const e = new Error('git\'s output file changed while it was read');

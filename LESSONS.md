@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A doc sentence promised more than the checks did
+
+- What went wrong: RS-F-codexsandboxgit-write's round 1 batch added three checks on the output file's size, and SECURITY.md and the comment said a file that changed while it was read is "never part of an answer". Round 2 (Fable) returned a wrong answer with a change that keeps the size.
+- Why: the sentence was written from what the checks were for, not from what they look at (only the size).
+- Rule going forward: a sentence about what a check catches names what the check looks at, and says what a change outside that is not seen.
+- Status: open
+
 ## 2026-11-23: A test edit went through sed
 
 - What went wrong: in RS-F-codexsandboxgit-write's round 1 batch, a one-token change to a test (`strictEqual(got.changed, 2,` to `ok(got.changed >= 2,`) was made with `sed -i` in a shell command, against the rule that new code and tests change only through the Edit or Write tool. It applied once (a grep counted 1), and nothing else changed.
