@@ -128,10 +128,13 @@ function realOrNull(p, real) {
 
 // Pure lookup, for tests: { env, cwd, platform, isExec, realpath } -> absolute path or ''.
 // The working folder is skipped by name and, where both resolve, by real path,
-// which also catches other spellings of it (8.3 names, \\?\, a junction). A
-// name that ends in dots or spaces has no real path to read, so it is matched
-// by name as Windows opens it (dropDotEnds). A PATH entry that is a subfolder of the repo (an activated
-// .venv\Scripts, say) is not skipped: the user's own shell runs that git too.
+// which also catches other spellings of it (8.3 names, \\?\, a junction). On
+// Windows a name that ends in dots or spaces is matched as Windows opens it
+// (dropDotEnds), by name and by the real path of that spelling: `j.` runs a
+// program in `j`, which may be a junction to the repo, while Node reads `j.`
+// as another folder or none. A PATH entry that is a subfolder of the repo
+// (an activated .venv\Scripts, say) is not skipped: the user's own shell
+// runs that git too.
 function findGit({ env = process.env, cwd = process.cwd(), platform = process.platform, isExec = isExecutable, realpath = fs.realpathSync.native } = {}) {
   const p = platform === 'win32' ? path.win32 : path.posix;
   const raw = envValue(env, 'PATH') || '';
@@ -142,7 +145,17 @@ function findGit({ env = process.env, cwd = process.cwd(), platform = process.pl
       .map(x => x.trim().toLowerCase()).filter(x => x === '.exe' || x === '.com');
     names = (order.length ? [...new Set(order)] : ['.com', '.exe']).map(x => 'git' + x);
   }
-  const realCwd = cwd ? realOrNull(cwd, realpath) : null;
+  // The real paths of a folder as written and, on Windows, as Windows opens
+  // it; a match on any of them skips the entry.
+  const reals = x => {
+    const out = [realOrNull(x, realpath)];
+    if (platform === 'win32') {
+      const opened = dropDotEnds(p.resolve(x));
+      if (opened !== x) out.push(realOrNull(opened, realpath));
+    }
+    return out.filter(Boolean);
+  };
+  const realCwds = cwd ? reals(cwd) : [];
   for (let entry of raw.split(sep)) {
     entry = entry.trim();
     if (platform === 'win32') entry = entry.replace(/^"(.*)"$/, '$1');
@@ -151,10 +164,7 @@ function findGit({ env = process.env, cwd = process.cwd(), platform = process.pl
     const found = names.map(n => p.join(entry, n)).find(f => isExec(f));
     if (!found) continue;
     // Only an entry that has a git in it is resolved, to keep the walk cheap.
-    if (realCwd) {
-      const re = realOrNull(entry, realpath);
-      if (re && sameDir(re, realCwd, platform)) continue;
-    }
+    if (realCwds.length && reals(entry).some(re => realCwds.some(rc => sameDir(re, rc, platform)))) continue;
     return found;
   }
   return '';

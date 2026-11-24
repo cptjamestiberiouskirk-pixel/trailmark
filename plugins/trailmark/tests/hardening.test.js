@@ -57,6 +57,28 @@ test('git path: the working folder spelled with dots or spaces at a name\'s end 
   }
   // A PATH entry spelled so is the working folder too.
   assert.strictEqual(find('C:\\work\\repo.', 'C:\\work\\repo'), git);
+  // With no real path for any spelling (a folder Node can't read), the match
+  // by name alone still skips them.
+  const none = () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }); };
+  const findN = (entry, cwd) => findGit({ env: { PATH: `${entry};C:\\Program Files\\Git\\cmd` }, cwd, platform: 'win32', isExec: f => have.has(f), realpath: none });
+  for (const cwd of ['C:\\work\\repo.', 'C:\\work\\repo ', 'C:\\work\\repo\\...', 'C:\\work.\\repo']) {
+    assert.strictEqual(findN('C:\\work\\repo', cwd), git, `unreadable cwd ${JSON.stringify(cwd)}`);
+  }
+  assert.strictEqual(findN('C:\\work\\repo.', 'C:\\work\\repo'), git);
+  // A junction `j` to the repo, spelled `j.` (review round 1, Fable F1 and the
+  // auto-review's note 3), with a literal folder `j.` beside it that Node
+  // reads as itself (F1's variant, F3): each matched by the real path of the
+  // spelling Windows opens.
+  const alias = p => {
+    if (p === 'C:\\work\\j.') return p;
+    if (p.split('\\').some(n => n !== '.' && n !== '..' && /[. ]$/.test(n))) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    return p === 'C:\\work\\j' ? 'C:\\work\\repo' : p;
+  };
+  const findA = (entry, cwd) => findGit({ env: { PATH: `${entry};C:\\Program Files\\Git\\cmd` }, cwd, platform: 'win32', isExec: f => have.has(f) || f === 'C:\\work\\j.\\git.exe', realpath: alias });
+  for (const cwd of ['C:\\work\\j', 'C:\\work\\j.', 'C:\\work\\j ', 'C:\\work\\j\\...']) {
+    assert.strictEqual(findA('C:\\work\\repo', cwd), git, `junction cwd ${JSON.stringify(cwd)}`);
+  }
+  assert.strictEqual(findA('C:\\work\\j.', 'C:\\work\\repo'), git);
   // Other folders whose names only look alike are not skipped.
   for (const cwd of ['C:\\work\\repo2', 'C:\\work\\rep', 'C:\\work\\repo.x', 'C:\\work\\.repo']) {
     assert.strictEqual(find('C:\\work\\repo', cwd), 'C:\\work\\repo\\git.exe', `cwd ${JSON.stringify(cwd)}`);
