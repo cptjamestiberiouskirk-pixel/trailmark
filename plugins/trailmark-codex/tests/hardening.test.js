@@ -38,6 +38,77 @@ test('git path: PATH entries that are relative, "." or the working folder are sk
   assert.strictEqual(findGit({ env: { ...winEnv, PATHEXT: '.COM;.EXE' }, cwd: 'C:\\repo', platform: 'win32', isExec: f => have.has(f) }), 'C:\\Program Files\\Git\\cmd\\git.com');
 });
 
+// RS-D-findgitdot: Windows runs a program in `repo` for a working folder
+// spelled `repo.`, `repo `, `repo\...` or `work.\repo`, and Node can't read
+// the real path of that spelling, so the repo's own git was picked. Asked
+// about Windows with stand-ins (the real path throws for such a name, as
+// Node's does), so every system runs it.
+test('git path: the working folder spelled with dots or spaces at a name\'s end is still skipped (RS-D-findgitdot)', () => {
+  const { findGit } = require('../scripts/lib/gitbin');
+  const git = 'C:\\Program Files\\Git\\cmd\\git.exe';
+  const have = new Set(['C:\\work\\repo\\git.exe', 'C:\\work\\repo.\\git.exe', git]);
+  const realpath = p => {
+    if (p.split('\\').some(n => n !== '.' && n !== '..' && /[. ]$/.test(n))) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    return p;
+  };
+  const find = (entry, cwd) => findGit({ env: { PATH: `${entry};C:\\Program Files\\Git\\cmd` }, cwd, platform: 'win32', isExec: f => have.has(f), realpath });
+  for (const cwd of ['C:\\work\\repo.', 'C:\\work\\repo ', 'C:\\work\\repo. .', 'C:\\work\\repo...', 'C:\\work\\repo.\\', 'C:\\work\\repo\\...', 'C:\\work\\repo\\ ', 'C:\\work.\\repo', 'C:\\WORK\\Repo.']) {
+    assert.strictEqual(find('C:\\work\\repo', cwd), git, `cwd ${JSON.stringify(cwd)}`);
+  }
+  // A PATH entry spelled so is the working folder too.
+  assert.strictEqual(find('C:\\work\\repo.', 'C:\\work\\repo'), git);
+  // With no real path for any spelling (a folder Node can't read), the match
+  // by name alone still skips them.
+  const none = () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }); };
+  const findN = (entry, cwd) => findGit({ env: { PATH: `${entry};C:\\Program Files\\Git\\cmd` }, cwd, platform: 'win32', isExec: f => have.has(f), realpath: none });
+  for (const cwd of ['C:\\work\\repo.', 'C:\\work\\repo ', 'C:\\work\\repo\\...', 'C:\\work.\\repo']) {
+    assert.strictEqual(findN('C:\\work\\repo', cwd), git, `unreadable cwd ${JSON.stringify(cwd)}`);
+  }
+  assert.strictEqual(findN('C:\\work\\repo.', 'C:\\work\\repo'), git);
+  // A junction `j` to the repo, spelled `j.` (review round 1, Fable F1 and the
+  // auto-review's note 3), with a literal folder `j.` beside it that Node
+  // reads as itself (F1's variant, F3): each matched by the real path of the
+  // spelling Windows opens.
+  const alias = p => {
+    if (p === 'C:\\work\\j.') return p;
+    if (p.split('\\').some(n => n !== '.' && n !== '..' && /[. ]$/.test(n))) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    return p === 'C:\\work\\j' ? 'C:\\work\\repo' : p;
+  };
+  const findA = (entry, cwd) => findGit({ env: { PATH: `${entry};C:\\Program Files\\Git\\cmd` }, cwd, platform: 'win32', isExec: f => have.has(f) || f === 'C:\\work\\j.\\git.exe', realpath: alias });
+  for (const cwd of ['C:\\work\\j', 'C:\\work\\j.', 'C:\\work\\j ', 'C:\\work\\j\\...']) {
+    assert.strictEqual(findA('C:\\work\\repo', cwd), git, `junction cwd ${JSON.stringify(cwd)}`);
+  }
+  assert.strictEqual(findA('C:\\work\\j.', 'C:\\work\\repo'), git);
+  // The second lookup keeps the root as written: a UNC server `srv.` is not
+  // asked as `srv` (round 2), a name below a share and a drive root spelled
+  // `C:\...` are asked as Windows opens them (round 3), and a `\\?\` path is
+  // not asked again (the auto-review's notes).
+  const asked = [];
+  const rec = q => { asked.push(q); return q; };
+  const anyGit = f => f.endsWith('git.exe');
+  findGit({ env: { PATH: '\\\\srv.\\share\\bin.' }, cwd: '\\\\srv.\\share\\repo.', platform: 'win32', isExec: anyGit, realpath: rec });
+  findGit({ env: { PATH: '\\\\?\\C:\\b.' }, cwd: '\\\\?\\C:\\repo.', platform: 'win32', isExec: anyGit, realpath: rec });
+  findGit({ env: { PATH: 'C:\\x' }, cwd: 'C:\\...', platform: 'win32', isExec: () => false, realpath: rec });
+  findGit({ env: { PATH: 'C:\\x' }, cwd: '\\\\.\\C:\\d.', platform: 'win32', isExec: () => false, realpath: rec });
+  assert.deepStrictEqual(asked, ['\\\\srv.\\share\\repo.', '\\\\srv.\\share\\repo', '\\\\srv.\\share\\bin.', '\\\\srv.\\share\\bin', '\\\\?\\C:\\repo.', '\\\\?\\C:\\b.', 'C:\\...', 'C:\\', '\\\\.\\C:\\d.']);
+  // A junction `j` below a share, spelled `j.`: skipped as on a drive.
+  const share = q => {
+    if (q.split('\\').some(n => n !== '.' && n !== '..' && /[. ]$/.test(n))) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    return q === '\\\\srv\\share\\j' ? '\\\\srv\\share\\repo' : q;
+  };
+  assert.strictEqual(findGit({ env: { PATH: `\\\\srv\\share\\repo;C:\\Program Files\\Git\\cmd` }, cwd: '\\\\srv\\share\\j.', platform: 'win32', isExec: f => f === '\\\\srv\\share\\repo\\git.exe' || f === git, realpath: share }), git);
+  // Other folders whose names only look alike are not skipped.
+  for (const cwd of ['C:\\work\\repo2', 'C:\\work\\rep', 'C:\\work\\repo.x', 'C:\\work\\.repo']) {
+    assert.strictEqual(find('C:\\work\\repo', cwd), 'C:\\work\\repo\\git.exe', `cwd ${JSON.stringify(cwd)}`);
+  }
+  // Long runs of dots and spaces are dropped in linear time (a child with a
+  // time limit, as for the regexes of RS-H-addcommitdirs).
+  const lib = JSON.stringify(path.join(__dirname, '..', 'scripts', 'lib', 'gitbin.js'));
+  const code = `const { findGit } = require(${lib}); for (const e of ['C:\\\\x' + '. '.repeat(200000) + 'y', 'C:\\\\x\\\\a' + '. '.repeat(200000)]) findGit({ env: { PATH: e }, cwd: 'C:\\\\y. ', platform: 'win32', isExec: () => false, realpath: (p) => p });`;
+  const r = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 30000 });
+  assert.strictEqual(r.status, 0, `status ${r.status}, signal ${r.signal}, ${String(r.stderr).slice(0, 300)}`);
+});
+
 test('git path: a git program in the repo is never run, even with "." on PATH', () => {
   const s = sandbox();
   jbm(s, ['init']);
