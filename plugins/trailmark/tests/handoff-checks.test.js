@@ -1414,11 +1414,32 @@ test('short session IDs: two Codex thread IDs from the same minute are told apar
   // A thread with no transcript here, while another session has one (the
   // Claude Code copy then warns, naming the thread).
   fs.writeFileSync(path.join(path.dirname(s.memdir), `${SA}.jsonl`), '{}\n');
-  const tr =s.jbm(['transcript', '--session=01a1e532-ffff-7c33-8d33-3333cccc3333']);
+  const tr = s.jbm(['transcript', '--session=01a1e532-ffff-7c33-8d33-3333cccc3333']);
   assert.match(tr.stdout + tr.stderr, /session cccc3333/);
   // A thread that started here but has no transcript.
   const tr1 = s.jbm(['transcript', `--session=${T1}`]);
   assert.match(tr1.stdout + tr1.stderr, /session aaaa1111/);
+  // The Windows checkers (tools/windows) read the same short form.
+  if (WIN && S.AGENT === 'Claude Code') {
+    // A copy laid out as in the release, so the logs they keep next to
+    // themselves land in the temp folder.
+    const top = path.join(s.base, 'tool');
+    fs.cpSync(path.join(ROOT, 'scripts'), path.join(top, 'plugins', 'trailmark', 'scripts'), { recursive: true });
+    const ps = (name, args) => {
+      const at = path.join(top, 'tools', 'windows', name);
+      fs.mkdirSync(path.dirname(at), { recursive: true });
+      fs.copyFileSync(path.join(ROOT, '..', '..', 'tools', 'windows', name), at);
+      const r = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', at, '-Repo', s.repo, '-ProjectsDir', path.join(s.cfg, 'projects'), '-NoPause', ...args], { env: s.env, encoding: 'utf8', timeout: 120000 });
+      assert.strictEqual(r.error, undefined, String(r.error));
+      return r.stdout + r.stderr;
+    };
+    const chk = ps('check-trailmark-checkpoints.ps1', []);
+    assert.match(chk, /last write the state file records: session bbbb2222 /);
+    assert.match(chk, /--- session aaaa1111 /);
+    assert.match(chk, /--- session bbbb2222 /);
+    assert.match(chk, /session start, source=startup/);
+    assert.match(ps('trace-handoff-writes.ps1', ['-Session', 'bbbb2222', '-AllSessions']), / by session bbbb2222 /);
+  }
   // The log lines name each thread apart, and never by the shared prefix.
   const notes = fs.readdirSync(path.join(s.memdir, 'notes')).map(n => fs.readFileSync(path.join(s.memdir, 'notes', n), 'utf8')).join('\n');
   assert.match(notes, / session=aaaa1111$/m);
