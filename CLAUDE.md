@@ -71,5 +71,5 @@ Start a new session for each task, and `/clear` between unrelated ones. A releas
 ## Where things are
 
 - Design and threat model: `SECURITY.md`, `docs/how-it-works.md`. User manual: `MANUAL.md` (code and docs refer to its sections by number: 3, 8, 9, 10, 11, 14, 15, 16).
-- The git checks: `plugins/*/scripts/lib/gitbin.js` (before git runs) and `gitfacts.js` (before `git status`, and the commit sweep). The writer runs under `node --permission`; the launcher `scripts/trailmark.js` only reads.
+- The git checks: `plugins/*/scripts/lib/gitbin.js` (before git runs) and `gitfacts.js` (before `git status`, and the commit sweep). The writer runs under `node --permission`; the launcher `scripts/trailmark.js` runs outside it and writes only the few files `SECURITY.md` lists under "What runs, and with what rights".
 - Windows tools: `tools/windows` (watchdog, diagnostics). Installers: `install.sh`, `install.ps1`. Migration: `tools/migrate-from-jb-memory.js`.
