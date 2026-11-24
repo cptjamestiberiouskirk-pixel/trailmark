@@ -171,9 +171,7 @@ function gitEnv(base = process.env) {
 // runs again with its output sent to a file: in a new folder that mkdtemp
 // makes in the system temp folder, a file with 32 random hex characters for
 // a name, created only if it doesn't exist (mode 0600), read back through
-// the handle git wrote to, and removed with its folder in a finally. On
-// Windows that run starts the real git next to Git for Windows' wrapper
-// (realGitFor).
+// the handle git wrote to, and removed with its folder in a finally.
 //
 // Two answers differ from the pipe's. maxBuffer is checked only after git
 // ends, so git is not stopped there: it writes all of its output to the
@@ -202,59 +200,14 @@ function spawnRefused(e) {
   return !!e && e.code === 'EPERM' && typeof e.syscall === 'string' && e.syscall.startsWith('spawnSync');
 }
 
-// Git for Windows' cmd\git.exe and bin\git.exe (two copies of one program)
-// only start the real git, and a timeout stops the wrapper alone: through a
-// file, the real git went on writing after the call had ended (probes of
-// 2026-11-24, RS-F-codexsandboxgit-write in dev/release-state.md). So the
-// file path runs the real git: only when bin's real path is
-// <root>\cmd\git.exe or <root>\bin\git.exe, and <root> is not itself named
-// like a candidate folder (the real git is in a bin folder too), the first
-// of <root>\{ucrt64,mingw64,clangarm64}\bin\git.exe that is a file and whose
-// own real path is that same path (no junction or symbolic link out of the
-// install). A candidate in the call's working folder (the repo), or in a
-// candidate folder that holds the working folder, by name or by real path,
-// is passed over: the install is known by its folder names only, and
-// findGit keeps the working folder's git out the same way. No PATH search
-// and nothing from the environment. Otherwise, and on other systems, bin as
-// it is. The pipe path keeps bin.
-const REAL_GIT_DIRS = ['ucrt64', 'mingw64', 'clangarm64'];
-const WRAPPER_DIRS = ['cmd', 'bin'];
-// a is b or inside it, on Windows: case, / and a trailing separator aside.
-function winWithin(a, b) {
-  const key = x => path.win32.resolve(x).replace(/(?<![\\/])[\\/]+$/, '').replace(/\//g, '\\').toLowerCase();
-  const ka = key(a), kb = key(b);
-  return ka === kb || ka.startsWith(kb + '\\');
-}
-function realGitFor(bin, { platform = process.platform, isExec = isExecutable, realpath = fs.realpathSync.native, cwd = process.cwd() } = {}) {
-  if (platform !== 'win32' || !bin) return bin;
-  const w = path.win32;
-  const real = realOrNull(bin, realpath);
-  if (!real) return bin;
-  const wrapDir = w.dirname(real);
-  if (w.basename(real).toLowerCase() !== 'git.exe' || !WRAPPER_DIRS.includes(w.basename(wrapDir).toLowerCase())) return bin;
-  const root = w.dirname(wrapDir);
-  if (REAL_GIT_DIRS.includes(w.basename(root).toLowerCase())) return bin;
-  const here = [cwd, realOrNull(cwd, realpath)].filter(x => typeof x === 'string' && x);
-  for (const d of REAL_GIT_DIRS) {
-    const slot = w.join(root, d);
-    const want = w.join(slot, 'bin', 'git.exe');
-    if (here.some(c => winWithin(want, c) || winWithin(c, slot))) continue;
-    if (!isExec(want)) continue;
-    const got = realOrNull(want, realpath);
-    if (got && sameDir(got, want, 'win32')) return want;
-  }
-  return bin;
-}
-
 function gitOutputViaFile(bin, args, { cwd, env, timeout, maxBuffer }, refused) {
-  const run = realGitFor(bin, { cwd });
   let dir;
   try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trailmark-git-')); } catch { throw refused; }
   let fd;
   try {
     const file = path.join(dir, crypto.randomBytes(16).toString('hex'));
     fd = fs.openSync(file, 'wx+', 0o600);
-    const r = spawnSync(run, args, { cwd, env, timeout, stdio: ['ignore', fd, 'ignore'], windowsHide: true });
+    const r = spawnSync(bin, args, { cwd, env, timeout, stdio: ['ignore', fd, 'ignore'], windowsHide: true });
     const size = fs.fstatSync(fd).size;
     if (r.error) throw r.error;
     if (r.status !== 0) {
@@ -1833,4 +1786,4 @@ function farLfsEntries(entries, top) {
 // localPath with the share that `base` is on allowed (a session working on a
 // share may name folders on it).
 function localPathFrom(base, p) { return withShare(base, () => localPath(p)); }
-module.exports = { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, gitOutput, realGitFor, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };
+module.exports = { withTime, monoNow, farGitConfig, farNested, farModules, farLfsFile, farLfsEntries, localPath, localPathFrom, dotEnd, localRepoRoot, shareRoot, findGit, gitPath, gitEnv, gitOutput, GIT_GLOBAL, MAX_GIT_PATH, MAX_SYS_PATH, notThere, nothingIn, allSeen };

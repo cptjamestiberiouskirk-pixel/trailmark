@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A fix that chose a program to run drew a new finding each round
+
+- What went wrong: PR 137's `realGitFor` picked the real git from folder names. Round 3 found a second wrapper and a repo-named folder; round 4 found that two callers run outside the repo, so the repo rule missed them, and a repo's file could run. The fix was taken out and the limit documented instead.
+- Why: it was built as a small fix to a measured limit, without first asking what a wrong pick costs. A wrong pick runs code, which is worse than the limit.
+- Rule going forward: before code chooses a program to run from paths, write down what a wrong choice runs and how the choice is known to be right; if it rests on names alone, design it as its own item first.
+- Status: open
+
 ## 2026-11-24: A fix for one program missed its second copy
 
 - What went wrong: PR 137's fix 1 ran the real git in place of Git for Windows' `cmd\git.exe` and left `bin\git.exe`, a byte-identical copy that a PATH can hold first, with the old fault. Round 3 found it.
