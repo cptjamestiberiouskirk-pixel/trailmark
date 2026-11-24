@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: "Not amplified" was settled with ordinary data
+
+- What went wrong: the supervisor's point 4 on PR 137 asked whether the other git calls' outputs are amplified. One probe with ordinary commits (made by `git commit`, each subject used once) showed them near the repo's size, and SECURITY.md and release-state said so. Round 6 built a 69 KB `.git` whose reflog names one large-subject commit 200 times, and `log -g` wrote 839 MB through the file.
+- Why: the probe measured what a normal repo makes, not what a hostile one can make. Amplification comes from a small thing repeated (a section name per key, a commit per reflog entry), and the probe had no repeats.
+- Rule going forward: to call an output not amplified, look for anything the output repeats per entry (names, objects, paths) and probe with that repeated at its largest, written by hand where git would not write it. Until then the claim stays INFERRED.
+- Status: open
+
 ## 2026-11-24: A probe script's exit skipped its own clean-up
 
 - What went wrong: `csw-mut6.js` stopped on a failing baseline with `process.exit(1)` inside its `try`, so the `finally` that removes its clone never ran, and the next run refused to start because the clone was still there.
