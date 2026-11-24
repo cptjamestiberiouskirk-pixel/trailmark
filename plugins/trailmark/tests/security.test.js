@@ -315,11 +315,12 @@ test('0.5.1 commit hook: a background commit command that has committed in one o
 // ---------- RS-T-longwriter: grants on folders of 260 characters or more ----------
 
 // A folder inside parent whose path is exactly len characters and ends in
-// the names of tail, padded with folders of at most 200 characters.
+// the names of tail, padded with folders of at most 200 characters; null when
+// parent is too long for that.
 function folderOfLength(parent, len, tail) {
   const end = path.join(...tail);
   let pad = len - parent.length - end.length - 2;
-  assert.ok(pad >= 1, `the temp folder ${parent} is too long for a folder of ${len}`);
+  if (pad < 1) return null;
   const segs = [];
   for (let k = 0; pad > 0; k++) {
     const n = pad <= 200 ? pad : Math.min(200, pad - 2);
@@ -348,9 +349,12 @@ test('RS-T-longwriter: the sandbox reaches into plugin and memory folders of 259
     fs.mkdirSync(base);
     // The plugin folder (the launcher's PLUGIN_ROOT) is L long.
     const plugin = folderOfLength(base, L, ['plugins', path.basename(ROOT)]);
-    fs.cpSync(ROOT, plugin, { recursive: true, filter: src => src !== path.join(ROOT, 'tests') });
     // The memory folder is L long too.
     const cfg = folderOfLength(base, L - memTail.length - 1, ['cfg']);
+    // The memory folder's name repeats the repo's path, so a temp folder over
+    // about 110 characters leaves no room at 259 (review round 1, Opus).
+    if (!plugin || !cfg) { t.skip(`the temp folder ${s.base} is too long for folders of ${L} characters`); return; }
+    fs.cpSync(ROOT, plugin, { recursive: true, filter: src => src !== path.join(ROOT, 'tests') });
     const memdir = path.join(cfg, memTail);
     assert.strictEqual(memdir.length, L);
     fs.mkdirSync(path.dirname(memdir), { recursive: true });
@@ -407,5 +411,36 @@ test('RS-T-longwriter: the sandbox reaches into plugin and memory folders of 259
     for (const f of [path.join(memdir + 'x', 'w.txt'), path.join(path.dirname(memdir), 'w.txt'), path.join(path.dirname(memdir), 'w2.txt')]) {
       assert.ok(!fs.existsSync(f), `L=${L}: ${f} was written`);
     }
+  }
+});
+
+// A memory folder missing at launch (a repo not set up) is granted as it is:
+// the script may make the empty folder, as before, and may not write inside
+// it. The wildcard grant beside a missing folder let it do both on Windows
+// (RS-T-longwriter review round 1, Fable), so the wildcard goes only beside a
+// folder that exists at launch.
+test('RS-T-longwriter: the sandbox grants a missing memory folder no more than before, nothing written inside it', () => {
+  const s = sandbox();
+  assert.ok(!fs.existsSync(s.memdir), 'the memory folder is missing at the start');
+  const plugin = path.join(s.base, 'plug', path.basename(ROOT));
+  fs.cpSync(ROOT, plugin, { recursive: true, filter: src => src !== path.join(ROOT, 'tests') });
+  fs.writeFileSync(path.join(plugin, 'scripts', 'memory.js'), [
+    "'use strict';",
+    "const fs = require('fs'), path = require('path');",
+    "const t = f => { try { f(); return 'allowed'; } catch (e) { return e.code === 'ERR_ACCESS_DENIED' ? 'refused' : 'error ' + e.code; } };",
+    'const M = process.env.JBMEM_DIR;',
+    "t(() => fs.mkdirSync(M));",
+    'console.log(JSON.stringify({',
+    "  'write inside': t(() => fs.writeFileSync(path.join(M, 'planted.txt'), 'x')),",
+    "  'folder inside': t(() => fs.mkdirSync(path.join(M, 'archive'))),",
+    '}));',
+  ].join('\n') + '\n');
+  for (const cmd of ['handoff', 'status']) {
+    const r = spawnSync(process.execPath, [path.join(plugin, 'scripts', 'trailmark.js'), cmd], { cwd: s.repo, env: s.env, encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, `${cmd}: ${r.stdout}${r.stderr}`);
+    const got = JSON.parse(r.stdout.trim().split('\n').pop());
+    assert.deepStrictEqual(got, { 'write inside': 'refused', 'folder inside': 'refused' }, cmd);
+    assert.deepStrictEqual(fs.existsSync(s.memdir) ? fs.readdirSync(s.memdir) : [], [], `${cmd}: something was made inside the memory folder`);
+    fs.rmSync(s.memdir, { recursive: true, force: true });
   }
 });

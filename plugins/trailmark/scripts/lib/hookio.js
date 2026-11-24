@@ -68,6 +68,7 @@ function emit(obj) {
 // characters or more gets its length. Before RS-T-longwriter the sandbox
 // refused every write in a memory folder of about 268 characters or more,
 // and this said so; the launcher's grants now reach into a folder that long.
+// The length stays, as a clue when a long path is refused for another reason.
 const LONG_PATH = 260;
 function refusalText(e, platform = process.platform) {
   const res = e && typeof e.resource === 'string' ? e.resource : '';

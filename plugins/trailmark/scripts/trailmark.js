@@ -176,10 +176,14 @@ function permissionFlags({ reads, writes }) {
   // path is 260 characters or more, so the writer could not load its scripts
   // from a plugin folder that long (RS-T-longwriter). A grant of <folder>\*
   // next to the plain one reaches inside at any length, and nothing next to
-  // or above the folder (seen on Node 22 and 26, and tested).
+  // or above the folder (seen on Node 22 and 26, and tested). It goes only
+  // beside a folder that exists at launch: beside a missing one it let the
+  // script make the folder and then write inside it, where the plain grant
+  // allows making the empty folder only.
+  const isDir = p => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
   const grant = (kind, p) => {
     flags.push(`--allow-fs-${kind}=${p}`);
-    if (process.platform === 'win32') flags.push(`--allow-fs-${kind}=${path.join(p, '*')}`);
+    if (process.platform === 'win32' && isDir(p)) flags.push(`--allow-fs-${kind}=${path.join(p, '*')}`);
   };
   // Folders above others first: Node 22 can refuse to list a folder
   // granted after one inside it.
