@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-25: A lessons line in a paragraph before a tool call was stored as thinking
+
+- What went wrong: in the Q85 session (64b5dcb7) the lessons line, written as visible reply text with a paragraph around it before a Bash call, reached the transcript only as a `thinking` block that paraphrased it without the words "Lessons checked:" (175 characters at 19:23:42Z). A retry with a short paragraph and a one-line line went the same way (189 characters at 19:24:46Z). The session that had Q85 before could make no Edit for the same reason (from the supervisor's brief for Q85, not re-checked here). The times are the transcript records' own timestamps (UTC), and the lengths come from a read-only script over that transcript.
+- Why: NOT proven. Text of several sentences before a tool call was stored as a paraphrase in a `thinking` block; short status lines without the phrase were kept as `text`. The lessons hook reads only `text` blocks.
+- Rule going forward: before an Edit, Write, commit or push, write the single line `Lessons checked: <names>` as the whole text before the call, with no paragraph around it, and read the transcript once (a `text` block that starts with it) before the first Edit. The one-line form was stored as `text` here (19:26:25Z), and every Edit after it went through.
+- Status: open (seen twice; its step belongs in the PLAYBOOK promotions PR, not in this one)
+
 ## 2026-11-25: A check listed the characters a copy can lose, and each review found more
 
 - What went wrong: the fix for the gate's finding on PR 153 (d9c5fa4) tested a line for the heredoc end marker after dropping control characters and taking two classes of character (Cf, Default_Ignorable_Code_Point) off the line's front. Review round 3 on 64b7e98 found two ways past it, and run 21 confirmed both here: a character of those classes inside the word (`JBMEM_<U+200B>EOF_...`), and a character in front that is in neither class (U+2800, a combining mark). The supervisor chose an allowlist: every character but tab and printable ASCII out of the whole line, then the test. My first build of that escaped the line first, and the escape puts a backslash after a fullwidth less-than sign, so a marker behind that sign passed the test while the file held no backslash. That was found while reading `escapeTags` for a mutant that takes the escape out (it read PASS), before any commit, and a probe confirmed it. None of these forms was pushed.

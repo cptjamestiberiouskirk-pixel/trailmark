@@ -7,6 +7,7 @@
 //   node dev/review-gate.js vote-ok         <file> <cands>    exit 1 unless the file holds a verdict for each blocking candidate
 //   node dev/review-gate.js merge           <verifiers> <dir> candidates + votes -> dir/findings.json
 //   node dev/review-gate.js payload         <dir>             -> dir/comments.jsonl and dir/review.json
+//   node dev/review-gate.js landed          <before> <after> <item>  exit 0 if a POST of item that failed landed anyway, 1 if not, 2 if it can't tell
 //   node dev/review-gate.js signers         <file>            exit 1 unless it holds only security keys for /ship
 //   node dev/review-gate.js ship-candidates <dir>             -> dir/ship/<n>.msg and <n>.sig
 //   node dev/review-gate.js decide          <rules> <dir>     -> dir/gate.json
@@ -317,7 +318,26 @@ function payload(d) {
   return { comments, review: { commit_id: d.head, event: 'COMMENT', body } };
 }
 
-module.exports = { candidates, lensesStarted, mergeFindings, voteProblem, decide, payload, sections, shipped, shipParts, shipMessage, shipCandidates, sigInfo, signersOk, SHIP_NS, breaker, clean };
+// A POST that GitHub answers with an error can still land (RS-G-postlanded). Did
+// this item land? `before` and `after` are the PR's comments or reviews as the REST
+// API lists them, read when the posting step began and after the failed POST. Only
+// an entry by the bot that is not in `before` and whose last line is the item's own
+// marker counts: a re-run posts the same markers, and GitHub adds an empty review of
+// the bot's for each comment, so an item whose last line is not a marker is refused.
+const BOT = 'github-actions[bot]';
+function landed(before, after, item) {
+  const mark = lastLine(item && item.body);
+  if (!FINDING.test(mark) && !ROUND.test(mark)) throw new Error('the item has no marker on its last line');
+  const ids = (list) => list.map((x) => {
+    if (!x || typeof x !== 'object' || !Number.isSafeInteger(x.id)) throw new Error('a listed entry without an id');
+    return x.id;
+  });
+  const seen = new Set(ids(before));
+  ids(after);
+  return after.some((x) => !seen.has(x.id) && x.user && x.user.login === BOT && lastLine(x.body) === mark);
+}
+
+module.exports = { candidates, lensesStarted, mergeFindings, voteProblem, decide, payload, landed, sections, shipped, shipParts, shipMessage, shipCandidates, sigInfo, signersOk, SHIP_NS, breaker, clean };
 
 if (require.main === module) {
   const [cmd, a, b] = process.argv.slice(2);
@@ -376,6 +396,12 @@ if (require.main === module) {
     const p = payload(read(path.join(a, 'payload-input.json')));
     fs.writeFileSync(path.join(a, 'comments.jsonl'), p.comments.map((c) => JSON.stringify(c) + '\n').join(''));
     fs.writeFileSync(path.join(a, 'review.json'), JSON.stringify(p.review));
+  } else if (cmd === 'landed') {
+    // <before> and <after> hold one JSON object per line (gh api --paginate --jq '.[]').
+    const jsonl = (p) => fs.readFileSync(p, 'utf8').split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+    let yes;
+    try { yes = landed(jsonl(a), jsonl(b), read(process.argv[5])); } catch (e) { console.error(`landed: ${e.message}`); process.exit(2); }
+    process.exit(yes ? 0 : 1);
   } else if (cmd === 'signers') {
     let text = '';
     try { text = fs.readFileSync(a, 'utf8'); } catch { fail(`no ${a}`); }
@@ -395,7 +421,7 @@ if (require.main === module) {
   } else if (cmd === 'decide') {
     fs.writeFileSync(path.join(b, 'gate.json'), JSON.stringify(decide(read(path.join(b, 'gate-input.json')), read(a))));
   } else {
-    console.error('usage: review-gate.js candidates|lens-ok|vote-ok|merge|payload|signers|ship-candidates|decide ...');
+    console.error('usage: review-gate.js candidates|lens-ok|vote-ok|merge|payload|landed|signers|ship-candidates|decide ...');
     process.exit(2);
   }
 }
