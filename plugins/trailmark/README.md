@@ -13,7 +13,7 @@ That's what a fresh session receives: the handoff, then the commits made since i
 - After a commit, a merged PR or a subagent's result, Claude is reminded to update the note. Before a compaction, a snapshot of the repo's git state is saved.
 - As the session's context nears the point where Claude Code auto-compacts it, Claude is asked to update the note first.
 - When your prompt says you are about to reboot, restart or close the session ("pause for reboot"), Claude is asked to update the note before the turn ends.
-- Parallel sessions are safe. Every write names the version it started from, so one session can't silently overwrite another's notes.
+- Parallel sessions are safe. Every write names the version it started from, so one session can't silently overwrite another's notes. A write that leaves out lines another session added is refused unless you say they can go.
 - If you also use Codex with trailmark-codex in the same repo, both read and write the same note. Its `Updated:` line names the agent that wrote it last.
 
 ## What it doesn't do
@@ -64,7 +64,7 @@ Everything lives in Claude Code's own memory folder for the repo, under `~/.clau
 
 - `handoff.md` is the note itself, with the previous version kept for undo and a history of the last 20.
 - `archive/` and `parked/` hold finished items and parked ideas, which are never loaded unless you ask.
-- `notes/` is a daily log of events: session starts, commits (short SHA and subject), merges and compactions. It keeps no prompt or reply text, each day's file is deleted after 90 days, and `"notes": false` in `.jbmem.json` turns it off.
+- `notes/` is a daily log of events: session starts, commits (short SHA and subject), merges, compactions and refused handoff writes. It keeps no prompt or reply text, each day's file is deleted after 90 days, and `"notes": false` in `.jbmem.json` turns it off.
 
 To stop using Trailmark in a repo, delete `.jbmem.json` from its memory folder. To remove it entirely, run `claude plugin uninstall trailmark@trailmark` and `claude plugin marketplace remove trailmark`; your notes stay where they are.
 

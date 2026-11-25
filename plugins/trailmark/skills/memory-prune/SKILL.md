@@ -41,7 +41,7 @@ Every command here runs Trailmark from the path shown, `${CLAUDE_PLUGIN_ROOT}/sc
      A name that `prune-report` or `list` shows in quotes with "(unusual characters ...)" is refused: don't put it in a command. Tell the user to move that file into `archive/files/` by hand and delete its MEMORY.md line.
 
    - Dead index lines, or tightening MEMORY.md to one line per entry: edit MEMORY.md directly.
-   - Handoff over budget: mark finished items `[done]`, write the handoff the checkpoint way. `write-handoff` archives the `[done]` items as it saves.
+   - Handoff over budget: mark finished items `[done]`, write the handoff the checkpoint way. `write-handoff` archives the `[done]` items as it saves. Leave lines another session wrote as they are: a write that leaves one out is refused with exit code 4, and the trailmark:checkpoint skill's step 4 says what to do then.
    - Promote:
      - Write into `.claude/rules/<domain>.md` in the repo. Read the target first, add to it, and don't reorganize what's there.
      - Add `paths:` frontmatter when the rule concerns particular files. A rule without `paths` loads every session, so leave paths off only when the rule really applies everywhere.
