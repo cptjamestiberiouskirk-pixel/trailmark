@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-25: A count of tests failing on the parent hid a changed test that passes there
+
+- What went wrong: the notes and the commit message of batch r8 of PR 151 gave "6 failed of 12" and "8 failed of 12" for "the new and changed tests" on the parent's code. Of the 12, two are a test the batch does not change, and on Linux two more are a changed test that passes on the parent, because it accepts a stop as well as an answer. The reviewer found it from its own run of the same check.
+- Why: the entry "Two new tests passed on the parent, counted as a total" (2026-11-22) was read as a rule for new tests only. The count was copied from the run's summary line, and the tests that passed were not read by name.
+- Rule going forward: after a run on the parent, read the result of every test the pattern selects, by name. Each new or changed test that passes there gets its reason in the notes, and a count says which tests it counts.
+- Status: open (the second sighting of the 2026-11-22 entry: both become part of PLAYBOOK "Testing" step 8 in the next PR)
+
+## 2026-11-25: A reviewer's run ended three times on an API error before its last message
+
+- What went wrong: the Fable check of batch r8 stopped on "529 Overloaded" three times in 15 minutes. Its last message never came, and its temp folders stayed. The report was already in its file, with the cleanup line open, so the round still had a result.
+- Why: nothing in the session's steps said what to do when a reviewer stops on an error of the service. The first stop was taken for the end of the round until the file list showed no report.
+- Rule going forward: a brief asks for the report file before the cleanup and the last message. When a reviewer stops on a service error, resume it by its ID (it keeps its transcript) and read what it left on disk before starting another. A model is not changed for an overload: the table in `CLAUDE.md` names the model, and the wait is the supervisor's or the user's call.
+- Status: open
+
 ## 2026-11-24: A stop made for every value took a working answer away
 
 - What went wrong: batch r7 of PR 151 made `dir` stop when the memory folder's path, the method or the repo root held a control character. The reviewer showed that a repo that is set up, in a folder named with such a character, lost its `dir` answer: its memory folder's path is clean, and main answered there with a usable first line. The stop's message also named a second way out that did not work in the two states it was written for. The root went back to its filtered line, and both points got a test.
@@ -30,7 +44,7 @@ Format:
 
 ## 2026-11-24: A rule about a guard's input was written, then applied to one line
 
-- What went wrong: batch r5 of PR 151 logged the rule "check that nothing printed above the line it reads can be set from outside" (the entry "A finding fixed in one place came back from two others") and then filtered only the `repo root:` line of `dir`. The reviewer of that commit showed that the first line and `resolved by:` took the same line break in three states, and that the new sentence in docs/how-it-works.md claimed it for the whole output. The fix was redone for the folder, the method and the root together, and the root was taken out again (the entry above).
+- What went wrong: batch r5 of PR 151 logged the rule "check that nothing printed above the line it reads can be set from outside" (the entry "A finding fixed in one place came back from two others") and then filtered only the `repo root:` line of `dir`. The reviewer of that commit showed that the first line and `resolved by:` took the same line break in three states, and that the new sentence in docs/how-it-works.md claimed it for the whole output. The fix was redone for the folder, the method and the root together, and the root was taken out again (the entry "A stop made for every value took a working answer away").
 - Why: the fix followed the finding's line again, and the doc sentence was written from what the fix was meant to do, not from a run of each line.
 - Rule going forward: when a command's output is read as a check, list every value the command prints and where each one comes from, and treat them all in one fix (refuse, or filter). A doc sentence that says "cannot" names the runs it rests on.
 - Status: open
