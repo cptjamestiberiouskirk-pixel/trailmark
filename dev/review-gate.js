@@ -88,11 +88,16 @@ function mergeFindings(cands, voteOutputs) {
 
 // Why one verifier's output can't be used for these candidates, or null when
 // it can: the checks mergeFindings needs, so the workflow can ask once more.
+// REVIEW.md "Verifier" allows only these two verdicts; any other on a blocking
+// finding is unusable output, not a rejection.
+const VERDICTS = ['confirmed', 'rejected'];
 function voteProblem(v, cands) {
   if (!v || typeof v !== 'object' || !Array.isArray(v.votes)) return 'no votes array';
   for (const c of cands) {
     if (c.severity !== 'blocking') continue;
-    if (!v.votes.some((x) => x && typeof x === 'object' && x.id === c.id)) return `no verdict for ${c.id}`;
+    const mine = v.votes.filter((x) => x && typeof x === 'object' && x.id === c.id);
+    if (mine.length === 0) return `no verdict for ${c.id}`;
+    if (mine.some((x) => !VERDICTS.includes(x.verdict))) return `bad verdict for ${c.id}`;
   }
   return null;
 }

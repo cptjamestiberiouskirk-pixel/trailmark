@@ -35,7 +35,7 @@ Runs when the PR changes a shipped doc: an `.md` file outside `dev/`, other than
 
 ## Verifier
 
-For each finding in `.review/candidates.json` whose severity is "blocking", check it against `.review/head/` and `.review/diff.patch` yourself, without trusting its evidence. Confirm it only if the problem is real, is in what this PR changed or made reachable, and the repro would show it. Give exactly one verdict for every blocking finding; a missing verdict fails the round.
+For each finding in `.review/candidates.json` whose severity is "blocking", check it against `.review/head/` and `.review/diff.patch` yourself, without trusting its evidence. Confirm it only if the problem is real, is in what this PR changed or made reachable, and the repro would show it. Give exactly one verdict, "confirmed" or "rejected", for every blocking finding. A missing verdict or any other value is not read as a rejection: the verifier is asked once more, and a second such answer fails the round.
 
 Final message: one JSON object and nothing else:
 `{"votes": [{"id": "<the finding's id from candidates.json>", "verdict": "confirmed" | "rejected", "why": "<one line>"}]}`

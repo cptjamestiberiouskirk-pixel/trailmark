@@ -15,6 +15,7 @@ Format:
 ```
 
 ## 2026-11-25: A read-only check went in as an inline node -e
+
 - What went wrong: checking the PR 111 `/ship` comment, a session ran `shipParts` through `node -e` with the code inline in the Bash tool, before running the lessons check for the step. It printed a false comparison of the parsed signature with the `sed` copy, a result nothing was built on; the `ssh-keygen -Y verify` run that followed was the check.
 - Why: the step looked read-only and small, and the lessons check was run only at the next code change.
 - Rule going forward: none new; "Constraints and known limits" already says every script, a read-only one included, is written to a file with the Write tool and run from there, and the lessons check comes before a probe too.
