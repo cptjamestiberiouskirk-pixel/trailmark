@@ -1460,8 +1460,10 @@ test('landed: only a bot entry made after the snapshot whose last line is the it
 // Stand-ins for the post step, written to files with Function.prototype.toString so
 // their source needs no escaping. gh answers the four calls the step makes, checks
 // every argument and each request's keys, keeps the PR's comments and reviews in
-// GH_STATE, and refuses any other call (exit 99). As GitHub does, each review comment
-// it takes also adds a review of the bot's with an empty body.
+// GH_STATE, and refuses any other call (exit 99) or a request of another shape (exit 98).
+// As GitHub does, each review comment it takes also adds a review of the bot's with an
+// empty body (seen on PR 153: comment 4697368757 sits under review 6060758482, whose
+// body is empty).
 function ghStandIn() {
   const fs = require('fs');
   const file = process.env.GH_STATE;
@@ -1588,6 +1590,7 @@ test('workflow post step: an inline POST that errors after the comment landed co
   assert.equal(x.r.status, 0, x.r.stderr);
   assert.deepEqual(x.posts('regression-1'), ['post comments regression-1 inline landed']);
   assert.equal(x.on('comments', 'regression-1'), 1, 'no duplicate');
+  assert.equal(x.on('comments', 'security-1'), 1, 'the next finding still goes');
   assert.equal(x.on('reviews'), 1, 'the round is posted');
   // One snapshot of each list before the first POST, and one read back after the error.
   assert.deepEqual(x.s.log.slice(0, 4), ['get comments', 'get reviews', 'post comments regression-1 inline landed', 'get comments']);
@@ -1598,14 +1601,14 @@ test('workflow post step: an inline POST that fails and did not land is sent aga
   const x = runPost('fallback', { commentPosts: ['fail'] });
   assert.equal(x.r.status, 0, x.r.stderr);
   assert.deepEqual(x.posts('regression-1'), ['post comments regression-1 inline fail', 'post comments regression-1 file ok']);
-  assert.deepEqual([x.on('comments', 'regression-1'), x.on('reviews')], [1, 1]);
+  assert.deepEqual([x.on('comments', 'regression-1'), x.on('comments', 'security-1'), x.on('reviews')], [1, 1, 1]);
 });
 test('workflow post step: a file-level POST that errors after the comment landed counts (RS-G-postlanded)', (t) => {
   if (!hasBash()) return t.skip('bash is needed');
   const x = runPost('fallback-landed', { commentPosts: ['fail', 'landed'] });
   assert.equal(x.r.status, 0, x.r.stderr);
   assert.deepEqual(x.posts('regression-1'), ['post comments regression-1 inline fail', 'post comments regression-1 file landed']);
-  assert.deepEqual([x.on('comments', 'regression-1'), x.on('reviews')], [1, 1]);
+  assert.deepEqual([x.on('comments', 'regression-1'), x.on('comments', 'security-1'), x.on('reviews')], [1, 1, 1]);
   assert.match(x.r.stdout, /^::warning::finding 1: the file-level POST failed, and the comment is on the PR$/m);
 });
 test('workflow post step: when both POSTs fail and neither landed, the step fails and nothing after it goes (RS-G-postlanded)', (t) => {
@@ -1652,6 +1655,30 @@ test('workflow post step: when the read back fails, the step stops without a sec
   assert.notEqual(x.r.status, 0);
   assert.deepEqual(x.posts('regression-1'), ['post comments regression-1 inline fail']);
   assert.match(x.r.stdout, /finding 1: could not read the PR's comments back/);
+});
+test('workflow post step: a read back that fails after the file-level POST or the round POST is told apart from "not posted" (RS-G-postlanded)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  // GETs: 1 and 2 are the first lists, 3 the read back after the inline POST, 4 after the file-level one.
+  let x = runPost('reread-fails-file', { commentPosts: ['fail', 'fail'], getFail: [4] });
+  assert.notEqual(x.r.status, 0);
+  assert.deepEqual(x.posts('regression-1'), ['post comments regression-1 inline fail', 'post comments regression-1 file fail']);
+  assert.match(x.r.stdout, /^finding 1: could not read the PR's comments back$/m);
+  assert.doesNotMatch(x.r.stdout, /was not posted/);
+  // Both comments go; GET 3 is the read back after the round POST.
+  x = runPost('reread-fails-round', { reviewPosts: ['landed'], getFail: [3] });
+  assert.notEqual(x.r.status, 0);
+  assert.equal(x.on('reviews'), 1, 'premise: the round landed');
+  assert.match(x.r.stdout, /^the round: could not read the PR's reviews back$/m);
+  assert.doesNotMatch(x.r.stdout, /was not posted/);
+});
+test('workflow post step: when a first list fails, the step stops before any POST and says which (RS-G-postlanded)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  for (const [n, kind] of [[1, 'comments'], [2, 'reviews']]) {
+    const x = runPost(`first-list-${kind}`, { getFail: [n] });
+    assert.notEqual(x.r.status, 0);
+    assert.deepEqual(x.s.log.filter((l) => l.startsWith('post ')), [], `${kind}: nothing is posted`);
+    assert.match(x.r.stdout, new RegExp(`^could not list the PR's ${kind} before posting$`, 'm'));
+  }
 });
 test('breaker: a number followed by a word is prose, not a PR (RS-G-commaprose)', () => {
   const auto = (n) => ({ number: n, body: '', labels: ['tier:low'] });

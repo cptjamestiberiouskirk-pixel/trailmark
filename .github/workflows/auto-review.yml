@@ -276,15 +276,17 @@ jobs:
           # as posted only when a bot comment or review that was not there when
           # this step began ends in the item's own marker (review-gate.js says why).
           for k in comments reviews; do
-            gh api --paginate "repos/$REPO/pulls/$PR/$k?per_page=100" --jq '.[]' > ".review/before-$k.jsonl"
+            gh api --paginate "repos/$REPO/pulls/$PR/$k?per_page=100" --jq '.[]' > ".review/before-$k.jsonl" \
+              || { echo "could not list the PR's $k before posting"; exit 1; }
           done
           landed() { # comments|reviews item-file; 0 landed, 1 not, 2 can't tell
             gh api --paginate "repos/$REPO/pulls/$PR/$1?per_page=100" --jq '.[]' < /dev/null > ".review/after-$1.jsonl" || return 2
             node dev/review-gate.js landed ".review/before-$1.jsonl" ".review/after-$1.jsonl" "$2"
           }
           # A line outside the diff makes GitHub refuse an inline comment; it
-          # goes again as a file-level one. If neither landed, the round is not
-          # posted, and the gate reads "review did not finish".
+          # goes again as a file-level one. If neither landed, or the PR can't be
+          # read back, the round is not posted, and the gate reads "review did not
+          # finish".
           n=0
           while IFS= read -r c; do
             n=$((n + 1)); item=".review/item-$n.json"; printf '%s' "$c" > "$item"
@@ -294,11 +296,15 @@ jobs:
             [ "$st" = 1 ] || { echo "finding $n: could not read the PR's comments back"; exit 1; }
             jq -c 'del(.line, .side) + {subject_type: "file"}' "$item" > "$item.file"
             gh api "repos/$REPO/pulls/$PR/comments" --input "$item.file" < /dev/null > /dev/null && continue
-            landed comments "$item" || { echo "finding $n was not posted"; exit 1; }
+            st=0; landed comments "$item" || st=$?
+            [ "$st" = 2 ] && { echo "finding $n: could not read the PR's comments back"; exit 1; }
+            [ "$st" = 0 ] || { echo "finding $n was not posted"; exit 1; }
             echo "::warning::finding $n: the file-level POST failed, and the comment is on the PR"
           done < .review/comments.jsonl
           gh api "repos/$REPO/pulls/$PR/reviews" --input .review/review.json > /dev/null && exit 0
-          landed reviews .review/review.json || { echo "the round was not posted"; exit 1; }
+          st=0; landed reviews .review/review.json || st=$?
+          [ "$st" = 2 ] && { echo "the round: could not read the PR's reviews back"; exit 1; }
+          [ "$st" = 0 ] || { echo "the round was not posted"; exit 1; }
           echo "::warning::the round's POST failed, and the review is on the PR"
 
   gate:
