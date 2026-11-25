@@ -985,3 +985,32 @@ test('batch O5, RS-T-longwriter: init sets up a memory folder of 300 characters 
   assert.doesNotMatch(r.stderr, /sandbox refused/);
   assert.ok(fs.readdirSync(memdir).length > 0, `nothing in ${memdir}`);
 });
+
+// Saving an incoming-* file in a memory folder that isn't there yet
+// (formula-unverified) would make the folder, so every skill route that saves
+// one does it only when dir shows exists: true (RS-S-codexfolder, all routes).
+test('skills: every route that saves an incoming file in the memory folder checks dir first (RS-S-codexfolder)', () => {
+  const dir = path.join(ROOT, 'skills');
+  const routes = [];
+  for (const n of fs.readdirSync(dir)) {
+    const f = path.join(dir, n, 'SKILL.md');
+    if (!fs.existsSync(f)) continue;
+    for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
+      if (!/incoming-(handoff|park|note|search)/.test(line)) continue;
+      if (!/(Write tool|apply_patch|create `incoming-)/.test(line)) continue;
+      routes.push(n);
+      assert.match(line, /only when `dir` shows `exists: true`: with `exists: false`[^\n]*don't (save|create) the file/, n + ': ' + line.slice(0, 120));
+    }
+  }
+  assert.deepStrictEqual([...new Set(routes)].sort(), ["checkpoint","park","recall","session-end"]);
+  assert.strictEqual(routes.length, 5, routes.join(', '));
+  const park = fs.readFileSync(path.join(dir, 'park', 'SKILL.md'), 'utf8');
+  assert.match(park, /`exists: false`[^\n]*nothing to search[^\n]*stop here[^\n]*parking needs a repo set up/, 'the search step stops the whole park');
+  const s = sandbox();
+  fs.rmSync(s.projectDir, { recursive: true });
+  const d = jbm(s, ['dir']);
+  assert.strictEqual(d.status, 0, d.stdout + d.stderr);
+  assert.match(d.stdout, /resolved by: formula-unverified\n/);
+  assert.match(d.stdout, /\n {2}exists: false\n/);
+  assert.ok(!fs.existsSync(s.projectDir), 'dir must not create the project folder');
+});

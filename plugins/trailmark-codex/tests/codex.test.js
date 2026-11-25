@@ -241,7 +241,8 @@ test('codex skills: tm- names, no Claude Code placeholders, every command throug
 // A search's file made in a memory folder that isn't there makes Claude
 // Code's project folder, which then counts as verified (init's check for an
 // unverified folder, memory.js), and the launcher keeps the file in a repo not
-// set up. So the skills create it only when dir says the folder exists
+// set up. So the skills create it only when dir says the folder exists, and
+// tm-park stops there, since its park file (step 4) would do the same
 // (RS-S-codexfolder).
 test('codex skills: a search file is made only when dir shows the memory folder exists (RS-S-codexfolder)', () => {
   for (const n of ['tm-recall', 'tm-park']) {
@@ -249,8 +250,17 @@ test('codex skills: a search file is made only when dir shows the memory folder 
     assert.match(t, /only when `dir` shows `exists: true`/, n);
     assert.match(t, /`exists: false`[^\n]*nothing to search[^\n]*don't create the file/, n);
   }
+  const park = fs.readFileSync(path.join(ROOT, 'skills', 'tm-park', 'SKILL.md'), 'utf8');
+  assert.match(park, /`exists: false`[^\n]*stop here[^\n]*parking needs a repo set up/, 'tm-park stops the whole park');
+  // The case the skills guard: a repo Claude Code never opened, whose memory
+  // folder is the formula's guess and is not there.
   const s = sandbox();
-  assert.match(jbm(s, ['dir']).stdout, /\n {2}exists: (true|false)\n/);
+  fs.rmSync(s.projectDir, { recursive: true });
+  const d = jbm(s, ['dir']);
+  assert.strictEqual(d.status, 0, d.stdout + d.stderr);
+  assert.match(d.stdout, /resolved by: formula-unverified\n/);
+  assert.match(d.stdout, /\n {2}exists: false\n/);
+  assert.ok(!fs.existsSync(s.projectDir), 'dir must not create the project folder');
 });
 
 test('codex 0.1.1: "sandbox": false is ignored with a warning, and a Node inside the repo is named', () => {
@@ -478,4 +488,33 @@ test("codex skills: tm-memory-setup's hook check accepts a session-start note wi
   const t = fs.readFileSync(path.join(ROOT, 'skills', 'tm-memory-setup', 'SKILL.md'), 'utf8').replace(/\s+/g, ' ');
   assert.ok(t.includes('should be able to quote the session-start note, which starts `[trailmark] ChatGPT/Codex copy of trailmark.`, and the handoff.'), 'names the note by its start');
   assert.ok(t.includes("The note normally gives the launcher and the session ID. If it says trailmark's path isn't written here instead of giving the launcher, the hooks did run: tell the user what the note says. If the first reply can't quote the note:"), 'the note with no launcher');
+});
+
+// Saving an incoming-* file in a memory folder that isn't there yet
+// (formula-unverified) would make the folder, so every skill route that saves
+// one does it only when dir shows exists: true (RS-S-codexfolder, all routes).
+test('codex skills: every route that saves an incoming file in the memory folder checks dir first (RS-S-codexfolder)', () => {
+  const dir = path.join(ROOT, 'skills');
+  const routes = [];
+  for (const n of fs.readdirSync(dir)) {
+    const f = path.join(dir, n, 'SKILL.md');
+    if (!fs.existsSync(f)) continue;
+    for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
+      if (!/incoming-(handoff|park|note|search)/.test(line)) continue;
+      if (!/(Write tool|apply_patch|create `incoming-)/.test(line)) continue;
+      routes.push(n);
+      assert.match(line, /only when `dir` shows `exists: true`: with `exists: false`[^\n]*don't (save|create) the file/, n + ': ' + line.slice(0, 120));
+    }
+  }
+  assert.deepStrictEqual([...new Set(routes)].sort(), ["tm-checkpoint","tm-park","tm-recall","tm-session-end"]);
+  assert.strictEqual(routes.length, 5, routes.join(', '));
+  const park = fs.readFileSync(path.join(dir, 'tm-park', 'SKILL.md'), 'utf8');
+  assert.match(park, /`exists: false`[^\n]*nothing to search[^\n]*stop here[^\n]*parking needs a repo set up/, 'the search step stops the whole park');
+  const s = sandbox();
+  fs.rmSync(s.projectDir, { recursive: true });
+  const d = jbm(s, ['dir']);
+  assert.strictEqual(d.status, 0, d.stdout + d.stderr);
+  assert.match(d.stdout, /resolved by: formula-unverified\n/);
+  assert.match(d.stdout, /\n {2}exists: false\n/);
+  assert.ok(!fs.existsSync(s.projectDir), 'dir must not create the project folder');
 });
