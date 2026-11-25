@@ -14,6 +14,55 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-25: A mutant's new text was a part of its old text, and the run stopped on the script's own check
+
+- What went wrong: the first mutation run on Q69's guard-off code ended with exit 7 at its third mutant ("the mutant did not apply as meant"). That mutant took `guardOff` out of the result, so its new text (`archived: arch, warning,`) was a part of its old text, and the script's check, which counts the new text after the write, read the same count as before the write. Two mutants had run. The other eight waited for a second run, and the first run's clone and temp folder were left behind (removed by name afterwards, and checked gone).
+- Why: the check of "Escapes in a test's source didn't survive the edit (batch S)" (2026-11-07), which counts the new text, can't tell a mutant that only removes text. The list of mutants was not read for that shape before the run.
+- Rule going forward: a mutant's new text holds something its old text lacks (one that removes text puts a marker value in its place), and the mutation script checks every entry for that before its baseline run, so a bad entry stops the run before any test time is spent.
+- Status: open
+
+## 2026-11-25: A background run was started with a time limit of ten minutes
+
+- What went wrong: the `--sums --quick` run on Q69's batch takes about 16 minutes, and it was started in the tool's background mode with a timeout of 600,000 ms passed beside it. Whether that limit stops a background run was not known when the run started. The run's own end line reads exit 0 after 16 minutes, so this one was not cut. A cut run would have left the batch untested.
+- Why: the timeout was typed from habit, as for a long foreground command.
+- Rule going forward: a run started in the tool's background mode gets no timeout parameter. Its own start and end lines are what count, as "A check in the background ended with no result line" (2026-11-13) says.
+- Status: open
+
+## 2026-11-25: A name pattern meant for every test of an item left out one test
+
+- What went wrong: run 11 of Q69's batch was planned and noted as "every Q69 test". Its pattern held `\(Q69\)`, and the eleventh test's name ends "(Q69, a known limit)", so the run did not select it. The run read PASS, and the gap showed only when its Q69 `ok` lines were counted (20, where 22 were expected).
+- Why: the pattern was written when every tag was a bare "(Q69)", and it was not read again when a test with a longer tag was added. The PASS line was read before the names.
+- Rule going forward: a pattern run that stands for a set of tests is read by name against the list of that set (`grep -c` of each name in the kept TAP) before its PASS counts for the set. A second sighting of "`--only '<name>'` passed a dev/ test that never ran" (2026-11-21); its step for `PLAYBOOK.md` waits for the promotions PR (Q78).
+- Status: open
+
+## 2026-11-25: A heading's time in the notes was written before the clock was read
+
+- What went wrong: a section heading of Q69's plan file said "State at 04:22" and "started about 04:21" for a run whose own lines read 04:20:08 to 04:20:29. The next section corrected it.
+- Why: the heading was typed with the section's text, and `date` was not run in that step.
+- Rule going forward: none new; the rule of "Times in a status and in notes were written from memory" (2026-11-24) holds, and this is its second sighting. Its step for `PLAYBOOK.md` waits for the promotions PR (Q78).
+- Status: open
+
+## 2026-11-25: A new check read its input with a read that fails without a word
+
+- What went wrong: Q69's guard read the state file with `readState`, which gives an empty state for a file that can't be opened or does not parse. A state file held open by another program for 1.5 s, or one that was not JSON, turned the guard off for that write: exit code 0 and no message (review round 1, Fable's F3, re-run here on the batch).
+- Why: the read was the one at hand, and the tests of the guard broke the lists inside the state file, never the read of the file itself.
+- Rule going forward: when a check rests on a read, write down what a failed read does (refuse, or go on and say so) before the code, and test a text that does not parse and a file that can't be opened, each beside a control. A check that goes on says so where the user sees it and in the log. The supervisor called it the same fail-open shape as one just fixed in the review gate (marker tm-0412; not checked here against the gate's notes).
+- Status: open
+
+## 2026-11-25: A comment said two readers of the frontmatter agree, and they differ
+
+- What went wrong: the comment on `ownableLines` in Q69's batch said the frontmatter's fence is read "as ensureFrontmatter and stampUpdated read it, so this agrees with what a save writes". `ensureFrontmatter` ends the frontmatter at any line that starts with `---`, and `stampUpdated` at a line that is exactly `---`. Fable's round 1 probe showed the difference with an end line that has a space after the dashes (RS-S-q69fence).
+- Why: the two functions were named together without their tests for the end line being compared (the first is a regex, the second an exact match).
+- Rule going forward: a comment that says code agrees with other code is written after each function it names was read at the lines that decide it, and it says how they differ where they do.
+- Status: open
+
+## 2026-11-25: A guard compared a line with the file, and sessions copy the line from a display that changes it
+
+- What went wrong: Q69's guard hashed each handoff line as the file has it. A session composes its text from what `handoff` prints, and that output escapes tag-like text and drops control characters (`memory.js` `handoffShown`). So for a line of another session that held a closing tag, a role tag or a control character, a text copied from the output counted as leaving the line out: exit code 4, and exit code 4 again when the line was put back as the refusal listed it or was marked `[done]`. Review round 1 found it twice (Opus's F1 and Fable's F1; re-run here on 4fbbb8e with Opus's script, four cases of four). The ninth test, written to run the skills' own commands beside a second session, passed: its lines were plain text, which the display prints as it is.
+- Why: the list of who sends the input (the lesson "A new refusal met three older tests and a skill's own step before its senders were listed") named the routes, not what each route does to the text on its way to the session. The test's lines were written by hand, not picked from what the display changes.
+- Rule going forward: before a check compares a text a session sends with a text in a file, list every step between the file and what the session is shown (here an escape and a dropped character), and compare in the form the session sees. A test of that round trip has a line that each such step changes, with a control that the shown form differs from the stored one and comes out the same when shown twice. Each place the code uses the shown form gets a mutant that takes it away there alone.
+- Status: open
+
 ## 2026-11-25: A new refusal met three older tests and a skill's own step before its senders were listed
 
 - What went wrong: Q69 makes `write-handoff` refuse a whole text that leaves out a line another session wrote (exit code 4). The first run of the touched tests on the fix failed in "version check: a write needs a base, a stale base is refused with a diff, a merged write goes through" (run 2), and a wider run failed in two more, "0.3.3 Updated line: ..." and "short session IDs: ... (RS-D-codexshortid)" (run 2b): each sent such a text as a second session. The skill that sends the text for real, checkpoint's step 3, still said only "Compose the complete new handoff from the template below". That gap was found after the supervisor asked for an end-to-end run of the checkpoint path beside a second session (marker tm-0228), not before.
