@@ -51,11 +51,11 @@ bc22d91ad8b286079466b318530e49168ea30f11cc0ca346ac13a1b2edb0f2ce *./plugins/trai
 39576bd01b283bb4fa742f1ac6b5333edda2e8b6486a1bcbf2ade772839ef0ce *./plugins/trailmark-codex/skills/tm-checkpoint/SKILL.md
 d32214f30c2b32085493c60a7025c8f1f7d31b28afcea8cd5510be2c9d174842 *./plugins/trailmark-codex/skills/tm-memory-prune/SKILL.md
 bd65accd807ad2f13ba6e46eb906099bcdf5035c0cd4ef982fa655551c707f81 *./plugins/trailmark-codex/skills/tm-memory-setup/SKILL.md
-c03ead1388fc3ed1a5a66732a2f45781d49decad14a74b78855eb170161d1de0 *./plugins/trailmark-codex/skills/tm-park/SKILL.md
-7a506d6767a73a4588a64800ae92fd8d41a80492e7eb3458871e251fa90d5fbc *./plugins/trailmark-codex/skills/tm-recall/SKILL.md
+f994fc56b5a7f9fe7f1efd97e2f19cc3619dfe8fef2340df98ab462a7cdf232a *./plugins/trailmark-codex/skills/tm-park/SKILL.md
+dd825718b394216674a9734a888c7ec1ebb84d38c46b417a642442c44d4a385d *./plugins/trailmark-codex/skills/tm-recall/SKILL.md
 e6d5404bfa18ed9b5e4ecede0a8975febca70fc5a463cd9c0201efa81a1a0831 *./plugins/trailmark-codex/skills/tm-session-end/SKILL.md
 c3b280b642ab6abe49950ad7229d2f17b35cf334518b4045ad47e5d75cbc0c39 *./plugins/trailmark-codex/tests/basics.test.js
-d4d4b53b6ff9ed571417b4df1258c71f748cec9d8456b52f91131e552a74dedb *./plugins/trailmark-codex/tests/codex.test.js
+bc88dae20035910401a022c90f27ab39857ea8a33b0bb037898f3229bc94c152 *./plugins/trailmark-codex/tests/codex.test.js
 d0006a14e452cf76841b6a9dd7237d2743b4d6216aebfda0ce71fe45cc7579bb *./plugins/trailmark-codex/tests/commit-folders.test.js
 c0704aea54e588b9f3bd3811d28ea26cb4292a7bca92fac4f961af3429670803 *./plugins/trailmark-codex/tests/commits.test.js
 3980d31cdf925449d865e2b465a1cc9e020d3cf40a2c7ea884e162abc7bf0010 *./plugins/trailmark-codex/tests/copies.test.js

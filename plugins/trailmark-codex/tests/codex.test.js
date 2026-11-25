@@ -238,6 +238,21 @@ test('codex skills: tm- names, no Claude Code placeholders, every command throug
   assert.deepStrictEqual(mk.plugins.map(p => [p.name, p.source.source, p.source.path]), [['trailmark-codex', 'local', './plugins/trailmark-codex']]);
 });
 
+// A search's file made in a memory folder that isn't there makes Claude
+// Code's project folder, which then counts as verified (init's check for an
+// unverified folder, memory.js), and the launcher keeps the file in a repo not
+// set up. So the skills create it only when dir says the folder exists
+// (RS-S-codexfolder).
+test('codex skills: a search file is made only when dir shows the memory folder exists (RS-S-codexfolder)', () => {
+  for (const n of ['tm-recall', 'tm-park']) {
+    const t = fs.readFileSync(path.join(ROOT, 'skills', n, 'SKILL.md'), 'utf8');
+    assert.match(t, /only when `dir` shows `exists: true`/, n);
+    assert.match(t, /`exists: false`[^\n]*nothing to search[^\n]*don't create the file/, n);
+  }
+  const s = sandbox();
+  assert.match(jbm(s, ['dir']).stdout, /\n {2}exists: (true|false)\n/);
+});
+
 test('codex 0.1.1: "sandbox": false is ignored with a warning, and a Node inside the repo is named', () => {
   const s = sandbox();
   jbm(s, ['init']);
