@@ -9,7 +9,7 @@ dd841a9fe5f5db0a3cc82a4577898503c4540aee30bfe0768f8024dea166bc21 *./.github/pull
 74621ad634b999a008ad9f34835b40c951208c2a3ca469194f8060d20192950d *./.github/test-limits-check.js
 c877a01a6b89224e6961a5a1a8f6e783573155afbfd1f6a574e3d88fe236ab8c *./.github/test-limits-fixture.js
 4bb79fb8c5fdd01586e8d004072677209b47b6192f80a77b74f317c9c982d376 *./.github/test-limits.js
-b9a22cf3f98e1e91b5f12760560d09825966fe75aecc0303e8a1c42d83419641 *./.github/workflows/auto-review.yml
+bfe2e1dd4177074c9e47a1909150d134274fd067125c0760d4597261f760e542 *./.github/workflows/auto-review.yml
 58aa2555721f29db8cff4757671ac9e4f9b9bb9859c5f19613b03b3138e4a943 *./.github/workflows/release-draft.yml
 99767875de1798b0b03941f06d295440f40795ab155ae6e8bb09546134187352 *./.github/workflows/review-evals.yml
 31678613c3e998480b4121be763fdbe31ef09e4370596477e8899ded1fa8eaf7 *./.github/workflows/tests.yml

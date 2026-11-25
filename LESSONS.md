@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-25: A lessons line in a paragraph before a tool call was stored as thinking
+
+- What went wrong: in the Q85 session (64b5dcb7) the lessons line, written as visible reply text with a paragraph around it before a Bash call, reached the transcript only as a `thinking` block that paraphrased it without the words "Lessons checked:" (175 characters at 19:23:42Z). A retry with a short paragraph and a one-line line went the same way (189 characters at 19:24:46Z). The session that had Q85 before could make no Edit for the same reason.
+- Why: NOT proven. Text of several sentences before a tool call was stored as a paraphrase in a `thinking` block; short status lines without the phrase were kept as `text`. The lessons hook reads only `text` blocks.
+- Rule going forward: before an Edit, Write, commit or push, write the single line `Lessons checked: <names>` as the whole text before the call, with no paragraph around it, and read the transcript once (a `text` block that starts with it) before the first Edit. The one-line form was stored as `text` here (19:26:25Z), and every Edit after it went through.
+- Status: open (seen twice; its step belongs in the PLAYBOOK promotions PR, not in this one)
+
 ## 2026-11-25: A read-only check went in as an inline node -e
 
 - What went wrong: checking the PR 111 `/ship` comment, a session ran `shipParts` through `node -e` with the code inline in the Bash tool, before running the lessons check for the step. It printed a false comparison of the parsed signature with the `sed` copy, a result nothing was built on; the `ssh-keygen -Y verify` run that followed was the check.

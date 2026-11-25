@@ -1317,9 +1317,13 @@ test('candidates: every lens the tier started must have left its file, or the ro
 const stepRun = (wf, name) => {
   const start = wf.indexOf(`\n      - name: ${name}\n`);
   const body = wf.indexOf('\n        run: |\n', start);
-  const end = wf.indexOf('\n      - name: ', body + 1);
-  assert.ok(start > 0 && body > start && end > body, `step "${name}" is in the workflow`);
-  return wf.slice(body + '\n        run: |\n'.length, end).split('\n').map((l) => l.slice(10)).join('\n') + '\n';
+  const next = wf.indexOf('\n      - name: ', start + 1);
+  assert.ok(start > 0 && body > start && (next < 0 || body < next), `step "${name}" is in the workflow`);
+  // The block ends at its first line indented less than its own ten spaces, as YAML
+  // reads it, so the last step of a job does not take in the next job.
+  const lines = wf.slice(body + '\n        run: |\n'.length).split('\n');
+  const end = lines.findIndex((l) => l.trim() !== '' && !l.startsWith('          '));
+  return lines.slice(0, end < 0 ? lines.length : end).map((l) => l.slice(10)).join('\n') + '\n';
 };
 test('workflow: under bash -e, a lens whose worker dies before writing fails the lens step, and a normal round still passes (RS-G-lensmissing)', (t) => {
   if (spawnSync('bash', ['-c', 'true'], { timeout: 20000 }).status !== 0) return t.skip('bash is needed');
@@ -1381,6 +1385,273 @@ test('workflow: under bash -e, a lens whose worker dies before writing fails the
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+});
+test('landed: only a bot entry made after the snapshot whose last line is the item\'s own marker counts (RS-G-postlanded)', () => {
+  const BOT = 'github-actions[bot]';
+  const mark = `<!-- auto-review finding=regression-1 sha=${H} -->`;
+  const roundMark = `<!-- auto-review round=2 sha=${H} base=main blocking=1 -->`;
+  const item = { body: `**t**\n\nx\n${mark}` };
+  const e = (id, body, login = BOT) => ({ id, user: { login }, body });
+  // The plain yes: a new bot comment ending in the marker, whatever its line ends.
+  assert.equal(g.landed([], [e(1, `other\n${mark}`)], item), true);
+  assert.equal(g.landed([], [e(1, `other\r\n${mark}  \n`)], item), true);
+  assert.equal(g.landed([], [e(1, '')], { body: `r\n${roundMark}` }), false);
+  assert.equal(g.landed([], [e(1, ''), e(2, `Round 2\n${roundMark}`)], { body: `r\n${roundMark}` }), true);
+  // Made before the snapshot (a re-run's earlier post), by another login, or with the marker not last: no.
+  assert.equal(g.landed([e(1, mark)], [e(1, mark)], item), false);
+  for (const login of ['mallory', 'github-actions', 'Github-actions[bot]', 'github-actions[bot] ']) {
+    assert.equal(g.landed([], [e(1, mark, login)], item), false, login);
+  }
+  assert.equal(g.landed([], [{ id: 1, body: mark }], item), false, 'no user');
+  assert.equal(g.landed([], [e(1, `${mark}\nmore`)], item), false);
+  assert.equal(g.landed([], [], item), false);
+  // Every text one change away from the marker, at every place: a character left out,
+  // one put in (x), one changed (its code with the low bit flipped), two neighbors
+  // swapped, the whole in capitals; none counts.
+  let tried = 0;
+  for (let i = 0; i <= mark.length; i++) {
+    const near = [mark.slice(0, i) + 'x' + mark.slice(i)];
+    if (i < mark.length) {
+      near.push(mark.slice(0, i) + mark.slice(i + 1));
+      near.push(mark.slice(0, i) + String.fromCharCode(mark.charCodeAt(i) ^ 1) + mark.slice(i + 1));
+      if (i + 1 < mark.length && mark[i] !== mark[i + 1]) near.push(mark.slice(0, i) + mark[i + 1] + mark[i] + mark.slice(i + 2));
+    }
+    for (const n of near) {
+      if (n.trim() === mark) continue;
+      tried++;
+      assert.equal(g.landed([], [e(1, `x\n${n}`)], item), false, JSON.stringify(n));
+    }
+  }
+  assert.equal(g.landed([], [e(1, `x\n${mark.toUpperCase()}`)], item), false);
+  assert.ok(tried > 3 * mark.length, `near texts tried: ${tried}`);
+  // An item with no marker can match nothing for sure (GitHub adds empty bot reviews), so it is refused.
+  for (const body of ['', 'text', `${mark}\nmore`, undefined, `x\n${mark} x`]) {
+    assert.throws(() => g.landed([], [e(1, body || '')], { body }), /no marker/, String(body));
+  }
+  // A listing entry without a numeric id can't be told apart, so it is refused too.
+  for (const bad of [null, 5, {}, { id: '1' }, { id: 1.5 }]) {
+    assert.throws(() => g.landed([], [bad], item), /without an id/, JSON.stringify(bad));
+    assert.throws(() => g.landed([bad], [], item), /without an id/, JSON.stringify(bad));
+  }
+  // The CLI: 0 landed, 1 not, 2 when it can't tell.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-landed-'));
+  try {
+    const w = (n, t) => fs.writeFileSync(path.join(dir, n), t);
+    const cli = () => spawnSync(process.execPath, [CLI, 'landed', path.join(dir, 'b.jsonl'), path.join(dir, 'a.jsonl'), path.join(dir, 'item.json')], { encoding: 'utf8', timeout: 10000 });
+    w('item.json', JSON.stringify(item));
+    w('b.jsonl', '');
+    w('a.jsonl', JSON.stringify(e(3, mark)) + '\n');
+    assert.equal(cli().status, 0);
+    w('b.jsonl', JSON.stringify(e(3, mark)) + '\n');
+    assert.equal(cli().status, 1);
+    w('a.jsonl', 'not json\n');
+    let r = cli();
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /^landed: /);
+    w('a.jsonl', '');
+    w('item.json', JSON.stringify({ body: '' }));
+    r = cli();
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /no marker/);
+    fs.rmSync(path.join(dir, 'item.json'));
+    assert.equal(cli().status, 2, 'a missing item file');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+// Stand-ins for the post step, written to files with Function.prototype.toString so
+// their source needs no escaping. gh answers the four calls the step makes, checks
+// every argument and each request's keys, keeps the PR's comments and reviews in
+// GH_STATE, and refuses any other call (exit 99). As GitHub does, each review comment
+// it takes also adds a review of the bot's with an empty body.
+function ghStandIn() {
+  const fs = require('fs');
+  const file = process.env.GH_STATE;
+  const s = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const a = process.argv.slice(2);
+  const save = () => fs.writeFileSync(file, JSON.stringify(s, null, 1));
+  const base = 'repos/' + process.env.REPO + '/pulls/' + process.env.PR + '/';
+  const kindOf = (p) => (p === base + 'comments' ? 'comments' : p === base + 'reviews' ? 'reviews' : null);
+  const add = (kind, req, login) => {
+    s[kind].push({ id: s.nextId++, user: { login }, ...req });
+    if (kind === 'comments') s.reviews.push({ id: s.nextId++, user: { login }, body: '' });
+  };
+  const page = '?per_page=100';
+  if (a.length === 5 && a[0] === 'api' && a[1] === '--paginate' && a[2].endsWith(page) && kindOf(a[2].slice(0, -page.length)) && a[3] === '--jq' && a[4] === '.[]') {
+    const kind = kindOf(a[2].slice(0, -page.length));
+    s.log.push('get ' + kind);
+    const n = s.log.filter((l) => l.startsWith('get ')).length;
+    save();
+    if (s.getFail.includes(n)) { console.error('HTTP 502 (stand-in)'); process.exit(1); }
+    for (const x of s[kind]) console.log(JSON.stringify(x));
+    return;
+  }
+  if (a.length === 4 && a[0] === 'api' && kindOf(a[1]) && a[2] === '--input') {
+    const kind = kindOf(a[1]);
+    const req = JSON.parse(fs.readFileSync(a[3] === '-' ? 0 : a[3], 'utf8'));
+    const keys = Object.keys(req).sort().join(',');
+    const shape = kind === 'reviews' ? (keys === 'body,commit_id,event' && req.event === 'COMMENT' ? 'review' : null)
+      : keys === 'body,commit_id,line,path,side' && req.side === 'RIGHT' && Number.isInteger(req.line) ? 'inline'
+      : keys === 'body,commit_id,path,subject_type' && req.subject_type === 'file' ? 'file' : null;
+    const last = String(req.body).split('\n').pop();
+    const m = /finding=([a-z]+-[0-9]+) /.exec(last);
+    if (!shape || req.commit_id !== s.head || typeof req.body !== 'string') {
+      s.log.push('bad ' + kind + ' ' + keys); save(); console.error('stand-in: bad request ' + keys); process.exit(98);
+    }
+    const plan = kind === 'comments' ? s.commentPosts : s.reviewPosts;
+    const how = plan.length ? plan.shift() : 'ok';
+    s.log.push(['post', kind, m ? m[1] : 'round', shape, how].join(' '));
+    if (how === 'ok' || how === 'landed') add(kind, req, 'github-actions[bot]');
+    if (how === 'other') add(kind, req, 'mallory');
+    save();
+    if (how === 'ok') { console.log(JSON.stringify({ id: s.nextId - 1 })); return; }
+    console.error(how === 'landed' ? 'unexpected end of JSON input' : 'HTTP 422 (stand-in)');
+    process.exit(1);
+  }
+  s.log.push('unexpected ' + JSON.stringify(a)); save();
+  console.error('stand-in: unexpected call ' + JSON.stringify(a));
+  process.exit(99);
+}
+// The step's one jq call: del(.line, .side) + {subject_type: "file"} on a file (or on
+// stdin, as the step before RS-G-postlanded gave it), printed compact.
+function jqStandIn() {
+  const fs = require('fs');
+  const a = process.argv.slice(2);
+  if (a.length < 2 || a.length > 3 || a[0] !== '-c' || a[1] !== 'del(.line, .side) + {subject_type: "file"}') {
+    console.error('jq stand-in: unexpected call ' + JSON.stringify(a));
+    process.exit(99);
+  }
+  const o = JSON.parse(fs.readFileSync(a.length === 3 ? a[2] : 0, 'utf8'));
+  delete o.line;
+  delete o.side;
+  o.subject_type = 'file';
+  console.log(JSON.stringify(o));
+}
+// The post step's text, in one place, so the parent-commit probe of RS-G-postlanded can
+// swap in the old step's posting lines here.
+const postStep = (wf) => stepRun(wf, 'Post each finding, then the round');
+const POST_BOT = 'github-actions[bot]';
+// Two findings, as payload writes them: regression-1 inline on a.js, security-1 file-level on b.js.
+const POST_INPUT = { head: H, base: 'main', round: 2, tier: { tier: 'high' }, changed: ['a.js', 'b.js'],
+  findings: { blocking: [{ id: 'regression-1', path: 'a.js', line: 3, title: 't1', evidence: 'e1', repro: 'r1' },
+    { id: 'security-1', path: 'b.js', title: 't2', evidence: 'e2', repro: 'r2' }], notes: [] } };
+const POST_ROUND = g.payload(POST_INPUT).review.body.split('\n').pop();
+const hasBash = () => spawnSync('bash', ['-c', 'true'], { timeout: 20000 }).status === 0;
+// Runs the post step once, as a file under `bash -e` like the runner, in a temp folder of
+// its own that it removes. o: comments and reviews already on the PR; commentPosts and
+// reviewPosts, how each POST in turn goes (ok; landed: kept, then an error; fail: an error;
+// other: kept under another login, then an error); getFail, which GETs fail (1-based).
+function runPost(name, o = {}) {
+  const step = postStep(wfText());
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `jbmem-postlanded-${name}-`));
+  const sh = (p) => p.replace(/\\/g, '/');
+  try {
+    fs.mkdirSync(path.join(tmp, 'bin'));
+    fs.writeFileSync(path.join(tmp, 'bin', 'gh.js'), `(${ghStandIn})();\n`);
+    fs.writeFileSync(path.join(tmp, 'bin', 'gh'), '#!/bin/bash\nexec node "$(dirname "$0")/gh.js" "$@"\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(tmp, 'bin', 'jq.js'), `(${jqStandIn})();\n`);
+    fs.writeFileSync(path.join(tmp, 'bin', 'jq'), '#!/bin/bash\nexec node "$(dirname "$0")/jq.js" "$@"\n', { mode: 0o755 });
+    const d = path.join(tmp, 'w');
+    fs.mkdirSync(path.join(d, '.review'), { recursive: true });
+    fs.mkdirSync(path.join(d, 'dev'));
+    fs.copyFileSync(path.join(__dirname, 'review-gate.js'), path.join(d, 'dev', 'review-gate.js'));
+    fs.writeFileSync(path.join(d, '.review', 'payload-input.json'), JSON.stringify(POST_INPUT));
+    const p = spawnSync(process.execPath, [path.join(d, 'dev', 'review-gate.js'), 'payload', path.join(d, '.review')], { encoding: 'utf8', timeout: 20000 });
+    assert.equal(p.status, 0, p.stderr);
+    const state = path.join(tmp, 'gh-state.json');
+    fs.writeFileSync(state, JSON.stringify({ head: H, nextId: 100, comments: o.comments || [], reviews: o.reviews || [],
+      commentPosts: o.commentPosts || [], reviewPosts: o.reviewPosts || [], getFail: o.getFail || [], log: [] }));
+    fs.writeFileSync(path.join(d, 'step.sh'), step);
+    const r = spawnSync('bash', ['-e', 'step.sh'], { cwd: d, encoding: 'utf8', timeout: 60000, env: { ...process.env, PATH: sh(path.join(tmp, 'bin')) + path.delimiter + process.env.PATH,
+      REPO: 'o/r', PR: '7', GH_TOKEN: 'x', GH_STATE: sh(state) } });
+    const s = JSON.parse(fs.readFileSync(state, 'utf8'));
+    assert.ok(!s.log.some((l) => /^(unexpected|bad) /.test(l)), `${name}: the step made only the calls the stand-in knows (${s.log.join('; ')})`);
+    return {
+      r, s,
+      // How many entries the bot made in the step end in a finding's marker, or in the round's.
+      on: (kind, id) => s[kind].filter((x) => x.user.login === POST_BOT && x.id >= 100
+        && String(x.body).split('\n').pop() === (id ? `<!-- auto-review finding=${id} sha=${H} -->` : POST_ROUND)).length,
+      posts: (id) => s.log.filter((l) => l.startsWith(`post comments ${id} `)),
+    };
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+test('workflow post step: every POST answers, so each comment and the round go once (RS-G-postlanded)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  const x = runPost('ok');
+  assert.equal(x.r.status, 0, x.r.stderr);
+  assert.deepEqual(x.s.log.filter((l) => l.startsWith('post ')), ['post comments regression-1 inline ok', 'post comments security-1 file ok', 'post reviews round review ok']);
+  assert.deepEqual([x.on('comments', 'regression-1'), x.on('comments', 'security-1'), x.on('reviews')], [1, 1, 1]);
+});
+test('workflow post step: an inline POST that errors after the comment landed counts, with no second POST (RS-G-postlanded, the PR 153 case)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  const x = runPost('landed', { commentPosts: ['landed'] });
+  assert.equal(x.r.status, 0, x.r.stderr);
+  assert.deepEqual(x.posts('regression-1'), ['post comments regression-1 inline landed']);
+  assert.equal(x.on('comments', 'regression-1'), 1, 'no duplicate');
+  assert.equal(x.on('reviews'), 1, 'the round is posted');
+  // One snapshot of each list before the first POST, and one read back after the error.
+  assert.deepEqual(x.s.log.slice(0, 4), ['get comments', 'get reviews', 'post comments regression-1 inline landed', 'get comments']);
+  assert.match(x.r.stdout, /^::warning::finding 1: the POST failed, and the comment is on the PR$/m);
+});
+test('workflow post step: an inline POST that fails and did not land is sent again file-level (RS-G-postlanded)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  const x = runPost('fallback', { commentPosts: ['fail'] });
+  assert.equal(x.r.status, 0, x.r.stderr);
+  assert.deepEqual(x.posts('regression-1'), ['post comments regression-1 inline fail', 'post comments regression-1 file ok']);
+  assert.deepEqual([x.on('comments', 'regression-1'), x.on('reviews')], [1, 1]);
+});
+test('workflow post step: a file-level POST that errors after the comment landed counts (RS-G-postlanded)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  const x = runPost('fallback-landed', { commentPosts: ['fail', 'landed'] });
+  assert.equal(x.r.status, 0, x.r.stderr);
+  assert.deepEqual(x.posts('regression-1'), ['post comments regression-1 inline fail', 'post comments regression-1 file landed']);
+  assert.deepEqual([x.on('comments', 'regression-1'), x.on('reviews')], [1, 1]);
+  assert.match(x.r.stdout, /^::warning::finding 1: the file-level POST failed, and the comment is on the PR$/m);
+});
+test('workflow post step: when both POSTs fail and neither landed, the step fails and nothing after it goes (RS-G-postlanded)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  const x = runPost('neither', { commentPosts: ['fail', 'fail'] });
+  assert.notEqual(x.r.status, 0);
+  assert.deepEqual([x.posts('security-1').length, x.on('reviews')], [0, 0]);
+  assert.match(x.r.stdout, /finding 1 was not posted/);
+});
+test('workflow post step: a round POST that errors after the review landed counts (RS-G-postlanded)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  const x = runPost('review-landed', { reviewPosts: ['landed'] });
+  assert.equal(x.r.status, 0, x.r.stderr);
+  assert.equal(x.on('reviews'), 1);
+  assert.match(x.r.stdout, /^::warning::the round's POST failed, and the review is on the PR$/m);
+});
+test('workflow post step: the empty reviews GitHub adds for each comment are not the round (RS-G-postlanded)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  const x = runPost('review-empty', { reviewPosts: ['fail'] });
+  assert.equal(x.s.reviews.filter((v) => v.user.login === POST_BOT && v.body === '').length, 2, 'premise: two empty bot reviews are new');
+  assert.notEqual(x.r.status, 0);
+  assert.match(x.r.stdout, /the round was not posted/);
+});
+test('workflow post step: on a re-run, a comment or round with the same marker from before the step is not this step\'s post (RS-G-postlanded)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  const old = [{ id: 1, user: { login: POST_BOT }, body: `old\n<!-- auto-review finding=regression-1 sha=${H} -->` }];
+  let x = runPost('rerun-comment', { comments: old, commentPosts: ['fail', 'fail'] });
+  assert.notEqual(x.r.status, 0);
+  assert.match(x.r.stdout, /finding 1 was not posted/);
+  x = runPost('rerun-review', { reviews: [{ id: 2, user: { login: POST_BOT }, body: `old\n${POST_ROUND}` }], reviewPosts: ['fail'] });
+  assert.notEqual(x.r.status, 0);
+  assert.match(x.r.stdout, /the round was not posted/);
+});
+test('workflow post step: another login\'s comment with the marker, made during the step, is not the bot\'s post (RS-G-postlanded)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  const x = runPost('other-user', { commentPosts: ['other', 'other'] });
+  assert.equal(x.s.comments.filter((c) => c.user.login === 'mallory').length, 2, 'premise: the other login posted the marker twice');
+  assert.notEqual(x.r.status, 0);
+  assert.match(x.r.stdout, /finding 1 was not posted/);
+});
+test('workflow post step: when the read back fails, the step stops without a second POST (RS-G-postlanded)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  const x = runPost('reread-fails', { commentPosts: ['fail'], getFail: [3] });
+  assert.notEqual(x.r.status, 0);
+  assert.deepEqual(x.posts('regression-1'), ['post comments regression-1 inline fail']);
+  assert.match(x.r.stdout, /finding 1: could not read the PR's comments back/);
 });
 test('breaker: a number followed by a word is prose, not a PR (RS-G-commaprose)', () => {
   const auto = (n) => ({ number: n, body: '', labels: ['tier:low'] });

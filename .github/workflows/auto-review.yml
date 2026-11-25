@@ -245,7 +245,7 @@ jobs:
           for i in $(seq 1 "$VERIFIERS"); do vote "$i" & done
           wait
           tails vote
-      - name: Combine, post each finding, then the round
+      - name: Combine the votes and build what to post
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -262,16 +262,44 @@ jobs:
               changed: (($files | map(select(.status != "removed") | .filename)) as $k
                         | if ($k | length) > 0 then $k else ($files | map(.filename)) end)}' > .review/payload-input.json
           node dev/review-gate.js payload .review
-          # A line outside the diff makes GitHub refuse an inline comment; it
-          # goes again as a file-level one. If that fails too, the round is not
-          # posted, and the gate reads "review did not finish".
-          while IFS= read -r c; do
-            printf '%s' "$c" | gh api "repos/$REPO/pulls/$PR/comments" --input - > /dev/null \
-              || printf '%s' "$c" | jq -c 'del(.line, .side) + {subject_type: "file"}' \
-                 | gh api "repos/$REPO/pulls/$PR/comments" --input - > /dev/null
-          done < .review/comments.jsonl
-          gh api "repos/$REPO/pulls/$PR/reviews" --input .review/review.json > /dev/null
           jq -r '"blocking \(.blocking | length), notes \(.notes | length), dropped by vote \(.dropped | length)"' .review/findings.json >> "$GITHUB_STEP_SUMMARY"
+      # A step of its own, so dev/review-gate.test.js can run it whole (RS-G-postlanded).
+      - name: Post each finding, then the round
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # A POST that GitHub answers with an error can still land: on PR 153
+          # (run 45647984081, attempt 1) gh printed "unexpected end of JSON input"
+          # twice and the step failed with the finding already on the PR. So after
+          # a failed POST the step reads the PR back, and `landed` counts the item
+          # as posted only when a bot comment or review that was not there when
+          # this step began ends in the item's own marker (review-gate.js says why).
+          for k in comments reviews; do
+            gh api --paginate "repos/$REPO/pulls/$PR/$k?per_page=100" --jq '.[]' > ".review/before-$k.jsonl"
+          done
+          landed() { # comments|reviews item-file; 0 landed, 1 not, 2 can't tell
+            gh api --paginate "repos/$REPO/pulls/$PR/$1?per_page=100" --jq '.[]' < /dev/null > ".review/after-$1.jsonl" || return 2
+            node dev/review-gate.js landed ".review/before-$1.jsonl" ".review/after-$1.jsonl" "$2"
+          }
+          # A line outside the diff makes GitHub refuse an inline comment; it
+          # goes again as a file-level one. If neither landed, the round is not
+          # posted, and the gate reads "review did not finish".
+          n=0
+          while IFS= read -r c; do
+            n=$((n + 1)); item=".review/item-$n.json"; printf '%s' "$c" > "$item"
+            gh api "repos/$REPO/pulls/$PR/comments" --input "$item" < /dev/null > /dev/null && continue
+            st=0; landed comments "$item" || st=$?
+            if [ "$st" = 0 ]; then echo "::warning::finding $n: the POST failed, and the comment is on the PR"; continue; fi
+            [ "$st" = 1 ] || { echo "finding $n: could not read the PR's comments back"; exit 1; }
+            jq -c 'del(.line, .side) + {subject_type: "file"}' "$item" > "$item.file"
+            gh api "repos/$REPO/pulls/$PR/comments" --input "$item.file" < /dev/null > /dev/null && continue
+            landed comments "$item" || { echo "finding $n was not posted"; exit 1; }
+            echo "::warning::finding $n: the file-level POST failed, and the comment is on the PR"
+          done < .review/comments.jsonl
+          gh api "repos/$REPO/pulls/$PR/reviews" --input .review/review.json > /dev/null && exit 0
+          landed reviews .review/review.json || { echo "the round was not posted"; exit 1; }
+          echo "::warning::the round's POST failed, and the review is on the PR"
 
   gate:
     needs: review
