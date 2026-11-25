@@ -76,6 +76,7 @@ Limit: a session follows this by hand. Only the format in step 5 is checked by a
 19. A sentence about what a check catches names what the check looks at and from when it looks (a file's size, from the first look after git ends), and says what it doesn't see on each of those two counts.
 20. Code and tests change only through the Edit or Write tool, however small the change: read the line, then Edit it. A shell command (`sed -i`, a heredoc, a redirect) only copies, checks and runs files.
 21. A check over a diff or a file prints how much it read, and a count of 0 read is a failed check. Pick the lines by what they are (drop only the header lines, `--- a/`, `+++ b/` or `/dev/null`: a removed line `-- x` shows as `--- x`), never by a pattern that drops what they aren't: a changed list item's diff line starts `-- ` or `+- `.
+22. In text sent through Edit or Write, a character outside printable ASCII is named by its class (`\p{Zl}`) or built in code (`String.fromCharCode(0x2028)`), never written as a `\u` escape or as itself: the tool can turn the escape into the character. After each write, count the file's non-ASCII lines (`LC_ALL=C grep -cP '[^\x00-\x7F]'`) and run `node --check` on a changed script, before the file is used.
 
 ## Testing
 

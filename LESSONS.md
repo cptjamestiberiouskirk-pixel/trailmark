@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A rule about a guard's input was written, then applied to one line
+
+- What went wrong: batch r5 of PR 151 logged the rule "check that nothing printed above the line it reads can be set from outside" (the entry below) and then filtered only the `repo root:` line of `dir`. The reviewer of that commit showed that the first line and `resolved by:` took the same line break in three states, and that the new sentence in docs/how-it-works.md claimed it for the whole output. The fix was redone for every value `dir` prints.
+- Why: the fix followed the finding's line again, and the doc sentence was written from what the fix was meant to do, not from a run of each line.
+- Rule going forward: when a command's output is read as a check, list every value the command prints and where each one comes from, and treat them all in one fix (refuse, or filter). A doc sentence that says "cannot" names the runs it rests on.
+- Status: open
+
+## 2026-11-24: An escape sent through Write became the character itself, again
+
+- What went wrong: test text written with the Write tool held escapes for the line separator, the paragraph separator and the zero-width space. The file got the characters themselves, and the test file stopped parsing (a line separator inside a regex). The lessons of 2026-11-07, 2026-11-21 and 2026-11-24 already say to build such characters in code.
+- Why: the rule was known and nothing ran it before the file was used.
+- Rule going forward: name such a character by its class or build it in code, and count the non-ASCII lines of each file after it is written, before it is used.
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 22)
+
 ## 2026-11-24: A finding fixed in one place came back from two others
 
 - What went wrong: PR 151's auto-review found that a Codex skill saved a file in a memory folder that isn't there, which makes the folder. The fix guarded that skill. The next round found the same in the Claude Code copy. A sweep then found six more skill routes, and the reviewers of that fix found a launcher message that told a session to save there, and that the `dir` line the guard reads could be forged by a folder name with a line break.
