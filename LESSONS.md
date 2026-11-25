@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-25: A new refusal met three older tests and a skill's own step before its senders were listed
+
+- What went wrong: Q69 makes `write-handoff` refuse a whole text that leaves out a line another session wrote (exit code 4). The first run of the touched tests on the fix failed in "version check: a write needs a base, a stale base is refused with a diff, a merged write goes through" (run 2), and a wider run failed in two more, "0.3.3 Updated line: ..." and "short session IDs: ... (RS-D-codexshortid)" (run 2b): each sent such a text as a second session. The skill that sends the text for real, checkpoint's step 3, still said only "Compose the complete new handoff from the template below". That gap was found after the supervisor asked for an end-to-end run of the checkpoint path beside a second session (marker tm-0228), not before.
+- Why: the plan listed the tests that match the changed messages and skill words, not the tests and skills that send the input the guard refuses. The first finder for those tests (`q69-two-session-tests.js` in the sessions' notes folder) looked for tests that name two sessions. A test whose first writer is the helper's default names one, so a second finder (`q69-second-writer.js`) reads for a write by a session other than the default.
+- Rule going forward: before the first run of a guard that refuses an input, list who sends that input: every test that writes as a session other than its helper's default, and every skill step that tells a session how to make the text, in both copies. Each skill route gets a test that runs the skill's own command beside the case the guard is for and ends with exit 0.
+- Status: open (a second sighting of "A review fix refused a route another client needed", 2026-11-24: its step for PLAYBOOK goes in the PLAYBOOK promotions PR, Q78)
+
 ## 2026-11-25: A playbook step in a batch turned a medium PR into a high one
 
 - What went wrong: batch r7 of PR 151 (4df7b10) promoted a lesson and added its step to `PLAYBOOK.md`. `dev/risk-tiers.json` rates that file high, so the next push would have made the PR tier high, and its merge would have waited for the owner's signed `/ship`. It showed two batches later, in a run of the tier step's `classify()` on the whole diff that the supervisor asked for before the push.
