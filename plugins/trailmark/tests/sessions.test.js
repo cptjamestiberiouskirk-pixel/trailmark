@@ -49,8 +49,11 @@ test('version check: a write needs a base, a stale base is refused with a diff, 
   assert.match(after, /B ADDED THIS[\s\S]*A ADDED THIS/);
   assert.match(after, /^Updated: .* \| session 11111111 \| by Claude Code$/m);
   assert.match(merged.stdout, /handoff version: ([0-9a-f]{12}) \(this session's next write goes with --base=\1\)/);
+  // A text without B's line is refused: B was seen here after A was first known (Q69).
+  const without = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], '# H\n- body\n');
+  assert.strictEqual(without.status, 4, without.stdout + without.stderr);
   // A version line copied in from the `handoff` output is dropped.
-  const copied = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], `[trailmark] handoff version: ${v2} (write it back with --base=${v2})\n# H\n- body\n`);
+  const copied = jbm(s, ['write-handoff', `--base=${versionNow(J(s))}`, `--session=${SA}`], `[trailmark] handoff version: ${v2} (write it back with --base=${v2})\n# H\n- B ADDED THIS\n- body\n`);
   assert.strictEqual(copied.status, 0, copied.stderr);
   assert.ok(!fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8').includes('handoff version:'));
   // --force (by hand only) skips the check.

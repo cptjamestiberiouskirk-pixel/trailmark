@@ -49,8 +49,13 @@ test('0.3.3 Updated line: branch and HEAD come from where the session\'s last co
   const { s, wt, clone, gClone, head, hook } = multiFolder();
   gClone('commit', '-q', '--allow-empty', '-m', 'audit work');
   hook(wt, SA, `cd "${clone}" && git commit -q -m "audit work"`);
+  // Each write keeps the lines the sessions before it wrote: a text that
+  // leaves out a line of a session still seen here is refused (Q69).
+  const by = [];
   const run = (cwd, sid) => {
-    const r = jbmIn(s, cwd, ['write-handoff', `--base=${versionNow((a, i) => jbmIn(s, cwd, a, i))}`, `--session=${sid}`], `# H\n- by ${sid.slice(0, 8)}\n`);
+    const line = `- by ${sid.slice(0, 8)}`;
+    if (!by.includes(line)) by.push(line);
+    const r = jbmIn(s, cwd, ['write-handoff', `--base=${versionNow((a, i) => jbmIn(s, cwd, a, i))}`, `--session=${sid}`], `# H\n${by.join('\n')}\n`);
     assert.strictEqual(r.status, 0, r.stdout + r.stderr);
     return /^Updated: .*$/m.exec(fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8'))[0];
   };

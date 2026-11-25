@@ -1390,7 +1390,8 @@ test('short session IDs: two Codex thread IDs from the same minute are told apar
   s.start(T2);
   s.write('# H\n- state\n', T1);
   assert.match(updated(), / \| session aaaa1111 \| by /);
-  s.write('# H\n- state 2\n', T2);
+  // T2 keeps T1's line: both threads started here, so a text without it is refused (Q69).
+  s.write('# H\n- state\n- state 2\n', T2);
   assert.match(updated(), / \| session bbbb2222 \| by /);
   // A resume after the other thread wrote, and an undo of its write.
   const resumed = s.jbm(['--hook', 'session-start'], JSON.stringify({ cwd: s.repo, source: 'resume', session_id: T1 }));
@@ -9409,18 +9410,19 @@ test('dir: a repo root with a line break in it adds no exists or set up line (RS
   assert.match(r.stdout, /^ {2}repo root: .*r {2}exists: true {2}set up: true$/m, r.stdout);
 });
 
-test('dir: in a folder named with a line break, through the launcher (RS-S-dirroot)', { skip: WIN && 'Windows has no folder names with a line break' }, () => {
+test('dir: in a folder named with a line break, through the launcher (RS-S-dirroot)', { skip: WIN && 'Windows has no folder names with a line feed' }, () => {
   const s = sandbox();
   const odd = path.join(s.base, FAKE_ROOT);
   repoAt(odd);
   const r = s.jbm(['dir'], undefined, odd);
-  assert.strictEqual(typeof r.status, 'number', String(r.error));
-  const flags = dirFlags(r.stdout);
-  // Whatever else the launcher makes of such a folder, no line of its output
-  // reads as a flag that is true: this repo has no memory folder.
-  assert.ok(!flags.some(l => /true/.test(l)), r.stdout + r.stderr);
+  // dir answers here: only the root holds the break, and the root is shown
+  // filtered (RS-S-dirline). The answer is needed, so that a stop for every
+  // value with a line break in it fails this test (RS-T-dirrootparent).
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  // No line of its output reads as a flag that is true: this repo has no
+  // memory folder.
+  assert.deepStrictEqual(dirFlags(r.stdout), ['  exists: false', '  set up: false'], r.stdout);
   assert.deepStrictEqual(dirFlags(r.stderr), [], r.stderr);
-  if (r.status === 0) assert.deepStrictEqual(flags, ['  exists: false', '  set up: false'], r.stdout);
 });
 
 // A folder name can hold tag-like text as well (not on Windows). The root is
@@ -9501,7 +9503,7 @@ test('dir: shows nothing when the folder or the method holds a control character
 // line through the launcher, each in a real folder named with one: a relative
 // autoMemoryDirectory, a relative CLAUDE_CONFIG_DIR, and a project folder
 // under the second kind of name, which keeps the break (RS-S-dirline).
-test('dir: a line break from a relative setting or a project folder name, through the launcher (RS-S-dirline)', { skip: WIN && 'Windows has no folder names with a line break' }, () => {
+test('dir: a line break from a relative setting or a project folder name, through the launcher (RS-S-dirline)', { skip: WIN && 'Windows has no folder names with a line feed' }, () => {
   const s = sandbox();
   const lib = path.join(ROOT, 'scripts', 'lib', 'paths.js');
   const P = require(lib);
@@ -9578,3 +9580,366 @@ test('dir: a repo that is set up, in a folder named with a control character, ke
     assert.doesNotMatch(r.stdout.replace(/\n/g, ''), /[\p{Cc}\p{Zl}\p{Zp}]/u, what + ': ' + JSON.stringify(r.stdout));
   }
 });
+
+// ---------- Q69: a write that leaves out another session's lines ----------
+// The version check stops a race: two sessions that read the same version.
+// It says nothing when one session reads the current handoff and then writes
+// a text without another session's lines (2026-11-24: an over-budget trim put
+// a pointer in place of four ideas another session had written, exit 0).
+// Each session's record in the state file now lists the lines it added, and
+// a write that leaves out a line of a session seen since the writer started
+// is refused with exit 4 unless --drop-others is given.
+const q69Ver = (s) => /^\[trailmark\] handoff version: (\S+)/m.exec(s.jbm(['handoff']).stdout)[1];
+const q69Put = (s, body, sid, extra = []) => s.jbm(['write-handoff', `--base=${q69Ver(s)}`, ...(sid ? [`--session=${sid}`] : []), ...extra], body);
+const q69Handoff = (s) => fs.readFileSync(path.join(s.memdir, 'handoff.md'), 'utf8');
+const q69Archive = (s) => fs.readdirSync(path.join(s.memdir, 'archive')).filter(f => /^\d{4}-\d\d-\d\d\.md$/.test(f)).map(f => fs.readFileSync(path.join(s.memdir, 'archive', f), 'utf8')).join('');
+const q69Log = (s) => fs.readdirSync(path.join(s.memdir, 'notes')).map(f => fs.readFileSync(path.join(s.memdir, 'notes', f), 'utf8')).join('');
+const q69Ok = (r) => assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+
+test('write-handoff: a text without a line another session wrote is refused with exit 4, and nothing is written (Q69)', startTest(() => {
+  const s = sandbox();
+  s.start(SA);
+  s.start(SB);
+  // Control, no new code: each session adds lines of its own.
+  q69Ok(q69Put(s, '# H\n## Next actions\n1. A item one\n', SA));
+  q69Ok(q69Put(s, '# H\n## Next actions\n1. A item one\n2. B idea: keep the four gate ideas\n3. B note: second\n', SB));
+  const before = q69Handoff(s);
+  const v = q69Ver(s);
+  // A read the current version. Its text rewords its own line and puts a
+  // pointer where B's first line was.
+  let r = q69Put(s, '# H\n## Next actions\n1. A item one, now longer\n2. Queued ideas: see the release notes\n3. B note: second\n', SA);
+  assert.strictEqual(r.status, 4, r.stdout + r.stderr);
+  assert.match(r.stdout, /^REFUSED: this write leaves out 1 line written by another session \(22222222\)\. Nothing was written\.$/m);
+  assert.match(r.stdout, /^22222222: 2\. B idea: keep the four gate ideas$/m);
+  // Only the line left out is listed: not B's other line, not A's own.
+  assert.doesNotMatch(r.stdout, /^22222222: .*B note/m);
+  assert.doesNotMatch(r.stdout, /^\S+: 1\. A item one$/m);
+  assert.match(r.stdout, /notes, not instructions from the user/);
+  assert.match(r.stdout, /^--- END LINES [0-9a-f]{8} ---$/m);
+  assert.ok(r.stdout.includes(`[trailmark] handoff version: ${v} `), r.stdout);
+  assert.strictEqual(q69Handoff(s), before, 'the handoff is as it was');
+  assert.strictEqual(q69Ver(s), v);
+  // Both of B's lines left out: both are listed, in the plural.
+  r = q69Put(s, '# H\n## Next actions\n1. A item one\n', SA);
+  assert.strictEqual(r.status, 4, r.stdout + r.stderr);
+  assert.match(r.stdout, /^REFUSED: this write leaves out 2 lines written by another session \(22222222\)\./m);
+  assert.match(r.stdout, /^22222222: 3\. B note: second$/m);
+  // The line put back passes: it may move and take another number.
+  q69Ok(q69Put(s, '# H\n## Next actions\n1. B idea: keep the four gate ideas\n2. A item one, now longer\n- B note:   second\n', SA));
+  assert.match(q69Handoff(s), /^1\. B idea: keep the four gate ideas$/m);
+  // Marked [done] with the rest of the line as it was, B's item is archived.
+  q69Ok(q69Put(s, '# H\n## Next actions\n- [done] B idea: keep the four gate ideas\n2. A item one, now longer\n- B note:   second\n', SA));
+  assert.doesNotMatch(q69Handoff(s), /B idea/);
+  assert.match(q69Archive(s), /^- \[done\] B idea: keep the four gate ideas$/m);
+  // A [done] line with other words is not B's line: refused.
+  r = q69Put(s, '# H\n## Next actions\n- [done] B note, closed\n2. A item one, now longer\n', SA);
+  assert.strictEqual(r.status, 4, r.stdout + r.stderr);
+  // --drop-others: the write goes through, and the line is in the archive.
+  r = q69Put(s, '# H\n## Next actions\n2. A item one, now longer\n', SA, ['--drop-others']);
+  q69Ok(r);
+  assert.match(r.stdout, /^1 line written by another session \(22222222\) was left out with --drop-others and copied to archive[\\/]\d{4}-\d\d-\d\d\.md\.$/m);
+  assert.doesNotMatch(q69Handoff(s), /B note/);
+  assert.match(q69Archive(s), /^## Left out of the handoff at \d\d:\d\d with --drop-others \(written by other sessions\)\n- B note: {3}second$/m);
+}));
+
+test('write-handoff: a session that starts after a line\'s writer was last seen takes the handoff over, until that writer is seen again (Q69)', startTest(() => {
+  const s = sandbox();
+  // A write with no --session must have none from the environment either.
+  delete s.env.CLAUDE_SESSION_ID; delete s.env.CODEX_THREAD_ID;
+  s.start(SB);
+  q69Ok(q69Put(s, '# H\n- B line one\n- B line two\n', SB));
+  assert.strictEqual((JSON.parse(fs.readFileSync(path.join(s.memdir, '.jbmem-state.json'), 'utf8')).sessions[SB].own || []).length, 2, 'the state file lists the two lines B added');
+  // B is not seen again. A starts after it and rewrites the handoff: the
+  // lines of a session that ended before this one began are free.
+  s.start(SA);
+  q69Ok(q69Put(s, '# H\n- A rewrote it all\n- A second line\n', SA));
+  // A changes and removes lines of its own.
+  q69Ok(q69Put(s, '# H\n- A rewrote it all, shorter\n', SA));
+  // B is seen again and adds a line, keeping A's.
+  s.start(SB);
+  q69Ok(q69Put(s, '# H\n- A rewrote it all, shorter\n- B is back\n', SB));
+  // Now each guards the other: A can't leave out B's line, nor B A's.
+  let r = q69Put(s, '# H\n- A rewrote it all, shorter\n', SA);
+  assert.strictEqual(r.status, 4, r.stdout + r.stderr);
+  assert.match(r.stdout, /^22222222: - B is back$/m);
+  r = q69Put(s, '# H\n- B is back\n', SB);
+  assert.strictEqual(r.status, 4, r.stdout + r.stderr);
+  assert.match(r.stdout, /^11111111: - A rewrote it all, shorter$/m);
+  // A write that gives no session ID is not checked, and owns nothing.
+  q69Ok(q69Put(s, '# H\n- written with no session ID\n', ''));
+  const st = JSON.parse(fs.readFileSync(path.join(s.memdir, '.jbmem-state.json'), 'utf8'));
+  for (const sid of [SA, SB]) for (const h of st.sessions[sid].own || []) assert.match(h, /^[0-9a-f]{16}$/);
+}));
+
+test('write-handoff: a writer known here before its session start counts from the earlier time (Q69)', startTest(() => {
+  const s = sandbox();
+  // A is first known here through a write, with no session start yet.
+  q69Ok(q69Put(s, '# H\n- A line\n', SA));
+  s.start(SB);
+  q69Ok(q69Put(s, '# H\n- A line\n- B line\n', SB));
+  // A's session start comes after B's line. B was seen after A was first
+  // known, so its line is guarded, whatever A's start says.
+  s.start(SA);
+  const st = JSON.parse(fs.readFileSync(path.join(s.memdir, '.jbmem-state.json'), 'utf8')).sessions;
+  assert.ok(st[SA].first < st[SB].seen && st[SB].seen < st[SA].start, JSON.stringify(st));
+  let r = q69Put(s, '# H\n- A line, alone\n', SA);
+  assert.strictEqual(r.status, 4, r.stdout + r.stderr);
+  assert.match(r.stdout, /^22222222: - B line$/m);
+  // A record with a start and no first-known time (put down raw): the start
+  // is what counts. B is seen after it, so its line is still guarded.
+  s.start(SB);
+  const file = path.join(s.memdir, '.jbmem-state.json');
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.ok(raw.sessions[SA].start < raw.sessions[SB].seen, JSON.stringify(raw.sessions));
+  delete raw.sessions[SA].first;
+  fs.writeFileSync(file, JSON.stringify(raw));
+  r = q69Put(s, '# H\n- A line, alone\n', SA);
+  assert.strictEqual(r.status, 4, r.stdout + r.stderr);
+  assert.strictEqual(JSON.parse(fs.readFileSync(file, 'utf8')).sessions[SA].first, undefined, 'the record still holds a start and no first-known time');
+}));
+
+test('write-handoff: over budget, the output counts the lines of other sessions, and a trim that leaves one out is refused (Q69)', startTest(() => {
+  const s = sandbox();
+  const marker = path.join(s.memdir, '.jbmem.json');
+  const cfg = JSON.parse(fs.readFileSync(marker, 'utf8'));
+  cfg.budgets = { ...(cfg.budgets || {}), handoffChars: 500 };
+  fs.writeFileSync(marker, JSON.stringify(cfg));
+  s.start(SA);
+  s.start(SB);
+  q69Ok(q69Put(s, '# H\n- A short line\n', SA));
+  q69Ok(q69Put(s, '# H\n- A short line\n- B detail: the four ideas, each in full\n', SB));
+  // Control: A's long text is saved over budget (exit 2), B's line in it.
+  const long = '- A long line ' + 'word '.repeat(120);
+  let r = q69Put(s, `# H\n${long}\n- B detail: the four ideas, each in full\n`, SA);
+  assert.strictEqual(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stdout, /^OVER BUDGET /m);
+  assert.match(r.stdout, /^1 line here was written by another session \(22222222\): leave it as it is, and shorten only lines this session wrote\.$/m);
+  // The trim that lost the ideas: a pointer in place of B's line.
+  r = q69Put(s, '# H\n- A long line, cut\n- B detail: see the notes\n', SA);
+  assert.strictEqual(r.status, 4, r.stdout + r.stderr);
+  assert.match(q69Handoff(s), /B detail: the four ideas, each in full/);
+  // Shortening A's own line alone passes, and says nothing about B's.
+  r = q69Put(s, '# H\n- A long line, cut\n- B detail: the four ideas, each in full\n', SA);
+  q69Ok(r);
+  assert.doesNotMatch(r.stdout, /written by another session/);
+}));
+
+test('write-handoff: a refused write is logged in the day\'s log, exit 3 and exit 4, and so is --drop-others (Q69)', startTest(() => {
+  const s = sandbox();
+  s.start(SA);
+  s.start(SB);
+  const v1 = q69Ver(s);
+  q69Ok(s.jbm(['write-handoff', `--base=${v1}`, `--session=${SB}`], '# H\n- B wrote first\n- B wrote this too\n'));
+  const v2 = q69Ver(s);
+  // Control: nothing refused so far, nothing logged.
+  assert.doesNotMatch(q69Log(s), /HANDOFF_/);
+  // Exit 3: A writes from the version it read before B wrote.
+  let r = s.jbm(['write-handoff', `--base=${v1}`, `--session=${SA}`], '# H\n- A wrote from an old read\n');
+  assert.strictEqual(r.status, 3, r.stdout + r.stderr);
+  assert.ok(q69Log(s).includes(`HANDOFF_REFUSED exit=3 base=${v1} current=${v2} session=11111111\n`), q69Log(s));
+  // Exit 4: A read the current version and left B's lines out.
+  r = q69Put(s, '# H\n- A wrote from the current read\n', SA);
+  assert.strictEqual(r.status, 4, r.stdout + r.stderr);
+  assert.match(q69Log(s), /^- \d\d:\d\d HANDOFF_REFUSED exit=4 lines=2 of=22222222 session=11111111$/m);
+  // --drop-others is logged too, with what it left out.
+  r = q69Put(s, '# H\n- A wrote from the current read\n', SA, ['--drop-others']);
+  q69Ok(r);
+  assert.match(r.stdout, /^2 lines written by another session \(22222222\) were left out with --drop-others and copied to archive/m);
+  assert.match(q69Log(s), /^- \d\d:\d\d HANDOFF_DROP_OTHERS lines=2 of=22222222 session=11111111$/m);
+  // With the day's log turned off the refusal is the same, and nothing is logged.
+  const marker = path.join(s.memdir, '.jbmem.json');
+  fs.writeFileSync(marker, JSON.stringify({ ...JSON.parse(fs.readFileSync(marker, 'utf8')), notes: false }));
+  const lines = q69Log(s).split('\n').length;
+  r = s.jbm(['write-handoff', `--base=${v1}`, `--session=${SB}`], '# H\n- B from an old read\n');
+  assert.strictEqual(r.status, 3, r.stdout + r.stderr);
+  assert.strictEqual(q69Log(s).split('\n').length, lines);
+}));
+
+test('write-handoff: the lists of lines in the state file are data, and a broken one stops no write (Q69)', startTest(() => {
+  const s = sandbox();
+  s.start(SA);
+  s.start(SB);
+  q69Ok(q69Put(s, '# H\n- A line\n', SA));
+  q69Ok(q69Put(s, '# H\n- A line\n- B line\n', SB));
+  const file = path.join(s.memdir, '.jbmem-state.json');
+  const good = fs.readFileSync(file, 'utf8');
+  const withOwn = (own, more = {}) => {
+    const st = JSON.parse(good);
+    st.sessions[SB] = { ...st.sessions[SB], own, ...more };
+    fs.writeFileSync(file, JSON.stringify(st));
+  };
+  // Control: with the list as written, leaving B's line out is refused.
+  assert.strictEqual(q69Put(s, '# H\n- A line\n', SA).status, 4);
+  // A list that is not a list, entries that are not hashes, a time that is
+  // not a number: B's line has no known writer, and the write goes through.
+  for (const [own, more] of [['x', {}], [{ 0: 'x' }, {}], [[1, null, {}, 'zz', 'A'.repeat(16)], {}], [JSON.parse(good).sessions[SB].own, { seen: 'soon' }]]) {
+    fs.writeFileSync(path.join(s.memdir, 'handoff.md'), '# H\n- A line\n- B line\n');
+    withOwn(own, more);
+    const r = q69Put(s, '# H\n- A line\n', SA);
+    assert.strictEqual(r.status, 0, JSON.stringify(own) + r.stdout + r.stderr);
+    const st = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (const rec of Object.values(st.sessions)) for (const h of rec.own || []) assert.match(h, /^[0-9a-f]{16}$/, JSON.stringify(own));
+  }
+  // A key that is not a session ID owns nothing either.
+  fs.writeFileSync(path.join(s.memdir, 'handoff.md'), '# H\n- A line\n- B line\n');
+  const st = JSON.parse(good);
+  st.sessions.__proto__x = { seen: Date.now(), own: st.sessions[SB].own };
+  delete st.sessions[SB];
+  fs.writeFileSync(file, JSON.stringify(st));
+  q69Ok(q69Put(s, '# H\n- A line\n', SA));
+}));
+
+// RS-S-crossdrop: the launcher took every drop name for every --from command,
+// so `search --from=<memory folder>/incoming-handoff-<another session>.md`
+// removed that session's pending handoff after exit 0. A drop file now goes
+// only after the command its name is for, and when its name carries a
+// session ID, only for that session.
+test('--from: a drop file named for another command or another session is read and left (RS-S-crossdrop)', () => {
+  const s = sandbox();
+  // A command with no --session must have none from the environment either.
+  delete s.env.CLAUDE_SESSION_ID; delete s.env.CODEX_THREAD_ID;
+  // Control: a session's own search drop file goes once the search ran.
+  const own = path.join(s.memdir, `incoming-search-${SA}.md`);
+  fs.writeFileSync(own, 'nothing matches this\n');
+  q69Ok(s.jbm(['search', `--session=${SA}`, `--from=${own}`]));
+  assert.ok(!fs.existsSync(own), 'a search drop file goes after its search');
+  // Another session's pending handoff, named to search, note and park.
+  const pending = path.join(s.memdir, `incoming-handoff-${SB}.md`);
+  fs.writeFileSync(pending, '# H\n- B is about to save this\n');
+  q69Ok(s.jbm(['search', `--session=${SA}`, `--from=${pending}`]));
+  assert.ok(fs.existsSync(pending), 'search left the handoff drop file');
+  q69Ok(s.jbm(['note', `--session=${SA}`, `--from=${pending}`]));
+  assert.ok(fs.existsSync(pending), 'note left the handoff drop file');
+  q69Ok(s.jbm(['park', '--slug=q69-idea', `--session=${SA}`, `--from=${pending}`]));
+  assert.ok(fs.existsSync(pending), 'park left the handoff drop file');
+  // The right command for the name, from another session: read, and left.
+  q69Ok(s.jbm(['write-handoff', `--base=${q69Ver(s)}`, `--session=${SA}`, `--from=${pending}`]));
+  assert.match(q69Handoff(s), /B is about to save this/);
+  assert.ok(fs.existsSync(pending), 'write-handoff by another session left the handoff drop file');
+  // The session the name is for, and a name with no session ID: both go.
+  q69Ok(s.jbm(['write-handoff', `--base=${q69Ver(s)}`, `--session=${SB}`, `--from=${pending}`]));
+  assert.ok(!fs.existsSync(pending), "a session's own handoff drop file goes");
+  const plain = path.join(s.memdir, 'incoming-handoff.md');
+  fs.writeFileSync(plain, '# H\n- saved with no ID in the name\n');
+  q69Ok(s.jbm(['write-handoff', `--base=${q69Ver(s)}`, `--session=${SA}`, `--from=${plain}`]));
+  assert.ok(!fs.existsSync(plain), 'a drop file with no session ID in its name goes');
+  // A name with an ID and a command with none: goes, as before.
+  const noSession = path.join(s.memdir, `incoming-note-${SB}.md`);
+  fs.writeFileSync(noSession, 'a note with no session flag\n');
+  q69Ok(s.jbm(['note', `--from=${noSession}`]));
+  assert.ok(!fs.existsSync(noSession), 'a drop file goes when the command names no session');
+});
+
+// RS-S-handoffnotsetup: `handoff` answered NO_HANDOFF with exit 0 in a repo
+// that is not set up, so the skills' "if it says the repo is not set up,
+// stop" never fired. It keeps its answer and exit code, and says so.
+test('handoff: in a repo that is not set up the output says so, and the skills that save a handoff stop on it (RS-S-handoffnotsetup)', () => {
+  const s = sandbox();
+  // Control: set up, nothing said.
+  let r = s.jbm(['handoff']);
+  q69Ok(r);
+  assert.doesNotMatch(r.stdout + r.stderr, /not set up/);
+  const fresh = path.join(s.base, 'fresh');
+  repoAt(fresh);
+  r = s.jbm(['handoff'], undefined, fresh);
+  q69Ok(r);
+  const lines = r.stdout.split('\n');
+  assert.match(lines[0], /^\[trailmark\] handoff version: none /);
+  assert.strictEqual(lines[1], 'NO_HANDOFF');
+  assert.match(lines[2], /^\[trailmark\] not set up: /);
+  // The line names no folder: a folder's name can hold a line break.
+  assert.ok(!lines[2].includes(s.base), lines[2]);
+  // Each skill that runs `handoff` and then saves one says to stop on it.
+  const skills = path.join(ROOT, 'skills');
+  const saving = fs.readdirSync(skills).map(d => path.join(skills, d, 'SKILL.md')).filter(f => fs.existsSync(f))
+    .filter(f => { const t = fs.readFileSync(f, 'utf8'); return /" handoff$/m.test(t) && /" write-handoff /.test(t); });
+  assert.strictEqual(saving.length, 2, saving.join(', '));
+  for (const f of saving) assert.match(fs.readFileSync(f, 'utf8'), /If the handoff output says the repo is not set up, stop/, f);
+});
+
+// The guard must not stop the checkpoint a skill runs (the supervisor's
+// check, tm-0228). The write commands are read from the two skills that send
+// a whole handoff, so a changed command is run here too. A session that
+// starts from the handoff it read, beside a session with a line of its own,
+// saves with exit 0 by each route, and both sessions' lines stay.
+test('checkpoint: the skills\' own write commands, run beside a session with a line of its own, save with exit 0 and keep both sessions\' lines (Q69)', startTest(() => {
+  const s = sandbox();
+  delete s.env.CLAUDE_SESSION_ID; delete s.env.CODEX_THREAD_ID;
+  const claude = S.AGENT === 'Claude Code';
+  const skill = (name) => fs.readFileSync(path.join(ROOT, 'skills', (claude ? '' : 'tm-') + name, 'SKILL.md'), 'utf8');
+  // Every write command the two skills give, placeholders and all.
+  const cmds = [];
+  for (const name of ['checkpoint', 'session-end']) {
+    const text = skill(name);
+    assert.match(text, /^\s*node "[^"\n]+" handoff$/m, name + ': the command that reads the version');
+    const found = (text.match(/node "[^"\n]+" write-handoff --base=<version>[^`\n]*/g) || []).map(c => c.trim());
+    const routes = found.map(c => (/ --from="/.test(c) ? 'file' : / <<'/.test(c) ? 'stdin' : 'other')).sort();
+    assert.deepStrictEqual(routes, claude ? ['file', 'stdin'] : ['file'], name + ': ' + found.join(' | '));
+    for (const c of found) if (!cmds.includes(c)) cmds.push(c);
+  }
+  // Step 1 as a session runs it: the version, and the handoff under it.
+  const read = () => {
+    const out = s.jbm(['handoff']).stdout;
+    return { v: /^\[trailmark\] handoff version: (\S+)/.exec(out)[1], text: out.replace(/^[^\n]*\n/, '').trimEnd() };
+  };
+  const dir = s.jbm(['dir']).stdout;
+  assert.deepStrictEqual(dirFlags(dir), ['  exists: true', '  set up: true'], dir);
+  const memdir = dir.split('\n')[0];
+  // A command of step 4 as a session runs it: its placeholders filled in,
+  // and the text in the drop file its --from names, or on stdin.
+  const argv = (c) => {
+    const out = [];
+    let cur = '', quoted = false;
+    for (const ch of c.replace(/ <<'[^']*'$/, '')) {
+      if (ch === '"') quoted = !quoted;
+      else if (ch === ' ' && !quoted) { if (cur) out.push(cur); cur = ''; }
+      else cur += ch;
+    }
+    if (cur) out.push(cur);
+    assert.strictEqual(out[0], 'node', c);
+    return out.slice(2);
+  };
+  const save = (cmd, sid, v, text) => {
+    const a = argv(cmd.replace(/\$\{CLAUDE_SESSION_ID\}|<session id>/g, () => sid).replace(/<version>/g, () => v).replace(/<memory folder>/g, () => memdir));
+    assert.deepStrictEqual(a.slice(0, 3), ['write-handoff', `--base=${v}`, `--session=${sid}`], cmd);
+    const from = (a.find(x => x.startsWith('--from=')) || '').slice('--from='.length);
+    if (from) fs.writeFileSync(from, text);
+    return { r: s.jbm(a, from ? undefined : text), from };
+  };
+  const has = (line) => q69Handoff(s).split('\n').includes(line);
+  s.start(SA);
+  s.start(SB);
+  // Control, no new code: A saves a handoff, and B, at work beside it, adds
+  // a line to the text it read.
+  q69Ok(q69Put(s, '# Handoff: demo\n\n## Next actions\n1. A item one\n', SA));
+  q69Ok(q69Put(s, read().text + '\n2. B live item\n', SB));
+  const kept = ['1. A item one', '2. B live item'];
+  for (const k of kept) assert.ok(has(k), k);
+  // A text made from the template alone, without B's line: refused by each
+  // route, nothing is written, and the drop file stays for the next try.
+  for (const cmd of cmds) {
+    const before = q69Handoff(s);
+    const { r, from } = save(cmd, SA, read().v, '# Handoff: demo\n\n## Next actions\n1. A item one\n- A wrote this from the template alone\n');
+    assert.strictEqual(r.status, 4, cmd + '\n' + r.stdout + r.stderr);
+    assert.strictEqual(q69Handoff(s), before, cmd);
+    if (from) assert.ok(fs.existsSync(from), 'the drop file stays on exit 4');
+  }
+  // The checkpoint as step 3 describes it: each session starts from the
+  // handoff it read and adds a line, by each route the skills give.
+  for (const [sid, who] of [[SA, 'A'], [SB, 'B']]) {
+    for (const cmd of cmds) {
+      const line = `- ${who} checkpoint ${kept.length}`;
+      const now = read();
+      const { r, from } = save(cmd, sid, now.v, now.text + '\n' + line + '\n');
+      assert.strictEqual(r.status, 0, cmd + '\n' + r.stdout + r.stderr);
+      assert.doesNotMatch(r.stdout, /REFUSED/, cmd);
+      if (from) assert.ok(!fs.existsSync(from), 'the drop file goes on exit 0');
+      kept.push(line);
+      for (const k of kept) assert.ok(has(k), `${k}, after ${who} ran ${cmd}`);
+    }
+  }
+  // The skills say so: checkpoint's step 3, and session-end's points there.
+  assert.match(skill('checkpoint'), /^3\. Compose the complete new handoff from the template below, starting from the handoff you read in step 1\./m);
+  assert.match(skill('checkpoint'), /leave the lines it wrote as they are \(they may move\): a text without one of them is refused in step 4 \(exit code 4\)/);
+  assert.match(skill('session-end'), /checkpoint skill's step 3 describes[^\n]*leave other sessions' lines as they are/);
+}));

@@ -159,11 +159,19 @@ function checkFromFile(dir, file) {
   }
 }
 
-function isDropFile(dir, file) {
+// A drop file is removed after the command its name is for and, when the
+// name carries a session ID and the command names a session, for that
+// session only. Any other command or session reads it and leaves it: it is
+// another command's pending text, or another session's (RS-S-crossdrop).
+const DROP_FOR = new Map([['handoff', 'write-handoff'], ['park', 'park'], ['note', 'note'], ['search', 'search']]);
+function isDropFile(dir, file, cmd, session) {
   const f = path.resolve(file);
   const parent = path.dirname(f);
   const same = process.platform === 'win32' ? parent.toLowerCase() === path.resolve(dir).toLowerCase() : parent === path.resolve(dir);
-  return same && DROP_RE.test(path.basename(f));
+  const m = same ? DROP_RE.exec(path.basename(f)) : null;
+  if (!m || DROP_FOR.get(m[1].toLowerCase()) !== cmd) return false;
+  const named = m[2] ? S.cleanSession(m[2].slice(1)) : '';
+  return !named || !session || named === session;
 }
 
 function sandboxSupported() {
@@ -1073,7 +1081,7 @@ function cliMode(args) {
     }
     from = { file: r.file, id: r.id };
     childArgs = [...opts.filter(a => !a.startsWith('--from=')), ...(optEnd >= 0 ? args.slice(optEnd) : [])];
-    if (isDropFile(loc.dir, file)) dropFile = file;
+    if (isDropFile(loc.dir, file, cmd, sessionArg(opts))) dropFile = file;
   } else if (STDIN_COMMANDS.has(cmd) && !tty.isatty(0)) {
     stdin = 'inherit';
   }

@@ -1005,7 +1005,7 @@ function splitDone(text) {
 // Appends [done] items verbatim to archive/<date>.md, skipping any already
 // there today: a handoff sent again (after an over-budget refusal or a merge)
 // may still carry items that were archived a moment ago.
-function archiveBlocks(dir, blocks) {
+function archiveBlocks(dir, blocks, heading = '') {
   if (!blocks.length) return { moved: 0, lines: 0, archive: null };
   const archive = path.join(safeDir(dir, 'archive'), `${localDate()}.md`);
   let out = readTextStrict(archive);
@@ -1022,7 +1022,7 @@ function archiveBlocks(dir, blocks) {
   }
   const fresh = blocks.filter(b => !('\n' + out + '\n').includes('\n' + b.join('\n') + '\n'));
   if (fresh.length) {
-    out += `\n## From handoff at ${localTime()}\n${fresh.map(b => b.join('\n')).join('\n')}\n`;
+    out += `\n## ${heading || `From handoff at ${localTime()}`}\n${fresh.map(b => b.join('\n')).join('\n')}\n`;
     atomicWrite(archive, out);
   }
   return { moved: fresh.length, already: blocks.length - fresh.length, lines: fresh.reduce((n, b) => n + b.length, 0), archive };
@@ -1031,11 +1031,12 @@ function archiveBlocks(dir, blocks) {
 // Records a handoff change in the state file. A failure doesn't undo the
 // change; it comes back as a warning, and since this session's record then
 // lacks the new version, its undo refuses (the safe direction).
-function recordWrite(dir, sid, entry) {
+function recordWrite(dir, sid, entry, own = null) {
   try {
     updateStateLocked(dir, sid, (state, rec) => {
       state.lastWriter = { session: sid, at: Date.now(), ...entry };
       if (rec) { rec.version = entry.version; rec.from = entry.from; if (entry.write) rec.lastWrite = Date.now(); }
+      if (own) recordOwners(state, rec, own);
     });
     return '';
   } catch (e) {
@@ -1043,11 +1044,99 @@ function recordWrite(dir, sid, entry) {
   }
 }
 
+// ---------- whose line it is (Q69) ----------
+
+// The version check below stops two sessions that read the same version. It
+// says nothing when a session reads the current handoff and then writes a
+// text without another session's lines (2026-11-24: an over-budget trim put
+// a pointer where another session's four ideas had been, exit 0). So each
+// session's record in the state file lists the lines it added (`own`, a hash
+// of each line's text), and a write that leaves out a line of a session seen
+// since the writer started is refused unless dropOthers is set.
+// A safety net between sessions that work for one user, not a boundary:
+// --drop-others, --force, a write with no session ID and an edit by hand all
+// pass it, and lines written before this check have no writer on record.
+const OWN_MAX = 500;
+const OWN_HASH = /^[0-9a-f]{16}$/;
+
+// A line's text for comparing: no indent, no list marker ("-", "*", "+",
+// "1.", "1)", "1a."), no [done] tag in front, each run of whitespace one
+// space. A line that moved, took another number or was marked [done] keeps
+// it; a line with other words does not.
+function lineCore(line) {
+  return String(line).replace(/^\s*(?:[-*+]|\d+[a-z]?[.)])\s+/i, '').replace(/^\s*\[done\]\s*/i, '').replace(/\s+/g, ' ').trim();
+}
+function ownHash(core) { return crypto.createHash('sha256').update(core, 'utf8').digest('hex').slice(0, 16); }
+
+// The lines of a handoff that can have a writer: not the frontmatter, a
+// heading, the Updated line (every save rewrites it), or a line with no
+// letter or digit in it.
+function ownableLines(text) {
+  const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  let body = 0;
+  if (lines[0] === '---') {
+    const close = lines.indexOf('---', 1);
+    if (close > 0) body = close + 1;
+  }
+  const out = [];
+  for (let i = body; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\s{0,3}#{1,6}(?:\s|$)/.test(line) || /^Updated:/.test(line)) continue;
+    const core = lineCore(line);
+    if (/[\p{L}\p{N}]/u.test(core)) out.push({ line, core });
+  }
+  return out;
+}
+
+// The lines this writer may not leave out: hash -> short ID of the session
+// that added it. A session counts when it was seen since this writer was
+// first known here (the earlier of its `first` and `start`; a writer with no
+// record yet is known from now). A session last seen before that ended
+// before this one began, and its lines are this one's to rewrite, as when a
+// new session takes over a finished one's handoff. A session still open but
+// not seen since the writer started looks the same, and is not guarded.
+// Both times are Date.now() values that different processes wrote on one
+// machine: a clock set back between them can miss a guard (as before this
+// check) or refuse a write that a [done] mark or --drop-others lets through.
+// The state file is data: only an array of 16-hex strings, under a key that
+// is a session ID, in a record with a number for `seen`, counts.
+function otherOwners(state, sid, now = Date.now()) {
+  const map = new Map();
+  const sessions = isPlainObject(state && state.sessions) ? state.sessions : {};
+  const me = sid && Object.prototype.hasOwnProperty.call(sessions, sid) && isPlainObject(sessions[sid]) ? sessions[sid] : null;
+  const known = me ? [me.first, me.start].filter(Number.isFinite) : [];
+  const since = known.length ? Math.min(...known) : now;
+  for (const [key, r] of Object.entries(sessions)) {
+    const id = cleanSession(key);
+    if (!id || id === sid || !isPlainObject(r) || !Array.isArray(r.own)) continue;
+    if (!Number.isFinite(r.seen) || r.seen < since) continue;
+    const short = shortSession(id);
+    for (const h of r.own.slice(-OWN_MAX)) if (typeof h === 'string' && OWN_HASH.test(h) && !map.has(h)) map.set(h, short);
+  }
+  return map;
+}
+
+// A write's lines, applied to the lists inside the state update. Lines new
+// in this text are the writer's and leave every other list. Each list keeps
+// only lines in the text written or in the one it replaced (one step back,
+// so an undo finds its writers), the newest OWN_MAX of them.
+function recordOwners(state, rec, { keep, added }) {
+  const fresh = new Set(added);
+  for (const r of Object.values(state.sessions)) {
+    if (!isPlainObject(r) || !('own' in r)) continue;
+    const list = Array.isArray(r.own) ? r.own.filter(h => typeof h === 'string' && OWN_HASH.test(h) && keep.has(h) && !fresh.has(h)).slice(-OWN_MAX) : [];
+    if (list.length) r.own = list; else delete r.own;
+  }
+  if (rec && fresh.size) rec.own = [...(rec.own || []), ...fresh].slice(-OWN_MAX);
+}
+
 // Writes the handoff only if it is still the version the caller read (base).
 // A mismatch throws code JBMEM_CONFLICT with the current text and version, so
-// the caller can merge and try again. force skips the check (by hand only).
+// the caller can merge and try again. A text that leaves out a line another
+// session added (otherOwners) throws code JBMEM_DROPS_OTHERS with those
+// lines, unless dropOthers is set. force skips both checks (by hand only).
 // [done] items are moved to the archive as part of the same write.
-function writeHandoff(dir, content, repoName, facts = null, { base, force = false, session = '' } = {}) {
+function writeHandoff(dir, content, repoName, facts = null, { base, force = false, dropOthers = false, session = '' } = {}) {
   content = stripBom(content);
   if (!content || !content.trim()) throw new Error('empty handoff content; nothing written');
   const sid = cleanSession(session);
@@ -1076,8 +1165,38 @@ function writeHandoff(dir, content, repoName, facts = null, { base, force = fals
     // `handoff` prints a version line above the file; a model composing from
     // that output can copy it in, where it would go stale at the next write.
     const clean = content.replace(/\r\n/g, '\n').replace(/^\[trailmark\] handoff version: .*(?:\n|$)/gm, '');
+    // The lines of other sessions in the handoff as it is (otherOwners), each
+    // once. A writer with no session ID is not checked: which lines are its
+    // own can't be told.
+    const theirs = [];
+    if (old !== null && sid) {
+      const guarded = otherOwners(readState(dir), sid);
+      const told = new Set();
+      if (guarded.size) {
+        for (const l of ownableLines(old)) {
+          const who = told.has(l.core) ? '' : guarded.get(ownHash(l.core));
+          if (who) { told.add(l.core); theirs.push({ session: who, line: l.line, core: l.core }); }
+        }
+      }
+    }
+    // Left out: not in the text as sent, a [done] item included (the archive
+    // takes that one below, so its words are kept).
+    const sent = new Set(theirs.length ? ownableLines(clean).map(l => l.core) : []);
+    const leftOut = theirs.filter(l => !sent.has(l.core));
+    if (leftOut.length && !force && !dropOthers) {
+      const who = [...new Set(leftOut.map(l => l.session))];
+      const e = new Error(`this write leaves out ${leftOut.length} line${leftOut.length > 1 ? 's' : ''} written by ${who.length > 1 ? 'other sessions' : 'another session'} (${who.join(', ')})`);
+      e.code = 'JBMEM_DROPS_OTHERS';
+      e.current = current;
+      e.lines = leftOut.map(l => ({ session: l.session, line: l.line }));
+      throw e;
+    }
     const { keep, blocks } = splitDone(clean);
     const arch = archiveBlocks(dir, blocks);
+    // Left out with --drop-others or --force: copied to the archive first, so
+    // another session's line leaves the handoff only with a copy kept.
+    const how = dropOthers ? '--drop-others' : '--force';
+    const gone = leftOut.length ? archiveBlocks(dir, leftOut.map(l => [l.line]), `Left out of the handoff at ${localTime()} with ${how} (written by other sessions)`) : null;
     if (old !== null) {
       atomicWrite(path.join(dir, HANDOFF_PREV), old);
       keepHistory(dir, old);
@@ -1086,8 +1205,22 @@ function writeHandoff(dir, content, repoName, facts = null, { base, force = fals
     if (!text.endsWith('\n')) text += '\n';
     atomicWrite(file, text);
     const version = versionOf(text);
-    const warning = recordWrite(dir, sid, { version, from: current, write: true });
-    return { ...measureHandoff(dir, loadConfig(dir)), version, previous: current, archived: arch, warning };
+    // Whose lines are whose after this write (recordOwners).
+    const was = new Set(ownableLines(old || '').map(l => l.core));
+    const after = ownableLines(text).map(l => l.core);
+    const own = {
+      keep: new Set([...was, ...after].map(ownHash)),
+      added: sid ? [...new Set(after.filter(c => !was.has(c)))].map(ownHash) : [],
+    };
+    const warning = recordWrite(dir, sid, { version, from: current, write: true }, own);
+    // Other sessions' lines still in the saved text, for the over-budget note.
+    const saved = new Set(after);
+    const stay = theirs.filter(l => saved.has(l.core));
+    return {
+      ...measureHandoff(dir, loadConfig(dir)), version, previous: current, archived: arch, warning,
+      others: { lines: stay.length, sessions: [...new Set(stay.map(l => l.session))] },
+      dropped: gone ? { lines: leftOut.length, sessions: [...new Set(leftOut.map(l => l.session))], archive: gone.archive, how } : null,
+    };
   }, { holder: shortSession(sid) });
 }
 
