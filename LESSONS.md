@@ -24,8 +24,9 @@ Format:
 ## 2026-11-25: A scan that read more of Markdown let more through
 
 - What went wrong: Q70's first build of the skill scan (4d3336e) read code spans per paragraph and read `<pre>` blocks, to catch gaps that Q62's round 3 listed. Review round 1 found that the wider reading let through shapes that f885821's line-by-line scan refused: an odd backtick earlier in a paragraph shifts how the spans after it pair, text before `<pre>` on its line was dropped, and a `<pre>` named in a span turned span reading off for the rest of the file. It also refused likely edits that f885821 passed. None of the 12 skills held such a shape, so every test passed.
-- Why: each new reading answered a sample in hand, and a reader of Markdown has more cases than the samples; each case it gets wrong is a miss. The tests ran the new reader on the skills and the new samples, not on the old reader's neighbors. A second sighting of "A check listed the characters a copy can lose, and each review found more" (2026-11-25), on its promotion list for Q78.
+- Why: each new reading answered a sample in hand, and a reader of Markdown has more cases than the samples; each case it gets wrong is a miss. The tests ran the new reader on the skills and the new samples, not on the old reader's neighbors. A second sighting of "A check listed the characters a copy can lose, and each review found more" (2026-11-25), which makes that lesson a promotion candidate for Q78.
 - Rule going forward: a check that reads a format reads only the part it can read exactly, refuses the rest by name, and is run over the real files first to show they hold none of what it refuses. Before a new reading replaces an old one, both run over the old samples and a list of neighbor shapes, and every shape the old one refused and the new one passes is read before the commit.
+- Seen again 2026-11-25: round 1's fix read text after a command's span when it started with a listed character (`AFTER`), and round 2 found that 4d3336e refused text starting with a dash, a bracket, a digit or another quote mark, which `AFTER` let through. Round 1's repro ran the new samples on 4d3336e's scanner, not 4d3336e's refusals on the new one. The route test also said it read fences as the curlyquote scan does, and split lines another way. Round 2 lists what is sure prose instead (`PROSE`) and the route test now splits a skill's lines as the curlyquote scan does.
 - Status: open
 
 ## 2026-11-25: A Lessons checked line was stored as thinking, and the gate denied six pushes
@@ -173,6 +174,7 @@ Format:
 - What went wrong: a milestone sent to the supervisor was headed 22:50 when the clock read 22:27, 23 minutes ahead. An earlier message and three headings in the session's plan notes carried estimates as well. The supervisor pointed it out.
 - Why: each time was worked out from the last time seen and the work done since. No command read the clock in the step that wrote it.
 - Rule going forward: a time in a status, a note or a heading comes from `date` (or a tool's own timestamp) read in the same step. A time taken from someone else's report says whose clock it is.
+- Seen again 2026-11-25 (third sighting, Q70): two status messages to the supervisor were headed 16:41 and 17:00 and arrived at 16:35 and 16:54 by the supervisor's `Get-Date`, and two headings of the plan notes were estimates too. The supervisor pointed it out. The steps that wrote them ran no `date`. Its `PLAYBOOK.md` step waits for Q78, as the second sighting says.
 - Status: open
 
 ## 2026-11-24: A rule about a guard's input was written, then applied to one line

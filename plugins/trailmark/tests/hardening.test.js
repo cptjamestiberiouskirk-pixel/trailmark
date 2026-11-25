@@ -1026,20 +1026,33 @@ test('skills: every route that saves an incoming file in the memory folder check
   const m7 = 'If that fails, put the words in a new file in the memory folder and pass that file with `--from`.';
   assert.ok(!isRoute(m7) && unchecked(m7), 'the wider filter takes a route worded without a drop file name');
   assert.ok(unchecked('If that fails, write the words to the drop file for the search and run the command below.'), 'and one that says drop file');
+  // A skill's lines, split as the curlyquote scan splits them (a \r before
+  // the \n is not part of the line; round 2), each with where it is: 'fence'
+  // for a fence line, 'in' inside a fence, 'out' outside. A fence opens on
+  // ``` or ~~~ and closes only on its own character, at least as long, with
+  // nothing after it (as the curlyquote scan reads).
+  const read = (text) => {
+    let fence = null;
+    return text.split(/\r?\n/).map((line) => {
+      const fl = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+      if (fence ? fl && fl[1][0] === fence[0] && fl[1].length >= fence.length && fl[2].trim() === '' : fl) { fence = fence ? null : fl[1]; return [line, 'fence']; }
+      return [line, fence ? 'in' : 'out'];
+    });
+  };
+  for (const t of ['```\nx\n```\r\n\n' + m7, '```\r\nx\n```\n\n' + m7]) {
+    assert.deepStrictEqual(read(t).map(([, w]) => w), ['fence', 'in', 'fence', 'out', 'out'], 'a fence line that ends in \\r is a fence line: ' + JSON.stringify(t));
+  }
   const seen = [];
   const routes = [];
   for (const n of fs.readdirSync(dir).sort()) {
     const f = path.join(dir, n, 'SKILL.md');
     if (!fs.existsSync(f)) continue;
-    const lines = fs.readFileSync(f, 'utf8').split('\n');
-    let fence = null;
-    lines.forEach((line, i) => {
+    const read1 = read(fs.readFileSync(f, 'utf8'));
+    const lines = read1.map(([line]) => line);
+    read1.forEach(([line, where], i) => {
       const at = `${n}:${i + 1}: ${line.trim().slice(0, 120)}`;
-      // A fence opens on ``` or ~~~ and closes only on its own character, at
-      // least as long, with nothing after it (as the curlyquote scan reads).
-      const fl = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
-      if (fence ? fl && fl[1][0] === fence[0] && fl[1].length >= fence.length && fl[2].trim() === '' : fl) { fence = fence ? null : fl[1]; return; }
-      if (!fence) {
+      if (where === 'fence') return;
+      if (where === 'out') {
         assert.ok(!unchecked(line), 'names a file route without the dir check (add the check, or pin the line if it only describes or saves again after a refused write-handoff): ' + at);
         if (pinned(line)) {
           seen.push(hash(line.trim()));

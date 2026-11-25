@@ -9363,10 +9363,14 @@ test('note and search take free text from --from or stdin, and the skills pass i
   // closes only on its own character, at least as long, with nothing after
   // it) and code spans. A fenced line that ends in |, \ or ` runs on into
   // the next, with the \ or ` taken off as the shell takes it. After a span
-  // that runs a command, the rest of its line is read with it when another
-  // span comes next, or a quote, <, $, |, >, &, { or % after any spaces and
-  // stops ('s and a word, a possessive, is not a quote).
-  const AFTER = new RegExp(`^\\s*\`|^[\\s.,;:!?)*\\]]*['"<$|>&{%${String.fromCharCode(0x2018)}-${String.fromCharCode(0x201f)}]`);
+  // that runs a command, the rest of its line is read with it unless it is
+  // sure to be prose (round 2): nothing; a letter; a space and a letter;
+  // stops (. , ; : ! ? ) * ]) and then a space and a letter, or nothing; a
+  // dash or two and a word; a number and a word; 's and a word (a
+  // possessive); a ( and a letter; a link's target; or a stop, ( or / and
+  // then a span that starts with a letter or -. Text that starts with a
+  // letter is prose by design, so it is not read (RS-S-q70r1rest).
+  const PROSE = /^(?:[.,;:!?)*\]]*(?:\s+[A-Za-z]|\s*$)|[A-Za-z]|\s+--?\s+[A-Za-z]|\s+\d+\s+[A-Za-z]|'s\s+[A-Za-z]|\s*\(\s*[A-Za-z]|\]\([#\w./-]*\)|\s*[(.,;:!?)*\]/][\s(.,;:!?)*\]/]*`[A-Za-z-])/;
   const codeOf = (text) => {
     const out = [];
     let fence = null, held = null;
@@ -9389,7 +9393,7 @@ test('note and search take free text from --from or stdin, and the skills pass i
       for (const c of l.matchAll(/`([^`]+)`/g)) {
         out.push([n, c[1]]);
         const after = l.slice(c.index + c[0].length);
-        if (CMD.test(c[1]) && AFTER.test(after) && !/^'s\s+[A-Za-z]/.test(after)) out.push([n, `${c[1]} ${after}`]);
+        if (CMD.test(c[1]) && !PROSE.test(after)) out.push([n, `${c[1]} ${after}`]);
       }
     });
     if (held) out.push(held);
@@ -9447,6 +9451,12 @@ test('note and search take free text from --from or stdin, and the skills pass i
     '```\nQ=\'<words>\' \\\n' + L + 'search\n```', '```\nQ=\'<words>\' `\n' + L + 'search\n```',
     'Run `' + L + 'search`: \'<words>\'.', 'Run `' + L + 'note`.<text>', 'Run `search` `\'<words>\'` now.',
     'Save `<memory folder>/incoming-note.md` with `Set-Content -Value \'<text>\'`.', 'Run `search \'<words>\'` as in <pre>x</pre>',
+    // Round 2: after a command's span, text that starts with a character
+    // that is not sure prose, and a stop then a span that holds the text.
+    'Run `' + L + 'search` (\'<words>\') now.', 'Run `' + L + 'search` -- \'<words>\'', 'Run `' + L + 'search` - "<words>" now.',
+    'Run `' + L + 'search` @\'<words>\'@', 'Run `' + L + 'search` [\'<words>\']', 'Run `' + L + 'search` 2>&1 now.',
+    'Run `' + L + 'search` #<words>', 'Run `' + L + 'search` 5 <words>', 'Run `search` / $q now.', 'Run `search` \\\'<words>\\\'',
+    'Run `search` ' + String.fromCharCode(0xab) + '<words>' + String.fromCharCode(0xbb), 'Run `search`* `<words>`', 'Run `search`, `\'<words>\'`.',
   ]) assert.ok(found(where), `not found in: ${where}`);
   // The shapes the scan refuses instead of reading, each refused alone
   // (round 1): <pre> in any case and in a span, a span over two lines, an
@@ -9475,6 +9485,8 @@ test('note and search take free text from --from or stdin, and the skills pass i
     '```\n' + L + 'write-handoff --base=none --session=<session id> --drop-others --from="<memory folder>/incoming-handoff-<session id>.md"\n```',
     '```\n' + L + 'write-handoff --base=<version> \\\n  --from="<memory folder>/incoming-handoff.md"\n```',
     'If the trailmark.js path does not work (node says it can\'t find trailmark.js), stop.', 'It needs Node 18 or later; Node.js is enough.',
+    // Round 2: prose after a command's span that the reading lets through.
+    'Run `search` (see step 3).', 'Run `search`, `note` and `park`.', 'Run `search` (`' + L + 'note` for a note).', 'Run `search`. Then stop.',
   ]) assert.ok(!found(fine), `refused in: ${fine}`);
   for (const good of [
     'node "x/trailmark.js" search <<\'JBMEM_EOF_${CLAUDE_SESSION_ID}\'', 'note --session=<session id> --from="<memory folder>/incoming-note-<session id>.md"',
