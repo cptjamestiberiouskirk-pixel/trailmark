@@ -373,6 +373,15 @@ switch (cmd) {
       logWrite(`HANDOFF_DROP_OTHERS lines=${d.lines} of=${d.sessions.join(',')}`);
     }
     if (m.warning) console.log(`WARNING: ${m.warning}.`);
+    // The check could not read the state file, so this write was saved with
+    // no check of other sessions' lines. stderr and the day's log say so
+    // (review round 1, Fable's F3). The reason is an error code or a fixed
+    // text (store.js readStateWhy).
+    if (m.guardOff) {
+      const off = `handoff guard off for this write: state file unreadable: ${m.guardOff}`;
+      console.error(off);
+      logWrite(off);
+    }
     console.log(versionLine(m.version, 'this session\'s next write goes'));
     if (m.overChars || m.overLines) {
       console.log(`OVER BUDGET (${cfg.budgets.handoffChars} chars / ${cfg.budgets.handoffLines} lines). It was saved. Mark more finished items [done] (the next write archives them), move detail into topic files, or shorten wording, then write again.`);

@@ -719,6 +719,23 @@ function readState(dir) {
   return parseState(readText(path.join(dir, STATE)) || '{}') || {};
 }
 
+// The state as the handoff check reads it (writeHandoff), with why it could
+// not be read: '' when the file was read, or when there is none yet (a new
+// state, as readStateStrict takes it). Otherwise a short word for the output
+// and the day's log: the read's error code, or that the text is not a JSON
+// object (text that does not parse, an empty file, a list). Like readState
+// it does not retry and writes nothing; the check then has no lists, and the
+// caller says so (review round 1, Fable's F3).
+function readStateWhy(dir) {
+  let text;
+  try { text = readPlain(path.join(dir, STATE)); } catch (e) {
+    if (e && e.code === 'ENOENT') return { state: {}, why: '' };
+    return { state: {}, why: e && typeof e.code === 'string' && /^[A-Z][A-Z0-9_]{1,31}$/.test(e.code) ? e.code : 'read error' };
+  }
+  const state = parseState(text);
+  return state ? { state, why: '' } : { state: {}, why: 'not a JSON object' };
+}
+
 // For read-modify-write under the lock. A missing file is a new state; a file
 // that can't be read throws (writing back would drop every other session's
 // record); a file that isn't JSON is set aside as .jbmem-state.json.bad and
@@ -1088,19 +1105,33 @@ function ownHash(core) { return crypto.createHash('sha256').update(core, 'utf8')
 // The lines of a handoff that can have a writer: not the frontmatter, a
 // heading, the Updated line (every save rewrites it), or a line with no
 // letter or digit in it.
+// A session composes its text from what `handoff` and a refused write print,
+// and they print each line with escapeTags (memory.js handoffShown): a
+// tag-like < gets a backslash, a control character is dropped. So each line
+// is taken in that shown form here, for what kind of line it is and for its
+// core: the line on disk, the line as shown and the line as a refusal lists
+// it are then one line (review round 1, F1). Lines of a session that read the
+// same in that form are one line too: one kept copy is enough (a known
+// limit, which a test pins). `line` stays the line as the
+// text has it, for the refusal and the archive. The frontmatter's fence is
+// read from the text as it is too (the reason is at the lines that read it).
 function ownableLines(text) {
   const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
   let body = 0;
+  // The fence is read raw, not in its shown form, because a save reads it
+  // raw too: stampUpdated takes a first line that is exactly --- and the next
+  // such line, as here. ensureFrontmatter is looser about the end line (any
+  // line that starts with ---), so the two can differ there.
   if (lines[0] === '---') {
     const close = lines.indexOf('---', 1);
     if (close > 0) body = close + 1;
   }
   const out = [];
   for (let i = body; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^\s{0,3}#{1,6}(?:\s|$)/.test(line) || /^Updated:/.test(line)) continue;
-    const core = lineCore(line);
-    if (/[\p{L}\p{N}]/u.test(core)) out.push({ line, core });
+    const shown = escapeTags(lines[i], { asIs: true });
+    if (/^\s{0,3}#{1,6}(?:\s|$)/.test(shown) || /^Updated:/.test(shown)) continue;
+    const core = lineCore(shown);
+    if (/[\p{L}\p{N}]/u.test(core)) out.push({ line: lines[i], core });
   }
   return out;
 }
@@ -1186,8 +1217,13 @@ function writeHandoff(dir, content, repoName, facts = null, { base, force = fals
     // once. A writer with no session ID is not checked: which lines are its
     // own can't be told.
     const theirs = [];
+    // Why the check could not read the state file, '' when it could. The
+    // write goes on either way, and the caller reports it.
+    let guardOff = '';
     if (old !== null && sid) {
-      const guarded = otherOwners(readState(dir), sid);
+      const read = readStateWhy(dir);
+      guardOff = read.why;
+      const guarded = otherOwners(read.state, sid);
       const told = new Set();
       if (guarded.size) {
         for (const l of ownableLines(old)) {
@@ -1234,7 +1270,7 @@ function writeHandoff(dir, content, repoName, facts = null, { base, force = fals
     const saved = new Set(after);
     const stay = theirs.filter(l => saved.has(l.core));
     return {
-      ...measureHandoff(dir, loadConfig(dir)), version, previous: current, archived: arch, warning,
+      ...measureHandoff(dir, loadConfig(dir)), version, previous: current, archived: arch, warning, guardOff,
       others: { lines: stay.length, sessions: [...new Set(stay.map(l => l.session))] },
       dropped: gone ? { lines: leftOut.length, sessions: [...new Set(leftOut.map(l => l.session))], archive: gone.archive, how } : null,
     };

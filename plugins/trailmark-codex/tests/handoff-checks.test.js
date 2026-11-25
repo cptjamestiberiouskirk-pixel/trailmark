@@ -9746,6 +9746,15 @@ test('write-handoff: a refused write is logged in the day\'s log, exit 3 and exi
   q69Ok(r);
   assert.match(r.stdout, /^2 lines written by another session \(22222222\) were left out with --drop-others and copied to archive/m);
   assert.match(q69Log(s), /^- \d\d:\d\d HANDOFF_DROP_OTHERS lines=2 of=22222222 session=11111111$/m);
+  // So is a write by hand with --force that leaves a line out: B adds a
+  // line again, and A's --force write, which no check stops, leaves it out.
+  q69Ok(q69Put(s, q69Handoff(s) + '- B wrote once more\n', SB));
+  assert.doesNotMatch(q69Log(s), /HANDOFF_DROP_OTHERS lines=1 /);
+  r = s.jbm(['write-handoff', '--force', `--session=${SA}`], '# H\n- A wrote by hand\n');
+  q69Ok(r);
+  assert.match(r.stdout, /^1 line written by another session \(22222222\) was left out with --force and copied to archive/m);
+  assert.match(q69Log(s), /^- \d\d:\d\d HANDOFF_DROP_OTHERS lines=1 of=22222222 session=11111111$/m);
+  assert.match(q69Archive(s), /with --force \(written by other sessions\)[\s\S]*B wrote once more/);
   // With the day's log turned off the refusal is the same, and nothing is logged.
   const marker = path.join(s.memdir, '.jbmem.json');
   fs.writeFileSync(marker, JSON.stringify({ ...JSON.parse(fs.readFileSync(marker, 'utf8')), notes: false }));
@@ -9942,4 +9951,219 @@ test('checkpoint: the skills\' own write commands, run beside a session with a l
   assert.match(skill('checkpoint'), /^3\. Compose the complete new handoff from the template below, starting from the handoff you read in step 1\./m);
   assert.match(skill('checkpoint'), /leave the lines it wrote as they are \(they may move\): a text without one of them is refused in step 4 \(exit code 4\)/);
   assert.match(skill('session-end'), /checkpoint skill's step 3 describes[^\n]*leave other sessions' lines as they are/);
+}));
+
+// A session composes from what `handoff` prints, and that output shows some
+// lines changed: a tag-like < gets a backslash and a control character is
+// dropped (memory.js handoffShown). The guard takes a line in that shown
+// form, so the line on disk, the line as shown and the line as a refusal
+// lists it are one line (review round 1, F1). What is saved is what was
+// sent: after such a write the line on disk has its shown form, as before
+// the guard.
+test('write-handoff: a line of another session that `handoff` shows changed is kept by a text copied from the output, and goes back in as a refusal lists it (Q69)', startTest(() => {
+  const s = sandbox();
+  delete s.env.CLAUDE_SESSION_ID; delete s.env.CODEX_THREAD_ID;
+  const shown = (l) => S.escapeTags(l, { asIs: true });
+  const read = () => s.jbm(['handoff']).stdout.replace(/^[^\n]*\n/, '').trimEnd();
+  const lineWith = (text, word) => text.split('\n').find(l => l.includes(word));
+  const disk = () => q69Handoff(s).split('\n');
+  const ESC = String.fromCharCode(27);
+  // The first three hold what the display changes inside a line. The next
+  // two show as another kind of line, a heading and an Updated line, and
+  // those kinds have no writer. The last holds an invisible character
+  // written out as text: the display escapes its tag (asIs), and the escape
+  // used elsewhere leaves it alone.
+  const raw = [
+    '2. B close the </details> tag in the template',
+    '3. B the hook wraps it in <system-reminder> text',
+    '4. B the log line starts with ' + ESC + '[31m in red',
+    ESC + '## B notes kept under the list',
+    ESC + 'Updated: B wrote this line by hand',
+    '5. B the name shows as <system<U+200B>> in the listing',
+  ];
+  const words = ['close the', 'the hook wraps', 'the log line', 'B notes kept', 'B wrote this line', 'the name shows'];
+  assert.strictEqual(S.escapeTags(raw[5]), raw[5]);
+  s.start(SA);
+  s.start(SB);
+  // Control, no new code: B's lines are saved as sent, the output shows each
+  // one changed, and showing a shown line again changes nothing.
+  q69Ok(q69Put(s, '# Handoff: demo\n\n## Next actions\n1. A item one\n', SA));
+  q69Ok(q69Put(s, read() + '\n' + raw.join('\n') + '\n', SB));
+  for (const l of raw) assert.ok(disk().includes(l), l);
+  const first = read();
+  const as = raw.map(shown);
+  for (let i = 0; i < raw.length; i++) {
+    assert.notStrictEqual(as[i], raw[i], raw[i]);
+    assert.strictEqual(shown(as[i]), as[i], as[i]);
+    assert.strictEqual(lineWith(first, words[i]), as[i], first);
+  }
+  // A starts from the output and adds a line: saved, with B's lines in their
+  // shown form.
+  q69Ok(q69Put(s, first + '\n- A checkpoint 1\n', SA));
+  for (const l of as) assert.ok(disk().includes(l), l);
+  // Three more round trips, by B, by A and by B: the lines stay the same byte
+  // for byte, on disk and in the output. No backslash is added to one.
+  let n = 1;
+  for (const sid of [SB, SA, SB]) {
+    n++;
+    q69Ok(q69Put(s, read() + `\n- checkpoint ${n}\n`, sid));
+    const out = read();
+    for (let i = 0; i < as.length; i++) {
+      assert.ok(disk().includes(as[i]), `${as[i]}, on disk after round trip ${n}`);
+      assert.strictEqual(lineWith(out, words[i]), as[i], `in the output after round trip ${n}`);
+    }
+  }
+  // B's lines are still B's: a text without one is refused, and the line
+  // goes back in as the refusal lists it.
+  const without = read().split('\n').filter(l => l !== as[0]).join('\n') + '\n';
+  const before = q69Handoff(s);
+  const no = q69Put(s, without, SA);
+  assert.strictEqual(no.status, 4, no.stdout + no.stderr);
+  assert.strictEqual(q69Handoff(s), before);
+  const listed = (/^22222222: (.*)$/m.exec(no.stdout) || [])[1];
+  assert.strictEqual(listed, as[0], no.stdout);
+  q69Ok(q69Put(s, without + listed + '\n', SA));
+  assert.ok(disk().includes(as[0]), as[0]);
+  // Marked [done] in its shown form, a line of B's goes to the archive.
+  const done = read().split('\n').map(l => (l === as[1] ? '- [done] ' + as[1].replace(/^\d+\.\s+/, '') : l)).join('\n') + '\n';
+  q69Ok(q69Put(s, done, SA));
+  assert.ok(!q69Handoff(s).includes('the hook wraps'));
+  assert.ok(q69Archive(s).split('\n').includes('- [done] ' + as[1].replace(/^\d+\.\s+/, '')), q69Archive(s));
+}));
+
+// A known limit (the supervisor, marker tm-0345): the guard knows a line by
+// its text as `handoff` shows it. Of a session's lines that read the same
+// there, one kept copy is enough, and a text without the other copy is
+// saved. The words a reader sees all stay. This pins that answer, so a
+// change to it shows.
+test('write-handoff: of another session\'s lines that read the same in the output, one kept copy is enough (Q69, a known limit)', startTest(() => {
+  const s = sandbox();
+  delete s.env.CLAUDE_SESSION_ID; delete s.env.CODEX_THREAD_ID;
+  const read = () => s.jbm(['handoff']).stdout.replace(/^[^\n]*\n/, '').trimEnd();
+  const disk = () => q69Handoff(s).split('\n');
+  const withEsc = '2. B the log line starts with ' + String.fromCharCode(27) + '[31m in red';
+  const plain = '3. B the log line starts with [31m in red';
+  s.start(SA);
+  s.start(SB);
+  q69Ok(q69Put(s, '# Handoff: demo\n\n## Next actions\n1. A item one\n', SA));
+  q69Ok(q69Put(s, read() + '\n' + withEsc + '\n' + plain + '\n', SB));
+  // Control: both lines are in the file as sent, and the output shows them
+  // the same but for the number.
+  assert.ok(disk().includes(withEsc) && disk().includes(plain), q69Handoff(s));
+  const shownB = read().split('\n').filter(l => /^\d\. B /.test(l));
+  assert.deepStrictEqual(shownB.map(l => l.replace(/^\d/, '')), [plain.replace(/^\d/, ''), plain.replace(/^\d/, '')]);
+  // Without both: refused, and the refusal lists the line once.
+  const before = q69Handoff(s);
+  const none = read().split('\n').filter(l => !/^\d\. B /.test(l)).join('\n') + '\n';
+  let r = q69Put(s, none, SA);
+  assert.strictEqual(r.status, 4, r.stdout + r.stderr);
+  assert.strictEqual((r.stdout.match(/^22222222: /gm) || []).length, 1, r.stdout);
+  assert.strictEqual(q69Handoff(s), before);
+  // With one of the two: saved, and the words are in the file once.
+  r = q69Put(s, none + shownB[1] + '\n', SA);
+  q69Ok(r);
+  assert.strictEqual(disk().filter(l => l.includes('B the log line starts with')).length, 1, q69Handoff(s));
+  assert.ok(disk().includes(plain), q69Handoff(s));
+}));
+
+// Review round 1, Fable's F3 (the supervisor, marker tm-0412). The check
+// reads the state file to know whose lines are whose. When that read fails,
+// the write is saved as before, with no check, and says so: one line on
+// stderr and the same line in the day's log. A state file that is missing is
+// a new state, not a failed read.
+const Q69_OFF = 'handoff guard off for this write: state file unreadable: ';
+const q69Off = (r) => String(r.stderr).split('\n').filter(l => l.includes('handoff guard off'));
+const q69OffLogged = (s) => q69Log(s).split('\n').filter(l => l.includes('handoff guard off'));
+test('write-handoff: a state file that is not a JSON object turns the check off for that write, and stderr and the day\'s log say so (Q69)', startTest(() => {
+  const s = sandbox();
+  s.start(SA);
+  s.start(SB);
+  q69Ok(q69Put(s, '# H\n- A line\n', SA));
+  q69Ok(q69Put(s, '# H\n- A line\n- B line\n', SB));
+  const file = path.join(s.memdir, '.jbmem-state.json');
+  // Control: the state file reads, so leaving B's line out is refused, and a
+  // write that keeps it is saved. Neither says the check was off.
+  let r = q69Put(s, '# H\n- A line\n', SA);
+  assert.strictEqual(r.status, 4, r.stdout + r.stderr);
+  assert.deepStrictEqual(q69Off(r), []);
+  r = q69Put(s, '# H\n- A line\n- B line\n- A more\n', SA);
+  q69Ok(r);
+  assert.deepStrictEqual(q69Off(r), []);
+  assert.deepStrictEqual(q69OffLogged(s), []);
+  // Text that does not parse: the write is saved without B's line, as it
+  // was before the line existed, and stderr and the log say the check was off.
+  fs.writeFileSync(file, '{not json');
+  r = q69Put(s, '# H\n- A line\n', SA);
+  q69Ok(r);
+  assert.ok(!q69Handoff(s).includes('B line'), q69Handoff(s));
+  assert.deepStrictEqual(q69Off(r), [Q69_OFF + 'not a JSON object']);
+  assert.strictEqual(q69OffLogged(s).length, 1, q69Log(s));
+  assert.match(q69OffLogged(s)[0], /^- \d\d:\d\d handoff guard off for this write: state file unreadable: not a JSON object session=11111111$/);
+  // An empty file, a list and null are not a state either.
+  let n = 1;
+  for (const bad of ['', '[1]', 'null']) {
+    fs.writeFileSync(file, bad);
+    r = q69Put(s, `# H\n- A line\n- A wrote ${++n}\n`, SA);
+    q69Ok(r);
+    assert.deepStrictEqual(q69Off(r), [Q69_OFF + 'not a JSON object'], JSON.stringify(bad));
+    assert.strictEqual(q69OffLogged(s).length, n, JSON.stringify(bad));
+  }
+  // No state file at all is a new state: the write says nothing of the kind.
+  fs.rmSync(file, { force: true });
+  r = q69Put(s, '# H\n- A line\n- A wrote last\n', SA);
+  q69Ok(r);
+  assert.deepStrictEqual(q69Off(r), []);
+  assert.strictEqual(q69OffLogged(s).length, n);
+}));
+
+// The held-open case of the same finding: another program has the state file
+// open without sharing (on Windows a scanner or a sync tool can), so the open
+// fails with EBUSY. The stand-in is the suite's own (the strict-reads test of
+// sessions.test.js): an fs.openSync that throws EBUSY for that one file. Here
+// it is in a preload and refuses the first opens made while the lock file is
+// there, which is where the check reads. The launcher drops NODE_OPTIONS for
+// the sandboxed writer, so the writer script is run directly, as dirDirect
+// runs it.
+test('write-handoff: a state file that can\'t be opened turns the check off for that write, and stderr and the day\'s log say so (Q69)', startTest(() => {
+  const s = sandbox();
+  s.start(SA);
+  s.start(SB);
+  q69Ok(q69Put(s, '# H\n- A line\n', SA));
+  q69Ok(q69Put(s, '# H\n- A line\n- B line\n', SB));
+  const file = path.join(s.memdir, '.jbmem-state.json');
+  const lock = path.join(s.memdir, '.jbmem.lock');
+  const stub = path.join(s.base, 'q69-held.js');
+  const seen = path.join(s.base, 'q69-held-seen.txt');
+  fs.writeFileSync(stub, `const fs=require('fs'),path=require('path');const target=${JSON.stringify(file)},lock=${JSON.stringify(lock)};let left=Number(process.env.Q69_HELD_OPENS||0),hit=0;const open=fs.openSync;fs.openSync=function(f){if(typeof f==='string'&&path.resolve(f)===target&&fs.existsSync(lock)){hit++;if(left>0){left--;const e=new Error('EBUSY: resource busy or locked, open');const c=process.env.Q69_HELD_CODE||'EBUSY';if(c!=='none')e.code=c;throw e;}}return open.apply(this,arguments)};process.on('exit',()=>fs.writeFileSync(${JSON.stringify(seen)},String(hit)));`);
+  const direct = (body, opens, code) => spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'memory.js'), 'write-handoff', `--base=${q69Ver(s)}`, `--session=${SA}`],
+    { cwd: s.repo, env: { ...s.env, JBMEM_DIR: s.memdir, JBMEM_METHOD: 'formula-unverified', JBMEM_ROOT: s.repo, NODE_OPTIONS: `--require ${JSON.stringify(stub)}`, Q69_HELD_OPENS: String(opens), ...(code ? { Q69_HELD_CODE: code } : {}) }, input: body, encoding: 'utf8' });
+  // Control: with the preload in place and no open refused, the write that
+  // leaves B's line out is refused as usual, and the stub saw the file opened
+  // under the lock.
+  let r = direct('# H\n- A line\n', 0);
+  assert.strictEqual(r.status, 4, r.stdout + r.stderr);
+  assert.deepStrictEqual(q69Off(r), []);
+  assert.ok(Number(fs.readFileSync(seen, 'utf8')) >= 1, 'the stub saw the state file opened under the lock');
+  assert.deepStrictEqual(q69OffLogged(s), []);
+  // The first open under the lock is refused: the check has no lists, the
+  // write is saved without B's line, and stderr and the log say so.
+  r = direct('# H\n- A line\n', 1);
+  q69Ok(r);
+  assert.ok(!q69Handoff(s).includes('B line'), q69Handoff(s));
+  assert.deepStrictEqual(q69Off(r), [Q69_OFF + 'EBUSY']);
+  assert.deepStrictEqual(q69OffLogged(s).map(l => l.replace(/^- \d\d:\d\d /, '')), [Q69_OFF + 'EBUSY session=11111111']);
+  // The later open went through, so the state file itself was updated.
+  assert.doesNotMatch(r.stdout, /could not be updated/);
+  // The reason is the error's code only when the code has the plain form of
+  // one. An error with no code (the stub leaves it out for "none"), or with a
+  // code that holds other characters, gives "read error", so no other text
+  // reaches stderr or the log through it.
+  let n = 1;
+  for (const code of ['none', 'EBUSY x<y>']) {
+    r = direct(`# H\n- A line\n- A wrote ${++n}\n`, 1, code);
+    q69Ok(r);
+    assert.deepStrictEqual(q69Off(r), [Q69_OFF + 'read error'], code);
+    assert.strictEqual(q69OffLogged(s).length, n, code);
+    assert.strictEqual(q69OffLogged(s)[n - 1].replace(/^- \d\d:\d\d /, ''), Q69_OFF + 'read error session=11111111', code);
+  }
 }));

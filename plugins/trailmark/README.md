@@ -64,7 +64,7 @@ Everything lives in Claude Code's own memory folder for the repo, under `~/.clau
 
 - `handoff.md` is the note itself, with the previous version kept for undo and a history of the last 20.
 - `archive/` and `parked/` hold finished items and parked ideas, which are never loaded unless you ask.
-- `notes/` is a daily log of events: session starts, commits (short SHA and subject), merges and compactions. It keeps no prompt or reply text, each day's file is deleted after 90 days, and `"notes": false` in `.jbmem.json` turns it off.
+- `notes/` is a daily log of events: session starts, commits (short SHA and subject), merges, compactions and refused handoff writes. It keeps no prompt or reply text, each day's file is deleted after 90 days, and `"notes": false` in `.jbmem.json` turns it off.
 
 To stop using Trailmark in a repo, delete `.jbmem.json` from its memory folder. To remove it entirely, run `claude plugin uninstall trailmark@trailmark` and `claude plugin marketplace remove trailmark`; your notes stay where they are.
 
