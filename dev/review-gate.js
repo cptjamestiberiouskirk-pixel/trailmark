@@ -4,6 +4,7 @@
 // No network calls; it writes only its own output files in that folder.
 //   node dev/review-gate.js candidates      <dir>             reviewers' output -> dir/candidates.json
 //   node dev/review-gate.js lens-ok         <file>            exit 1 unless the file holds JSON with a findings array
+//   node dev/review-gate.js vote-ok         <file> <cands>    exit 1 unless the file holds a verdict for each blocking candidate
 //   node dev/review-gate.js merge           <verifiers> <dir> candidates + votes -> dir/findings.json
 //   node dev/review-gate.js payload         <dir>             -> dir/comments.jsonl and dir/review.json
 //   node dev/review-gate.js signers         <file>            exit 1 unless it holds only security keys for /ship
@@ -63,6 +64,7 @@ function mergeFindings(cands, voteOutputs) {
   const perVerifier = voteOutputs.map((v) => {
     const m = new Map();
     for (const x of v.votes || []) {
+      if (!x || typeof x !== 'object') continue;
       const ok = x.verdict === 'confirmed';
       m.set(x.id, m.has(x.id) ? m.get(x.id) && ok : ok);
     }
@@ -82,6 +84,34 @@ function mergeFindings(cands, voteOutputs) {
     else dropped.push(c);
   }
   return { blocking, notes, dropped, verifiers: perVerifier.length };
+}
+
+// The lenses the tier started: each key of tier.json's `lenses` that is exactly
+// true, with a name a find-<lens>.json file can carry. Null when there is none, so
+// a missing or odd tier.json fails the round instead of starting no check at all.
+function lensesStarted(tier) {
+  const l = tier && tier.lenses;
+  if (!l) return null;
+  // No type check is needed: Object.keys of a string or an array gives digit
+  // keys, which the name check refuses, and of a number or true gives none.
+  const on = Object.keys(l).filter((k) => l[k] === true);
+  if (on.length === 0 || on.some((k) => !/^[a-z]+$/.test(k))) return null;
+  return on;
+}
+// Why one verifier's output can't be used for these candidates, or null when
+// it can: the checks mergeFindings needs, so the workflow can ask once more.
+// REVIEW.md "Verifier" allows only these two verdicts; any other on a blocking
+// finding is unusable output, not a rejection.
+const VERDICTS = ['confirmed', 'rejected'];
+function voteProblem(v, cands) {
+  if (!v || typeof v !== 'object' || !Array.isArray(v.votes)) return 'no votes array';
+  for (const c of cands) {
+    if (c.severity !== 'blocking') continue;
+    const mine = v.votes.filter((x) => x && typeof x === 'object' && x.id === c.id);
+    if (mine.length === 0) return `no verdict for ${c.id}`;
+    if (mine.some((x) => !VERDICTS.includes(x.verdict))) return `bad verdict for ${c.id}`;
+  }
+  return null;
 }
 
 // A section counts when it holds a letter or digit, fenced text included.
@@ -287,7 +317,7 @@ function payload(d) {
   return { comments, review: { commit_id: d.head, event: 'COMMENT', body } };
 }
 
-module.exports = { candidates, mergeFindings, decide, payload, sections, shipped, shipParts, shipMessage, shipCandidates, sigInfo, signersOk, SHIP_NS, breaker, clean };
+module.exports = { candidates, lensesStarted, mergeFindings, voteProblem, decide, payload, sections, shipped, shipParts, shipMessage, shipCandidates, sigInfo, signersOk, SHIP_NS, breaker, clean };
 
 if (require.main === module) {
   const [cmd, a, b] = process.argv.slice(2);
@@ -296,6 +326,15 @@ if (require.main === module) {
   const fail = (why) => { console.error(why); process.exit(1); };
   if (cmd === 'candidates') {
     const files = fs.readdirSync(a).filter((n) => /^find-[a-z]+\.json$/.test(n));
+    // Every lens the tier started must have left its file: a worker that died before
+    // writing would otherwise drop its lens from the round unseen (RS-G-lensmissing).
+    const started = lensesStarted(tryRead(path.join(a, 'tier.json')));
+    if (!started) fail('no lenses in tier.json, so the round cannot tell which reviewers ran');
+    const have = started.filter((l) => files.includes(`find-${l}.json`));
+    // One line per round in the job log, so a later audit can see which lenses ran.
+    console.log(`lenses started: ${started.join(',')}; files: ${have.length} of ${started.length}`);
+    const missing = started.filter((l) => !have.includes(l));
+    if (missing.length) fail(missing.map((l) => `the ${l} reviewer left no output (find-${l}.json is missing)`).join('; '));
     // The lens goes last, so a "lens" key in a reviewer's own JSON can't replace it.
     const outs = files.map((n) => ({ ...(tryRead(path.join(a, n)) || { findings: null }), lens: n.slice(5, -5) }));
     if (outs.length === 0 || outs.some((x) => !Array.isArray(x.findings))) fail('a reviewer gave no usable output');
@@ -306,11 +345,30 @@ if (require.main === module) {
     // One lens's output file: exit 0 only if it is JSON with a `findings` array,
     // the check `candidates` makes, so the workflow can ask a lens once more.
     if (!Array.isArray((tryRead(a) || {}).findings)) process.exit(1);
+  } else if (cmd === 'vote-ok') {
+    // One verifier's output file: exit 0 only if `merge` could use it for these
+    // candidates; otherwise say why on stderr, so the log names the cause.
+    const cands = tryRead(b);
+    if (!Array.isArray(cands)) fail(`no candidates in ${b}`);
+    if (!fs.existsSync(a)) fail(`${path.basename(a)}: missing`);
+    const v = tryRead(a);
+    const why = v === null ? 'not JSON' : voteProblem(v, cands);
+    if (why) fail(`${path.basename(a)}: ${why}`);
   } else if (cmd === 'merge') {
     const cands = read(path.join(b, 'candidates.json'));
-    const votes = fs.readdirSync(b).filter((n) => /^vote-\d+\.json$/.test(n)).map((n) => tryRead(path.join(b, n)));
-    const valid = votes.filter((v) => v && Array.isArray(v.votes));
-    if (cands.some((c) => c.severity === 'blocking') && valid.length < Number(a)) fail('a verifier gave no usable output');
+    if (!/^[1-9][0-9]{0,2}$/.test(String(a))) fail(`bad verifier count ${JSON.stringify(String(a)).slice(0, 20)}`);
+    // Exactly vote-1 .. vote-N, each checked as vote-ok checks it; every
+    // problem is named, so the log says which verifier failed and why.
+    const valid = [];
+    const problems = [];
+    for (let i = 1; i <= Number(a); i++) {
+      const n = `vote-${i}.json`;
+      const p = path.join(b, n);
+      const v = fs.existsSync(p) ? tryRead(p) : undefined;
+      const why = v === undefined ? 'missing' : v === null ? 'not JSON' : voteProblem(v, cands);
+      if (why) problems.push(`${n}: ${why}`); else valid.push(v);
+    }
+    if (cands.some((c) => c.severity === 'blocking') && problems.length) fail(`a verifier gave no usable output (${problems.join('; ')})`);
     try {
       fs.writeFileSync(path.join(b, 'findings.json'), JSON.stringify(mergeFindings(cands, valid)));
     } catch (e) { fail(e.message); }
@@ -337,7 +395,7 @@ if (require.main === module) {
   } else if (cmd === 'decide') {
     fs.writeFileSync(path.join(b, 'gate.json'), JSON.stringify(decide(read(path.join(b, 'gate-input.json')), read(a))));
   } else {
-    console.error('usage: review-gate.js candidates|lens-ok|merge|payload|signers|ship-candidates|decide ...');
+    console.error('usage: review-gate.js candidates|lens-ok|vote-ok|merge|payload|signers|ship-candidates|decide ...');
     process.exit(2);
   }
 }
