@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-25: A regex in a test held two curly quotes, and the commit script stopped it
+
+- What went wrong: the `AFTER` pattern of Q70's round 1 batch in `handoff-checks.test.js` held U+2018 and U+201F as characters, where the edit was meant to write the escapes for them. `--sums --quick` passed on it; the commit script's scan of the added lines stopped the commit. The pattern was rebuilt with `String.fromCharCode`, and `--sums --quick` ran again (15 minutes).
+- Why: which step turned the escapes into characters was not found (HYPOTHESIZED: the edit tool's input). `dev/release-check.sh` does not scan added lines for non-ASCII; only the commit script does, after `--sums`.
+- Rule going forward: a test that needs a non-ASCII character builds it with `String.fromCharCode`, as the file already does for `Q`. After an edit of code, scan its added lines for non-ASCII (`git diff | grep '^+' | LC_ALL=C grep -c $'[^\t -~]'`) before `--sums`.
+- Status: open
+
+## 2026-11-25: A scan that read more of Markdown let more through
+
+- What went wrong: Q70's first build of the skill scan (4d3336e) read code spans per paragraph and read `<pre>` blocks, to catch gaps that Q62's round 3 listed. Review round 1 found that the wider reading let through shapes that f885821's line-by-line scan refused: an odd backtick earlier in a paragraph shifts how the spans after it pair, text before `<pre>` on its line was dropped, and a `<pre>` named in a span turned span reading off for the rest of the file. It also refused likely edits that f885821 passed. None of the 12 skills held such a shape, so every test passed.
+- Why: each new reading answered a sample in hand, and a reader of Markdown has more cases than the samples; each case it gets wrong is a miss. The tests ran the new reader on the skills and the new samples, not on the old reader's neighbors. A second sighting of "A check listed the characters a copy can lose, and each review found more" (2026-11-25), on its promotion list for Q78.
+- Rule going forward: a check that reads a format reads only the part it can read exactly, refuses the rest by name, and is run over the real files first to show they hold none of what it refuses. Before a new reading replaces an old one, both run over the old samples and a list of neighbor shapes, and every shape the old one refused and the new one passes is read before the commit.
+- Status: open
+
 ## 2026-11-25: A Lessons checked line was stored as thinking, and the gate denied six pushes
 
 - What went wrong: the lessons-learned hook denied the push of PR 153's merge commit d3fdbb3 six times. Each time the session believed it had written a visible `Lessons checked:` line, and it first reported so. The transcript held none: one mention sat in backticks, which the hook skips on purpose, and three messages whose text held the line were stored as thinking records with no text record. A message whose text was one line was stored as text, and the push passed at 14:19:44.
