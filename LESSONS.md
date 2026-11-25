@@ -14,9 +14,23 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A stop made for every value took a working answer away
+
+- What went wrong: batch r7 of PR 151 made `dir` stop when the memory folder's path, the method or the repo root held a control character. The reviewer showed that a repo that is set up, in a folder named with such a character, lost its `dir` answer: its memory folder's path is clean, and main answered there with a usable first line. The stop's message also named a second way out that did not work in the two states it was written for. The root went back to its filtered line, and both points got a test.
+- Why: "treat them all in one fix (refuse, or filter)" was read as "refuse them all". The stop was run on the inputs it was meant to refuse and never in a repo that is set up, and the message's advice was written without a run.
+- Rule going forward: before a guard refuses an input, run the last release's command on that input in a repo that is set up. Where it answered correctly and a filter keeps the output safe, filter and keep the answer. Run each way out a message names once before it ships.
+- Status: open
+
+## 2026-11-24: Times in a status and in notes were written from memory
+
+- What went wrong: a milestone sent to the supervisor was headed 22:50 when the clock read 22:27, 23 minutes ahead. An earlier message and three headings in the session's plan notes carried estimates as well. The supervisor pointed it out.
+- Why: each time was worked out from the last time seen and the work done since. No command read the clock in the step that wrote it.
+- Rule going forward: a time in a status, a note or a heading comes from `date` (or a tool's own timestamp) read in the same step. A time taken from someone else's report says whose clock it is.
+- Status: open
+
 ## 2026-11-24: A rule about a guard's input was written, then applied to one line
 
-- What went wrong: batch r5 of PR 151 logged the rule "check that nothing printed above the line it reads can be set from outside" (the entry below) and then filtered only the `repo root:` line of `dir`. The reviewer of that commit showed that the first line and `resolved by:` took the same line break in three states, and that the new sentence in docs/how-it-works.md claimed it for the whole output. The fix was redone for every value `dir` prints.
+- What went wrong: batch r5 of PR 151 logged the rule "check that nothing printed above the line it reads can be set from outside" (the entry "A finding fixed in one place came back from two others") and then filtered only the `repo root:` line of `dir`. The reviewer of that commit showed that the first line and `resolved by:` took the same line break in three states, and that the new sentence in docs/how-it-works.md claimed it for the whole output. The fix was redone for the folder, the method and the root together, and the root was taken out again (the entry above).
 - Why: the fix followed the finding's line again, and the doc sentence was written from what the fix was meant to do, not from a run of each line.
 - Rule going forward: when a command's output is read as a check, list every value the command prints and where each one comes from, and treat them all in one fix (refuse, or filter). A doc sentence that says "cannot" names the runs it rests on.
 - Status: open

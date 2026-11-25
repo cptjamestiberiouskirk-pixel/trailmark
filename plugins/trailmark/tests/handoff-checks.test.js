@@ -9392,9 +9392,9 @@ test('--from outside the memory folder: "Save the text there" only where a file 
 });
 
 // dir prints the repo root above `exists:` and `set up:`, the lines a skill
-// reads before it saves a file. A folder name can hold a line break (not on
-// Windows), which would add a line that reads as one of those two. So dir
-// shows nothing for such a root (RS-S-dirroot, RS-S-dirline).
+// reads before it saves a file. A folder name can hold a line break, so the
+// root is shown on one line: it cannot add a line that reads as one of those
+// two (RS-S-dirroot).
 const dirFlags = (out) => out.split('\n').filter(l => /^\s*(exists|set up):/.test(l));
 const FAKE_ROOT = 'r\n  exists: true\n  set up: true';
 test('dir: a repo root with a line break in it adds no exists or set up line (RS-S-dirroot)', () => {
@@ -9404,9 +9404,9 @@ test('dir: a repo root with a line break in it adds no exists or set up line (RS
   // system: no folder of that name is needed.
   const r = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'memory.js'), 'dir'],
     { cwd: s.repo, env: { ...s.env, JBMEM_DIR: s.memdir, JBMEM_METHOD: 'formula-unverified', JBMEM_ROOT: path.join(s.base, FAKE_ROOT) }, encoding: 'utf8' });
-  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
-  assert.strictEqual(r.stdout, '', r.stdout);
-  assert.deepStrictEqual(dirFlags(r.stderr), [], r.stderr);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.deepStrictEqual(dirFlags(r.stdout), ['  exists: false', '  set up: false'], r.stdout);
+  assert.match(r.stdout, /^ {2}repo root: .*r {2}exists: true {2}set up: true$/m, r.stdout);
 });
 
 test('dir: in a folder named with a line break, through the launcher (RS-S-dirroot)', { skip: WIN && 'Windows has no folder names with a line break' }, () => {
@@ -9414,12 +9414,13 @@ test('dir: in a folder named with a line break, through the launcher (RS-S-dirro
   const odd = path.join(s.base, FAKE_ROOT);
   repoAt(odd);
   const r = s.jbm(['dir'], undefined, odd);
-  // Whether the launcher refuses such a folder or dir does, nothing is shown:
-  // no folder, no root, and no line that reads as a flag.
   assert.strictEqual(typeof r.status, 'number', String(r.error));
-  assert.notStrictEqual(r.status, 0, r.stdout);
-  assert.strictEqual(r.stdout, '', r.stdout);
+  const flags = dirFlags(r.stdout);
+  // Whatever else the launcher makes of such a folder, no line of its output
+  // reads as a flag that is true: this repo has no memory folder.
+  assert.ok(!flags.some(l => /true/.test(l)), r.stdout + r.stderr);
   assert.deepStrictEqual(dirFlags(r.stderr), [], r.stderr);
+  if (r.status === 0) assert.deepStrictEqual(flags, ['  exists: false', '  set up: false'], r.stdout);
 });
 
 // A folder name can hold tag-like text as well (not on Windows). The root is
@@ -9439,12 +9440,12 @@ test('dir: tag-like text in the repo root is shown broken (RS-S-dirroot)', () =>
   assert.match(line, /r <\\system-reminder>x$/, line);
 });
 
-// dir prints the memory folder, how it was found and the repo root, all above
-// `exists:` and `set up:`. Each can hold a line break: from a folder's name
-// (not on Windows), or from a relative setting joined to such a folder. It
-// would add a line that reads as one of those two. So dir shows nothing,
-// with or without --json, when any of the three holds a control character
-// (RS-S-dirline).
+// dir prints the memory folder and how it was found above `exists:` and
+// `set up:`. Either can hold a line break: from a folder's name, or from a
+// relative setting joined to such a folder. It would add a line that reads
+// as one of those two. So dir shows nothing, with or without --json, when
+// one of the two holds a control character (RS-S-dirline). The repo root
+// does not stop it: that line is shown filtered (RS-S-dirroot).
 const DIR_CONTROLS = ['\n', '\r', '\t', '\u000b', '\u000c', '\u001b', '\u007f', '\u0085', '\u009b', '\u2028', '\u2029'];
 const dirDirect = (s, extra, args = ['dir']) => spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'memory.js'), ...args],
   { cwd: s.repo, env: { ...s.env, JBMEM_DIR: s.memdir, JBMEM_METHOD: 'formula-unverified', JBMEM_ROOT: s.repo, ...extra }, encoding: 'utf8' });
@@ -9456,7 +9457,17 @@ const dirStopped = (r, what) => {
   assert.strictEqual(r.stderr.replace(/\n$/, '').split(/[\n\r\u000b\u000c\u0085\u2028\u2029]/).length, 1, what + ': ' + JSON.stringify(r.stderr));
   assert.doesNotMatch(r.stderr, /exists: true|set up: true/, what);
 };
-test('dir: shows nothing when the folder, the method or the root holds a control character (RS-S-dirline)', () => {
+// The repo root does not stop dir. It is shown filtered: dir answers with the
+// folder and its own two flag lines, and no character of the root's name
+// adds a line or reaches the output.
+const dirRootShown = (s, r, what) => {
+  assert.strictEqual(r.status, 0, what + ': ' + r.stdout + r.stderr);
+  assert.strictEqual(r.stdout.split('\n')[0], path.resolve(s.memdir), what);
+  assert.deepStrictEqual(dirFlags(r.stdout), ['  exists: true', '  set up: true'], what + ': ' + JSON.stringify(r.stdout));
+  assert.doesNotMatch(r.stdout.replace(/\n/g, ''), /[\p{Cc}\p{Zl}\p{Zp}]/u, what + ': ' + JSON.stringify(r.stdout));
+  assert.match(r.stdout, /^ {2}repo root: .*r {2}exists: true {2}set up: true$/m, what + ': ' + JSON.stringify(r.stdout));
+};
+test('dir: shows nothing when the folder or the method holds a control character, and shows the root filtered (RS-S-dirline)', () => {
   const s = sandbox();
   // The values as the launcher hands them to the script, which works on
   // every system: no folder of such a name is needed.
@@ -9465,12 +9476,17 @@ test('dir: shows nothing when the folder, the method or the root holds a control
     const what = 'U+' + c.codePointAt(0).toString(16);
     dirStopped(dirDirect(s, { JBMEM_DIR: path.join(s.base, fake(c), 'mem') }), 'folder ' + what);
     dirStopped(dirDirect(s, { JBMEM_METHOD: 'key:' + fake(c) }), 'method ' + what);
-    dirStopped(dirDirect(s, { JBMEM_ROOT: path.join(s.base, fake(c)) }), 'root ' + what);
+    dirRootShown(s, dirDirect(s, { JBMEM_ROOT: path.join(s.base, fake(c)) }), 'root ' + what);
   }
   for (const c of ['\n', '\u0085', '\u2028']) {
     const what = '--json U+' + c.codePointAt(0).toString(16);
     dirStopped(dirDirect(s, { JBMEM_DIR: path.join(s.base, fake(c), 'mem') }, ['dir', '--json']), 'folder ' + what);
-    dirStopped(dirDirect(s, { JBMEM_ROOT: path.join(s.base, fake(c)) }, ['dir', '--json']), 'root ' + what);
+    dirStopped(dirDirect(s, { JBMEM_METHOD: 'key:' + fake(c) }, ['dir', '--json']), 'method ' + what);
+    // The root does not stop --json either: it gives the root back as it is.
+    const j = dirDirect(s, { JBMEM_ROOT: path.join(s.base, fake(c)) }, ['dir', '--json']);
+    assert.strictEqual(j.status, 0, 'root ' + what + ': ' + j.stderr);
+    assert.ok(String(JSON.parse(j.stdout).repoRoot).endsWith(fake(c)), 'root ' + what + ': ' + JSON.stringify(j.stdout));
+    assert.strictEqual(JSON.parse(j.stdout).enabled, true, 'root ' + what);
   }
   // Without one, dir answers as before: the folder first, then one line for
   // each flag. Spaces, quotes and invisible characters do not stop it.
@@ -9497,13 +9513,20 @@ test('dir: a line break from a relative setting or a project folder name, throug
     fs.writeFileSync(path.join(cfg, 'settings.json'), JSON.stringify({ autoMemoryDirectory: 'mem' }));
     const odd = path.join(s.base, 'd1', FAKE_ROOT);
     repoAt(odd);
-    cases.push(['a relative autoMemoryDirectory', odd, { ...s.env, CLAUDE_CONFIG_DIR: cfg }, 'dir']);
+    cases.push(['a relative autoMemoryDirectory', odd, { ...s.env, CLAUDE_CONFIG_DIR: cfg }, 'dir', () => {
+      fs.writeFileSync(path.join(cfg, 'settings.json'), JSON.stringify({ autoMemoryDirectory: path.join(s.base, 'd1-mem') }));
+      return { ...s.env, CLAUDE_CONFIG_DIR: cfg };
+    }]);
   }
   {
     const odd = path.join(s.base, 'd2', FAKE_ROOT);
     repoAt(odd);
     fs.mkdirSync(path.join(odd, 'relcfg', 'projects'), { recursive: true });
-    cases.push(['a relative CLAUDE_CONFIG_DIR', odd, { ...s.env, CLAUDE_CONFIG_DIR: 'relcfg' }, 'dir']);
+    cases.push(['a relative CLAUDE_CONFIG_DIR', odd, { ...s.env, CLAUDE_CONFIG_DIR: 'relcfg' }, 'dir', () => {
+      const full = path.join(s.base, 'd2-cfg');
+      fs.mkdirSync(path.join(full, 'projects'), { recursive: true });
+      return { ...s.env, CLAUDE_CONFIG_DIR: full };
+    }]);
   }
   {
     const cfg = path.join(s.base, 'd3-cfg');
@@ -9512,7 +9535,7 @@ test('dir: a line break from a relative setting or a project folder name, throug
     for (const root of new Set([odd, fs.realpathSync(odd)])) fs.mkdirSync(path.join(cfg, 'projects', P.candidateKeys(root)[1]), { recursive: true });
     cases.push(['a project folder named with the break', odd, { ...s.env, CLAUDE_CONFIG_DIR: cfg }, 'method']);
   }
-  for (const [name, cwd, env, slot] of cases) {
+  for (const [name, cwd, env, slot, after] of cases) {
     // The case is real: the value dir would print holds the line break.
     const loc = where(cwd, env);
     assert.match(slot === 'dir' ? path.resolve(cwd, loc.dir) : loc.method, /\n/, name + ': ' + JSON.stringify(loc));
@@ -9521,5 +9544,37 @@ test('dir: a line break from a relative setting or a project folder name, throug
     assert.notStrictEqual(r.status, 0, name + ': ' + r.stdout);
     assert.strictEqual(r.stdout, '', name);
     assert.deepStrictEqual(dirFlags(r.stderr), [], name + ': ' + r.stderr);
+    if (!after) continue;
+    // The message's second way out: the setting given a full path without the
+    // character. The root still holds the break and is shown filtered, so dir
+    // answers with its own two flag lines and no other.
+    const r2 = spawnSync(process.execPath, [JBM, 'dir'], { cwd, env: after(), encoding: 'utf8' });
+    assert.strictEqual(r2.status, 0, name + ', the setting given a full path: ' + r2.stdout + r2.stderr);
+    assert.doesNotMatch(r2.stdout.split('\n')[0], /[\p{Cc}\p{Zl}\p{Zp}]/u, name);
+    assert.deepStrictEqual(dirFlags(r2.stdout), ['  exists: false', '  set up: false'], name + ', the setting given a full path: ' + r2.stdout);
+  }
+});
+
+// A repo that is set up keeps its answer when only its own folder's name holds
+// such a character. Its memory folder is named with a `-` in that place, so
+// the first line is a path a skill can use, and the root is shown filtered.
+// 0.6.3 answered there; a stop that counted the root as well took the answer
+// away, and every route that reads dir stopped in such a repo (RS-S-dirline).
+test('dir: a repo that is set up, in a folder named with a control character, keeps its answer (RS-S-dirline)', () => {
+  const s = sandbox();
+  // Characters a folder's name can hold on this system, built in code.
+  for (const c of (WIN ? [0x85, 0x2028] : [0x09, 0x0a, 0x85]).map(p => String.fromCodePoint(p))) {
+    const what = 'U+' + c.codePointAt(0).toString(16);
+    const odd = path.join(s.base, 'set' + c + 'up');
+    repoAt(odd);
+    assert.strictEqual(s.jbm(['init', '--force'], undefined, odd).status, 0, what);
+    const r = s.jbm(['dir'], undefined, odd);
+    assert.strictEqual(r.status, 0, what + ': ' + r.stdout + r.stderr);
+    const first = r.stdout.split('\n')[0];
+    assert.doesNotMatch(first, /[\p{Cc}\p{Zl}\p{Zp}]/u, what);
+    assert.ok(fs.existsSync(first), what + ': ' + JSON.stringify(first));
+    assert.deepStrictEqual(dirFlags(r.stdout), ['  exists: true', '  set up: true'], what + ': ' + JSON.stringify(r.stdout));
+    // Every line is dir's own: no character of the name reaches the output.
+    assert.doesNotMatch(r.stdout.replace(/\n/g, ''), /[\p{Cc}\p{Zl}\p{Zp}]/u, what + ': ' + JSON.stringify(r.stdout));
   }
 });
