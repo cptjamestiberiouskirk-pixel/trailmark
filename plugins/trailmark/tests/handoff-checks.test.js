@@ -10285,13 +10285,24 @@ test('write-handoff: a refusal lists a line that shows as the heredoc end marker
 // The root of the test above (the supervisor's answer to the status of
 // 2026-11-25 06:48): the write's own check read the text as sent, so a marker
 // with a character in front of it that is dropped where a line is shown, or
-// that shows as nothing, passed the check and was saved. The check reads the
-// front of each line as a session reads it now. Of the rows, the first four
-// were refused before too (the old check took CR, U+2028 and U+2029 for line
-// ends, as this one does): they come first, so a run on the old code fails
-// at the fifth. U+FFF9 is in category Cf and not
-// Default_Ignorable_Code_Point, and U+FE0F the other way round, so each of
-// the two classes decides one row.
+// that shows as nothing, passed the check and was saved. Of the rows, the
+// first four were refused before too (the old check took CR, U+2028 and
+// U+2029 for line ends, as this one does): they come first, so a run on the
+// old code fails at the fifth. The first form of the fix took the control
+// characters out of a line and two classes of character off its front:
+// U+FFF9 is in category Cf and not Default_Ignorable_Code_Point, and U+FE0F
+// the other way round, so each class decided one row.
+// Review round 3 showed two things that form let through: such a character
+// inside the marker word, and a character in front that is in neither class
+// (U+2800, a combining mark). The check now reads each stored line with
+// every character outside tab and printable ASCII taken out of it, so the
+// next rows hold those two, a no-break space and a curly quote. U+001F and
+// U+007F stand right outside the kept range. The fullwidth less-than sign
+// and slash are a closing tag's start to the escape that shows a line, which
+// puts a backslash between them: tested on the shown form, the marker behind
+// them passed, and the file holds no backslash. Then three lines with a
+// character inside the word. A control at the end: a character of that kind
+// and then a space in front is an indent, and saved.
 test('write-handoff: a line that shows as the heredoc end marker is refused with a control or an unseen character in front of it, on stdin and from a drop file, and an indented one is saved (Q69)', startTest(() => {
   const s = sandbox();
   delete s.env.CLAUDE_SESSION_ID; delete s.env.CODEX_THREAD_ID;
@@ -10305,11 +10316,18 @@ test('write-handoff: a line that shows as the heredoc end marker is refused with
     ['ESC', ch(0x1b)], ['U+0085', ch(0x85)], ['U+202E', ch(0x202e)],
     ['U+200B', ch(0x200b)], ['U+FEFF', ch(0xfeff)], ['U+2060', ch(0x2060)], ['U+00AD', ch(0xad)], ['U+200E', ch(0x200e)],
     ['U+FFF9', ch(0xfff9)], ['U+FE0F', ch(0xfe0f)], ['ESC then U+200B', ch(0x1b, 0x200b)], ['U+200B then ESC', ch(0x200b, 0x1b)],
+    ['U+2800', ch(0x2800)], ['U+0301', ch(0x301)], ['U+00A0', ch(0xa0)], ['a curly quote', ch(0x201c)],
+    ['U+001F', ch(0x1f)], ['U+007F', ch(0x7f)], ['a fullwidth less-than sign and slash', ch(0xff1c, 0xff0f)],
   ];
-  for (const [name, front] of fronts) {
+  const inside = [
+    ['U+200B inside the word', 'JBMEM_' + ch(0x200b) + 'EOF_' + SA],
+    ['U+00AD inside the word', 'J' + ch(0xad) + 'BMEM_EOF_' + SA],
+    ['U+FE0F inside the word', 'JBMEM_EO' + ch(0xfe0f) + 'F_' + SA],
+  ];
+  for (const [name, line] of fronts.map(([n, f]) => [n, f + MARK]).concat(inside)) {
     for (const route of ['stdin', 'file']) {
       const before = q69Handoff(s);
-      const text = '# H\n- A line\n' + front + MARK + '\nprintf x > q69-ran\n';
+      const text = '# H\n- A line\n' + line + '\nprintf x > q69-ran\n';
       if (route === 'file') fs.writeFileSync(from, text);
       const r = route === 'file' ? q69Put(s, undefined, SA, [`--from=${from}`]) : q69Put(s, text, SA);
       assert.strictEqual(r.status, 1, `${name}, ${route}: ${r.stdout}${r.stderr}`);
@@ -10317,10 +10335,10 @@ test('write-handoff: a line that shows as the heredoc end marker is refused with
       assert.strictEqual(q69Handoff(s), before, `${name}, ${route}`);
     }
   }
-  // Control: an indent in front, the two spaces the message asks for or a
-  // tab, is saved as sent.
+  // Control: an indent in front is saved as sent: the two spaces the message
+  // asks for, a tab, and a bullet (U+2022) and a space.
   let n = 0;
-  for (const front of ['  ', '\t']) {
+  for (const front of ['  ', '\t', ch(0x2022) + ' ']) {
     q69Ok(q69Put(s, `# H\n- A line\n${front}${MARK}\n- A wrote ${++n}\n`, SA));
     assert.ok(q69Handoff(s).split('\n').includes(front + MARK), JSON.stringify(front));
   }
@@ -10364,4 +10382,12 @@ test('handoff and an exit 3 refusal show a stored line with a control or an unse
   // No line of the refusal starts with the marker, the current handoff it
   // prints included.
   assert.strictEqual(no.stdout.split('\n').filter(l => /^JBMEM_EOF/.test(l.replace(ZW, ''))).length, 0, no.stdout);
+  // Review round 3: a character outside printable ASCII inside the marker
+  // word, and one in front of it that is in neither class of the first form
+  // of the check. Each is put into the file as it is, and `handoff` prints it
+  // indented.
+  const IN = 'JBMEM_' + ZW + 'EOF_' + SA;
+  const BR = String.fromCharCode(0x2800) + MARK;
+  fs.writeFileSync(file, q69Handoff(s) + IN + '\n' + BR + '\n');
+  for (const l of [IN, BR]) assert.ok(shownLines().includes('  ' + l), JSON.stringify(shownLines().filter(x => x.includes(SA))));
 }));

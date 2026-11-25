@@ -111,17 +111,27 @@ function readChecked(file, id) {
 // A line starting that way in the text would end it early when the text is
 // copied forward, and what follows would run as shell commands; such text
 // is refused.
-// The marker is looked for at the front of a line as a session reads it:
-// control characters are dropped wherever a line is shown, and a character
-// that shows as nothing (category Cf or Default_Ignorable_Code_Point: a zero
-// width space, a byte order mark, a word joiner, a bidi mark) can be lost
-// when a session copies the line. With one of those in front of it the
-// marker passed this check and was saved (the gate's round 1 on PR 153; a
-// probe showed each on 99b3578).
+// The marker is looked for at the front of a line as a session may write it
+// back. Control characters are dropped wherever a line is shown, and a
+// character outside printable ASCII can be lost or changed when a session
+// copies the line: one that shows as nothing (a zero width space, a byte
+// order mark) is the plain case. So every character but a tab and U+0020 to
+// U+007E is taken out of the whole line before the test, not only off its
+// front, and that takes the control characters out with the rest. The line
+// is read as it is given, with no escape first: the escape that shows a line
+// puts a backslash after a tag's bracket, a fullwidth one included, and with
+// a fullwidth less-than sign and slash in front of the marker that backslash
+// kept the line from this test while the file held none. The first form of
+// this check took two classes of character off the front (the gate's round 1
+// on PR 153); with a zero width space inside the word, or a braille blank in
+// front of it, the marker still passed (review round 3 on 64b7e98). Spaces
+// and tabs stay, so an indented line is not the marker. The cost: a line
+// with a character that shows, a curly quote for one, right in front of
+// JBMEM_EOF is refused as well, and the indent is its way out too.
 const LINE_ENDS = new RegExp('\\r\\n|[\\n\\r' + String.fromCharCode(0x2028, 0x2029) + ']');
-const UNSEEN_FRONT = /^[\p{Cf}\p{Default_Ignorable_Code_Point}]+/u;
+const NOT_PLAIN = /[^\t\x20-\x7e]/gu;
 function startsLikeEndMarker(line) {
-  return /^JBMEM_EOF/.test(S.escapeTags(line, { asIs: true }).replace(UNSEEN_FRONT, ''));
+  return /^JBMEM_EOF/.test(String(line).replace(NOT_PLAIN, ''));
 }
 function endMarkerFree(t) {
   if (String(t).split(LINE_ENDS).some(startsLikeEndMarker)) fail('a line of the text starts with JBMEM_EOF, the end marker of the heredoc Claude Code\'s skills pass text in; indent that line by two spaces and run the command again. Nothing was written.');
