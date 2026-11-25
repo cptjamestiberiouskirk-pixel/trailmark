@@ -90,6 +90,18 @@ function mergeFindings(cands, voteOutputs) {
 // it can: the checks mergeFindings needs, so the workflow can ask once more.
 // REVIEW.md "Verifier" allows only these two verdicts; any other on a blocking
 // finding is unusable output, not a rejection.
+// The lenses the tier started: each key of tier.json's `lenses` that is exactly
+// true, with a name a find-<lens>.json file can carry. Null when there is none, so
+// a missing or odd tier.json fails the round instead of starting no check at all.
+function lensesStarted(tier) {
+  const l = tier && tier.lenses;
+  if (!l) return null;
+  // No type check is needed: Object.keys of a string or an array gives digit
+  // keys, which the name check refuses, and of a number or true gives none.
+  const on = Object.keys(l).filter((k) => l[k] === true);
+  if (on.length === 0 || on.some((k) => !/^[a-z]+$/.test(k))) return null;
+  return on;
+}
 const VERDICTS = ['confirmed', 'rejected'];
 function voteProblem(v, cands) {
   if (!v || typeof v !== 'object' || !Array.isArray(v.votes)) return 'no votes array';
@@ -305,7 +317,7 @@ function payload(d) {
   return { comments, review: { commit_id: d.head, event: 'COMMENT', body } };
 }
 
-module.exports = { candidates, mergeFindings, voteProblem, decide, payload, sections, shipped, shipParts, shipMessage, shipCandidates, sigInfo, signersOk, SHIP_NS, breaker, clean };
+module.exports = { candidates, lensesStarted, mergeFindings, voteProblem, decide, payload, sections, shipped, shipParts, shipMessage, shipCandidates, sigInfo, signersOk, SHIP_NS, breaker, clean };
 
 if (require.main === module) {
   const [cmd, a, b] = process.argv.slice(2);
@@ -314,6 +326,15 @@ if (require.main === module) {
   const fail = (why) => { console.error(why); process.exit(1); };
   if (cmd === 'candidates') {
     const files = fs.readdirSync(a).filter((n) => /^find-[a-z]+\.json$/.test(n));
+    // Every lens the tier started must have left its file: a worker that died before
+    // writing would otherwise drop its lens from the round unseen (RS-G-lensmissing).
+    const started = lensesStarted(tryRead(path.join(a, 'tier.json')));
+    if (!started) fail('no lenses in tier.json, so the round cannot tell which reviewers ran');
+    const have = started.filter((l) => files.includes(`find-${l}.json`));
+    // One line per round in the job log, so a later audit can see which lenses ran.
+    console.log(`lenses started: ${started.join(',')}; files: ${have.length} of ${started.length}`);
+    const missing = started.filter((l) => !have.includes(l));
+    if (missing.length) fail(missing.map((l) => `the ${l} reviewer left no output (find-${l}.json is missing)`).join('; '));
     // The lens goes last, so a "lens" key in a reviewer's own JSON can't replace it.
     const outs = files.map((n) => ({ ...(tryRead(path.join(a, n)) || { findings: null }), lens: n.slice(5, -5) }));
     if (outs.length === 0 || outs.some((x) => !Array.isArray(x.findings))) fail('a reviewer gave no usable output');

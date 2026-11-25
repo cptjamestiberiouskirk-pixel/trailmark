@@ -97,6 +97,7 @@ test('CLI: unusable reviewer output, a missing vote file or a missing verdict fa
   const run = (...args) => spawnSync(process.execPath, [CLI, ...args], { timeout: 10000 }).status;
   try {
     fs.writeFileSync(path.join(dir, 'find-regression.json'), JSON.stringify({ findings: [{ severity: 'blocking', path: 'a.js', line: 1 }] }));
+    fs.writeFileSync(path.join(dir, 'tier.json'), JSON.stringify({ lenses: { regression: true, docs: false } }));
     fs.writeFileSync(path.join(dir, 'find-docs.json'), '');
     assert.equal(run('candidates', dir), 1);
     fs.rmSync(path.join(dir, 'find-docs.json'));
@@ -324,6 +325,7 @@ test('candidates: a "lens" key in a reviewer\'s JSON does not replace the lens f
     const one = (title) => ({ findings: [{ severity: 'blocking', path: 'a.js', line: 1, title }] });
     fs.writeFileSync(path.join(dir, 'find-regression.json'), JSON.stringify(one('real')));
     fs.writeFileSync(path.join(dir, 'find-docs.json'), JSON.stringify({ lens: 'regression', ...one('decoy') }));
+    fs.writeFileSync(path.join(dir, 'tier.json'), JSON.stringify({ lenses: { regression: true, docs: true } }));
     assert.equal(cli('candidates', dir), 0);
     const ids = JSON.parse(fs.readFileSync(path.join(dir, 'candidates.json'))).map((c) => c.id).sort();
     assert.deepEqual(ids, ['docs-1', 'regression-1']);
@@ -915,6 +917,8 @@ test('workflow: a lens that gives nothing is asked once more, prints its stderr 
   const sh = (p) => p.replace(/\\/g, '/');
   try {
     fs.mkdirSync(path.join(tmp, '.review'));
+    // As the tier step leaves it: only the regression lens, so `candidates` fails on its answer, not on a missing lens.
+    fs.writeFileSync(path.join(tmp, '.review', 'tier.json'), JSON.stringify({ lenses: { regression: true, security: false, docs: false } }));
     fs.mkdirSync(path.join(tmp, 'dev'));
     fs.copyFileSync(path.join(__dirname, 'review-gate.js'), path.join(tmp, 'dev', 'review-gate.js'));
     // A stand-in for the one jq call run() makes (jq -r '.result // ""' FILE), so the test needs only bash and node.
@@ -1264,6 +1268,115 @@ test('workflow tests: every CLI stand-in is written executable, since Linux runs
     const end = src.indexOf("].join('\\n')", at);
     assert.ok(end > at, 'the stand-in ends with a join');
     assert.ok(src.startsWith("].join('\\n'), { mode: 0o755 });", end), `the stand-in at offset ${at} is written with mode 0o755`);
+  }
+});
+test('candidates: every lens the tier started must have left its file, or the round fails naming it (RS-G-lensmissing)', () => {
+  assert.deepEqual(g.lensesStarted({ lenses: { regression: true, security: true, docs: false } }), ['regression', 'security']);
+  // Only exactly true starts a lens.
+  assert.deepEqual(g.lensesStarted({ lenses: { regression: true, security: 'false', docs: 1 } }), ['regression']);
+  for (const bad of [null, {}, { lenses: null }, { lenses: 'regression' }, { lenses: [true] }, { lenses: 7 }, { lenses: { regression: false } }, { lenses: { regression: 'true' } }, { lenses: { 'Reg-1': true } }]) {
+    assert.equal(g.lensesStarted(bad), null, JSON.stringify(bad));
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-'));
+  const cli = (...args) => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', timeout: 10000 });
+  const tier = (lenses) => fs.writeFileSync(path.join(dir, 'tier.json'), JSON.stringify({ tier: 'medium', lenses }));
+  try {
+    fs.writeFileSync(path.join(dir, 'find-regression.json'), JSON.stringify({ findings: [{ severity: 'blocking', path: 'a.js', line: 1, title: 't' }] }));
+    // No tier.json: nothing says which lenses ran, so the round fails.
+    let r = cli('candidates', dir);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /tier\.json/);
+    // The security lens was started and left no file: the round fails and names it.
+    tier({ regression: true, security: true, docs: false });
+    r = cli('candidates', dir);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /the security reviewer left no output \(find-security\.json is missing\)/);
+    assert.equal(r.stdout, 'lenses started: regression,security; files: 1 of 2\n', 'one log line names the lenses and counts their files');
+    assert.ok(!fs.existsSync(path.join(dir, 'candidates.json')), 'no candidates are written');
+    // With its file there the round goes on; docs was not started, so it needs none,
+    // and a stray file of it is not counted as a started lens's file.
+    fs.writeFileSync(path.join(dir, 'find-security.json'), JSON.stringify({ findings: [] }));
+    fs.writeFileSync(path.join(dir, 'find-docs.json'), JSON.stringify({ findings: [] }));
+    r = cli('candidates', dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, 'lenses started: regression,security; files: 2 of 2\n');
+    fs.rmSync(path.join(dir, 'find-docs.json'));
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'candidates.json'), 'utf8')).map((c) => c.id), ['regression-1']);
+    // Two missing lenses are both named.
+    fs.rmSync(path.join(dir, 'find-security.json'));
+    fs.rmSync(path.join(dir, 'candidates.json'));
+    tier({ regression: true, security: true, docs: true });
+    r = cli('candidates', dir);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /the security reviewer left no output[\s\S]*the docs reviewer left no output/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+// One step's `run: |` text from the workflow, dedented, as the runner writes it to a file.
+const stepRun = (wf, name) => {
+  const start = wf.indexOf(`\n      - name: ${name}\n`);
+  const body = wf.indexOf('\n        run: |\n', start);
+  const end = wf.indexOf('\n      - name: ', body + 1);
+  assert.ok(start > 0 && body > start && end > body, `step "${name}" is in the workflow`);
+  return wf.slice(body + '\n        run: |\n'.length, end).split('\n').map((l) => l.slice(10)).join('\n') + '\n';
+};
+test('workflow: under bash -e, a lens whose worker dies before writing fails the lens step, and a normal round still passes (RS-G-lensmissing)', (t) => {
+  if (spawnSync('bash', ['-c', 'true'], { timeout: 20000 }).status !== 0) return t.skip('bash is needed');
+  const step = stepRun(wfText(), 'Find problems, one reviewer per lens, in parallel');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-lensgone-'));
+  const sh = (p) => p.replace(/\\/g, '/');
+  try {
+    fs.mkdirSync(path.join(tmp, 'bin'));
+    // A stand-in for the step's three jq calls: the CLI's `.result`, a lens switch from
+    // tier.json, and the closing summary of candidates.json.
+    fs.writeFileSync(path.join(tmp, 'bin', 'jq.js'), [
+      'const [filter, file] = process.argv.slice(2);',
+      'const t = require("fs").readFileSync(file, "utf8");',
+      'let o = {}; try { if (t.trim()) o = JSON.parse(t); } catch { console.error("jq: parse error (stand-in)"); process.exit(2); }',
+      'const m = /^\\.lenses\\.([a-z]+)$/.exec(filter);',
+      'if (filter === \'.result // ""\') console.log(o.result ?? ""); else if (m) console.log(String((o.lenses || {})[m[1]] ?? null)); else console.log("{}");',
+      '',
+    ].join('\n'));
+    fs.writeFileSync(path.join(tmp, 'bin', 'jq'), '#!/bin/bash\nexec node "$(dirname "$0")/jq.js" "$2" "$3"\n', { mode: 0o755 });
+    // The stand-in CLI: the lens named in STUB_KILL kills its own worker, as a crash of
+    // that worker's shell would; every other lens answers with no findings.
+    const stub = path.join(tmp, 'stub.sh');
+    fs.writeFileSync(stub, [
+      '#!/bin/bash',
+      'case "$2" in *"the security reviewer"*) l=security ;; *"the docs reviewer"*) l=docs ;; *) l=regression ;; esac',
+      'echo "$l" >> "$STUB_LOG"',
+      'if [ "$l" = "$STUB_KILL" ]; then kill -9 $PPID; sleep 1; exit 1; fi',
+      'echo \'{"result":"{\\"findings\\":[]}"}\'',
+      '',
+    ].join('\n'), { mode: 0o755 });
+    const go = (kill) => {
+      const d = path.join(tmp, kill || 'none');
+      fs.mkdirSync(path.join(d, '.review'), { recursive: true });
+      fs.mkdirSync(path.join(d, 'dev'));
+      fs.copyFileSync(path.join(__dirname, 'review-gate.js'), path.join(d, 'dev', 'review-gate.js'));
+      fs.writeFileSync(path.join(d, '.review', 'tier.json'), JSON.stringify({ tier: 'high', lenses: { regression: true, security: true, docs: true } }));
+      fs.writeFileSync(path.join(d, 'step.sh'), step);
+      const r = spawnSync('bash', ['-e', 'step.sh'], { cwd: d, encoding: 'utf8', timeout: 60000, env: { ...process.env, PATH: sh(path.join(tmp, 'bin')) + path.delimiter + process.env.PATH,
+        PR: '7', TOOLS: 'a', READ_TOOLS: 'b', DENY_TOOLS: 'c', MODEL_REGRESSION: 'm', MODEL_SECURITY: 'm', MODEL_DOCS: 'm',
+        CLAUDE_BIN: sh(stub), STUB_KILL: kill, STUB_LOG: sh(path.join(d, 'calls.txt')) } });
+      const finds = fs.readdirSync(path.join(d, '.review')).filter((n) => n.startsWith('find-')).sort();
+      const calls = fs.existsSync(path.join(d, 'calls.txt')) ? fs.readFileSync(path.join(d, 'calls.txt'), 'utf8').trim().split('\n').sort() : [];
+      return { r, finds, calls };
+    };
+    // A normal round: all three lenses answer, and the step passes.
+    const none = go('');
+    assert.deepEqual(none.calls, ['docs', 'regression', 'security'], 'the step started all three lenses');
+    assert.equal(none.r.status, 0, none.r.stderr);
+    assert.deepEqual(none.finds, ['find-docs.json', 'find-regression.json', 'find-security.json']);
+    assert.match(none.r.stdout, /^lenses started: regression,security,docs; files: 3 of 3$/m, 'the log says which lenses ran');
+    // The security worker dies before writing its file: the step fails and names it.
+    const gone = go('security');
+    assert.deepEqual(gone.calls, ['docs', 'regression', 'security']);
+    assert.deepEqual(gone.finds, ['find-docs.json', 'find-regression.json'], 'the killed worker left no file');
+    assert.notEqual(gone.r.status, 0, 'the lens step fails without the security lens');
+    assert.match(gone.r.stderr, /the security reviewer left no output/);
+    assert.match(gone.r.stdout, /^lenses started: regression,security,docs; files: 2 of 3$/m);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
 test('breaker: a number followed by a word is prose, not a PR (RS-G-commaprose)', () => {
