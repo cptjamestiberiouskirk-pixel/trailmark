@@ -10167,3 +10167,201 @@ test('write-handoff: a state file that can\'t be opened turns the check off for 
     assert.strictEqual(q69OffLogged(s)[n - 1].replace(/^- \d\d:\d\d /, ''), Q69_OFF + 'read error session=11111111', code);
   }
 }));
+
+// The lines a refusal lists go back into the next text (exit 4 says to put
+// each line back word for word), and Claude Code's checkpoint skill passes
+// that text in a heredoc that ends at a line JBMEM_EOF_<session ID>. A stored
+// line can show as that marker: with a control character in front, which is
+// dropped when the line is shown. A write of such a line is refused now (the
+// test after this one), but a version before that check saved it, and an
+// edit by hand can leave one, so the test puts it into the file as it is.
+// `handoff` prints such a line
+// indented (memory.js handoffShown), so a copy of it ends nothing. A refusal
+// has to list it the same way: put back with no indent, it ends the heredoc
+// early, and the lines after it run as shell commands (the gate's round 1 on
+// PR 153, security-1). The heredoc step runs the skill's own command with
+// bash, with this copy's launcher in the sandbox in place of the installed
+// one.
+test('write-handoff: a refusal lists a line that shows as the heredoc end marker indented, as `handoff` prints it, and put back through the checkpoint skill\'s heredoc it ends nothing early (Q69)', startTest((t) => {
+  const s = sandbox();
+  delete s.env.CLAUDE_SESSION_ID; delete s.env.CODEX_THREAD_ID;
+  const claude = S.AGENT === 'Claude Code';
+  const MARK = 'JBMEM_EOF_' + SA;
+  const RAN = 'q69-heredoc-ran';
+  // B's two lines: one that shows as the end marker of A's heredoc, then one
+  // that is a shell command once it stands outside a heredoc.
+  const planted = [String.fromCharCode(27) + MARK, 'printf x > ' + RAN];
+  const shown = ['  ' + MARK, planted[1]];
+  const ran = path.join(s.repo, RAN);
+  const read = () => {
+    const out = s.jbm(['handoff']).stdout;
+    return { v: /^\[trailmark\] handoff version: (\S+)/.exec(out)[1], text: out.replace(/^[^\n]*\n/, '').trimEnd() };
+  };
+  const disk = () => q69Handoff(s).split('\n');
+  s.start(SA);
+  s.start(SB);
+  // Control, no new code: B saves the marker line indented and the command
+  // line. The file then gets the control character in place of the indent:
+  // the line reads the same to the check (indent and controls are not part
+  // of a line's text there), so it is still B's. `handoff` prints it
+  // indented.
+  q69Ok(q69Put(s, '# Handoff: demo\n\n## Next actions\n1. A item one\n', SA));
+  const mine = read().text;
+  q69Ok(q69Put(s, mine + '\n' + shown.join('\n') + '\n', SB));
+  const saved = q69Handoff(s);
+  assert.strictEqual(saved.split('\n' + shown[0] + '\n').length, 2, saved);
+  fs.writeFileSync(path.join(s.memdir, 'handoff.md'), saved.replace('\n' + shown[0] + '\n', () => '\n' + planted[0] + '\n'));
+  for (const l of planted) assert.ok(disk().includes(l), JSON.stringify(l));
+  assert.ok(read().text.split('\n').includes(shown[0]), read().text);
+  assert.doesNotMatch(read().text, /^JBMEM_EOF/m);
+  // A sends the text it read before B's write: refused, nothing written. The
+  // lines come back as the refusal lists them, each after B's short ID.
+  const refused = () => {
+    const before = q69Handoff(s);
+    const no = q69Put(s, mine + '\n', SA);
+    assert.strictEqual(no.status, 4, no.stdout + no.stderr);
+    assert.strictEqual(q69Handoff(s), before);
+    const listed = no.stdout.split('\n').filter(l => l.startsWith('22222222: ')).map(l => l.slice('22222222: '.length));
+    assert.strictEqual(listed.length, 2, no.stdout);
+    assert.strictEqual(listed[0].trim(), MARK, no.stdout);
+    assert.strictEqual(listed[1], planted[1], no.stdout);
+    return listed;
+  };
+  // The next text: A's own, and each listed line put back word for word.
+  const back = (listed) => mine + '\n' + listed.join('\n') + '\n';
+  const kept = (how) => { for (const l of shown) assert.ok(disk().includes(l), `${JSON.stringify(l)} is not in the handoff ${how}:\n${q69Handoff(s)}`); };
+  if (claude) {
+    const skill = fs.readFileSync(path.join(ROOT, 'skills', 'checkpoint', 'SKILL.md'), 'utf8').replace(/\r\n/g, '\n');
+    const m = /^([ \t]*)node "[^"\n]+"( write-handoff --base=<version> --session=\$\{CLAUDE_SESSION_ID\} <<'JBMEM_EOF_\$\{CLAUDE_SESSION_ID\}')\n\1<full handoff>\n\1(JBMEM_EOF_\$\{CLAUDE_SESSION_ID\})$/m.exec(skill);
+    assert.ok(m, 'the heredoc command of the checkpoint skill');
+    const fwd = (p) => p.replace(/\\/g, '/');
+    const env = { ...s.env, JBMEM_T_NODE: fwd(process.execPath), JBMEM_T_JBM: fwd(JBM) };
+    const sh = (script) => {
+      const f = path.join(s.base, 'checkpoint.sh');
+      fs.writeFileSync(f, script);
+      return spawnSync('bash', [fwd(f)], { cwd: s.repo, env, encoding: 'utf8', timeout: 120000 });
+    };
+    // Control: this bash starts this node. Where it can't, the step is not
+    // run and the test says so; on CI it has to run.
+    const c = sh('"$JBMEM_T_NODE" --version\n');
+    if (c.error || c.status !== 0 || String(c.stdout).trim() !== process.version) {
+      const why = `bash did not start node (${c.error ? c.error.code : 'exit ' + c.status}): ${String(c.stdout).trim()} ${String(c.stderr).trim()}`;
+      assert.notStrictEqual(process.env.GITHUB_ACTIONS, 'true', `the heredoc step has to run on CI, and ${why}`);
+      t.diagnostic(`the heredoc step was not run: ${why}`);
+    } else {
+      // Control: with this bash, a line that is the marker ends the heredoc,
+      // and the line after it runs.
+      sh(': <<\'JBMEM_EOF_x\'\na line\nJBMEM_EOF_x\nprintf x > q69-control-ran\nJBMEM_EOF_x\n');
+      assert.ok(fs.existsSync(path.join(s.repo, 'q69-control-ran')), 'the control: a marker line in the text ends the heredoc');
+      // The skill's command as a session runs it: the session ID and the
+      // version filled in, then the text, then the end marker.
+      const listed = refused();
+      const fill = (x) => x.replace(/\$\{CLAUDE_SESSION_ID\}/g, () => SA).replace(/<version>/g, () => read().v);
+      const r = sh('"$JBMEM_T_NODE" "$JBMEM_T_JBM"' + fill(m[2]) + '\n' + back(listed) + fill(m[3]) + '\n');
+      const said = `bash ended with ${r.status}:\n${r.stdout}${r.stderr}`;
+      assert.ok(!fs.existsSync(ran), `the line after the marker line ran as a shell command (${RAN} is there). ${said}`);
+      assert.strictEqual(r.status, 0, said);
+      kept('after the heredoc of the skill');
+    }
+  }
+  // The refusal lists each line as `handoff` prints it.
+  const listed = refused();
+  assert.deepStrictEqual(listed, shown);
+  const out = read().text.split('\n');
+  for (const l of listed) assert.ok(out.includes(l), `${JSON.stringify(l)} is not a line of the handoff output:\n${out.join('\n')}`);
+  // Put back as listed, on stdin and in a drop file: saved, with both lines.
+  const memdir = s.jbm(['dir']).stdout.split('\n')[0];
+  for (const route of ['stdin', 'file']) {
+    const text = back(refused());
+    const from = path.join(memdir, `incoming-handoff-${SA}.md`);
+    if (route === 'file') fs.writeFileSync(from, text);
+    const r = route === 'file' ? q69Put(s, undefined, SA, [`--from=${from}`]) : q69Put(s, text, SA);
+    assert.strictEqual(r.status, 0, route + '\n' + r.stdout + r.stderr);
+    kept('after a put-back, ' + route);
+  }
+  assert.ok(!fs.existsSync(ran), RAN);
+}));
+
+// The root of the test above (the supervisor's answer to the status of
+// 2026-11-25 06:48): the write's own check read the text as sent, so a marker
+// with a character in front of it that is dropped where a line is shown, or
+// that shows as nothing, passed the check and was saved. The check reads the
+// front of each line as a session reads it now. Of the rows, the first four
+// were refused before too (the old check took CR, U+2028 and U+2029 for line
+// ends, as this one does): they come first, so a run on the old code fails
+// at the fifth. U+FFF9 is in category Cf and not
+// Default_Ignorable_Code_Point, and U+FE0F the other way round, so each of
+// the two classes decides one row.
+test('write-handoff: a line that shows as the heredoc end marker is refused with a control or an unseen character in front of it, on stdin and from a drop file, and an indented one is saved (Q69)', startTest(() => {
+  const s = sandbox();
+  delete s.env.CLAUDE_SESSION_ID; delete s.env.CODEX_THREAD_ID;
+  const MARK = 'JBMEM_EOF_' + SA;
+  const ch = (...n) => String.fromCharCode(...n);
+  s.start(SA);
+  q69Ok(q69Put(s, '# H\n- A line\n', SA));
+  const from = path.join(s.jbm(['dir']).stdout.split('\n')[0], `incoming-handoff-${SA}.md`);
+  const fronts = [
+    ['CR', '\r'], ['text then CR', 'x\r'], ['text then U+2028', 'x' + ch(0x2028)], ['text then U+2029', 'x' + ch(0x2029)],
+    ['ESC', ch(0x1b)], ['U+0085', ch(0x85)], ['U+202E', ch(0x202e)],
+    ['U+200B', ch(0x200b)], ['U+FEFF', ch(0xfeff)], ['U+2060', ch(0x2060)], ['U+00AD', ch(0xad)], ['U+200E', ch(0x200e)],
+    ['U+FFF9', ch(0xfff9)], ['U+FE0F', ch(0xfe0f)], ['ESC then U+200B', ch(0x1b, 0x200b)], ['U+200B then ESC', ch(0x200b, 0x1b)],
+  ];
+  for (const [name, front] of fronts) {
+    for (const route of ['stdin', 'file']) {
+      const before = q69Handoff(s);
+      const text = '# H\n- A line\n' + front + MARK + '\nprintf x > q69-ran\n';
+      if (route === 'file') fs.writeFileSync(from, text);
+      const r = route === 'file' ? q69Put(s, undefined, SA, [`--from=${from}`]) : q69Put(s, text, SA);
+      assert.strictEqual(r.status, 1, `${name}, ${route}: ${r.stdout}${r.stderr}`);
+      assert.match(r.stderr, /a line of the text starts with JBMEM_EOF/, `${name}, ${route}`);
+      assert.strictEqual(q69Handoff(s), before, `${name}, ${route}`);
+    }
+  }
+  // Control: an indent in front, the two spaces the message asks for or a
+  // tab, is saved as sent.
+  let n = 0;
+  for (const front of ['  ', '\t']) {
+    q69Ok(q69Put(s, `# H\n- A line\n${front}${MARK}\n- A wrote ${++n}\n`, SA));
+    assert.ok(q69Handoff(s).split('\n').includes(front + MARK), JSON.stringify(front));
+  }
+}));
+
+// A line of that kind that is in the file already (saved by a version before
+// the check above, or put there by hand) is shown indented wherever a session
+// copies from: `handoff`, the list of an exit 4 refusal (two tests up), and
+// the lines an exit 3 refusal lists as added or removed, which were printed
+// with no indent. The lines are put into the file as they are.
+test('handoff and an exit 3 refusal show a stored line with a control or an unseen character in front of the heredoc end marker indented (Q69)', startTest(() => {
+  const s = sandbox();
+  delete s.env.CLAUDE_SESSION_ID; delete s.env.CODEX_THREAD_ID;
+  const MARK = 'JBMEM_EOF_' + SA;
+  const ESC = String.fromCharCode(27);
+  const ZW = String.fromCharCode(0x200b);
+  const file = path.join(s.memdir, 'handoff.md');
+  const shownLines = () => s.jbm(['handoff']).stdout.split('\n');
+  s.start(SA);
+  s.start(SB);
+  q69Ok(q69Put(s, '# H\n- A line\n', SA));
+  // Control, no new code: with a control character in front the line is in
+  // the file, and `handoff` prints it indented.
+  fs.writeFileSync(file, q69Handoff(s) + ESC + MARK + '\n');
+  assert.ok(shownLines().includes('  ' + MARK), shownLines().join('\n'));
+  // A reads this version. B then saves a text without that line, and one
+  // with an unseen character in front goes into the file.
+  const read = q69Ver(s);
+  q69Ok(q69Put(s, '# H\n- A line\n- B line\n', SB));
+  fs.writeFileSync(file, q69Handoff(s) + ZW + MARK + '\n');
+  assert.ok(q69Handoff(s).split('\n').includes(ZW + MARK));
+  // `handoff` prints that one indented too, the character kept.
+  assert.ok(shownLines().includes('  ' + ZW + MARK), JSON.stringify(shownLines().filter(l => l.includes(MARK))));
+  assert.strictEqual(shownLines().filter(l => /^JBMEM_EOF/.test(l.replace(ZW, ''))).length, 0);
+  // A writes on the version it read: refused, and each of the two lines is
+  // listed indented after its sign.
+  const no = s.jbm(['write-handoff', `--base=${read}`, `--session=${SA}`], '# H\n- A line\n- A two\n');
+  assert.strictEqual(no.status, 3, no.stdout + no.stderr);
+  const listed = no.stdout.split('\n').filter(l => /^[-+] /.test(l) && l.includes(MARK));
+  assert.deepStrictEqual(listed, ['-   ' + MARK, '+   ' + ZW + MARK], no.stdout);
+  // No line of the refusal starts with the marker, the current handoff it
+  // prints included.
+  assert.strictEqual(no.stdout.split('\n').filter(l => /^JBMEM_EOF/.test(l.replace(ZW, ''))).length, 0, no.stdout);
+}));
