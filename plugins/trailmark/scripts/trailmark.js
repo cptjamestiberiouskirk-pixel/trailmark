@@ -754,7 +754,14 @@ function cliMode(args) {
   if (fromArg) {
     const file = path.resolve(cwd, fromArg.slice('--from='.length).replace(/^"(.*)"$/, '$1'));
     if (!insideFolder(loc.dir, file)) {
-      process.stderr.write(`trailmark: --from must name a file inside the memory folder (${loc.dir}). ${file} is outside it. Save the text there with the Write tool, or pipe it on stdin. Nothing was written.\n`);
+      // "Save the text there" only where a file there works. In a folder
+      // that is missing, saving it would make Claude Code's project folder,
+      // and init would then take an unverified folder for a confirmed one;
+      // in a repo not set up, no command but search takes the file
+      // (RS-S-codexfolder).
+      const there = cmd === 'search' ? fs.existsSync(loc.dir) : S.isEnabled(loc.dir);
+      const next = there ? 'Save the text there with the Write tool, or pipe it on stdin.' : cmd === 'search' ? "That folder isn't there, so there is nothing to search. Don't create it or a file in it." : "This repo is not set up for Trailmark, so nothing can be saved. Don't create the memory folder or a file in it: run the trailmark:memory-setup skill first.";
+      process.stderr.write(`trailmark: --from must name a file inside the memory folder (${loc.dir}). ${file} is outside it. ${next} Nothing was written.\n`);
       process.exit(1);
     }
     const r = checkFromFile(loc.dir, file);

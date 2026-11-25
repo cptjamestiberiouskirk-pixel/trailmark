@@ -986,31 +986,78 @@ test('batch O5, RS-T-longwriter: init sets up a memory folder of 300 characters 
   assert.ok(fs.readdirSync(memdir).length > 0, `nothing in ${memdir}`);
 });
 
-// Saving an incoming-* file in a memory folder that isn't there yet
-// (formula-unverified) would make the folder, so every skill route that saves
-// one does it only when dir shows exists: true (RS-S-codexfolder, all routes).
+// Saving a drop file (incoming-*.md) in a memory folder that isn't there yet
+// (formula-unverified) would make the folder, and init would then take it
+// for a confirmed one; in a repo not set up, no write command takes the
+// file. So every skill route that saves one reads `dir` first: `set up: true`
+// for a handoff, a park or a note, and `exists: true` for a search, which
+// also runs in a repo not set up. The launcher's "Save the text there"
+// message follows the same rule (RS-S-codexfolder, every route).
 test('skills: every route that saves an incoming file in the memory folder checks dir first (RS-S-codexfolder)', () => {
   const dir = path.join(ROOT, 'skills');
+  const NAMES = /incoming-(handoff|park|note|search)/;
+  const VERB = /\b(sav(e|ed|ing)|creat(e|ed|ing)|put|writ(e|ten|ing)|mak(e|ing))\b/i;
+  const TOOL = /Write tool|apply_patch|file-editing tool/;
+  const LEANS = /as described next/;
+  const SAVE = /(with the Write tool as|create the file|create) `incoming-/;
+  // A route: a line of prose (not a command of its own) that names a drop
+  // file next to a word for saving it, or that names the tool that saves.
+  const isRoute = (l) => !/^\s*node "/.test(l) && ((NAMES.test(l) && VERB.test(l)) || (TOOL.test(l) && !LEANS.test(l)));
   const routes = [];
-  for (const n of fs.readdirSync(dir)) {
+  for (const n of fs.readdirSync(dir).sort()) {
     const f = path.join(dir, n, 'SKILL.md');
     if (!fs.existsSync(f)) continue;
-    for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
-      if (!/incoming-(handoff|park|note|search)/.test(line)) continue;
-      if (!/(Write tool|apply_patch|create `incoming-)/.test(line)) continue;
+    const lines = fs.readFileSync(f, 'utf8').split('\n');
+    lines.forEach((line, i) => {
+      const at = `${n}:${i + 1}: ${line.trim().slice(0, 120)}`;
+      // "save the text with the Write tool ... as described next" has no
+      // check of its own: the route it leans on comes right after it.
+      if (TOOL.test(line) && LEANS.test(line)) { assert.ok(lines.slice(i + 1, i + 5).some(isRoute), 'no route follows: ' + at); return; }
+      if (!isRoute(line)) return;
       routes.push(n);
-      assert.match(line, /only when `dir` shows `exists: true`: with `exists: false`[^\n]*don't (save|create) the file/, n + ': ' + line.slice(0, 120));
-    }
+      const recall = /recall$/.test(n);
+      assert.match(line, recall
+        ? /a search's file only when `dir` shows `exists: true`, and a note's file only when it shows `set up: true`: otherwise[^\n]*?: stop, don't (save|create) the file/
+        : /the file only when `dir` shows `set up: true`: otherwise[^\n]*?: stop(?: here)?, don't (save|create) the file/, at);
+      if (!recall) assert.doesNotMatch(line, /`exists: true`/, 'only a search goes by exists: ' + at);
+      assert.doesNotMatch(line, /mkdir|(make|create) the folder (first|then|and)|first (make|create)/, at);
+      const save = line.search(SAVE);
+      assert.ok(save > line.search(/only when `dir` shows/), 'the check comes before the save: ' + at);
+    });
   }
-  assert.deepStrictEqual([...new Set(routes)].sort(), ["checkpoint","park","recall","session-end"]);
+  assert.deepStrictEqual([...new Set(routes)], ['checkpoint', 'park', 'recall', 'session-end']);
   assert.strictEqual(routes.length, 5, routes.join(', '));
   const park = fs.readFileSync(path.join(dir, 'park', 'SKILL.md'), 'utf8');
-  assert.match(park, /`exists: false`[^\n]*nothing to search[^\n]*stop here[^\n]*parking needs a repo set up/, 'the search step stops the whole park');
+  assert.match(park, /otherwise nothing can be parked: stop here, don't (save|create) the file or the park file of step 4/, 'the search step stops the whole park');
+  // The scripts: three lines tell a session to save a file. Two are about a
+  // file that is already in the folder (hard links); the third is the
+  // launcher's --from message, which says it only behind the same check.
+  const sdir = path.join(ROOT, 'scripts');
+  const says = [];
+  for (const f of [...fs.readdirSync(sdir), ...fs.readdirSync(path.join(sdir, 'lib')).map(x => path.join('lib', x))]) {
+    if (!f.endsWith('.js')) continue;
+    for (const line of fs.readFileSync(path.join(sdir, f), 'utf8').split('\n')) {
+      if (/^\s*\/\//.test(line)) continue;
+      if (/Save the text|Write tool|file-editing tool|apply_patch/.test(line)) says.push(`${f}: ${line.trim()}`);
+    }
+  }
+  assert.strictEqual(says.length, 3, says.join('\n'));
+  assert.strictEqual(says.filter(l => /^trailmark\.js: .*has other hard links/.test(l)).length, 2, says.join('\n'));
+  assert.strictEqual(says.filter(l => /^trailmark\.js: .*there \? 'Save the text there /.test(l)).length, 1, says.join('\n'));
+  // What the skills read. A repo Claude Code never opened: the memory folder
+  // is the formula's guess and is not there. Then the folder with no marker,
+  // then a repo set up.
   const s = sandbox();
   fs.rmSync(s.projectDir, { recursive: true });
-  const d = jbm(s, ['dir']);
+  let d = jbm(s, ['dir']);
   assert.strictEqual(d.status, 0, d.stdout + d.stderr);
   assert.match(d.stdout, /resolved by: formula-unverified\n/);
-  assert.match(d.stdout, /\n {2}exists: false\n/);
+  assert.match(d.stdout, /\n {2}exists: false\n {2}set up: false\n/);
   assert.ok(!fs.existsSync(s.projectDir), 'dir must not create the project folder');
+  fs.mkdirSync(s.memdir, { recursive: true });
+  d = jbm(s, ['dir']);
+  assert.match(d.stdout, /\n {2}exists: true\n {2}set up: false\n/, d.stdout + d.stderr);
+  assert.strictEqual(jbm(s, ['init', '--force']).status, 0);
+  d = jbm(s, ['dir']);
+  assert.match(d.stdout, /\n {2}exists: true\n {2}set up: true\n/, d.stdout + d.stderr);
 });

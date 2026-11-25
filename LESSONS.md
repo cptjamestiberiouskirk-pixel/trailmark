@@ -14,6 +14,13 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-24: A finding fixed in one place came back from two others
+
+- What went wrong: PR 151's auto-review found that a Codex skill saved a file in a memory folder that isn't there, which makes the folder. The fix guarded that skill. The next round found the same in the Claude Code copy. A sweep then found six more skill routes, and the reviewers of that fix found a launcher message that told a session to save there, and that the `dir` line the guard reads could be forged by a folder name with a line break.
+- Why: the fix followed the finding's file and line, not the effect. Nobody listed every place that leads to the effect (both copies, skills and script messages), or asked what the guard itself trusts.
+- Rule going forward: for a finding about an effect a session can be led to, list every route to it before the first fix: both copies, every skill, and every script message that tells a session what to do. Fix them in one commit with a scan test that counts them. When a guard reads a command's output, check that nothing printed above the line it reads can be set from outside.
+- Status: open
+
 ## 2026-11-24: A review fix refused a route another client needed
 
 - What went wrong: Q62 round 1 found that a `--from` search in a repo not set up let the launcher remove the file. The fix refused a `--from` search there. Round 2 found that this stopped Codex's only search route in such a repo, which worked at 54f50a3.
