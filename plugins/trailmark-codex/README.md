@@ -100,7 +100,7 @@ After a long chat compacts, run `tm-recall` if the agent seems to have lost the 
 
 ## Your data
 
-The note lives in Claude Code's memory folder for the repo, under `~/.claude/projects/`, the same folder the Claude Code plugin uses, so both share it and its `.jbmem.json`. The handoff, the archive, parked ideas and the daily log work as in the Claude Code plugin: the log keeps events (chat starts, commits, merges, compactions) and no prompt or reply text, each day's file is deleted after 90 days (`"notesKeepDays"`), and `"notes": false` in `.jbmem.json` turns it off.
+The note lives in Claude Code's memory folder for the repo, under `~/.claude/projects/`, the same folder the Claude Code plugin uses, so both share it and its `.jbmem.json`. The handoff, the archive, parked ideas and the daily log work as in the Claude Code plugin: the log keeps events (chat starts, commits, merges, compactions, refused handoff writes) and no prompt or reply text, each day's file is deleted after 90 days (`"notesKeepDays"`), and `"notes": false` in `.jbmem.json` turns it off.
 
 Outside the memory folder, this copy:
 

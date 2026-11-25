@@ -45,7 +45,7 @@ Every command here runs Trailmark through its launcher, written below as `<launc
      A name that `prune-report` or `list` shows in quotes with "(unusual characters ...)" is refused: don't put it in a command. Tell the user to move that file into `archive/files/` by hand and delete its MEMORY.md line.
 
    - Dead index lines, or tightening MEMORY.md to one line per entry: edit MEMORY.md directly.
-   - Handoff over budget: mark finished items `[done]`, write the handoff the checkpoint way. `write-handoff` archives the `[done]` items as it saves.
+   - Handoff over budget: mark finished items `[done]`, write the handoff the checkpoint way. `write-handoff` archives the `[done]` items as it saves. Leave lines another session wrote as they are: a write that leaves one out is refused with exit code 4, and the tm-checkpoint skill's step 4 says what to do then.
    - Promote:
      - The target is the repo's AGENTS.md (or an AGENTS.md in the subfolder the rule concerns). If the user also uses Claude Code in this repo, ask whether it goes there or in `.claude/rules/<domain>.md`. Read the target first, add to it, and don't reorganize what's there.
      - For `.claude/rules`, add `paths:` frontmatter when the rule concerns particular files. A rule without `paths` loads every Claude Code session, so leave paths off only when the rule really applies everywhere.
