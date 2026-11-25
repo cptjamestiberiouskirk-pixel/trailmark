@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-25: A new list of stored lines skipped the function that makes them safe to copy
+
+- What went wrong: Q69's exit 4 refusal lists the lines a text left out and tells the session to put each back word for word. It printed a line through `escapeTags`, which drops control characters, and not through `handoffShown`, which also indents a line that then starts with `JBMEM_EOF`. The checkpoint skill passes the text in a heredoc that ends at `JBMEM_EOF_<session ID>`. So a stored line of an escape character and that marker was listed as the bare marker, and put back it ended the heredoc early: the line after it ran as a shell command. Review round 1 read the list and called it clean. The PR's review gate found it on 99b3578, and a test that runs the skill's own command with bash showed it. Behind it sat an older gap: the write's check read the text as sent, so the marker was saved with a control character or a character that shows as nothing in front of it.
+- Why: the list was judged as a display, by the characters it prints, and not as text a session is told to copy into a command. `handoffShown` was written for that copy, and the new printer was not read beside it.
+- Rule going forward: when new output prints stored text that a session is told to copy, write down where the copy goes next (a heredoc, a quoted argument, a file) and send the text through the function the older printers of that text use. Its test takes the output through that next step as the skill runs it, with a line built to break it. A check of a text and the display of that text test a line in the same form.
+- Status: open
+
+## 2026-11-25: A fix closed the route a test of the same batch used for its setup
+
+- What went wrong: the heredoc test of Q69's second batch had a session save an escape character and the end marker through the launcher. The root fix that joined the batch refuses that write, so the test's own control step failed before the code under test ran. The test was changed: the session saves the line indented, and the test puts the control character into the file in place of the indent.
+- Why: the test was written for the first form of the fix, and the write's check was changed after it. The batch's own new tests were not read for texts the new refusal stops.
+- Rule going forward: none new; "A test set up a state through the writer that the writer can't produce" (2026-11-23) holds, and this is its second sighting. Its step for `PLAYBOOK.md` waits for the promotions PR (Q78).
+- Status: open
+
 ## 2026-11-25: A mutant's new text was a part of its old text, and the run stopped on the script's own check
 
 - What went wrong: the first mutation run on Q69's guard-off code ended with exit 7 at its third mutant ("the mutant did not apply as meant"). That mutant took `guardOff` out of the result, so its new text (`archived: arch, warning,`) was a part of its old text, and the script's check, which counts the new text after the write, read the same count as before the write. Two mutants had run. The other eight waited for a second run, and the first run's clone and temp folder were left behind (removed by name afterwards, and checked gone).
