@@ -1678,6 +1678,10 @@ function walkMd(dir, rel = '') {
   return out;
 }
 
+// The drop files the launcher removes (DROP_RE in trailmark.js, with its case
+// rule): search skips them, so a query passed in one doesn't find itself.
+const DROP_NAME = new RegExp('^incoming-(handoff|park|note|search)(-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?\\.md$', process.platform === 'win32' ? 'i' : '');
+
 // Drop files (incoming-handoff-<session>.md and the like) are text on its way
 // into write-handoff or park, not topic files.
 function topicFiles(dir) {
@@ -1689,8 +1693,9 @@ function search(dir, query, max = 40) {
   if (!q) return [];
   const hits = [];
   for (const rel of walkMd(dir)) {
-    // Skip copies of the handoff, which would repeat every hit many times.
-    if (rel === HANDOFF_PREV || rel.startsWith('archive/handoff-history/')) continue;
+    // Skip copies of the handoff, which would repeat every hit many times, and
+    // drop files, so a query passed with --from doesn't find itself.
+    if (rel === HANDOFF_PREV || rel.startsWith('archive/handoff-history/') || DROP_NAME.test(rel)) continue;
     const lines = (readText(path.join(dir, rel)) || '').split(/\r?\n/);
     lines.forEach((l, i) => {
       if (hits.length < max && l.toLowerCase().includes(q)) hits.push({ file: rel, line: i + 1, text: oneLine(l, 200) });

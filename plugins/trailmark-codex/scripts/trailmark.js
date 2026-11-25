@@ -89,13 +89,18 @@ const HOOKS = {
   'commit-start': { script: 'hook-commit-start.js', facts: [] },
   'pause-watch': { script: 'hook-pause-watch.js', facts: [] }, // pause: see pauseWatch below
 };
-const STDIN_COMMANDS = new Set(['write-handoff', 'park']);
+// note and search take their text this way too when no words follow the
+// command, so the skills never put free text in a shell string: PowerShell 7
+// ends a '...' string at a curly single quote as well, and a $(...) after it
+// would run (RS-S-curlyquote).
+const STDIN_COMMANDS = new Set(['write-handoff', 'park', 'note', 'search']);
 
 // The drop files the skills write for --from: incoming-handoff.md,
-// incoming-park.md, or either with a session ID. Only these are removed after
-// a successful save; any other file named with --from is left in place.
+// incoming-park.md, incoming-note.md, incoming-search.md, or any of them with
+// a session ID. Only these are removed after a successful run; any other file
+// named with --from is left in place.
 const SESSION_ID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const DROP_RE = new RegExp(`^incoming-(handoff|park)(-${SESSION_ID})?\\.md$`, process.platform === 'win32' ? 'i' : '');
+const DROP_RE = new RegExp(`^incoming-(handoff|park|note|search)(-${SESSION_ID})?\\.md$`, process.platform === 'win32' ? 'i' : '');
 
 // True when file is inside dir, by name and, when both exist, by real path,
 // so a link inside the memory folder can't point --from somewhere else.
@@ -246,7 +251,7 @@ function run(script, args, { dir, method, root, cwd, stdin, from, payload, reads
   const r = spawnSync(process.execPath, nodeArgs, {
     cwd,
     env,
-    // Text on stdin for write-handoff and park reaches the script as it is
+    // Text on stdin for the STDIN_COMMANDS reaches the script as it is
     // ('inherit'); a --from file, the script opens itself. The launcher never
     // writes a script's stdin: on macOS, spawnSync sometimes deadlocks while
     // it writes a big input to a child (seen in CI, 0.6.0).
@@ -273,7 +278,7 @@ function run(script, args, { dir, method, root, cwd, stdin, from, payload, reads
 // with EAGAIN whenever the writer hasn't sent anything yet (seen in the
 // six-writer test, 2026-10-18). tty.isatty(0) answers "is it a terminal?"
 // without that side effect. Hooks treat a failed read as an empty payload.
-// write-handoff and park don't come here: memory.js reads their text itself
+// The STDIN_COMMANDS don't come here: memory.js reads their text itself
 // and reports a failed read, so a write never goes ahead with text it didn't get.
 function readAllStdin() {
   try { return fs.readFileSync(0); } catch {
@@ -1023,7 +1028,7 @@ function cliMode(args) {
       dirMissing = true;
     }
   }
-  // write-handoff and park take their text on stdin, or from a file named with
+  // write-handoff, park, note and search take their text on stdin, or from a file named with
   // --from=<path>. The file route is for PowerShell, which won't pipe text into
   // a command without manual approval. The launcher checks the file and the
   // script opens it in the memory folder, which it may read anyway, so it
@@ -1031,8 +1036,10 @@ function cliMode(args) {
   // launcher reads neither. Because this check happens before the sandbox
   // starts, the file must be inside the memory folder, like the drop files
   // the skills write there. A drop file (incoming-handoff*.md,
-  // incoming-park*.md) is removed once its text is saved; any other file is
-  // left alone.
+  // incoming-park*.md, incoming-note*.md, incoming-search*.md) is removed once
+  // the command succeeds, but only in a repo set up for trailmark (search
+  // also runs in one that isn't, whose folder is not trailmark's); any other
+  // file is left alone.
   let stdin;
   let from;
   let childArgs = args;
@@ -1049,7 +1056,14 @@ function cliMode(args) {
   if (fromArg) {
     const file = path.resolve(cwd, fromArg.slice('--from='.length).replace(/^"(.*)"$/, '$1'));
     if (!insideFolder(loc.dir, file)) {
-      process.stderr.write(`trailmark: --from must name a file inside the memory folder (${loc.dir}). ${file} is outside it. Save the text there with the Write tool, or pipe it on stdin. Nothing was written.\n`);
+      // "Save the text there" only where a file there works. In a folder
+      // that is missing, saving it would make Claude Code's project folder,
+      // and init would then take an unverified folder for a confirmed one;
+      // in a repo not set up, no command but search takes the file
+      // (RS-S-codexfolder).
+      const there = cmd === 'search' ? fs.existsSync(loc.dir) : S.isEnabled(loc.dir);
+      const next = there ? 'Save the text there with your file-editing tool, or pipe it on stdin.' : cmd === 'search' ? "That folder isn't there, so there is nothing to search. Don't create it or a file in it." : "This repo is not set up for Trailmark, so nothing can be saved. Don't create the memory folder or a file in it: run the tm-memory-setup skill first.";
+      process.stderr.write(`trailmark: --from must name a file inside the memory folder (${loc.dir}). ${file} is outside it. ${next} Nothing was written.\n`);
       process.exit(1);
     }
     const r = checkFromFile(loc.dir, file);
@@ -1073,7 +1087,7 @@ function cliMode(args) {
     if (sweep) facts.sweep = sweep;
   }
   const code = run('memory.js', childArgs, { dir: loc.dir, method: loc.method, root: loc.root, cwd, stdin, from, reads, writes, facts, dirMissing });
-  if (code === 0 && dropFile) { try { fs.unlinkSync(dropFile); } catch { /* left in place; the next write replaces it */ } }
+  if (code === 0 && dropFile && S.isEnabled(loc.dir)) { try { fs.unlinkSync(dropFile); } catch { /* left in place; the next write replaces it */ } }
   // A sweep with no start to read from, said here: memory.js reports only a
   // sweep that ran or ran out of time. This write records when the session
   // is known from (store.js, rec.first), so the next sweep starts there.
