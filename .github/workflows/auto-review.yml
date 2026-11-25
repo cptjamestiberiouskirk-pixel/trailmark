@@ -164,24 +164,38 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.REVIEW_OAUTH_TOKEN }}
         run: |
           set -uo pipefail
+          # The runner reads stderr for `::command::` lines. A worker writes its
+          # failure text to .review/tail-<step>-<name>.txt and never to stderr, so
+          # parallel workers can't nest their stop blocks; after `wait` each file is
+          # printed in turn between stop-commands and a random resume token made
+          # after the text was written, which the text therefore cannot hold.
+          tails() { # lens|vote
+            for f in .review/tail-"$1"-*.txt; do
+              [ -s "$f" ] || continue
+              tok=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+              echo "::stop-commands::$tok" >&2
+              cat "$f" >&2
+              echo "::$tok::" >&2
+            done
+          }
           # A lens that gives no usable JSON is asked once more; the second empty
           # answer stays in place and `candidates` fails the job on it. Each failed
-          # attempt prints a short tail of the CLI's stderr, so the log says why.
+          # attempt keeps a short tail of the CLI's stderr, so the log says why.
+          # The runner starts this step as `bash -e`, so a worker turns errexit off:
+          # a CLI that exits nonzero, or jq failing on what it printed, then still
+          # reaches the check, the tail and the second attempt. A worker runs in the
+          # background, so this stays in its own subshell.
           run() { # lens model
+            set +e
             for attempt in 1 2; do
               "$CLAUDE_BIN" -p "You are the $1 reviewer for PR $PR. Follow REVIEW.md sections \"Every reviewer\" and \"Lens: $1\" exactly. Your final message is the JSON object REVIEW.md describes and nothing else." \
                 --model "$2" --tools "$TOOLS" --restricted --strict-mcp-config \
                 --allowedTools "$READ_TOOLS" --disallowedTools "$DENY_TOOLS" --max-turns 80 --output-format json \
                 > ".review/raw-$1.json" 2> ".review/err-$1.txt"
-              jq -r '.result // ""' ".review/raw-$1.json" | sed -e '/^```/d' > ".review/find-$1.json"
+              jq -r '.result // ""' ".review/raw-$1.json" 2>> ".review/tail-lens-$1.txt" | sed -e '/^```/d' > ".review/find-$1.json"
               node dev/review-gate.js lens-ok ".review/find-$1.json" && return 0
-              echo "the $1 reviewer gave no usable output (attempt $attempt of 2); stderr tail:" >&2
-              # The runner reads stderr for `::command::` lines, so the tail is printed between
-              # stop-commands and a random resume token that the tail cannot know.
-              tok=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
-              echo "::stop-commands::$tok" >&2
-              tail -n 20 ".review/err-$1.txt" | cut -b1-300 >&2
-              echo "::$tok::" >&2
+              { echo "the $1 reviewer gave no usable output (attempt $attempt of 2); stderr tail:"
+                tail -n 20 ".review/err-$1.txt" | cut -b1-300; } >> ".review/tail-lens-$1.txt"
             done
             return 1
           }
@@ -189,6 +203,7 @@ jobs:
           if [ "$(jq -r .lenses.security .review/tier.json)" = true ]; then run security "$MODEL_SECURITY" & fi
           if [ "$(jq -r .lenses.docs .review/tier.json)" = true ]; then run docs "$MODEL_DOCS" & fi
           wait
+          tails lens
           node dev/review-gate.js candidates .review || exit 1
           jq -c 'group_by(.severity) | map({(.[0].severity): length}) | add // {}' .review/candidates.json
       - name: Verifiers vote on each blocking finding
@@ -198,14 +213,38 @@ jobs:
         run: |
           set -uo pipefail
           [ "$(jq '[.[] | select(.severity == "blocking")] | length' .review/candidates.json)" -gt 0 ] || { echo "nothing to vote on"; exit 0; }
-          for i in $(seq 1 "$VERIFIERS"); do
-            ( "$CLAUDE_BIN" -p "You are verifier $i for PR $PR. Follow REVIEW.md section \"Verifier\" exactly, for each blocking finding in .review/candidates.json. Your final message is the JSON object that section describes and nothing else." \
+          # Failure text is printed after `wait`, one worker at a time, as in the
+          # lens step (see the comment there); the two copies of tails() match.
+          tails() { # lens|vote
+            for f in .review/tail-"$1"-*.txt; do
+              [ -s "$f" ] || continue
+              tok=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+              echo "::stop-commands::$tok" >&2
+              cat "$f" >&2
+              echo "::$tok::" >&2
+            done
+          }
+          # A verifier whose output `merge` can't use (no JSON, or no valid verdict
+          # for a blocking finding) is asked once more, as a lens is; the second
+          # failure stays in place and `merge` fails the job, naming the file and why.
+          # It turns errexit off as run() does (see the comment there).
+          vote() { # verifier
+            set +e
+            for attempt in 1 2; do
+              "$CLAUDE_BIN" -p "You are verifier $1 for PR $PR. Follow REVIEW.md section \"Verifier\" exactly, for each blocking finding in .review/candidates.json. Your final message is the JSON object that section describes and nothing else." \
                 --model "$MODEL_VERIFY" --tools "$TOOLS" --restricted --strict-mcp-config \
                 --allowedTools "$READ_TOOLS" --disallowedTools "$DENY_TOOLS" \
-                --max-turns 80 --output-format json > ".review/rawvote-$i.json" 2> ".review/errvote-$i.txt"
-              jq -r '.result // ""' ".review/rawvote-$i.json" | sed -e '/^```/d' > ".review/vote-$i.json" ) &
-          done
+                --max-turns 80 --output-format json > ".review/rawvote-$1.json" 2> ".review/errvote-$1.txt"
+              jq -r '.result // ""' ".review/rawvote-$1.json" 2>> ".review/tail-vote-$1.txt" | sed -e '/^```/d' > ".review/vote-$1.json"
+              node dev/review-gate.js vote-ok ".review/vote-$1.json" .review/candidates.json 2>> ".review/tail-vote-$1.txt" && return 0
+              { echo "verifier $1 gave no usable output (attempt $attempt of 2); stderr tail:"
+                tail -n 20 ".review/errvote-$1.txt" | cut -b1-300; } >> ".review/tail-vote-$1.txt"
+            done
+            return 1
+          }
+          for i in $(seq 1 "$VERIFIERS"); do vote "$i" & done
           wait
+          tails vote
       - name: Combine, post each finding, then the round
         env:
           GH_TOKEN: ${{ github.token }}

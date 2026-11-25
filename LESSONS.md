@@ -91,6 +91,13 @@ Format:
 - Rule going forward: before the first run of a guard that refuses an input, list who sends that input: every test that writes as a session other than its helper's default, and every skill step that tells a session how to make the text, in both copies. Each skill route gets a test that runs the skill's own command beside the case the guard is for and ends with exit 0.
 - Status: open (a second sighting of "A review fix refused a route another client needed", 2026-11-24: its step for PLAYBOOK goes in the PLAYBOOK promotions PR, Q78)
 
+## 2026-11-25: A read-only check went in as an inline node -e
+
+- What went wrong: checking the PR 111 `/ship` comment, a session ran `shipParts` through `node -e` with the code inline in the Bash tool, before running the lessons check for the step. It printed a false comparison of the parsed signature with the `sed` copy, a result nothing was built on; the `ssh-keygen -Y verify` run that followed was the check.
+- Why: the step looked read-only and small, and the lessons check was run only at the next code change.
+- Rule going forward: none new; "Constraints and known limits" already says every script, a read-only one included, is written to a file with the Write tool and run from there, and the lessons check comes before a probe too.
+- Status: promoted to PLAYBOOK (seen again; the step stands)
+
 ## 2026-11-25: A playbook step in a batch turned a medium PR into a high one
 
 - What went wrong: batch r7 of PR 151 (4df7b10) promoted a lesson and added its step to `PLAYBOOK.md`. `dev/risk-tiers.json` rates that file high, so the next push would have made the PR tier high, and its merge would have waited for the owner's signed `/ship`. It showed two batches later, in a run of the tier step's `classify()` on the whole diff that the supervisor asked for before the push.
