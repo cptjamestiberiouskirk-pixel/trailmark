@@ -23,10 +23,12 @@ Every command here runs Trailmark from the path shown, `${CLAUDE_PLUGIN_ROOT}/sc
 
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" list parked
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" search '<keyword>'
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" search <<'JBMEM_EOF_${CLAUDE_SESSION_ID}'
+   <keyword>
+   JBMEM_EOF_${CLAUDE_SESSION_ID}
    ```
 
-   Keep the keyword in single quotes. Inside double quotes the shell would run `$(...)`, and in Bash backticks too; PowerShell would also expand `$name`. Write a single quote in it as `'\''` in Bash or `''` in PowerShell.
+   The keyword goes on stdin, never on the command line: PowerShell ends a single-quoted string at a curly single quote too, and a `$(...)` after it runs. With PowerShell only, or if the marker shows a placeholder in braces, the keyword goes in a file in the memory folder (step 4 says how to find it, with `dir`). Save the file only when `dir` shows `set up: true`: otherwise nothing can be parked: stop here, don't save the file or the park file of step 4 (saving either could make the folder), and tell the user that parking needs a repo set up for Trailmark. Then save the keyword with the Write tool as `incoming-search-${CLAUDE_SESSION_ID}.md` in that folder and run `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" search --from="<memory folder>/incoming-search-${CLAUDE_SESSION_ID}.md"`. If the command shows a placeholder in braces where the ID belongs, name the file `incoming-search.md` instead, in the file and in the command.
 
    If it's already parked or already in the handoff, say where and stop. If `park` later says the file exists, another session may have parked the same slug a moment ago: read it, and pick a new slug unless it is the same idea.
 
@@ -60,7 +62,7 @@ Every command here runs Trailmark from the path shown, `${CLAUDE_PLUGIN_ROOT}/sc
 
    The end marker carries this session's ID, so a line in the text can't end the heredoc early. A line that starts with `JBMEM_EOF` is refused, whichever way the text is passed: indent that line by two spaces and run the command again. If the marker shows a placeholder in braces instead of this session's ID, it is the same in every session, so don't use the heredoc: save the text with the Write tool and pass it with `--from` as described next, in Bash too.
 
-   Use the Bash tool for this when you have it. PowerShell won't pipe text into a command without manual approval, so with PowerShell only: take the memory folder from the first line of `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" dir`, save the note with the Write tool as `incoming-park-${CLAUDE_SESSION_ID}.md` in that folder, then run `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" park --slug=<slug> --from="<memory folder>/incoming-park-${CLAUDE_SESSION_ID}.md"`. The session ID in the name keeps two sessions parking at once from overwriting each other's file. If the command shows a placeholder in braces where the ID belongs, name the file `incoming-park.md`. The file is removed once the idea is parked. Write each command with the full trailmark.js path as shown, not through a variable such as `$j`, so PowerShell can check the whole command before it runs.
+   Use the Bash tool for this when you have it. PowerShell won't pipe text into a command without manual approval, so with PowerShell only: take the memory folder from the first line of `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" dir`. Save the file only when `dir` shows `set up: true`: otherwise nothing can be parked: stop, don't save the file (saving it could make the folder), and tell the user that parking needs a repo set up for Trailmark. Then save the note with the Write tool as `incoming-park-${CLAUDE_SESSION_ID}.md` in that folder and run `node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" park --slug=<slug> --from="<memory folder>/incoming-park-${CLAUDE_SESSION_ID}.md"`. The session ID in the name keeps two sessions parking at once from overwriting each other's file. If the command shows a placeholder in braces where the ID belongs, name the file `incoming-park.md`. The file is removed once the idea is parked. Write each command with the full trailmark.js path as shown, not through a variable such as `$j`, so PowerShell can check the whole command before it runs.
 
 5. **Receipt** in one line: `Parked: parked/<slug>.md`. Then continue with what you were doing.
 

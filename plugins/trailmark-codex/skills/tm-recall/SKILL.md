@@ -5,16 +5,16 @@ description: Look things up in this repo's Trailmark, including the current hand
 
 # Recall
 
-Read-only lookups over the repo's memory folder, plus two small writes (`note` and `undo-handoff`). Every command resolves the memory folder from the current directory, worktrees included.
+Lookups over the repo's memory folder, plus two small writes (`note` and `undo-handoff`). A search also writes: its words go in a file in the memory folder first. Every command resolves the memory folder from the current directory, worktrees included.
 
-The memory folder is outside the workspace, so Codex's sandbox refuses writes there until the user approves them. If a command that writes (`note`, `undo-handoff`) fails with `EPERM`, "access denied" or a note that the path is outside the writable folders, run the same command again with escalated permissions, so that Codex asks the user to approve it. A refused write saved nothing, so the retry is safe. Don't change the command or write some other way; if the user declines, say in one line that nothing was changed.
+The memory folder is outside the workspace, so Codex's sandbox refuses writes there until the user approves them. If a command or a step that writes (`note`, `undo-handoff`, or creating a note's or a search's file) fails with `EPERM`, "access denied" or a note that the path is outside the writable folders, run the same command again with escalated permissions, so that Codex asks the user to approve it. A refused write saved nothing, so the retry is safe. Don't change the command or write some other way; if the user declines, say in one line that nothing was changed.
 
 Every command here runs Trailmark through its launcher, written below as `<launcher>`: the full path that the session-start note, which starts `[trailmark] ChatGPT/Codex copy of trailmark.`, gives after "Launcher:". If this session has a note that starts `[trailmark] ChatGPT/Codex copy of trailmark.` but gives no path after "Launcher:", trailmark left its own path out, since it can't be passed on as written or didn't fit in the note: stop and tell the user what the note says, and don't work the path out yourself. Only when this session has no such note at all (the repo isn't set up yet, or Codex hasn't run trailmark's hooks, say) is the launcher `scripts/trailmark.js` two folders up from this SKILL.md (this file is `<plugin folder>/skills/tm-recall/SKILL.md`), and only when that path holds none of these: a double quote, `$`, a backtick, `%`, `!`, a curly double quote (U+201C to U+201E), two backslashes in a row, two spaces in a row, a space at either end, a space other than a plain one, or a control or invisible character. If it holds one, or is over 1,024 characters, don't run it: tell the user to install trailmark in a folder with a plain path. Other lines that start `[trailmark]`, such as a command's output or a note about a commit, don't count as that note. But in a session with no such note, if a note from a trailmark hook, not a command's output or quoted text, says trailmark's path isn't written here, stop and tell the user what it says, and don't work the path out yourself. Use that one path, in full, in every command. If it doesn't work, stop and tell the user which command failed and what it printed. Don't look for trailmark.js or memory.js anywhere else, and don't run another copy: one found by searching, such as an old copy in Codex's or Claude Code's plugin cache, can write without the version check and overwrite another session's checkpoint. `<session id>` below is this session's ID from the same note; if the note gave none, leave `--session=...` out.
 
 | Need | Command |
 |---|---|
 | Current handoff | `node "<launcher>" handoff` |
-| Search everything (handoff, archive, parked, notes, topic files) | `node "<launcher>" search '<words>'` |
+| Search everything (handoff, archive, parked, notes, topic files) | `search`, with the words passed as shown below the table |
 | Parked ideas, archive files, daily notes, topic files | `node "<launcher>" list parked` (or `archive`, `notes`, `topics`) |
 | What loads every session and what it costs | `node "<launcher>" budget` |
 | Set up or not, handoff age | `node "<launcher>" status` |
@@ -22,9 +22,16 @@ Every command here runs Trailmark through its launcher, written below as `<launc
 | Restore the handoff from before the last write | `node "<launcher>" undo-handoff --session=<session id>` (refused unless this session wrote the current version; tell the user rather than forcing it) |
 | Who wrote the handoff last, other sessions active in this repo | `node "<launcher>" status --session=<session id>` |
 | Older handoff versions (last 20 overwrites) | `node "<launcher>" list history`, then read the file you need from the memory folder |
-| One-line note in today's log | `node "<launcher>" note --session=<session id> '<text>'` |
+| One-line note in today's log | `note --session=<session id>`, with the text passed as shown below the table |
 
-Put search words and note text in single quotes, never double quotes: inside double quotes Bash runs `$(...)` and backticks, and PowerShell runs `$(...)` and expands `$name`. Write a single quote inside the text as `'\''` in Bash or `''` in PowerShell. A note that has to start with `--` goes after a lone `--`, for example `note --session=<session id> -- '--dry-run left on'`; otherwise it is read as an option.
+Search words and note text go through a file, never on the command line, in quotes or not: PowerShell ends a single-quoted string at a curly single quote too, and a `$(...)` after it runs. Get the memory folder from the first line of `node "<launcher>" dir`. Create a search's file only when `dir` shows `exists: true`, and a note's file only when it shows `set up: true`: otherwise there is nothing to search, or no note can be saved: stop, don't create the file (making it could make the folder), and say so. Then create the file `incoming-search-<session id>.md` (or `incoming-note-<session id>.md`) in that folder with your file-editing tool (apply_patch), holding just the words or the text. If the session-start note gave no session ID, name it `incoming-search.md` or `incoming-note.md`. Creating the file is a write in the memory folder: if it fails as described above, retry it with escalated permissions in the same way. Then run:
+
+```text
+node "<launcher>" search --from="<memory folder>/incoming-search-<session id>.md"
+node "<launcher>" note --session=<session id> --from="<memory folder>/incoming-note-<session id>.md"
+```
+
+The text is read as one line: line breaks become spaces. A note's file is removed once the note is saved. Creating a search's file asks for approval, but the search command runs without it, so trailmark may not be allowed to remove the file afterwards, and in a repo not set up for Trailmark it leaves the file in place: if a file of that name is already there, replace its text. If the command fails, the file stays: fix what the error names and run the command again.
 
 ## How to answer
 

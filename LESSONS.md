@@ -21,6 +21,97 @@ Format:
 - Rule going forward: none new; "Constraints and known limits" already says every script, a read-only one included, is written to a file with the Write tool and run from there, and the lessons check comes before a probe too.
 - Status: promoted to PLAYBOOK (seen again; the step stands)
 
+## 2026-11-25: A playbook step in a batch turned a medium PR into a high one
+
+- What went wrong: batch r7 of PR 151 (4df7b10) promoted a lesson and added its step to `PLAYBOOK.md`. `dev/risk-tiers.json` rates that file high, so the next push would have made the PR tier high, and its merge would have waited for the owner's signed `/ship`. It showed two batches later, in a run of the tier step's `classify()` on the whole diff that the supervisor asked for before the push.
+- Why: the tier was read from the label on the pushed head and not again for the commits made after it. The promotion rule was followed without reading what a change to that file does to the PR's tier.
+- Rule going forward: before a commit, read its files against the high rules of `dev/risk-tiers.json`, and before a push run `classify()` of `dev/tier.js` on `origin/main...HEAD` (`q62/q62-tier-check.js` in the sessions' notes folder does it, read-only). A lesson's step for `PLAYBOOK.md` does not go into a PR meant to merge at low or medium. The lesson stays open, and its step goes with the other waiting promotions into a PR that changes `PLAYBOOK.md` alone, which the owner merges after a signed `/ship` (the supervisor, 2026-11-25, marker tm-2434).
+- Status: open
+
+## 2026-11-25: Notes copied a reviewer's claim past the correction in its own report
+
+- What went wrong: the notes commit of PR 151 (13e7208) said of a mutant that "it has no input the tests should catch it with". The reviewer's report says so in its body, and under its Cleanup heading it says the probe did not compare the two texts for all 66 characters. The same commit pointed at "the bullet above" for a label that is in another bullet, and wrote "every line PASS" for a run with one SKIP line. A docs pass found the three.
+- Why: the notes summed up the Cleanup section in one sentence ("None changes a finding") and did not read it against each claim taken from the report's body. The two other sentences were written without the bullet and the saved output open beside them.
+- Rule going forward: before a reviewer's claim goes into the notes, read the report's corrections (a Cleanup or errata section) against it. A pointer names the bullet it points to, and a sentence about a run's lines is read against the saved output, line by line.
+- Status: open (a second sighting of the entries "A doc line said how a probe ran without the probe's script being read", 2026-11-23, and "A record gave one reading for three cases, and a rule's reach without its skips", 2026-11-15: its step for PLAYBOOK goes in the PLAYBOOK promotions PR, Q78)
+
+## 2026-11-25: A count of tests failing on the parent hid a changed test that passes there
+
+- What went wrong: the notes and the commit message of batch r8 of PR 151 gave "6 failed of 12" and "8 failed of 12" for "the new and changed tests" on the parent's code. Of the 12, two are a test the batch does not change, and on Linux two more are a changed test that passes on the parent, because it accepts a stop as well as an answer. The reviewer found it from its own run of the same check.
+- Why: the entry "Two new tests passed on the parent, counted as a total" (2026-11-22) was read as a rule for new tests only. The count was copied from the run's summary line, and the tests that passed were not read by name.
+- Rule going forward: after a run on the parent, read the result of every test the pattern selects, by name. Each new or changed test that passes there gets its reason in the notes, and a count says which tests it counts.
+- Status: open (the second sighting of the 2026-11-22 entry: both become part of PLAYBOOK "Testing" step 8 in the PLAYBOOK promotions PR, Q78)
+
+## 2026-11-25: A reviewer's run ended three times on an API error before its last message
+
+- What went wrong: the Fable check of batch r8 stopped on "529 Overloaded" three times in 15 minutes. Its last message never came, and its temp folders stayed. The report was already in its file, with the cleanup line open, so the round still had a result.
+- Why: nothing in the session's steps said what to do when a reviewer stops on an error of the service. The first stop was taken for the end of the round until the file list showed no report.
+- Rule going forward: a brief asks for the report file before the cleanup and the last message. When a reviewer stops on a service error, resume it by its ID (it keeps its transcript) and read what it left on disk before starting another. A model is not changed for an overload: the table in `CLAUDE.md` names the model, and the wait is the supervisor's or the user's call.
+- Status: open
+
+## 2026-11-24: A stop made for every value took a working answer away
+
+- What went wrong: batch r7 of PR 151 made `dir` stop when the memory folder's path, the method or the repo root held a control character. The reviewer showed that a repo that is set up, in a folder named with such a character, lost its `dir` answer: its memory folder's path is clean, and main answered there with a usable first line. The stop's message also named a second way out that did not work in the two states it was written for. The root went back to its filtered line, and both points got a test.
+- Why: "treat them all in one fix (refuse, or filter)" was read as "refuse them all". The stop was run on the inputs it was meant to refuse and never in a repo that is set up, and the message's advice was written without a run.
+- Rule going forward: before a guard refuses an input, run the last release's command on that input in a repo that is set up. Where it answered correctly and a filter keeps the output safe, filter and keep the answer. Run each way out a message names once before it ships.
+- Status: open
+
+## 2026-11-24: Times in a status and in notes were written from memory
+
+- What went wrong: a milestone sent to the supervisor was headed 22:50 when the clock read 22:27, 23 minutes ahead. An earlier message and three headings in the session's plan notes carried estimates as well. The supervisor pointed it out.
+- Why: each time was worked out from the last time seen and the work done since. No command read the clock in the step that wrote it.
+- Rule going forward: a time in a status, a note or a heading comes from `date` (or a tool's own timestamp) read in the same step. A time taken from someone else's report says whose clock it is.
+- Status: open
+
+## 2026-11-24: A rule about a guard's input was written, then applied to one line
+
+- What went wrong: batch r5 of PR 151 logged the rule "check that nothing printed above the line it reads can be set from outside" (the entry "A finding fixed in one place came back from two others") and then filtered only the `repo root:` line of `dir`. The reviewer of that commit showed that the first line and `resolved by:` took the same line break in three states, and that the new sentence in docs/how-it-works.md claimed it for the whole output. The fix was redone for the folder, the method and the root together, and the root was taken out again (the entry "A stop made for every value took a working answer away").
+- Why: the fix followed the finding's line again, and the doc sentence was written from what the fix was meant to do, not from a run of each line.
+- Rule going forward: when a command's output is read as a check, list every value the command prints and where each one comes from, and treat them all in one fix (refuse, or filter). A doc sentence that says "cannot" names the runs it rests on.
+- Status: open
+
+## 2026-11-24: An escape sent through Write became the character itself, again
+
+- What went wrong: test text written with the Write tool held escapes for the line separator, the paragraph separator and the zero-width space. The file got the characters themselves, and the test file stopped parsing (a line separator inside a regex). The lessons of 2026-11-07, 2026-11-21 and 2026-11-24 already say to build such characters in code.
+- Why: the rule was known and nothing ran it before the file was used.
+- Rule going forward: name such a character by its class or build it in code, and count the non-ASCII lines of each file after it is written, before it is used.
+- Status: open (a repeat of the entries of 2026-11-07, 2026-11-21 and 2026-11-24; to be promoted to PLAYBOOK "Writing code and docs" in the PLAYBOOK promotions PR, Q78, with the step as 4df7b10 worded it: see the entry of 2026-11-25, "A playbook step in a batch turned a medium PR into a high one")
+
+## 2026-11-24: A finding fixed in one place came back from two others
+
+- What went wrong: PR 151's auto-review found that a Codex skill saved a file in a memory folder that isn't there, which makes the folder. The fix guarded that skill. The next round found the same in the Claude Code copy. A sweep then found six more skill routes, and the reviewers of that fix found a launcher message that told a session to save there, and that the `dir` line the guard reads could be forged by a folder name with a line break.
+- Why: the fix followed the finding's file and line, not the effect. Nobody listed every place that leads to the effect (both copies, skills and script messages), or asked what the guard itself trusts.
+- Rule going forward: for a finding about an effect a session can be led to, list every route to it before the first fix: both copies, every skill, and every script message that tells a session what to do. Fix them in one commit with a scan test that counts them. When a guard reads a command's output, check that nothing printed above the line it reads can be set from outside.
+- Status: open
+
+## 2026-11-24: A review fix refused a route another client needed
+
+- What went wrong: Q62 round 1 found that a `--from` search in a repo not set up let the launcher remove the file. The fix refused a `--from` search there. Round 2 found that this stopped Codex's only search route in such a repo, which worked at 54f50a3.
+- Why: the fix blocked the input that led to the effect instead of guarding the effect itself (the removal), and it was checked only against the finding's repro, not against each client that sends that input.
+- Rule going forward: fix a finding at the effect it names where possible. Before a fix refuses an input, list who sends it (each skill, both copies) and test that their routes still work.
+- Status: open
+
+## 2026-11-24: A skill edit broke a test that --quick skips
+
+- What went wrong: Q62 changed the recall and park skills, and `hardening.test.js` "skills: note and search text goes in single quotes" (a long suite, which `--sums --quick` skips) failed on the new `search --from="<memory folder>/..."` line in the Claude Code copy. The docs reviewer pointed at the test's title; `--only` on it reproduced the failure before any push.
+- Why: the per-push rule runs `--only` for new and changed tests, and this test was neither, though it reads the files the change edited.
+- Rule going forward: before a push that changes a skill, a doc a test reads, or a message a test matches, grep the tests for the file's name or the changed text (`grep -ln 'SKILL.md\|<text>' plugins/*/tests/*.js`) and run `--only` on each test that reads it.
+- Status: open
+
+## 2026-11-24: An escape in an Edit became the character itself
+
+- What went wrong: for RS-S-curlyquote, the new test was written through the Edit tool with the JavaScript escape for U+2019 (backslash, `u2019`) in a string literal, and the file got the curly quote itself. Writing this lesson did the same. The added-line byte check for non-ASCII caught it before the commit.
+- Why: the escape sequence in the tool's text was turned into the character it names on the way to the file.
+- Rule going forward: in code written through Edit or Write, build a character outside printable ASCII with `String.fromCharCode(0x...)` (or `new RegExp` from a string with a doubled backslash), and byte-grep the added lines for non-ASCII before the commit.
+- Status: open
+
+## 2026-11-24: A read-only sweep missed a site that a test then found
+
+- What went wrong: the Q61 sweep for free text in shell commands listed the recall and park skills but not `tm-memory-setup` step 3 (`note '<one line: Codex setup check>'`). The Q62 test, which scans every skill for a quoted note or search after the command, found it.
+- Why: the sweep searched by reading and grep for known command shapes; the test applied one pattern to every line of every skill.
+- Rule going forward: when a sweep's finding becomes a fix, add a test that scans every file of that kind for the pattern, and treat the sweep's site list as a start, not the whole.
+- Status: open
+
 ## 2026-11-24: A new worktree came off a stale origin/main
 
 - What went wrong: for RS-D-codexshortid, `git worktree add -b <branch> <dir> origin/main` in the main checkout made the branch at 1e96394, two merges behind (PRs 144 and 145). The fetch before it had run in another clone, which keeps its own `origin/main`.
