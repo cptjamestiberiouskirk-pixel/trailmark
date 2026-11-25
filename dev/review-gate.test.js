@@ -931,7 +931,7 @@ test('workflow: a lens that gives nothing is asked once more, prints its stderr 
       'if [ "$n" -le "$STUB_EMPTY" ]; then echo "cli crashed $n"; echo "boom: transient error $n" >&2; echo "::error title=spoof::from stderr" >&2; exit 1; fi',
       'echo \'{"result":"```json\\n{\\"findings\\":[]}\\n```"}\'',
       '',
-    ].join('\n'));
+    ].join('\n'), { mode: 0o755 });
     const go = (empty) => {
       const count = path.join(tmp, 'count');
       fs.rmSync(count, { force: true });
@@ -1097,7 +1097,7 @@ test('workflow: a verifier that gives nothing is asked once more, prints its std
       'fi',
       'echo \'{"result":"```json\\n{\\"votes\\":[{\\"id\\":\\"regression-1\\",\\"verdict\\":\\"confirmed\\"},{\\"id\\":\\"security-1\\",\\"verdict\\":\\"rejected\\"}]}\\n```"}\'',
       '',
-    ].join('\n'));
+    ].join('\n'), { mode: 0o755 });
     const go = (empty) => {
       const count = path.join(tmp, 'count');
       fs.rmSync(count, { force: true });
@@ -1171,7 +1171,7 @@ test('workflow: two verifiers that fail at once print their tails one after the 
       'echo "::error title=w$w::from worker $w" >&2',
       'exit 1',
       '',
-    ].join('\n'));
+    ].join('\n'), { mode: 0o755 });
     const script = ['set -uo pipefail', `PR=7 TOOLS=a READ_TOOLS=b DENY_TOOLS=c MODEL_VERIFY=m CLAUDE_BIN="${sh(stub)}"`, fn,
       'for i in 1 2; do vote "$i" & done', 'wait', 'tails vote'].join('\n');
     const r = spawnSync('bash', ['-c', script], { cwd: tmp, encoding: 'utf8', timeout: 60000, env: { ...process.env, PATH: sh(path.join(tmp, 'bin')) + path.delimiter + process.env.PATH } });
@@ -1191,6 +1191,79 @@ test('workflow: two verifiers that fail at once print their tails one after the 
     assert.equal(new Set(toks).size, 2);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+test('workflow: under the runner\'s bash -e, a worker whose CLI exits nonzero or prints no JSON still gets its second attempt and its tail (RS-G-errexit)', (t) => {
+  if (spawnSync('bash', ['-c', 'true'], { timeout: 20000 }).status !== 0) return t.skip('bash is needed');
+  const wf = wfText();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-errexit-'));
+  const sh = (p) => p.replace(/\\/g, '/');
+  try {
+    fs.mkdirSync(path.join(tmp, 'bin'));
+    // Like jq, it exits nonzero with a parse error when the CLI's output is not JSON.
+    fs.writeFileSync(path.join(tmp, 'bin', 'jq.js'), 'const t = require("fs").readFileSync(process.argv[2], "utf8"); let o = {}; try { if (t.trim()) o = JSON.parse(t); } catch { console.error("jq: parse error (stand-in)"); process.exit(2); } console.log(o.result ?? "");\n');
+    fs.writeFileSync(path.join(tmp, 'bin', 'jq'), '#!/bin/bash\nexec node "$(dirname "$0")/jq.js" "$3"\n', { mode: 0o755 });
+    // The stand-in CLI. STUB_MODE exit1: the first call prints no JSON and exits 1; badjson: it
+    // prints no JSON and exits 0, so jq fails; always: every call prints no JSON and exits 1.
+    const stub = path.join(tmp, 'stub.sh');
+    fs.writeFileSync(stub, [
+      '#!/bin/bash',
+      'n=$(cat "$STUB_COUNT" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$STUB_COUNT"',
+      'if [ "$n" = 1 ] || [ "$STUB_MODE" = always ]; then echo "cli output that is not JSON"; echo "boom $n" >&2; [ "$STUB_MODE" = badjson ] && exit 0; exit 1; fi',
+      'case "$2" in *verifier*) echo \'{"result":"{\\"votes\\":[{\\"id\\":\\"regression-1\\",\\"verdict\\":\\"confirmed\\"},{\\"id\\":\\"security-1\\",\\"verdict\\":\\"rejected\\"}]}"}\' ;; *) echo \'{"result":"{\\"findings\\":[]}"}\' ;; esac',
+      '',
+    ].join('\n'), { mode: 0o755 });
+    // Runs one worker as its step does (in the background, then wait and tails), as a file
+    // under `bash -e`, which is how the runner starts every `run:` step ("shell: /usr/bin/bash -e {0}").
+    const go = (worker, mode) => {
+      const [header, call, step, out, check] = worker === 'vote'
+        ? ['vote() { # verifier', 'vote 1 &', 'vote', 'vote-1.json', ['vote-ok', '.review/vote-1.json', '.review/candidates.json']]
+        : ['run() { # lens model', 'run regression m &', 'lens', 'find-regression.json', ['lens-ok', '.review/find-regression.json']];
+      const d = path.join(tmp, `${worker}-${mode}`);
+      fs.mkdirSync(path.join(d, '.review'), { recursive: true });
+      fs.mkdirSync(path.join(d, 'dev'));
+      fs.copyFileSync(path.join(__dirname, 'review-gate.js'), path.join(d, 'dev', 'review-gate.js'));
+      fs.writeFileSync(path.join(d, '.review', 'candidates.json'), JSON.stringify(VCANDS));
+      fs.writeFileSync(path.join(d, 'step.sh'), ['set -uo pipefail', wfFn(wf, header).text, tailsText(wf), call, 'wait', `tails ${step}`, 'echo "step end"', ''].join('\n'));
+      const count = path.join(d, 'count');
+      const r = spawnSync('bash', ['-e', 'step.sh'], { cwd: d, encoding: 'utf8', timeout: 60000, env: { ...process.env, PATH: sh(path.join(tmp, 'bin')) + path.delimiter + process.env.PATH,
+        PR: '7', TOOLS: 'a', READ_TOOLS: 'b', DENY_TOOLS: 'c', MODEL_VERIFY: 'm', CLAUDE_BIN: sh(stub), STUB_COUNT: sh(count), STUB_MODE: mode } });
+      const ok = spawnSync(process.execPath, [path.join(d, 'dev', 'review-gate.js'), ...check], { cwd: d, encoding: 'utf8', timeout: 20000 });
+      return { r, ok, calls: fs.existsSync(count) ? Number(fs.readFileSync(count, 'utf8')) : 0, out };
+    };
+    for (const worker of ['run', 'vote']) {
+      for (const mode of ['exit1', 'badjson']) {
+        const x = go(worker, mode);
+        assert.equal(x.calls, 2, `${worker}() ${mode}: the worker lives on to its second attempt`);
+        assert.equal(x.ok.status, 0, `${worker}() ${mode}: the second answer is used (${x.ok.stderr})`);
+        assert.match(x.r.stdout, /step end/);
+        const blocks = stopBlocks(x.r.stderr);
+        assert.equal(blocks.length, 1, `${worker}() ${mode}: one tail block`);
+        assert.match(blocks[0], /gave no usable output \(attempt 1 of 2\)/);
+        assert.match(blocks[0], /^boom 1$/m, "the CLI's stderr is kept");
+      }
+      // Failing every time: two calls, no more, both attempts in the tail, and the output stays unusable.
+      const x = go(worker, 'always');
+      assert.equal(x.calls, 2, `${worker}() always: two calls`);
+      assert.notEqual(x.ok.status, 0, `${worker}() always: ${x.out} stays unusable`);
+      assert.match(x.r.stdout, /step end/);
+      const both = stopBlocks(x.r.stderr).join('\n');
+      assert.match(both, /\(attempt 1 of 2\)[\s\S]*\(attempt 2 of 2\)/);
+      assert.match(both, /^boom 2$/m);
+    }
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+test('workflow tests: every CLI stand-in is written executable, since Linux runs it as "$CLAUDE_BIN" (RS-G-stubmode)', () => {
+  // Git Bash runs a file with a #! line whatever its mode, so only this check catches a missing mode here.
+  const src = fs.readFileSync(__filename, 'utf8');
+  const starts = [...src.matchAll(/fs\.writeFileSync\(stub, \[/g)].map((m) => m.index);
+  assert.ok(starts.length >= 4, `stand-ins found: ${starts.length}`);
+  for (const at of starts) {
+    const end = src.indexOf("].join('\\n')", at);
+    assert.ok(end > at, 'the stand-in ends with a join');
+    assert.ok(src.startsWith("].join('\\n'), { mode: 0o755 });", end), `the stand-in at offset ${at} is written with mode 0o755`);
   }
 });
 test('breaker: a number followed by a word is prose, not a PR (RS-G-commaprose)', () => {

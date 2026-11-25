@@ -181,7 +181,12 @@ jobs:
           # A lens that gives no usable JSON is asked once more; the second empty
           # answer stays in place and `candidates` fails the job on it. Each failed
           # attempt keeps a short tail of the CLI's stderr, so the log says why.
+          # The runner starts this step as `bash -e`, so a worker turns errexit off:
+          # a CLI that exits nonzero, or jq failing on what it printed, then still
+          # reaches the check, the tail and the second attempt. A worker runs in the
+          # background, so this stays in its own subshell.
           run() { # lens model
+            set +e
             for attempt in 1 2; do
               "$CLAUDE_BIN" -p "You are the $1 reviewer for PR $PR. Follow REVIEW.md sections \"Every reviewer\" and \"Lens: $1\" exactly. Your final message is the JSON object REVIEW.md describes and nothing else." \
                 --model "$2" --tools "$TOOLS" --restricted --strict-mcp-config \
@@ -222,7 +227,9 @@ jobs:
           # A verifier whose output `merge` can't use (no JSON, or no valid verdict
           # for a blocking finding) is asked once more, as a lens is; the second
           # failure stays in place and `merge` fails the job, naming the file and why.
+          # It turns errexit off as run() does (see the comment there).
           vote() { # verifier
+            set +e
             for attempt in 1 2; do
               "$CLAUDE_BIN" -p "You are verifier $1 for PR $PR. Follow REVIEW.md section \"Verifier\" exactly, for each blocking finding in .review/candidates.json. Your final message is the JSON object that section describes and nothing else." \
                 --model "$MODEL_VERIFY" --tools "$TOOLS" --restricted --strict-mcp-config \
