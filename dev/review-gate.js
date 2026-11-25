@@ -86,10 +86,6 @@ function mergeFindings(cands, voteOutputs) {
   return { blocking, notes, dropped, verifiers: perVerifier.length };
 }
 
-// Why one verifier's output can't be used for these candidates, or null when
-// it can: the checks mergeFindings needs, so the workflow can ask once more.
-// REVIEW.md "Verifier" allows only these two verdicts; any other on a blocking
-// finding is unusable output, not a rejection.
 // The lenses the tier started: each key of tier.json's `lenses` that is exactly
 // true, with a name a find-<lens>.json file can carry. Null when there is none, so
 // a missing or odd tier.json fails the round instead of starting no check at all.
@@ -102,6 +98,10 @@ function lensesStarted(tier) {
   if (on.length === 0 || on.some((k) => !/^[a-z]+$/.test(k))) return null;
   return on;
 }
+// Why one verifier's output can't be used for these candidates, or null when
+// it can: the checks mergeFindings needs, so the workflow can ask once more.
+// REVIEW.md "Verifier" allows only these two verdicts; any other on a blocking
+// finding is unusable output, not a rejection.
 const VERDICTS = ['confirmed', 'rejected'];
 function voteProblem(v, cands) {
   if (!v || typeof v !== 'object' || !Array.isArray(v.votes)) return 'no votes array';

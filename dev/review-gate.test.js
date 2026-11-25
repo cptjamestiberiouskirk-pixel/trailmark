@@ -1271,25 +1271,15 @@ test('workflow tests: every CLI stand-in is written executable, since Linux runs
   }
 });
 test('candidates: every lens the tier started must have left its file, or the round fails naming it (RS-G-lensmissing)', () => {
-  assert.deepEqual(g.lensesStarted({ lenses: { regression: true, security: true, docs: false } }), ['regression', 'security']);
-  // Only exactly true starts a lens.
-  assert.deepEqual(g.lensesStarted({ lenses: { regression: true, security: 'false', docs: 1 } }), ['regression']);
-  for (const bad of [null, {}, { lenses: null }, { lenses: 'regression' }, { lenses: [true] }, { lenses: 7 }, { lenses: { regression: false } }, { lenses: { regression: 'true' } }, { lenses: { 'Reg-1': true } }]) {
-    assert.equal(g.lensesStarted(bad), null, JSON.stringify(bad));
-  }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-'));
   const cli = (...args) => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', timeout: 10000 });
   const tier = (lenses) => fs.writeFileSync(path.join(dir, 'tier.json'), JSON.stringify({ tier: 'medium', lenses }));
   try {
     fs.writeFileSync(path.join(dir, 'find-regression.json'), JSON.stringify({ findings: [{ severity: 'blocking', path: 'a.js', line: 1, title: 't' }] }));
-    // No tier.json: nothing says which lenses ran, so the round fails.
-    let r = cli('candidates', dir);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /tier\.json/);
     // The security lens was started and left no file: the round fails and names it.
     tier({ regression: true, security: true, docs: false });
-    r = cli('candidates', dir);
-    assert.equal(r.status, 1);
+    let r = cli('candidates', dir);
+    assert.equal(r.status, 1, 'a started lens without its file fails the round');
     assert.match(r.stderr, /the security reviewer left no output \(find-security\.json is missing\)/);
     assert.equal(r.stdout, 'lenses started: regression,security; files: 1 of 2\n', 'one log line names the lenses and counts their files');
     assert.ok(!fs.existsSync(path.join(dir, 'candidates.json')), 'no candidates are written');
@@ -1309,7 +1299,19 @@ test('candidates: every lens the tier started must have left its file, or the ro
     r = cli('candidates', dir);
     assert.equal(r.status, 1);
     assert.match(r.stderr, /the security reviewer left no output[\s\S]*the docs reviewer left no output/);
+    // No tier.json: nothing says which lenses ran, so the round fails.
+    fs.rmSync(path.join(dir, 'tier.json'));
+    r = cli('candidates', dir);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /no lenses in tier\.json/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  // The rule itself, after the CLI checks so the parent fails on the missing lens first.
+  assert.deepEqual(g.lensesStarted({ lenses: { regression: true, security: true, docs: false } }), ['regression', 'security']);
+  // Only exactly true starts a lens.
+  assert.deepEqual(g.lensesStarted({ lenses: { regression: true, security: 'false', docs: 1 } }), ['regression']);
+  for (const bad of [null, {}, { lenses: null }, { lenses: 'regression' }, { lenses: [true] }, { lenses: 7 }, { lenses: { regression: false } }, { lenses: { regression: 'true' } }, { lenses: { 'Reg-1': true } }]) {
+    assert.equal(g.lensesStarted(bad), null, JSON.stringify(bad));
+  }
 });
 // One step's `run: |` text from the workflow, dedented, as the runner writes it to a file.
 const stepRun = (wf, name) => {
@@ -1367,13 +1369,14 @@ test('workflow: under bash -e, a lens whose worker dies before writing fails the
     assert.deepEqual(none.calls, ['docs', 'regression', 'security'], 'the step started all three lenses');
     assert.equal(none.r.status, 0, none.r.stderr);
     assert.deepEqual(none.finds, ['find-docs.json', 'find-regression.json', 'find-security.json']);
-    assert.match(none.r.stdout, /^lenses started: regression,security,docs; files: 3 of 3$/m, 'the log says which lenses ran');
     // The security worker dies before writing its file: the step fails and names it.
     const gone = go('security');
     assert.deepEqual(gone.calls, ['docs', 'regression', 'security']);
     assert.deepEqual(gone.finds, ['find-docs.json', 'find-regression.json'], 'the killed worker left no file');
     assert.notEqual(gone.r.status, 0, 'the lens step fails without the security lens');
     assert.match(gone.r.stderr, /the security reviewer left no output/);
+    // The log line, after the fail-closed checks so the parent fails on the missing lens first.
+    assert.match(none.r.stdout, /^lenses started: regression,security,docs; files: 3 of 3$/m, 'the log says which lenses ran');
     assert.match(gone.r.stdout, /^lenses started: regression,security,docs; files: 2 of 3$/m);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
