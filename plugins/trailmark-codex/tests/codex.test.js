@@ -504,13 +504,28 @@ test('codex skills: every route that saves an incoming file in the memory folder
   // A route: a line of prose (not a command of its own) that names a drop
   // file next to a word for saving it, or that names the tool that saves.
   const isRoute = (l) => !/^\s*node "/.test(l) && ((NAMES.test(l) && VERB.test(l)) || (TOOL.test(l) && !LEANS.test(l)));
+  // Wider (RS-S-scanwrites, Fable's M7): any prose line that names a drop
+  // file, --from, a tool that saves, or a file in the memory folder is a
+  // route, or one of the lines in DESCRIBES, which only describe. A route
+  // worded another way fails here until it carries the check or is added.
+  const WIDE = /incoming-|--from\b|Write tool|apply_patch|file-editing tool|\b(new )?file in the memory folder\b|\bin a (new )?file\b/;
+  const DESCRIBES = [
+    /^- \*\*The handoff\*\*: the SessionStart hook injects it into every Codex and Claude Code session in this repo\./,
+    /^Lookups over the repo's memory folder, plus two small writes \(`note` and `undo-handoff`\)\. A search also writes: its words go in a file in the memory folder first\./,
+  ];
+  const unchecked = (l) => !/^\s*node "/.test(l) && WIDE.test(l) && !isRoute(l) && !(TOOL.test(l) && LEANS.test(l)) && !DESCRIBES.some(r => r.test(l.trim()));
+  const m7 = 'If that fails, put the words in a new file in the memory folder and pass that file with `--from`.';
+  assert.ok(!isRoute(m7) && unchecked(m7), 'the wider filter takes a route worded without a drop file name');
   const routes = [];
   for (const n of fs.readdirSync(dir).sort()) {
     const f = path.join(dir, n, 'SKILL.md');
     if (!fs.existsSync(f)) continue;
     const lines = fs.readFileSync(f, 'utf8').split('\n');
+    let fence = false;
     lines.forEach((line, i) => {
       const at = `${n}:${i + 1}: ${line.trim().slice(0, 120)}`;
+      if (/^\s*(```|~~~)/.test(line)) { fence = !fence; return; }
+      if (!fence) assert.ok(!unchecked(line), 'names a file route without the dir check (add the check, or the line to DESCRIBES if it only describes): ' + at);
       // "save the text with the Write tool ... as described next" has no
       // check of its own: the route it leans on comes right after it.
       if (TOOL.test(line) && LEANS.test(line)) { assert.ok(lines.slice(i + 1, i + 5).some(isRoute), 'no route follows: ' + at); return; }
@@ -535,14 +550,34 @@ test('codex skills: every route that saves an incoming file in the memory folder
   // launcher's --from message, which says it only behind the same check.
   const sdir = path.join(ROOT, 'scripts');
   const says = [];
+  const names = [];
   for (const f of [...fs.readdirSync(sdir), ...fs.readdirSync(path.join(sdir, 'lib')).map(x => path.join('lib', x))]) {
     if (!f.endsWith('.js')) continue;
     for (const line of fs.readFileSync(path.join(sdir, f), 'utf8').split('\n')) {
       if (/^\s*\/\//.test(line)) continue;
       if (/Save the text|Write tool|file-editing tool|apply_patch/.test(line)) says.push(`${f}: ${line.trim()}`);
+      else if (/incoming-|--from\b/.test(line)) names.push(`${f}: ${line.trim()}`);
     }
   }
   assert.strictEqual(says.length, 3, says.join('\n'));
+  // Every other line that names a drop file or --from, worded any way
+  // (RS-S-scanwrites, Fable's M8): each is one of these, once. A new one
+  // fails here until it is read and added.
+  const NAMED = [
+    /^memory\.js: if \(require\('tty'\)\.isatty\(0\)\) fail\('pipe the content on stdin \(heredoc\), or pass --from=/,
+    /^memory\.js: if \(args\.length && fromFile\) fail\('give the text as words or with --from, not both/,
+    /^trailmark\.js: const DROP_RE = /,
+    /^trailmark\.js: const fromArgs = /,
+    /^trailmark\.js: process\.stderr\.write\('trailmark: --from was given more than once/,
+    /^trailmark\.js: const file = path\.resolve\(cwd, fromArg\.slice\('--from='/,
+    /^trailmark\.js: process\.stderr\.write\(`trailmark: --from must name a file inside the memory folder/,
+    /^trailmark\.js: childArgs = /,
+    /^lib[\\/]store\.js: const DROP_NAME = /,
+    /^lib[\\/]store\.js: return walkMd\(dir\)\.filter/,
+  ];
+  assert.deepStrictEqual(NAMED.map(r => names.filter(l => r.test(l)).length), NAMED.map(() => 1), names.join('\n'));
+  assert.strictEqual(names.length, NAMED.length, names.join('\n'));
+  assert.ok(!NAMED.some(r => r.test("lib/store.js: fail('not set up, or create incoming-note.md in that folder');")), 'a new message is none of these');
   assert.strictEqual(says.filter(l => /^trailmark\.js: .*has other hard links/.test(l)).length, 2, says.join('\n'));
   assert.strictEqual(says.filter(l => /^trailmark\.js: .*there \? 'Save the text there /.test(l)).length, 1, says.join('\n'));
   // What the skills read. A repo Claude Code never opened: the memory folder

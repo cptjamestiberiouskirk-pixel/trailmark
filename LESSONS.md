@@ -14,6 +14,27 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-25: A Lessons checked line was stored as thinking, and the gate denied six pushes
+
+- What went wrong: the lessons-learned hook denied the push of PR 153's merge commit d3fdbb3 six times. Each time the session believed it had written a visible `Lessons checked:` line, and it first reported so. The transcript held none: one mention sat in backticks, which the hook skips on purpose, and three messages whose text held the line were stored as thinking records with no text record. A message whose text was one line was stored as text, and the push passed at 14:19:44.
+- Why: the session judged its output by what it meant to write, not by what the transcript held, and retried before it read the hook's code. Why the longer text was stored as thinking was not found (HYPOTHESIZED: the app, not the hook).
+- Rule going forward: before a gated commit or push, write the `Lessons checked:` line as a short line of its own. After a denial, read the turn's records (`q69-hook-shape.js` in the sessions' notes folder, `q69/`) and the hook's code before any retry, and report the line as written only once a text record holds it.
+- Status: open
+
+## 2026-11-25: GitHub writes that returned an error had landed
+
+- What went wrong: on PR 153, between 10:44 and 10:50, GitHub's API answered writes with a 504, an HTML error page or an empty response. The 504 and the HTML page still created their comments; the empty response created nothing. Thread resolves failed then and worked at 11:29. A retry on the error alone would have posted twice.
+- Why: an error from a write does not say whether the write happened.
+- Rule going forward: after a GitHub write that errors, read the target (the comment list, the thread's state) before any retry. A post is retried only when the read shows it missing; a resolve may be repeated.
+- Status: open
+
+## 2026-11-25: write-handoff from the scratchpad was refused
+
+- What went wrong: `write-handoff --from` run with the session's scratchpad as the working folder exited 1 and wrote nothing.
+- Why: the launcher finds the memory folder from the working folder's repo, and the scratchpad is in no repo.
+- Rule going forward: run trailmark commands from a folder in the repo whose memory they write (the PR's worktree), and give scripts by their full path.
+- Status: open
+
 ## 2026-11-25: A check listed the characters a copy can lose, and each review found more
 
 - What went wrong: the fix for the gate's finding on PR 153 (d9c5fa4) tested a line for the heredoc end marker after dropping control characters and taking two classes of character (Cf, Default_Ignorable_Code_Point) off the line's front. Review round 3 on 64b7e98 found two ways past it, and run 21 confirmed both here: a character of those classes inside the word (`JBMEM_<U+200B>EOF_...`), and a character in front that is in neither class (U+2800, a combining mark). The supervisor chose an allowlist: every character but tab and printable ASCII out of the whole line, then the test. My first build of that escaped the line first, and the escape puts a backslash after a fullwidth less-than sign, so a marker behind that sign passed the test while the file held no backslash. That was found while reading `escapeTags` for a mutant that takes the escape out (it read PASS), before any commit, and a probe confirmed it. None of these forms was pushed.

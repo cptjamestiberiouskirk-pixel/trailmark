@@ -9280,13 +9280,33 @@ test('note and search take free text from --from or stdin, and the skills pass i
   assert.ok(fs.existsSync(unsetNote) && !log().includes('not saved'), 'the note drop file stays in a repo not set up');
   fs.renameSync(path.join(s.memdir, 'marker.off'), path.join(s.memdir, S.MARKER));
   // The skills never put the text of a note, a search or a park in a shell
-  // string. Every fenced code line or code span that runs one of them holds
-  // only its options, a --from="..." file, the heredoc marker, or the fixed
-  // words of tm-memory-setup's check, and nothing is piped into it.
+  // string, and never write a drop file through a shell. Every piece of code
+  // that runs one of them holds only its options, a --from="..." file, the
+  // heredoc marker, or the fixed words of tm-memory-setup's check, and
+  // nothing is piped into it. A drop file named in code is a bare name or
+  // the --from of one of the commands that take one (RS-S-scanwrites).
   // The command word, quoted or not, at the start or after a space or a shell
   // operator, and followed by anything but a letter, digit, dash or dot.
   const CMD = /(^|[\s|;&(])['"]?(note|search|park)['"]?(?![\w.-])/;
+  const FROM = /(^|\s)--from="<memory folder>\/incoming-(handoff|park|note|search)(-\$\{CLAUDE_SESSION_ID\}|-<session id>)?\.md"(?=\s|$)/g;
+  const SESSION = /(^|\s)--session=(<session id>|\$\{CLAUDE_SESSION_ID\})(?=\s|$)/g;
+  const DROP = /^(<memory folder>\/)?incoming-(handoff|park|note|search)(-\$\{CLAUDE_SESSION_ID\}|-<session id>)?\.md$/;
+  // A drop file in code: a bare name, or the --from of write-handoff, note,
+  // search or park (with node and the launcher's path in front, or not).
+  // note, search and park go on to offence's own reading; write-handoff may
+  // have only --base and --session besides. Anything else, such as
+  // Set-Content, echo > or Out-File, writes the file through a shell.
+  const dropOffence = (code) => {
+    if (!code.includes('incoming-') || DROP.test(code.trim())) return null;
+    const m = /^\s*(?:node "[^"]*" )?(write-handoff|note|search|park)(?=\s|$)(.*)$/.exec(code);
+    if (!m) return `a drop file outside a command that takes one: ${code.trim()}`;
+    if (m[1] !== 'write-handoff') return null;
+    const rest = m[2].replace(FROM, ' ').replace(SESSION, ' ').split(/\s+/).filter(w => w && w !== '--base=<version>').join(' ');
+    return rest === '' ? null : `write-handoff with more than its file: ${rest}`;
+  };
   const offence = (code) => {
+    const drop = dropOffence(code);
+    if (drop) return drop;
     const m = CMD.exec(code);
     if (!m) return null;
     // Before the command: nothing, or node and the launcher's path.
@@ -9294,27 +9314,73 @@ test('note and search take free text from --from or stdin, and the skills pass i
     if (before && !/^node "[^"]*"$/.test(before)) return `before the command: ${before}`;
     if (/^['"]/.test(m[0].trim())) return 'a quoted command word';
     const rest = code.slice(m.index + m[0].length)
-      .replace(/(^|\s)--from="<memory folder>\/incoming-(handoff|park|note|search)(-\$\{CLAUDE_SESSION_ID\}|-<session id>)?\.md"(?=\s|$)/g, ' ')
-      .replace(/(^|\s)--session=(<session id>|\$\{CLAUDE_SESSION_ID\})(?=\s|$)/g, ' ')
+      .replace(FROM, ' ')
+      .replace(SESSION, ' ')
       .replace(/(^|\s)<<'JBMEM_EOF_\$\{CLAUDE_SESSION_ID\}'$/, ' ')
       .split(/\s+/).filter(w => w && !/^(--slug=<slug>|--replace)$/.test(w)).join(' ');
     return rest === '' || rest === 'Codex setup check' ? null : rest;
   };
-  // Fenced lines (``` or ~~~), code spans, and any other line that names the
-  // launcher, from the launcher on (prose, an indented block, a quote).
+  // Where code sits: fenced lines (``` or ~~~; a fence closes only on its
+  // own character, at least as long, with nothing after it), lines between
+  // <pre> and </pre>, code spans (read per paragraph, so one can cross a
+  // line break), and prose that runs node on any path, from node on. A
+  // fenced line that ends in |, \ or ` runs on into the next, and one that
+  // starts with | continues the one before. After a span that runs a
+  // command, only the end of the line, a word or a stop may follow;
+  // anything else is read with the span as one command.
   const codeOf = (text) => {
     const out = [];
-    let fence = null;
+    let fence = null, pre = false, para = [], held = null;
+    const prose = () => {
+      if (!para.length) return;
+      const starts = [];
+      let joined = '';
+      for (const [n, l] of para) { if (starts.length) joined += '\n'; starts.push([joined.length, n]); joined += l; }
+      const lineOf = (i) => starts.reduce((n, [o, k]) => (o <= i ? k : n), starts[0][1]);
+      for (const c of joined.matchAll(/`([^`]+)`/g)) {
+        const code = c[1].replace(/\n/g, ' ');
+        out.push([lineOf(c.index), code]);
+        if (!CMD.test(code)) continue;
+        const after = joined.slice(c.index + c[0].length).split('\n')[0];
+        if (!/^\s*($|[A-Za-z.,;:)!?]|\((?=[A-Za-z]))/.test(after)) out.push([lineOf(c.index), code + after]);
+      }
+      const bare = joined.replace(/`[^`]+`/g, s => s.replace(/[^\n]/g, ' '));
+      for (const r of bare.matchAll(/\bnode\s+("[^"]*"|'[^']*'|\$\{?[\w:]+\}?|\S+\.js)(?=\s)/g)) {
+        const end = bare.indexOf('\n', r.index);
+        out.push([lineOf(r.index), bare.slice(r.index, end < 0 ? bare.length : end)]);
+      }
+      para = [];
+    };
     text.split(/\r?\n/).forEach((l, i) => {
-      const f = /^\s*(`{3,}|~{3,})/.exec(l);
-      if (f && (!fence || f[1][0] === fence[0] && f[1].length >= fence.length)) { fence = fence ? null : f[1]; return; }
-      if (fence) { out.push([i + 1, l]); return; }
-      const spans = [...l.matchAll(/`([^`\n]+)`/g)].map(c => c[1]);
-      for (const c of spans) out.push([i + 1, c]);
-      const bare = l.replace(/`[^`\n]+`/g, ' ');
-      const at = bare.search(/node "[^"]*(trailmark\.js|<launcher>)"/);
-      if (at >= 0) out.push([i + 1, bare.slice(at)]);
+      const n = i + 1;
+      const f = /^\s*(`{3,}|~{3,})(.*)$/.exec(l);
+      if (fence) {
+        if (f && f[1][0] === fence[0] && f[1].length >= fence.length && f[2].trim() === '') {
+          if (held) out.push(held);
+          held = null;
+          fence = null;
+        } else if (held && (/[|\\`]\s*$/.test(held[1]) || /^\s*\|/.test(l))) held[1] += ' ' + l.trim();
+        else {
+          if (held) out.push(held);
+          held = [n, l];
+        }
+        return;
+      }
+      if (pre || /<pre\b[^>]*>/i.test(l)) {
+        prose();
+        let s = pre ? l : l.replace(/^.*?<pre\b[^>]*>/i, '');
+        const close = s.search(/<\/pre>/i);
+        pre = close < 0;
+        if (close >= 0) s = s.slice(0, close);
+        if (s.trim()) out.push([n, s]);
+        return;
+      }
+      if (f) { prose(); fence = f[1]; return; }
+      if (l.trim() === '') { prose(); return; }
+      para.push([n, l]);
     });
+    prose();
+    if (held) out.push(held);
     return out;
   };
   const skills = path.join(ROOT, 'skills');
@@ -9339,12 +9405,31 @@ test('note and search take free text from --from or stdin, and the skills pass i
     L + 'search<<<\'<words>\'', L + 'search;\'<words>\'', L + '"search" \'<words>\'', '\'note\' \'<text>\'',
     L + 'note --session=\'<text>\'', L + 'search --session=$(<words>)', L + 'note --from="<text>"',
     L + 'search --from="$(echo \'<words>\')"', 'Q=\'<words>\' ' + L + 'search', '$q = \'<words>\'; ' + L + 'search --from="<memory folder>/incoming-search.md"',
+    // A drop file written through a shell (RS-S-scanwrites).
+    'Set-Content -Path "<memory folder>/incoming-search.md" -Value \'<words>\'', 'echo \'<text>\' > "<memory folder>/incoming-note.md"',
+    '\'<text>\' | Out-File "<memory folder>/incoming-note-<session id>.md"', L + 'write-handoff --from="<memory folder>/incoming-handoff.md" \'<text>\'',
   ]) assert.notStrictEqual(offence(bad), null, `not found: ${bad}`);
   // Where such a line can sit: each of these is found.
   for (const where of [
     '~~~bash\n' + L + 'search \'<words>\'\n~~~', '    ' + L + 'search \'<words>\'', 'Run ' + L + 'search \'<words>\' now.',
     '> ' + L + 'search \'<words>\'', '````\nx\n````\n```\n' + L + 'search \'<words>\'\n```',
+    // RS-S-scanwrites: a span over two lines, a fence line with an info
+    // string inside a fence, a pipe or a continuation over two lines, text
+    // after a span, a <pre> block, and node with a path in a variable.
+    'Run `' + L + 'search\n\'<words>\'` now.', '```\n```text\nsearch \'<words>\'\n```', '```\necho \'<words>\' |\n' + L + 'search\n```',
+    '```\n\'<words>\' `\n| ' + L + 'search\n```', 'Run `' + L + 'search` \'<words>\' now.', 'Run `' + L + 'note --session=<session id>` <text> now.',
+    '<pre>\nsearch \'<words>\'\n</pre>', 'Run node $j search \'<words>\' now.', 'Run node "${J}" note \'<text>\' now.',
+    'First `Set-Content -Path "<memory folder>/incoming-search.md" -Value \'<words>\'`, then search.',
   ]) assert.ok(codeOf(where).some(([, c]) => offence(c) !== null), `not found in: ${where}`);
+  // And what reads as code but passes: a span then prose, a drop file's
+  // name or path, a template, write-handoff with its file, a heredoc.
+  for (const fine of [
+    'Run `' + L + 'search --from="<memory folder>/incoming-search-<session id>.md"`, then read the hits.', 'Save it as `incoming-note-<session id>.md` there.',
+    'The file is `<memory folder>/incoming-search.md`.', '```text\nWhat: <one line>\n<full handoff>\n```',
+    '```\n' + L + 'write-handoff --base=<version> --session=<session id> --from="<memory folder>/incoming-handoff-<session id>.md"\n```',
+    '```bash\nnode "x/trailmark.js" search <<\'JBMEM_EOF_${CLAUDE_SESSION_ID}\'\n<words>\nJBMEM_EOF_${CLAUDE_SESSION_ID}\n```',
+    'Run `' + L + 'search --from="<memory folder>/incoming-search.md"` and read.',
+  ]) assert.ok(!codeOf(fine).some(([, c]) => offence(c) !== null), `refused in: ${fine}`);
   for (const good of [
     'node "x/trailmark.js" search <<\'JBMEM_EOF_${CLAUDE_SESSION_ID}\'', 'note --session=<session id> --from="<memory folder>/incoming-note-<session id>.md"',
     L + 'note Codex setup check', 'park --slug=<slug> --replace --from="<memory folder>/incoming-park-<session id>.md"', 'search', 'incoming-note-${CLAUDE_SESSION_ID}.md',
