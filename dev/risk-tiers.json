@@ -1,7 +1,7 @@
 {
   "version": 1,
   "comment": "Read from the base branch by dev/tier.js. Patterns match without regard to case. A file takes the first tier whose list matches it, checked high, then medium, then low; a file no list matches is medium. A PR takes its highest file tier.",
-  "mode": "observe",
+  "mode": "enforce",
   "mediumNeedsOwner": false,
   "maxRounds": 3,
   "breaker": {
