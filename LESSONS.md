@@ -18,7 +18,7 @@ Format:
 
 - What went wrong: batch r7 of PR 151 (4df7b10) promoted a lesson and added its step to `PLAYBOOK.md`. `dev/risk-tiers.json` rates that file high, so the next push would have made the PR tier high, and its merge would have waited for the owner's signed `/ship`. It showed two batches later, in a run of the tier step's `classify()` on the whole diff that the supervisor asked for before the push.
 - Why: the tier was read from the label on the pushed head and not again for the commits made after it. The promotion rule was followed without reading what a change to that file does to the PR's tier.
-- Rule going forward: before a commit, read its files against the high rules of `dev/risk-tiers.json`, and before a push run `classify()` of `dev/tier.js` on `origin/main...HEAD` (`q62/q62-tier-check.js` in the sessions' notes folder does it, read-only). A lesson's step for `PLAYBOOK.md` does not go into a PR meant to merge at low or medium: the lesson stays open and names the PR its step goes in.
+- Rule going forward: before a commit, read its files against the high rules of `dev/risk-tiers.json`, and before a push run `classify()` of `dev/tier.js` on `origin/main...HEAD` (`q62/q62-tier-check.js` in the sessions' notes folder does it, read-only). A lesson's step for `PLAYBOOK.md` does not go into a PR meant to merge at low or medium. The lesson stays open, and its step goes with the other waiting promotions into a PR that changes `PLAYBOOK.md` alone, which the owner merges after a signed `/ship` (the supervisor, 2026-11-25, marker tm-2434).
 - Status: open
 
 ## 2026-11-25: Notes copied a reviewer's claim past the correction in its own report
@@ -26,14 +26,14 @@ Format:
 - What went wrong: the notes commit of PR 151 (13e7208) said of a mutant that "it has no input the tests should catch it with". The reviewer's report says so in its body, and under its Cleanup heading it says the probe did not compare the two texts for all 66 characters. The same commit pointed at "the bullet above" for a label that is in another bullet, and wrote "every line PASS" for a run with one SKIP line. A docs pass found the three.
 - Why: the notes summed up the Cleanup section in one sentence ("None changes a finding") and did not read it against each claim taken from the report's body. The two other sentences were written without the bullet and the saved output open beside them.
 - Rule going forward: before a reviewer's claim goes into the notes, read the report's corrections (a Cleanup or errata section) against it. A pointer names the bullet it points to, and a sentence about a run's lines is read against the saved output, line by line.
-- Status: open (a second sighting of the entries "A doc line said how a probe ran without the probe's script being read", 2026-11-23, and "A record gave one reading for three cases, and a rule's reach without its skips", 2026-11-15: its step for PLAYBOOK goes in the next PR, Q69)
+- Status: open (a second sighting of the entries "A doc line said how a probe ran without the probe's script being read", 2026-11-23, and "A record gave one reading for three cases, and a rule's reach without its skips", 2026-11-15: its step for PLAYBOOK goes in the PLAYBOOK promotions PR, Q78)
 
 ## 2026-11-25: A count of tests failing on the parent hid a changed test that passes there
 
 - What went wrong: the notes and the commit message of batch r8 of PR 151 gave "6 failed of 12" and "8 failed of 12" for "the new and changed tests" on the parent's code. Of the 12, two are a test the batch does not change, and on Linux two more are a changed test that passes on the parent, because it accepts a stop as well as an answer. The reviewer found it from its own run of the same check.
 - Why: the entry "Two new tests passed on the parent, counted as a total" (2026-11-22) was read as a rule for new tests only. The count was copied from the run's summary line, and the tests that passed were not read by name.
 - Rule going forward: after a run on the parent, read the result of every test the pattern selects, by name. Each new or changed test that passes there gets its reason in the notes, and a count says which tests it counts.
-- Status: open (the second sighting of the 2026-11-22 entry: both become part of PLAYBOOK "Testing" step 8 in the next PR, Q69)
+- Status: open (the second sighting of the 2026-11-22 entry: both become part of PLAYBOOK "Testing" step 8 in the PLAYBOOK promotions PR, Q78)
 
 ## 2026-11-25: A reviewer's run ended three times on an API error before its last message
 
@@ -68,7 +68,7 @@ Format:
 - What went wrong: test text written with the Write tool held escapes for the line separator, the paragraph separator and the zero-width space. The file got the characters themselves, and the test file stopped parsing (a line separator inside a regex). The lessons of 2026-11-07, 2026-11-21 and 2026-11-24 already say to build such characters in code.
 - Why: the rule was known and nothing ran it before the file was used.
 - Rule going forward: name such a character by its class or build it in code, and count the non-ASCII lines of each file after it is written, before it is used.
-- Status: open (a repeat of the entries of 2026-11-07, 2026-11-21 and 2026-11-24; its step for PLAYBOOK "Writing code and docs", step 22 in 4df7b10, goes in the next PR, Q69: see the entry of 2026-11-25, "A playbook step in a batch turned a medium PR into a high one")
+- Status: open (a repeat of the entries of 2026-11-07, 2026-11-21 and 2026-11-24; to be promoted to PLAYBOOK "Writing code and docs" in the PLAYBOOK promotions PR, Q78, with the step as 4df7b10 worded it: see the entry of 2026-11-25, "A playbook step in a batch turned a medium PR into a high one")
 
 ## 2026-11-24: A finding fixed in one place came back from two others
 
