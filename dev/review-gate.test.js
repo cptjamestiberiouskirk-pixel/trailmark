@@ -921,6 +921,147 @@ test('workflow: a lens that gives nothing is asked once more, prints its stderr 
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+const VCANDS = [{ id: 'regression-1', severity: 'blocking' }, { id: 'docs-1', severity: 'note' }, { id: 'security-1', severity: 'blocking' }];
+const vote = (...ids) => ({ votes: ids.map((id) => ({ id, verdict: 'confirmed' })) });
+test('vote-ok: only a verdict for every blocking candidate passes, and the reason is named (RS-G-emptyverifier)', () => {
+  assert.equal(g.voteProblem(vote('regression-1', 'security-1'), VCANDS), null);
+  // A note needs no verdict; an extra id or a null entry does no harm.
+  assert.equal(g.voteProblem({ votes: [null, 5, { id: 'regression-1' }, { id: 'security-1', verdict: 'rejected' }, { id: 'x-9' }] }, VCANDS), null);
+  assert.equal(g.voteProblem(vote('regression-1'), VCANDS), 'no verdict for security-1');
+  assert.equal(g.voteProblem({ votes: [{ id: 'docs-1' }] }, VCANDS), 'no verdict for regression-1');
+  for (const bad of [null, 5, 'x', [], {}, { votes: null }, { votes: {} }]) assert.equal(g.voteProblem(bad, VCANDS), 'no votes array', JSON.stringify(bad));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-voteok-'));
+  try {
+    const cands = path.join(tmp, 'candidates.json');
+    fs.writeFileSync(cands, JSON.stringify(VCANDS));
+    const ok = (text, c = cands) => {
+      const f = path.join(tmp, 'vote-1.json');
+      if (text === undefined) fs.rmSync(f, { force: true }); else fs.writeFileSync(f, text);
+      return spawnSync(process.execPath, [CLI, 'vote-ok', f, c], { encoding: 'utf8', timeout: 20000 });
+    };
+    assert.equal(ok(JSON.stringify(vote('security-1', 'regression-1'))).status, 0);
+    assert.equal(ok(JSON.stringify(vote('security-1', 'regression-1'))).stderr, '');
+    const cases = [['', 'vote-1.json: not JSON'], ['not json', 'vote-1.json: not JSON'], ['{}', 'vote-1.json: no votes array'],
+      [JSON.stringify(vote('regression-1')), 'vote-1.json: no verdict for security-1'], [undefined, 'vote-1.json: missing']];
+    for (const [text, why] of cases) {
+      const r = ok(text);
+      assert.equal(r.status, 1, JSON.stringify(text));
+      assert.equal(r.stderr.trim(), why);
+    }
+    // Candidates it can't read fail too, so a broken step never reads as a good vote.
+    const r = ok(JSON.stringify(vote('security-1', 'regression-1')), path.join(tmp, 'none.json'));
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /^no candidates in /);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+test('merge: a failed verifier is named with its file and reason; only vote-1 to vote-N count (RS-G-emptyverifier)', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-votemerge-'));
+  const merge = (n = '3') => spawnSync(process.execPath, [CLI, 'merge', n, tmp], { encoding: 'utf8', timeout: 20000 });
+  const put = (i, v) => fs.writeFileSync(path.join(tmp, `vote-${i}.json`), typeof v === 'string' ? v : JSON.stringify(v));
+  try {
+    fs.writeFileSync(path.join(tmp, 'candidates.json'), JSON.stringify(VCANDS));
+    put(1, vote('regression-1', 'security-1'));
+    put(2, 'oops');
+    put(4, vote('regression-1', 'security-1'));
+    let r = merge();
+    assert.equal(r.status, 1);
+    assert.equal(r.stderr.trim(), 'a verifier gave no usable output (vote-2.json: not JSON; vote-3.json: missing)');
+    // A fourth file does not stand in for a missing third.
+    put(2, vote('regression-1'));
+    put(3, vote('regression-1', 'security-1'));
+    r = merge();
+    assert.equal(r.stderr.trim(), 'a verifier gave no usable output (vote-2.json: no verdict for security-1)');
+    put(2, { votes: [null, { id: 'regression-1', verdict: 'confirmed' }, { id: 'security-1', verdict: 'rejected' }] });
+    r = merge();
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(fs.readFileSync(path.join(tmp, 'findings.json'), 'utf8'));
+    assert.deepEqual([out.verifiers, out.blocking.map((c) => c.id), out.notes.map((c) => c.id)], [3, ['regression-1'], ['docs-1', 'security-1']]);
+    // Each of these fails closed later too; the message shows the count check ran first.
+    for (const bad of ['0', '-1', 'x', '', '1e3', '1000']) {
+      const b = merge(bad);
+      assert.equal(b.status, 1, bad);
+      assert.match(b.stderr, /^bad verifier count "/, bad);
+    }
+    // With no blocking finding, nothing needs a vote.
+    fs.writeFileSync(path.join(tmp, 'candidates.json'), JSON.stringify([VCANDS[1]]));
+    for (const i of [1, 2, 3, 4]) fs.rmSync(path.join(tmp, `vote-${i}.json`), { force: true });
+    assert.equal(merge().status, 0);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+test('workflow: a verifier that gives nothing is asked once more, prints its stderr tail, and still fails on a second empty answer (RS-G-emptyverifier)', (t) => {
+  if (spawnSync('bash', ['-c', 'true'], { timeout: 20000 }).status !== 0) return t.skip('bash is needed');
+  const wf = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'auto-review.yml'), 'utf8');
+  const start = wf.indexOf('          vote() { # verifier');
+  const end = wf.indexOf('\n          }\n', start);
+  assert.ok(start > 0 && end > start, 'the vote() function is in the workflow');
+  const fn = wf.slice(start, end + '\n          }'.length).split('\n').map((l) => l.slice(10)).join('\n');
+  assert.ok(wf.includes('\n          for i in $(seq 1 "$VERIFIERS"); do vote "$i" & done\n          wait\n'), 'each verifier runs through vote()');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jbmem-voterun-'));
+  const sh = (p) => p.replace(/\\/g, '/');
+  try {
+    fs.mkdirSync(path.join(tmp, '.review'));
+    fs.mkdirSync(path.join(tmp, 'dev'));
+    fs.copyFileSync(path.join(__dirname, 'review-gate.js'), path.join(tmp, 'dev', 'review-gate.js'));
+    fs.writeFileSync(path.join(tmp, '.review', 'candidates.json'), JSON.stringify(VCANDS));
+    // A stand-in for the one jq call vote() makes (jq -r '.result // ""' FILE), so the test needs only bash and node.
+    fs.mkdirSync(path.join(tmp, 'bin'));
+    fs.writeFileSync(path.join(tmp, 'bin', 'jq.js'), 'let o = {}; try { o = JSON.parse(require("fs").readFileSync(process.argv[2], "utf8")); } catch {} console.log(o.result ?? "");\n');
+    fs.writeFileSync(path.join(tmp, 'bin', 'jq'), '#!/bin/bash\nexec node "$(dirname "$0")/jq.js" "$3"\n', { mode: 0o755 });
+    // The stand-in CLI: STUB_EMPTY bad answers first (no JSON, then a vote that leaves out a blocking finding), then a good one.
+    const stub = path.join(tmp, 'stub.sh');
+    fs.writeFileSync(stub, [
+      '#!/bin/bash',
+      'n=$(cat "$STUB_COUNT" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$STUB_COUNT"',
+      'if [ "$n" -le "$STUB_EMPTY" ]; then',
+      '  if [ "$n" = 1 ]; then echo \'{"result":""}\'; else echo \'{"result":"{\\"votes\\":[{\\"id\\":\\"regression-1\\",\\"verdict\\":\\"confirmed\\"}]}"}\'; fi',
+      '  echo "boom: transient error $n" >&2; echo "::error title=spoof::from stderr" >&2; exit 1',
+      'fi',
+      'echo \'{"result":"```json\\n{\\"votes\\":[{\\"id\\":\\"regression-1\\",\\"verdict\\":\\"confirmed\\"},{\\"id\\":\\"security-1\\",\\"verdict\\":\\"rejected\\"}]}\\n```"}\'',
+      '',
+    ].join('\n'));
+    const go = (empty) => {
+      const count = path.join(tmp, 'count');
+      fs.rmSync(count, { force: true });
+      const script = ['set -uo pipefail', `PR=7 TOOLS=a READ_TOOLS=b DENY_TOOLS=c MODEL_VERIFY=m CLAUDE_BIN="${sh(stub)}"`, fn, 'vote 2; echo "rc=$?"'].join('\n');
+      const r = spawnSync('bash', ['-c', script], { cwd: tmp, encoding: 'utf8', timeout: 60000, env: { ...process.env, PATH: sh(path.join(tmp, 'bin')) + path.delimiter + process.env.PATH, STUB_COUNT: sh(count), STUB_EMPTY: String(empty) } });
+      return { out: r.stdout, err: r.stderr, calls: Number(fs.readFileSync(count, 'utf8')), vote: fs.readFileSync(path.join(tmp, '.review', 'vote-2.json'), 'utf8') };
+    };
+    // Empty once: asked again, the second answer is used, and the log says why the first failed.
+    const once = go(1);
+    assert.match(once.out, /rc=0/);
+    assert.equal(once.calls, 2);
+    assert.match(once.err, /vote-2\.json: not JSON/);
+    assert.match(once.err, /verifier 2 gave no usable output \(attempt 1 of 2\)/);
+    assert.match(once.err, /boom: transient error 1/);
+    // The runner reads stderr for `::command::` lines: the tail must sit between stop-commands and its resume token.
+    const lines = once.err.split('\n');
+    const stop = lines.findIndex((l) => /^::stop-commands::[0-9a-f]{32}$/.test(l));
+    const spoof = lines.indexOf('::error title=spoof::from stderr');
+    assert.ok(stop >= 0 && spoof > stop, 'the tail follows stop-commands');
+    assert.equal(lines[lines.length - 2], '::' + lines[stop].split('::')[2] + '::', 'the resume token closes it');
+    assert.equal(JSON.parse(once.vote).votes.length, 2);
+    // Bad twice (the second a vote missing a blocking finding): two calls, no more, and the failure stays so `merge` fails the job.
+    const twice = go(2);
+    assert.match(twice.out, /rc=1/);
+    assert.equal(twice.calls, 2);
+    assert.match(twice.err, /vote-2\.json: no verdict for security-1/);
+    assert.match(twice.err, /\(attempt 2 of 2\)/);
+    const m = spawnSync(process.execPath, [path.join(tmp, 'dev', 'review-gate.js'), 'merge', '2', path.join(tmp, '.review')], { encoding: 'utf8', timeout: 20000 });
+    assert.equal(m.status, 1);
+    assert.match(m.stderr, /vote-2\.json: no verdict for security-1/);
+    // A good first answer: one call and nothing on stderr.
+    const fine = go(0);
+    assert.match(fine.out, /rc=0/);
+    assert.equal(fine.calls, 1);
+    assert.equal(fine.err, '');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
 test('breaker: a number followed by a word is prose, not a PR (RS-G-commaprose)', () => {
   const auto = (n) => ({ number: n, body: '', labels: ['tier:low'] });
   const by = (b) => g.breaker([auto(2), auto(10), auto(11), auto(12), { number: 20, body: b, labels: [] }], rules).hits.sort((x, y) => x - y);

@@ -198,13 +198,27 @@ jobs:
         run: |
           set -uo pipefail
           [ "$(jq '[.[] | select(.severity == "blocking")] | length' .review/candidates.json)" -gt 0 ] || { echo "nothing to vote on"; exit 0; }
-          for i in $(seq 1 "$VERIFIERS"); do
-            ( "$CLAUDE_BIN" -p "You are verifier $i for PR $PR. Follow REVIEW.md section \"Verifier\" exactly, for each blocking finding in .review/candidates.json. Your final message is the JSON object that section describes and nothing else." \
+          # A verifier whose output `merge` can't use (no JSON, or no verdict for a
+          # blocking finding) is asked once more, as a lens is; the second failure
+          # stays in place and `merge` fails the job, naming the file and why.
+          vote() { # verifier
+            for attempt in 1 2; do
+              "$CLAUDE_BIN" -p "You are verifier $1 for PR $PR. Follow REVIEW.md section \"Verifier\" exactly, for each blocking finding in .review/candidates.json. Your final message is the JSON object that section describes and nothing else." \
                 --model "$MODEL_VERIFY" --tools "$TOOLS" --restricted --strict-mcp-config \
                 --allowedTools "$READ_TOOLS" --disallowedTools "$DENY_TOOLS" \
-                --max-turns 80 --output-format json > ".review/rawvote-$i.json" 2> ".review/errvote-$i.txt"
-              jq -r '.result // ""' ".review/rawvote-$i.json" | sed -e '/^```/d' > ".review/vote-$i.json" ) &
-          done
+                --max-turns 80 --output-format json > ".review/rawvote-$1.json" 2> ".review/errvote-$1.txt"
+              jq -r '.result // ""' ".review/rawvote-$1.json" | sed -e '/^```/d' > ".review/vote-$1.json"
+              node dev/review-gate.js vote-ok ".review/vote-$1.json" .review/candidates.json && return 0
+              echo "verifier $1 gave no usable output (attempt $attempt of 2); stderr tail:" >&2
+              # Between stop-commands and a random resume token, as for a lens.
+              tok=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+              echo "::stop-commands::$tok" >&2
+              tail -n 20 ".review/errvote-$1.txt" | cut -b1-300 >&2
+              echo "::$tok::" >&2
+            done
+            return 1
+          }
+          for i in $(seq 1 "$VERIFIERS"); do vote "$i" & done
           wait
       - name: Combine, post each finding, then the round
         env:
