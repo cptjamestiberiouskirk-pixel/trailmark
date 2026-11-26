@@ -10542,10 +10542,15 @@ test('handoff and an exit 3 refusal show a stored line with a control or an unse
 // its git folder elsewhere (--git-common-dir then does not end in .git, and
 // --show-toplevel is taken), resolved to the repo beside it without that
 // character: dir named that repo's memory folder. A git folder named .git
-// and a space read as .git, whose parent can be another repo. Windows names
-// cannot end in those characters, so these run on Linux and macOS.
-const TRIM_SKIP = process.platform === 'win32' && 'Windows names cannot end in a line feed, a space or a tab';
-const TRIM_TAILS = [['a line feed', '\n'], ['a space', ' '], ['a tab', '\t']];
+// and a space read as .git, whose parent can be another repo. These run on
+// Linux and macOS. A Windows name cannot hold a line feed, a carriage return
+// or a tab. A name can end in a space there, but git for Windows prints such
+// a folder without it, and farGitConfig keeps git out of the folder
+// ("odd-path"), so its root is the folder itself (CONFIRMED by a probe). A
+// carriage return is a tail too: on Linux and macOS only the line feed goes,
+// and a strip of \r\n on every platform gave the repo beside it again
+// (review round 1, F2).
+const TRIM_TAILS = [['a line feed', '\n'], ['a carriage return', '\r'], ['a space', ' '], ['a tab', '\t']];
 // A set-up repo with a handoff, and beside it, for each tail, a folder named
 // as the repo plus that tail, made with --separate-git-dir.
 function trimSandbox() {
@@ -10562,7 +10567,7 @@ function trimSandbox() {
   return { s, mark, file, before: fs.readFileSync(file, 'utf8'), seconds };
 }
 
-test('paths: a folder named as a set-up repo plus a line feed, a space or a tab, with its git folder elsewhere, is its own root (RS-S-roottrim)', { skip: TRIM_SKIP }, () => {
+test('paths: a folder named as a set-up repo plus a line feed, a carriage return, a space or a tab, with its git folder elsewhere, is its own root (RS-S-roottrim)', { skip: WIN && 'Windows names cannot hold a line feed, a carriage return or a tab, and git for Windows drops a trailing space' }, () => {
   const { s, seconds } = trimSandbox();
   const P = require(path.join(ROOT, 'scripts', 'lib', 'paths.js'));
   for (const [what, dir] of seconds) {
@@ -10573,7 +10578,7 @@ test('paths: a folder named as a set-up repo plus a line feed, a space or a tab,
   }
 });
 
-test('paths: from such a folder, handoff does not show the other repo\'s handoff (RS-S-roottrim)', { skip: TRIM_SKIP }, () => {
+test('paths: from such a folder, handoff does not show the other repo\'s handoff (RS-S-roottrim)', { skip: WIN && 'Windows names cannot hold a line feed, a carriage return or a tab, and git for Windows drops a trailing space' }, () => {
   const { s, mark, seconds } = trimSandbox();
   for (const [what, dir] of seconds) {
     const h = s.jbm(['handoff'], undefined, dir);
@@ -10581,7 +10586,7 @@ test('paths: from such a folder, handoff does not show the other repo\'s handoff
   }
 });
 
-test('paths: from such a folder, write-handoff does not change the other repo\'s handoff (RS-S-roottrim)', { skip: TRIM_SKIP }, () => {
+test('paths: from such a folder, write-handoff does not change the other repo\'s handoff (RS-S-roottrim)', { skip: WIN && 'Windows names cannot hold a line feed, a carriage return or a tab, and git for Windows drops a trailing space' }, () => {
   const { s, file, before, seconds } = trimSandbox();
   for (const [what, dir] of seconds) {
     const h = s.jbm(['handoff'], undefined, dir);
@@ -10594,7 +10599,7 @@ test('paths: from such a folder, write-handoff does not change the other repo\'s
 // On 00e4909 this one passes already: gitbin's farGitConfig keeps git out
 // of this layout ("network-gitdir"), so the root is the folder itself
 // (CONFIRMED by a probe). It keeps that outcome if that check changes.
-test('paths: a separate git folder named .git and a space is not read as .git, whose parent is another repo (RS-S-roottrim)', { skip: TRIM_SKIP }, () => {
+test('paths: a separate git folder named .git and a space is not read as .git, whose parent is another repo (RS-S-roottrim)', { skip: WIN && 'Windows names cannot hold a line feed, a carriage return or a tab, and git for Windows drops a trailing space' }, () => {
   const s = sandbox();
   const P = require(path.join(ROOT, 'scripts', 'lib', 'paths.js'));
   const third = path.join(s.base, 'third');

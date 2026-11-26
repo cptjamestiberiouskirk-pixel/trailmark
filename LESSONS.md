@@ -105,6 +105,7 @@ Format:
 - What went wrong: the `--sums --quick` run on Q69's batch takes about 16 minutes, and it was started in the tool's background mode with a timeout of 600,000 ms passed beside it. Whether that limit stops a background run was not known when the run started. The run's own end line reads exit 0 after 16 minutes, so this one was not cut. A cut run would have left the batch untested.
 - Why: the timeout was typed from habit, as for a long foreground command.
 - Rule going forward: a run started in the tool's background mode gets no timeout parameter. Its own start and end lines are what count, as "A check in the background ended with no result line" (2026-11-13) says.
+- Seen again 2026-11-25 (second sighting, Q77): both `--sums --quick` runs of Q77 went to the background with a timeout of 600,000 ms beside them. The first ran 20:05:50 to 20:18:56 and its end line reads exit 0, so it was not cut. The lessons check before the runs named other rules and not this one. A second sighting, so this rule is a promotion candidate for Q78.
 - Status: open
 
 ## 2026-11-25: A name pattern meant for every test of an item left out one test
@@ -197,6 +198,7 @@ Format:
 - Why: each time was worked out from the last time seen and the work done since. No command read the clock in the step that wrote it.
 - Rule going forward: a time in a status, a note or a heading comes from `date` (or a tool's own timestamp) read in the same step. A time taken from someone else's report says whose clock it is.
 - Seen again 2026-11-25 (third sighting, Q70): two status messages to the supervisor were headed 16:41 and 17:00 and arrived at 16:35 and 16:54 by the supervisor's `Get-Date`, and two headings of the plan notes were estimates too. The supervisor pointed it out. The steps that wrote them ran no `date`. Its `PLAYBOOK.md` step waits for Q78, as the second sighting says.
+- Seen again 2026-11-25 (fourth sighting, Q77): a message to the supervisor said its facts were "read 20:20 to 20:22". The clock read 20:20:05 before them and 20:20:50 after; the end time was an estimate. Caught by the session itself on the next `date`, and corrected to the supervisor.
 - Status: open
 
 ## 2026-11-24: A rule about a guard's input was written, then applied to one line
