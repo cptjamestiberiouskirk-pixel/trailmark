@@ -1044,14 +1044,14 @@ test('skills: every route that saves an incoming file in the memory folder check
   }
   const seen = [];
   const routes = [];
-  for (const n of fs.readdirSync(dir).sort()) {
-    const f = path.join(dir, n, 'SKILL.md');
-    if (!fs.existsSync(f)) continue;
-    const read1 = read(fs.readFileSync(f, 'utf8'));
+  // One skill's text, named n: a line outside a fence must not be a route
+  // without the check, and every route line, a fence line included (as
+  // main read it; PR 156's gate note 3), carries the check before its save.
+  const check = (n, text, seen, routes) => {
+    const read1 = read(text);
     const lines = read1.map(([line]) => line);
     read1.forEach(([line, where], i) => {
       const at = `${n}:${i + 1}: ${line.trim().slice(0, 120)}`;
-      if (where === 'fence') return;
       if (where === 'out') {
         assert.ok(!unchecked(line), 'names a file route without the dir check (add the check, or pin the line if it only describes or saves again after a refused write-handoff): ' + at);
         if (pinned(line)) {
@@ -1073,6 +1073,15 @@ test('skills: every route that saves an incoming file in the memory folder check
       const save = line.search(SAVE);
       assert.ok(save > line.search(/only when `dir` shows/), 'the check comes before the save: ' + at);
     });
+  };
+  // A route sentence on a fence line (in the text after the ```) is read as
+  // a route, as main read it. This line put in a skill failed main's test
+  // and passed 02e3547's (PR 156, gate round 1, note 3).
+  const fenced = '```text save incoming-handoff.md in the memory folder with the Write tool\nx\n```\n';
+  assert.throws(() => check('checkpoint', fenced, [], []), /checkpoint:1: ```text save incoming-handoff\.md/, 'a route on a fence line is read');
+  for (const n of fs.readdirSync(dir).sort()) {
+    const f = path.join(dir, n, 'SKILL.md');
+    if (fs.existsSync(f)) check(n, fs.readFileSync(f, 'utf8'), seen, routes);
   }
   assert.deepStrictEqual(seen.sort(), PINNED.map(([, h]) => h).sort(), 'each pinned line is in the skills once');
   assert.deepStrictEqual([...new Set(routes)], ['checkpoint', 'park', 'recall', 'session-end']);

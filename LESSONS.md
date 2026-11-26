@@ -14,6 +14,20 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-25: A PR went up without the body sections the gate requires
+
+- What went wrong: PR 156's body was written in an older PR's shape (What changed, Reviews, Checks). The review gate's first finished status on 02e3547 failed with "PR body section empty or missing: Testing, Risk, How to revert", and the PR waited on it until the supervisor read the status.
+- Why: `.github/pull_request_template.md` holds the three sections, and `gh pr create --body-file` does not use it. Nothing in the session's PR step ran the gate's `sections()` on the body.
+- Rule going forward: a PR body starts from `.github/pull_request_template.md`. Before `gh pr create` or `gh pr edit`, the body file goes through `sections()` of `dev/review-gate.js` on `origin/main` (`q70/q70-body-sections.js` in the sessions' notes folder does it, read-only) and shows none missing.
+- Status: open
+
+## 2026-11-25: A check run during the app's restart failed at process start
+
+- What went wrong: Q70's `--sums --quick` run 5 on 02e3547 failed 147 of 474 handoff-checks tests: 139 at `git init -q`, with no more in the message, and 6 where a child exited 3221225794 (0xC0000142). Run 6 on the same commit passed.
+- Why: the run's summary was written at 17:16:27, and new MCP server processes started at 17:16:28, when the desktop app restarted. That processes could not start during the restart is HYPOTHESIZED, not proven; it fits the exit code.
+- Rule going forward: when a run fails at process start (`git init -q` with no more in the message, or exit 3221225794), compare the run's window with process start times (`Get-CimInstance Win32_Process`) before reading code, then rerun once on the same commit. Report both runs and keep the failed run's folder.
+- Status: open
+
 ## 2026-11-25: A regex in a test held two curly quotes, and the commit script stopped it
 
 - What went wrong: the `AFTER` pattern of Q70's round 1 batch in `handoff-checks.test.js` held U+2018 and U+201F as characters, where the edit was meant to write the escapes for them. `--sums --quick` passed on it; the commit script's scan of the added lines stopped the commit. The pattern was rebuilt with `String.fromCharCode`, and `--sums --quick` ran again (15 minutes).
@@ -27,6 +41,7 @@ Format:
 - Why: each new reading answered a sample in hand, and a reader of Markdown has more cases than the samples; each case it gets wrong is a miss. The tests ran the new reader on the skills and the new samples, not on the old reader's neighbors. A second sighting of "A check listed the characters a copy can lose, and each review found more" (2026-11-25), which makes that lesson a promotion candidate for Q78.
 - Rule going forward: a check that reads a format reads only the part it can read exactly, refuses the rest by name, and is run over the real files first to show they hold none of what it refuses. Before a new reading replaces an old one, both run over the old samples and a list of neighbor shapes, and every shape the old one refused and the new one passes is read before the commit.
 - Seen again 2026-11-25: round 1's fix read text after a command's span when it started with a listed character (`AFTER`), and round 2 found that 4d3336e refused text starting with a dash, a bracket, a digit or another quote mark, which `AFTER` let through. Round 1's repro ran the new samples on 4d3336e's scanner, not 4d3336e's refusals on the new one. The route test also said it read fences as the curlyquote scan does, and split lines another way. Round 2 lists what is sure prose instead (`PROSE`) and the route test now splits a skill's lines as the curlyquote scan does.
+- Seen again 2026-11-25 (PR 156, the review gate's round 1, note 3): round 2's `read` tagged fence lines, and the route test returned early on them, so a route sentence on a fence line, which f885821's test read, passed. Round 2's plants ran the new reading's cases on the old test, not the old test's reach on the new one. A third sighting, so this rule is a promotion candidate for Q78.
 - Status: open
 
 ## 2026-11-25: A Lessons checked line was stored as thinking, and the gate denied six pushes
