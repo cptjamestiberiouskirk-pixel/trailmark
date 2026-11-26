@@ -75,9 +75,14 @@ function git(cwd, args, timeout = 3000) {
   if (far) { const e = new Error(`git not run: the repo's .git points at a network path (${far})`); e.code = 'JBMEM_FAR'; throw e; }
   const bin = gitPath(cwd);
   if (!bin) { const e = new Error('git not found on PATH'); e.code = 'ENOENT'; throw e; }
-  return execFileSync(bin, [...GIT_GLOBAL, ...args], {
+  // git's answer as git wrote it, but for the line end it adds: on Linux
+  // and macOS a folder's name can end in a space, a tab or a line feed, and
+  // a trim gave the folder beside it (RS-S-roottrim). A Windows path holds
+  // no \r, so there a \r before the line feed goes too.
+  const out = execFileSync(bin, [...GIT_GLOBAL, ...args], {
     cwd, env: gitEnv(), encoding: 'utf8', timeout, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
-  }).trim();
+  });
+  return out.replace(process.platform === 'win32' ? /\r?\n$/ : /\n$/, '');
 }
 
 // A git call that wasn't started because the caller's time ran out: handled

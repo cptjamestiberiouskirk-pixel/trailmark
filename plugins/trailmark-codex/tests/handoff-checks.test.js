@@ -10535,3 +10535,72 @@ test('handoff and an exit 3 refusal show a stored line with a control or an unse
   fs.writeFileSync(file, q69Handoff(s) + IN + '\n' + BR + '\n');
   for (const l of [IN, BR]) assert.ok(shownLines().includes('  ' + l), JSON.stringify(shownLines().filter(x => x.includes(SA))));
 }));
+
+// RS-S-roottrim (Q77): repoRoot keeps git's answer as git wrote it, but for
+// the line end git adds. It trimmed every white space character off the end
+// before, so a folder whose name ends in a line feed, a space or a tab, with
+// its git folder elsewhere (--git-common-dir then does not end in .git, and
+// --show-toplevel is taken), resolved to the repo beside it without that
+// character: dir named that repo's memory folder. A git folder named .git
+// and a space read as .git, whose parent can be another repo. Windows names
+// cannot end in those characters, so these run on Linux and macOS.
+const TRIM_SKIP = process.platform === 'win32' && 'Windows names cannot end in a line feed, a space or a tab';
+const TRIM_TAILS = [['a line feed', '\n'], ['a space', ' '], ['a tab', '\t']];
+// A set-up repo with a handoff, and beside it, for each tail, a folder named
+// as the repo plus that tail, made with --separate-git-dir.
+function trimSandbox() {
+  const s = sandbox();
+  const mark = 'Q77 the first repo handoff';
+  s.write(`# H\n## Next steps\n1. ${mark}\n`);
+  const file = path.join(s.memdir, 'handoff.md');
+  const seconds = TRIM_TAILS.map(([what, tail], i) => {
+    const dir = s.repo + tail;
+    fs.mkdirSync(dir);
+    execFileSync('git', ['init', '-q', '--separate-git-dir=' + path.join(s.base, 'gd' + i)], { cwd: dir });
+    return [what, dir];
+  });
+  return { s, mark, file, before: fs.readFileSync(file, 'utf8'), seconds };
+}
+
+test('paths: a folder named as a set-up repo plus a line feed, a space or a tab, with its git folder elsewhere, is its own root (RS-S-roottrim)', { skip: TRIM_SKIP }, () => {
+  const { s, seconds } = trimSandbox();
+  const P = require(path.join(ROOT, 'scripts', 'lib', 'paths.js'));
+  for (const [what, dir] of seconds) {
+    assert.strictEqual(P.repoRoot(dir), dir, what);
+    const d = s.jbm(['dir'], undefined, dir);
+    assert.notStrictEqual(d.stdout.split('\n')[0], s.memdir, `${what}: dir names the other repo's memory folder: ${JSON.stringify(d.stdout)}`);
+    assert.doesNotMatch(d.stdout, /^ {2}set up: true$/m, `${what}: ${JSON.stringify(d.stdout)}`);
+  }
+});
+
+test('paths: from such a folder, handoff does not show the other repo\'s handoff (RS-S-roottrim)', { skip: TRIM_SKIP }, () => {
+  const { s, mark, seconds } = trimSandbox();
+  for (const [what, dir] of seconds) {
+    const h = s.jbm(['handoff'], undefined, dir);
+    assert.ok(!(h.stdout + h.stderr).includes(mark), `${what}: ${JSON.stringify(h.stdout)}`);
+  }
+});
+
+test('paths: from such a folder, write-handoff does not change the other repo\'s handoff (RS-S-roottrim)', { skip: TRIM_SKIP }, () => {
+  const { s, file, before, seconds } = trimSandbox();
+  for (const [what, dir] of seconds) {
+    const h = s.jbm(['handoff'], undefined, dir);
+    const v = (/^\[trailmark\] handoff version: (\S+)/m.exec(h.stdout) || [])[1] || 'none';
+    const w = s.jbm(['write-handoff', `--base=${v}`, `--session=${SB}`], `# H\n## Next steps\n1. written from ${what}\n`, dir);
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), before, `${what}: exit ${w.status}: ${w.stdout}${w.stderr}`);
+  }
+});
+
+// On 00e4909 this one passes already: gitbin's farGitConfig keeps git out
+// of this layout ("network-gitdir"), so the root is the folder itself
+// (CONFIRMED by a probe). It keeps that outcome if that check changes.
+test('paths: a separate git folder named .git and a space is not read as .git, whose parent is another repo (RS-S-roottrim)', { skip: TRIM_SKIP }, () => {
+  const s = sandbox();
+  const P = require(path.join(ROOT, 'scripts', 'lib', 'paths.js'));
+  const third = path.join(s.base, 'third');
+  fs.mkdirSync(third);
+  execFileSync('git', ['init', '-q', '--separate-git-dir=' + path.join(s.repo, '.git ')], { cwd: third });
+  assert.strictEqual(P.repoRoot(third), third);
+  const d = s.jbm(['dir'], undefined, third);
+  assert.notStrictEqual(d.stdout.split('\n')[0], s.memdir, JSON.stringify(d.stdout));
+});
