@@ -198,7 +198,7 @@ Format:
 - Why: each time was worked out from the last time seen and the work done since. No command read the clock in the step that wrote it.
 - Rule going forward: a time in a status, a note or a heading comes from `date` (or a tool's own timestamp) read in the same step. A time taken from someone else's report says whose clock it is.
 - Seen again 2026-11-25 (third sighting, Q70): two status messages to the supervisor were headed 16:41 and 17:00 and arrived at 16:35 and 16:54 by the supervisor's `Get-Date`, and two headings of the plan notes were estimates too. The supervisor pointed it out. The steps that wrote them ran no `date`. Its `PLAYBOOK.md` step waits for Q78, as the second sighting says.
-- Seen again 2026-11-25 (fourth sighting, Q77): a message to the supervisor said its facts were "read 20:20 to 20:22". The clock read 20:20:05 before them and 20:20:50 after; the end time was an estimate. Caught by the session itself on the next `date`, and corrected to the supervisor.
+- Seen again 2026-11-25 (fourth sighting, Q77): a message to the supervisor said its facts were "read 20:20 to 20:22". By `date`, the tier check ended at 20:20:05 and the last fact was read by 20:20:50; the end time was an estimate. The session caught it on the next `date`. This line first said the supervisor had the correction, which went out only by 21:12:47, after the verify reviewer found no such message.
 - Status: open
 
 ## 2026-11-24: A rule about a guard's input was written, then applied to one line
