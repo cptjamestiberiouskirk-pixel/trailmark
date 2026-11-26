@@ -14,6 +14,27 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-25: A bot's edit of the PR body ran the gate and replaced a running review's pending status
+
+- What went wrong: on PR 153 (d3fdbb3) and PR 158 (7d4420b) the gate read "no finished review" twice while the review ran, and on PR 137 (b0fa019, observe mode) five times. Each read was taken as the review's result until its own verdict came.
+- Why: the gate job's `if` admits every same-repo event, and in a run that reviews nothing (Cursor Bugbot's edit of the body, a comment) `needs.review.result` is "skipped". That job wrote its decision over the pending status the running review had set. The tests ran each job alone, never the sequence GitHub produced.
+- Rule going forward: a job that writes a shared status first checks whether a newer writer of the same object can still be running, and its test replays the event sequence that was seen (pending, an event that does no work, then the verdict), with the real step under bash.
+- Status: open
+
+## 2026-11-25: A name pattern for the gate's tests ran no test
+
+- What went wrong: `dev/release-check.sh --only 'Q89'` for the new tests in `dev/review-gate.test.js` ran none and failed with "no test ran" (2 s).
+- Why: a name pattern reaches the plugin suites only; a `dev/` test file goes by its path, as "`--only '<name>'` passed a dev/ test that never ran" (2026-11-21) and `CLAUDE.md` say. The pattern came from the plugin habit. Its third sighting; the check now fails where it once passed.
+- Rule going forward: none new. A `dev/` test is run with `--only <file>`, and its new names are read in the kept TAP.
+- Status: open
+
+## 2026-11-25: The lessons hook let one of four parallel edits through and denied three
+
+- What went wrong: after a `Lessons checked:` line, a Read and then four parallel Edits of `dev/review-gate.js`, the first Edit passed and the other three were denied. A fresh line written right before three parallel Edits let all three through.
+- Why: HYPOTHESIZED, not read in the hook's code to the end: the hook looks for the line relative to the calls before the current one, and a call between the line and the batch changes what it finds.
+- Rule going forward: write the line as the whole text right before each batch of edits, with no other call between them, as "A lessons line in a paragraph before a tool call was stored as thinking" (2026-11-25) says.
+- Status: open
+
 ## 2026-11-25: A PR went up without the body sections the gate requires
 
 - What went wrong: PR 156's body was written in an older PR's shape (What changed, Reviews, Checks). The review gate's first finished status on 02e3547 failed with "PR body section empty or missing: Testing, Risk, How to revert", and the PR waited on it until the supervisor read the status.

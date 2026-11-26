@@ -10,7 +10,7 @@
 //   node dev/review-gate.js landed          <before> <after> <item>  exit 0 if a POST of item that failed landed anyway, 1 if not, 2 if it can't tell
 //   node dev/review-gate.js signers         <file>            exit 1 unless it holds only security keys for /ship
 //   node dev/review-gate.js ship-candidates <dir>             -> dir/ship/<n>.msg and <n>.sig
-//   node dev/review-gate.js decide          <rules> <dir>     -> dir/gate.json
+//   node dev/review-gate.js decide          <rules> <dir> [<review result>]  -> dir/gate.json (reads dir/statuses.json if there)
 // In the review job, a step that can't tell what happened fails closed (exit
 // 1), so the round is not posted and the gate reads "review did not finish".
 // decide fails a tier it does not know.
@@ -243,6 +243,31 @@ function breaker(merged, rules) {
   return { tripped: hits.length >= b.trip, hits, window: auto.length };
 }
 
+// The review job's timeout-minutes in auto-review.yml, and the description its
+// first step gives the pending status (a test checks both against the workflow).
+const REVIEW_MINUTES = 60;
+const RUNNING = 'review running';
+// Whether this gate job must leave the head's status as it is (Q89). A run
+// with no review of its own (an edit of the PR's body, a comment) still runs
+// the gate job, and before this it replaced the pending status of a review
+// still running on the same head with "no finished review" (PR 153 at d3fdbb3,
+// PR 158 at 7d4420b, each after a bot edited the body). It holds only when its
+// own review was skipped, no round of this head on this base is posted yet,
+// and the newest status of the gate's context on the head is that pending one,
+// set less than REVIEW_MINUTES ago: by then GitHub has stopped the review job,
+// so a pending status its gate job never replaced is not kept for longer.
+// Statuses that are missing or not a list hold nothing.
+function holds(d, rules, onHeadCount) {
+  if (d.reviewResult !== 'skipped' || onHeadCount > 0 || !Array.isArray(d.statuses)) return false;
+  const context = rules.mode === 'enforce' ? 'auto-review/gate' : 'auto-review/observe';
+  const at = (s) => Date.parse(s.created_at);
+  const mine = d.statuses.filter((s) => s && s.context === context && Number.isFinite(at(s)));
+  if (mine.length === 0) return false;
+  const newest = mine.reduce((x, y) => (at(y) > at(x) || (at(y) === at(x) && y.id > x.id) ? y : x));
+  const age = Date.parse(d.now) - at(newest);
+  return newest.state === 'pending' && newest.description === RUNNING && Number.isFinite(age) && age < REVIEW_MINUTES * 60000;
+}
+
 function decide(d, rules) {
   const reasons = [];
   const tier = d.tier.tier;
@@ -292,6 +317,7 @@ function decide(d, rules) {
   return {
     state: wouldPass ? 'success' : 'failure',
     wouldPass, tier, round, needsOwner, escalate, breaker: br, reasons,
+    hold: holds(d, rules, onHead.length),
     description: `${tier}, round ${round}: ${wouldPass ? 'ok to merge' : reasons[0]}`.slice(0, 140),
   };
 }
@@ -337,7 +363,7 @@ function landed(before, after, item) {
   return after.some((x) => !seen.has(x.id) && x.user && x.user.login === BOT && lastLine(x.body) === mark);
 }
 
-module.exports = { candidates, lensesStarted, mergeFindings, voteProblem, decide, payload, landed, sections, shipped, shipParts, shipMessage, shipCandidates, sigInfo, signersOk, SHIP_NS, breaker, clean };
+module.exports = { candidates, lensesStarted, mergeFindings, voteProblem, decide, holds, REVIEW_MINUTES, RUNNING, payload, landed, sections, shipped, shipParts, shipMessage, shipCandidates, sigInfo, signersOk, SHIP_NS, breaker, clean };
 
 if (require.main === module) {
   const [cmd, a, b] = process.argv.slice(2);
@@ -419,7 +445,16 @@ if (require.main === module) {
     });
     console.log(list.length);
   } else if (cmd === 'decide') {
-    fs.writeFileSync(path.join(b, 'gate.json'), JSON.stringify(decide(read(path.join(b, 'gate-input.json')), read(a))));
+    // The fourth argument is the review job's result in this run, and
+    // statuses.json the head's statuses as the gather step read them; both are
+    // for holds(). A statuses.json that is there and does not hold a list is
+    // named in the log, and the decision is written as before.
+    const d = read(path.join(b, 'gate-input.json'));
+    const sp = path.join(b, 'statuses.json');
+    const statuses = fs.existsSync(sp) ? tryRead(sp) : null;
+    if (fs.existsSync(sp) && !Array.isArray(statuses)) console.log("::warning::statuses.json holds no list of statuses, so a running review's pending status is not kept");
+    const more = { reviewResult: process.argv[5], statuses, now: new Date().toISOString() };
+    fs.writeFileSync(path.join(b, 'gate.json'), JSON.stringify(decide({ ...d, ...more }, read(a))));
   } else {
     console.error('usage: review-gate.js candidates|lens-ok|vote-ok|merge|payload|landed|signers|ship-candidates|decide ...');
     process.exit(2);

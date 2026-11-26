@@ -1694,3 +1694,134 @@ test('breaker: a number followed by a word is prose, not a PR (RS-G-commaprose)'
   by('Regression-of: ' + '1, '.repeat(30000) + 'x');
   assert.ok(Date.now() - t0 < 2000);
 });
+
+// Q89: a gate job whose own run reviewed nothing (a bot's edit of the PR's body)
+// replaced the pending status of a review still running on the same head. PR 153
+// at d3fdbb3: pending "review running" at 19:19:58Z, then "no finished review"
+// at 19:20:19Z and 19:20:33Z from two edits by cursor[bot], then the round's own
+// verdict at 19:28:54Z.
+const pendingAt = (created_at, o = {}) => ({ id: 1, context: 'auto-review/gate', state: 'pending', description: 'review running', created_at, ...o });
+const PR153 = (o = {}) => base({ tier: { tier: 'medium' }, botComments: [round(H2)], reviewResult: 'skipped',
+  statuses: [pendingAt('2026-11-25T19:19:58Z')], now: '2026-11-25T19:20:19Z', ...o });
+const minutesAfter = (iso, m) => new Date(Date.parse(iso) + m * 60000).toISOString();
+test('gate: a run with no review of its own holds the pending status of a review still running on the head (Q89, the PR 153 sequence)', () => {
+  const enforce = { ...rules, mode: 'enforce' };
+  const hold = (o, r = enforce) => g.decide(PR153(o), r).hold;
+  assert.equal(hold({}), true, 'the PR 153 sequence holds');
+  // The decision itself is unchanged; only the write is held.
+  assert.match(g.decide(PR153(), enforce).reasons[0], /no finished review/);
+  // The review run's own gate job writes, whatever its review's result.
+  for (const reviewResult of ['success', 'failure', 'cancelled', undefined]) assert.equal(hold({ reviewResult }), false, String(reviewResult));
+  // A round of this head is posted: the decision rests on it.
+  assert.equal(hold({ botComments: [round(H2), round(H)] }), false, 'a finished review of the head');
+  // A round of the head on another base does not count as finished here.
+  assert.equal(hold({ botComments: [round(H, 0, 'dev')] }), true, 'a round on another base');
+  // The review job is stopped at REVIEW_MINUTES, so an older pending is not kept.
+  assert.equal(hold({ now: minutesAfter('2026-11-25T19:19:58Z', g.REVIEW_MINUTES - 1) }), true, 'one minute inside the limit');
+  assert.equal(hold({ now: minutesAfter('2026-11-25T19:19:58Z', g.REVIEW_MINUTES) }), false, 'at the limit');
+  // A runner clock a little behind GitHub's still holds.
+  assert.equal(hold({ now: '2026-11-25T19:19:50Z' }), true, 'clock behind');
+  // Only the newest status of the gate's context counts, by time and then id, in any order.
+  const failed = { id: 2, context: 'auto-review/gate', state: 'failure', description: 'medium, round 2: x', created_at: '2026-11-25T19:20:05Z' };
+  assert.equal(hold({ statuses: [pendingAt('2026-11-25T19:19:58Z'), failed] }), false, 'a newer failure');
+  assert.equal(hold({ statuses: [failed, pendingAt('2026-11-25T19:20:10Z', { id: 3 })] }), true, 'a newer pending listed last');
+  assert.equal(hold({ statuses: [{ ...failed, created_at: '2026-11-25T19:19:58Z' }, pendingAt('2026-11-25T19:19:58Z', { id: 3 })] }), true, 'same second, higher id');
+  assert.equal(hold({ statuses: [{ ...failed, id: 3, created_at: '2026-11-25T19:19:58Z' }, pendingAt('2026-11-25T19:19:58Z')] }), false, 'same second, lower id');
+  // Another context, another description, or a pending with no review.
+  assert.equal(hold({ statuses: [pendingAt('2026-11-25T19:19:58Z', { context: 'auto-review/observe' })] }), false, 'the observe context in enforce mode');
+  assert.equal(hold({ statuses: [pendingAt('2026-11-25T19:19:58Z', { context: 'auto-review/observe' })] }, { ...rules, mode: 'observe' }), true, 'the observe context in observe mode');
+  assert.equal(hold({ statuses: [pendingAt('2026-11-25T19:19:58Z', { description: 'queued' })] }), false, 'another description');
+  assert.equal(hold({ statuses: [pendingAt('2026-11-25T19:19:58Z', { context: 'ci/other' })] }), false, 'another context only');
+  // A read that failed or gave something else holds nothing.
+  for (const statuses of [undefined, null, {}, 'x', []]) assert.equal(hold({ statuses }), false, JSON.stringify(statuses));
+  assert.equal(hold({ statuses: [pendingAt('not a time')] }), false, 'a status time that does not parse');
+  assert.equal(hold({ now: undefined }), false, 'no clock');
+});
+test('gate: the hold reads the same limit, description and inputs as the workflow (Q89)', () => {
+  const wf = wfText();
+  const review = wf.slice(wf.indexOf('\n  review:\n'), wf.indexOf('\n  gate:\n'));
+  assert.ok(review.includes(`\n    timeout-minutes: ${g.REVIEW_MINUTES}\n`), 'REVIEW_MINUTES is the review job\'s limit');
+  assert.ok(review.includes(`-f description="${g.RUNNING}"`), 'RUNNING is the pending status the review job writes');
+  assert.match(stepRun(wf, 'Gather what the gate reads'), /\n *gh api "repos\/\$REPO\/commits\/\$head\/statuses\?per_page=100" > \.review\/statuses\.json \\\n *\|\| \{ echo "::warning::[^\n]*"; rm -f \.review\/statuses\.json; \}\n/);
+  const decideStep = stepRun(wf, 'Decide and set the status');
+  assert.ok(decideStep.startsWith('set -euo pipefail\nnode dev/review-gate.js decide dev/risk-tiers.json .review "$REVIEW_RESULT"\n'), 'decide gets the review job\'s result');
+});
+// Runs the decide step once, as a file under `bash -e` like the runner, with stand-ins
+// for gh (it logs each call) and jq (the step's own filters), in a temp folder of its
+// own that it removes. o: the review job's result, the statuses file's text (none if
+// absent) and the gate input.
+function runDecide(name, o) {
+  const step = stepRun(wfText(), 'Decide and set the status');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `jbmem-q89-${name}-`));
+  const sh = (p) => p.replace(/\\/g, '/');
+  try {
+    fs.mkdirSync(path.join(tmp, 'bin'));
+    fs.writeFileSync(path.join(tmp, 'bin', 'gh.js'), [
+      "const fs = require('fs'); const a = process.argv.slice(2);",
+      "const known = (a[0] === 'api' && a[1] === 'repos/o/r/statuses/' + process.env.HEAD) || (a[0] === 'pr' && a[1] === 'edit');",
+      "fs.appendFileSync(process.env.GH_LOG, (known ? '' : 'unexpected ') + a.join(' ') + '\\n');",
+      'process.exit(known ? 0 : 99);', ''].join('\n'));
+    fs.writeFileSync(path.join(tmp, 'bin', 'gh'), '#!/bin/bash\nexec node "$(dirname "$0")/gh.js" "$@"\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(tmp, 'bin', 'jq.js'), [
+      "const fs = require('fs'); const [r, f, file] = process.argv.slice(2);",
+      "const o = JSON.parse(fs.readFileSync(file, 'utf8'));",
+      "const out = r !== '-r' ? undefined : /^\\.[a-z]+$/i.test(f) ? String(o[f.slice(1)] ?? null)",
+      "  : f.startsWith('\"would pass: ') ? `would pass: ${o.wouldPass}\\n` + o.reasons.map((x) => '- ' + x).join('\\n')",
+      "  : f === '.needsOwner and (.wouldPass | not)' ? String(Boolean(o.needsOwner && !o.wouldPass)) : undefined;",
+      "if (out === undefined) { console.error('jq stand-in: unexpected call ' + JSON.stringify(process.argv.slice(2))); process.exit(99); }",
+      'console.log(out);', ''].join('\n'));
+    fs.writeFileSync(path.join(tmp, 'bin', 'jq'), '#!/bin/bash\nexec node "$(dirname "$0")/jq.js" "$@"\n', { mode: 0o755 });
+    const d = path.join(tmp, 'w');
+    fs.mkdirSync(path.join(d, '.review'), { recursive: true });
+    fs.mkdirSync(path.join(d, 'dev'));
+    fs.copyFileSync(path.join(__dirname, 'review-gate.js'), path.join(d, 'dev', 'review-gate.js'));
+    fs.writeFileSync(path.join(d, 'dev', 'risk-tiers.json'), JSON.stringify({ ...rules, mode: 'enforce' }));
+    fs.writeFileSync(path.join(d, '.review', 'gate-input.json'), JSON.stringify({ signersValid: true, shipVerified: [], ...o.input }));
+    if (o.statuses !== undefined) fs.writeFileSync(path.join(d, '.review', 'statuses.json'), o.statuses);
+    fs.writeFileSync(path.join(d, 'step.sh'), step);
+    const log = path.join(tmp, 'gh.log');
+    const summary = path.join(tmp, 'summary.md');
+    fs.writeFileSync(log, '');
+    fs.writeFileSync(summary, '');
+    const r = spawnSync('bash', ['-e', 'step.sh'], { cwd: d, encoding: 'utf8', timeout: 60000, env: { ...process.env, PATH: sh(path.join(tmp, 'bin')) + path.delimiter + process.env.PATH,
+      REPO: 'o/r', PR: '7', HEAD: H, REVIEW_RESULT: o.result, GH_TOKEN: 'x', GH_LOG: sh(log), GITHUB_STEP_SUMMARY: sh(summary) } });
+    const calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean);
+    assert.ok(!calls.some((l) => l.startsWith('unexpected ')), `${name}: the step made only the calls the stand-in knows (${calls.join('; ')})`);
+    return { r, calls, statusPosts: calls.filter((l) => l.startsWith('api repos/o/r/statuses/')), summary: fs.readFileSync(summary, 'utf8') };
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+const agoIso = (ms) => new Date(Date.now() - ms).toISOString();
+const NO_ROUND = base({ tier: { tier: 'medium' }, botComments: [round(H2)] });
+test('workflow decide step: a body edit while the review of the head runs leaves its pending status (Q89, the PR 153 sequence)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  const x = runDecide('held', { result: 'skipped', statuses: JSON.stringify([pendingAt(agoIso(21000))]), input: NO_ROUND });
+  assert.equal(x.r.status, 0, x.r.stderr);
+  assert.deepEqual(x.statusPosts, [], 'no status written over the pending one');
+  assert.deepEqual(x.calls, [], 'no label changed either');
+  assert.match(x.r.stdout, /a review of this head is still running; its own gate job sets the status/);
+  assert.match(x.summary, /still running/);
+});
+test('workflow decide step: with no running review to wait for, the gate still writes its decision (Q89 controls)', (t) => {
+  if (!hasBash()) return t.skip('bash is needed');
+  const posts = (o) => { const x = runDecide(o.name, o); assert.equal(x.r.status, 0, x.r.stderr); return x; };
+  // The review run's own gate job, after its review.
+  const own = posts({ name: 'own', result: 'success', statuses: JSON.stringify([pendingAt(agoIso(21000))]), input: base({ tier: { tier: 'medium' } }) });
+  assert.equal(own.statusPosts.length, 1);
+  assert.match(own.statusPosts[0], /-f state=success -f context=auto-review\/gate -f description=medium, round 1: ok to merge$/);
+  // A pending older than the review job's limit: that review is over.
+  const stale = posts({ name: 'stale', result: 'skipped', statuses: JSON.stringify([pendingAt(agoIso((g.REVIEW_MINUTES + 1) * 60000))]), input: NO_ROUND });
+  assert.equal(stale.statusPosts.length, 1);
+  assert.match(stale.statusPosts[0], /-f state=failure -f context=auto-review\/gate -f description=medium, round 1: no finished review/);
+  // The statuses read failed (no file): written as before.
+  const gone = posts({ name: 'gone', result: 'skipped', input: NO_ROUND });
+  assert.equal(gone.statusPosts.length, 1);
+  // A file that does not hold a list: written as before, and the log says why.
+  const bad = posts({ name: 'bad', result: 'skipped', statuses: '{"message":"Not Found"}', input: NO_ROUND });
+  assert.equal(bad.statusPosts.length, 1);
+  assert.match(bad.r.stdout, /^::warning::statuses\.json holds no list of statuses/m);
+  const broken = posts({ name: 'broken', result: 'skipped', statuses: '[{"id":', input: NO_ROUND });
+  assert.equal(broken.statusPosts.length, 1);
+  assert.match(broken.r.stdout, /^::warning::statuses\.json holds no list of statuses/m);
+});
