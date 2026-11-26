@@ -105,6 +105,7 @@ Format:
 - What went wrong: the `--sums --quick` run on Q69's batch takes about 16 minutes, and it was started in the tool's background mode with a timeout of 600,000 ms passed beside it. Whether that limit stops a background run was not known when the run started. The run's own end line reads exit 0 after 16 minutes, so this one was not cut. A cut run would have left the batch untested.
 - Why: the timeout was typed from habit, as for a long foreground command.
 - Rule going forward: a run started in the tool's background mode gets no timeout parameter. Its own start and end lines are what count, as "A check in the background ended with no result line" (2026-11-13) says.
+- Seen again 2026-11-25 (second sighting, Q77): both `--sums --quick` runs of Q77 went to the background with a timeout of 600,000 ms beside them. The first ran 20:05:50 to 20:18:56 and its end line reads exit 0, so it was not cut. The lessons check before the runs named other rules and not this one. A second sighting, so this rule is a promotion candidate for Q78.
 - Status: open
 
 ## 2026-11-25: A name pattern meant for every test of an item left out one test
@@ -197,6 +198,7 @@ Format:
 - Why: each time was worked out from the last time seen and the work done since. No command read the clock in the step that wrote it.
 - Rule going forward: a time in a status, a note or a heading comes from `date` (or a tool's own timestamp) read in the same step. A time taken from someone else's report says whose clock it is.
 - Seen again 2026-11-25 (third sighting, Q70): two status messages to the supervisor were headed 16:41 and 17:00 and arrived at 16:35 and 16:54 by the supervisor's `Get-Date`, and two headings of the plan notes were estimates too. The supervisor pointed it out. The steps that wrote them ran no `date`. Its `PLAYBOOK.md` step waits for Q78, as the second sighting says.
+- Seen again 2026-11-25 (fourth sighting, Q77): a message to the supervisor said its facts were "read 20:20 to 20:22". By `date`, the tier check ended at 20:20:05 and the last fact was read by 20:20:50; the end time was an estimate. The session caught it on the next `date`. This line first said the supervisor had the correction, which went out only by 21:12:47, after the verify reviewer found no such message.
 - Status: open
 
 ## 2026-11-24: A rule about a guard's input was written, then applied to one line
@@ -685,6 +687,7 @@ Format:
 - What went wrong: the RS-A-missinglookups sparse probe (`ml-sparse.sh`) was written with a Bash heredoc, where "Constraints and known limits" says every script is written with the Write or Edit tool. Its first run in Git Bash passed `/d/a` and the other sparse patterns to Windows git without `MSYS_NO_PATHCONV=1`, which the same section names for `wsl.exe` only. MSYS rewrote them, so the patterns matched nothing, and the `wsl.exe` paths were rewritten too, so the WSL runs never started (CONFIRMED from that run's output as the session saw it: `after set:` listed nothing, and `sh` could not open `C:/Program Files/Git/mnt/c/...`; the output was not saved). The probe was run again with the variable set (`ml-sparse.out`).
 - Why: a harness reminder to work through Bash was followed over the project's rule. The patterns were not seen as path arguments because they were git patterns, not file names.
 - Rule going forward: "Constraints and known limits" holds over a harness reminder. New: any argument that starts with `/` and goes to a Windows program (git patterns, `wsl.exe` paths) runs with `MSYS_NO_PATHCONV=1`, not only `wsl.exe` calls.
+- Seen again 2026-11-25 (Q77): the first WSL run of `q77-wsl-only.sh` passed `/mnt/e/...` to `wsl.exe` without `MSYS_NO_PATHCONV=1`, and bash in WSL got `C:/Program Files/Git/mnt/e/DevTemp/q77-wsl-only.sh` ("No such file or directory"). The promoted step was there and was not read before the call. Rerun with the variable set.
 - Status: promoted to PLAYBOOK ("Constraints and known limits", the MSYS bullet)
 
 ## 2026-11-22: A measured count was applied to a different distance than the one measured
