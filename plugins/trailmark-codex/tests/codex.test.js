@@ -496,7 +496,7 @@ test("codex skills: tm-memory-setup's hook check accepts a session-start note wi
 // message follows the same rule (RS-S-codexfolder, every route).
 test('codex skills: every route that saves an incoming file in the memory folder checks dir first (RS-S-codexfolder)', () => {
   const dir = path.join(ROOT, 'skills');
-  const NAMES = /incoming-(handoff|park|note|search)/;
+  const NAMES = /incoming-(handoff|park|note|search)/i;
   const VERB = /\b(sav(e|ed|ing)|creat(e|ed|ing)|put|writ(e|ten|ing)|mak(e|ing))\b/i;
   const TOOL = /Write tool|apply_patch|file-editing tool/;
   const LEANS = /as described next/;
@@ -504,13 +504,62 @@ test('codex skills: every route that saves an incoming file in the memory folder
   // A route: a line of prose (not a command of its own) that names a drop
   // file next to a word for saving it, or that names the tool that saves.
   const isRoute = (l) => !/^\s*node "/.test(l) && ((NAMES.test(l) && VERB.test(l)) || (TOOL.test(l) && !LEANS.test(l)));
+  // Wider (RS-S-scanwrites, Fable's M7): a prose line that names a drop
+  // file's name, --from, a tool that saves, a drop file, the same file, or a
+  // file in the memory folder (in any case) is a route, or one of the PINNED
+  // lines, each word for word: the sha256 of the trimmed line, first 12 hex,
+  // with a pattern that says which line it is. A route worded another way,
+  // or a change to a pinned line, fails here until it carries the check or
+  // is read and pinned again. A route in none of these words is not seen.
+  const WIDE = /incoming-|--from\b|Write tool|apply_patch|file-editing tool|drop[- ]file|\bthe same file\b|\b(new )?file in the memory folder\b|\bin a (new )?file\b/i;
+  const hash = (t) => require('crypto').createHash('sha256').update(t).digest('hex').slice(0, 12);
+  const PINNED = [
+    // Say what the handoff and the recall skill's writes are.
+    [/^- \*\*The handoff\*\*: the SessionStart hook injects it into every Codex and Claude Code session in this repo\./, 'd74af6e8046a'],
+    [/^Lookups over the repo's memory folder, plus two small writes/, '949a2d2986fa'],
+    // Save the text again to the drop file that a refused write-handoff
+    // (exit 3) left in the folder: write-handoff checks that the repo is set
+    // up before it reads the file (requireEnabled in memory.js).
+    [/^- Save the merged text to the same file and write with the version/, '18eacb54cb74'],
+  ];
+  const pinned = (l) => PINNED.some(([r, h]) => r.test(l.trim()) && hash(l.trim()) === h);
+  const unchecked = (l) => !/^\s*node "/.test(l) && WIDE.test(l) && !isRoute(l) && !(TOOL.test(l) && LEANS.test(l)) && !pinned(l);
+  const m7 = 'If that fails, put the words in a new file in the memory folder and pass that file with `--from`.';
+  assert.ok(!isRoute(m7) && unchecked(m7), 'the wider filter takes a route worded without a drop file name');
+  assert.ok(unchecked('If that fails, write the words to the drop file for the search and run the command below.'), 'and one that says drop file');
+  // A skill's lines, split as the curlyquote scan splits them (a \r before
+  // the \n is not part of the line; round 2), each with where it is: 'fence'
+  // for a fence line, 'in' inside a fence, 'out' outside. A fence opens on
+  // ``` or ~~~ and closes only on its own character, at least as long, with
+  // nothing after it (as the curlyquote scan reads).
+  const read = (text) => {
+    let fence = null;
+    return text.split(/\r?\n/).map((line) => {
+      const fl = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+      if (fence ? fl && fl[1][0] === fence[0] && fl[1].length >= fence.length && fl[2].trim() === '' : fl) { fence = fence ? null : fl[1]; return [line, 'fence']; }
+      return [line, fence ? 'in' : 'out'];
+    });
+  };
+  for (const t of ['```\nx\n```\r\n\n' + m7, '```\r\nx\n```\n\n' + m7]) {
+    assert.deepStrictEqual(read(t).map(([, w]) => w), ['fence', 'in', 'fence', 'out', 'out'], 'a fence line that ends in \\r is a fence line: ' + JSON.stringify(t));
+  }
+  const seen = [];
   const routes = [];
-  for (const n of fs.readdirSync(dir).sort()) {
-    const f = path.join(dir, n, 'SKILL.md');
-    if (!fs.existsSync(f)) continue;
-    const lines = fs.readFileSync(f, 'utf8').split('\n');
-    lines.forEach((line, i) => {
+  // One skill's text, named n: a line outside a fence must not be a route
+  // without the check, and every route line, a fence line included (as
+  // main read it; PR 156's gate note 3), carries the check before its save.
+  const check = (n, text, seen, routes) => {
+    const read1 = read(text);
+    const lines = read1.map(([line]) => line);
+    read1.forEach(([line, where], i) => {
       const at = `${n}:${i + 1}: ${line.trim().slice(0, 120)}`;
+      if (where === 'out') {
+        assert.ok(!unchecked(line), 'names a file route without the dir check (add the check, or pin the line if it only describes or saves again after a refused write-handoff): ' + at);
+        if (pinned(line)) {
+          seen.push(hash(line.trim()));
+          assert.ok(!pinned(`${line.trim()} ${m7}`), 'a pinned line with a sentence added is read again: ' + at);
+        }
+      }
       // "save the text with the Write tool ... as described next" has no
       // check of its own: the route it leans on comes right after it.
       if (TOOL.test(line) && LEANS.test(line)) { assert.ok(lines.slice(i + 1, i + 5).some(isRoute), 'no route follows: ' + at); return; }
@@ -525,7 +574,17 @@ test('codex skills: every route that saves an incoming file in the memory folder
       const save = line.search(SAVE);
       assert.ok(save > line.search(/only when `dir` shows/), 'the check comes before the save: ' + at);
     });
+  };
+  // A route sentence on a fence line (in the text after the ```) is read as
+  // a route, as main read it. This line put in a skill failed main's test
+  // and passed 02e3547's (PR 156, gate round 1, note 3).
+  const fenced = '```text save incoming-handoff.md in the memory folder with the Write tool\nx\n```\n';
+  assert.throws(() => check('checkpoint', fenced, [], []), /checkpoint:1: ```text save incoming-handoff\.md/, 'a route on a fence line is read');
+  for (const n of fs.readdirSync(dir).sort()) {
+    const f = path.join(dir, n, 'SKILL.md');
+    if (fs.existsSync(f)) check(n, fs.readFileSync(f, 'utf8'), seen, routes);
   }
+  assert.deepStrictEqual(seen.sort(), PINNED.map(([, h]) => h).sort(), 'each pinned line is in the skills once');
   assert.deepStrictEqual([...new Set(routes)], ['tm-checkpoint', 'tm-park', 'tm-recall', 'tm-session-end']);
   assert.strictEqual(routes.length, 5, routes.join(', '));
   const park = fs.readFileSync(path.join(dir, 'tm-park', 'SKILL.md'), 'utf8');
@@ -535,14 +594,42 @@ test('codex skills: every route that saves an incoming file in the memory folder
   // launcher's --from message, which says it only behind the same check.
   const sdir = path.join(ROOT, 'scripts');
   const says = [];
+  const names = [];
+  // The script lines M8 reads: those that name a drop file's name or --from,
+  // and those in the words WIDE takes for a file (RS-S-scanwrites round 1).
+  const SCRIPT_NAMES = /incoming-|--from\b|drop[- ]file|\bthe same file\b|\b(new )?file in the memory folder\b|\bin a (new )?file\b/i;
   for (const f of [...fs.readdirSync(sdir), ...fs.readdirSync(path.join(sdir, 'lib')).map(x => path.join('lib', x))]) {
     if (!f.endsWith('.js')) continue;
     for (const line of fs.readFileSync(path.join(sdir, f), 'utf8').split('\n')) {
       if (/^\s*\/\//.test(line)) continue;
       if (/Save the text|Write tool|file-editing tool|apply_patch/.test(line)) says.push(`${f}: ${line.trim()}`);
+      else if (SCRIPT_NAMES.test(line)) names.push(`${f.replace(/\\/g, '/')}: ${line.trim()}`);
     }
   }
   assert.strictEqual(says.length, 3, says.join('\n'));
+  // Every other such line (RS-S-scanwrites, Fable's M8) is one of these,
+  // once, word for word: the sha256 of `<file>: <line>` (/ for the
+  // separator), first 12 hex, with a pattern that says which line it is. A
+  // new line, or a change to one, fails here until it is read and pinned.
+  const NAMED = [
+    [/^memory\.js: if \(require\('tty'\)\.isatty\(0\)\) fail\('pipe the content on stdin/, '13ff217a30d7'],
+    [/^memory\.js: if \(args\.length && fromFile\) fail\('give the text as words or with --from/, '225bff337c16'],
+    [/^trailmark\.js: const DROP_RE = /, '60f57d7fc7a4'],
+    [/^trailmark\.js: const fromArgs = /, '946298668534'],
+    [/^trailmark\.js: process\.stderr\.write\('trailmark: --from was given more than once/, '756ef2f20735'],
+    [/^trailmark\.js: const file = path\.resolve\(cwd, fromArg\.slice\('--from='/, '6c5d0ddd8ae1'],
+    [/^trailmark\.js: process\.stderr\.write\(`trailmark: --from must name a file inside the memory folder/, '6ba863aa3a9f'],
+    [/^trailmark\.js: childArgs = /, '5ab83d5539b1'],
+    [/^lib\/store\.js: const DROP_NAME = /, 'c89465865e00'],
+    [/^lib\/store\.js: return walkMd\(dir\)\.filter/, 'd5bc00a7f63e'],
+  ];
+  const named = (l) => NAMED.some(([r, h]) => r.test(l) && hash(l) === h);
+  assert.deepStrictEqual(NAMED.map(([r, h]) => names.filter(l => r.test(l) && hash(l) === h).length), NAMED.map(() => 1), names.join('\n'));
+  assert.strictEqual(names.length, NAMED.length, names.join('\n'));
+  for (const probe of ["lib/store.js: fail('not set up, or create incoming-note.md in that folder');", "lib/store.js: const M8B_PROBE = 'not saved: put the words in a new file in the memory folder and run it again';"]) {
+    assert.ok(SCRIPT_NAMES.test(probe) && !named(probe), 'a new message is read and is none of these: ' + probe);
+  }
+  assert.ok(!named(`${names[0]} x`), 'a pinned line with more on it is none of these');
   assert.strictEqual(says.filter(l => /^trailmark\.js: .*has other hard links/.test(l)).length, 2, says.join('\n'));
   assert.strictEqual(says.filter(l => /^trailmark\.js: .*there \? 'Save the text there /.test(l)).length, 1, says.join('\n'));
   // What the skills read. A repo Claude Code never opened: the memory folder

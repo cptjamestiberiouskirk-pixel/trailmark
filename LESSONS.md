@@ -14,6 +14,57 @@ Format:
 - Status: open | promoted to PLAYBOOK | superseded (by what)
 ```
 
+## 2026-11-25: A PR went up without the body sections the gate requires
+
+- What went wrong: PR 156's body was written in an older PR's shape (What changed, Reviews, Checks). The review gate's first finished status on 02e3547 failed with "PR body section empty or missing: Testing, Risk, How to revert", and the PR waited on it until the supervisor read the status.
+- Why: `.github/pull_request_template.md` holds the three sections, and `gh pr create --body-file` does not use it. Nothing in the session's PR step ran the gate's `sections()` on the body.
+- Rule going forward: a PR body starts from `.github/pull_request_template.md`. Before `gh pr create` or `gh pr edit`, the body file goes through `sections()` of `dev/review-gate.js` on `origin/main` (`q70/q70-body-sections.js` in the sessions' notes folder does it, read-only) and shows none missing.
+- Status: open
+
+## 2026-11-25: A check run during the app's restart failed at process start
+
+- What went wrong: Q70's `--sums --quick` run 5 on 02e3547 failed 147 of 474 handoff-checks tests: 139 at `git init -q`, with no more in the message, and 6 where a child exited 3221225794 (0xC0000142). Run 6 on the same commit passed.
+- Why: the run's summary was written at 17:16:27, and new MCP server processes started at 17:16:28, when the desktop app restarted. That processes could not start during the restart is HYPOTHESIZED, not proven; it fits the exit code.
+- Rule going forward: when a run fails at process start (`git init -q` with no more in the message, or exit 3221225794), compare the run's window with process start times (`Get-CimInstance Win32_Process`) before reading code, then rerun once on the same commit. Report both runs and keep the failed run's folder.
+- Status: open
+
+## 2026-11-25: A regex in a test held two curly quotes, and the commit script stopped it
+
+- What went wrong: the `AFTER` pattern of Q70's round 1 batch in `handoff-checks.test.js` held U+2018 and U+201F as characters, where the edit was meant to write the escapes for them. `--sums --quick` passed on it; the commit script's scan of the added lines stopped the commit. The pattern was rebuilt with `String.fromCharCode`, and `--sums --quick` ran again (15 minutes).
+- Why: which step turned the escapes into characters was not found (HYPOTHESIZED: the edit tool's input). `dev/release-check.sh` does not scan added lines for non-ASCII; only the commit script does, after `--sums`.
+- Rule going forward: a test that needs a non-ASCII character builds it with `String.fromCharCode`, as the file already does for `Q`. After an edit of code, scan its added lines for non-ASCII (`git diff | grep '^+' | LC_ALL=C grep -c $'[^\t -~]'`) before `--sums`.
+- Status: open
+
+## 2026-11-25: A scan that read more of Markdown let more through
+
+- What went wrong: Q70's first build of the skill scan (4d3336e) read code spans per paragraph and read `<pre>` blocks, to catch gaps that Q62's round 3 listed. Review round 1 found that the wider reading let through shapes that f885821's line-by-line scan refused: an odd backtick earlier in a paragraph shifts how the spans after it pair, text before `<pre>` on its line was dropped, and a `<pre>` named in a span turned span reading off for the rest of the file. It also refused likely edits that f885821 passed. None of the 12 skills held such a shape, so every test passed.
+- Why: each new reading answered a sample in hand, and a reader of Markdown has more cases than the samples; each case it gets wrong is a miss. The tests ran the new reader on the skills and the new samples, not on the old reader's neighbors. A second sighting of "A check listed the characters a copy can lose, and each review found more" (2026-11-25), which makes that lesson a promotion candidate for Q78.
+- Rule going forward: a check that reads a format reads only the part it can read exactly, refuses the rest by name, and is run over the real files first to show they hold none of what it refuses. Before a new reading replaces an old one, both run over the old samples and a list of neighbor shapes, and every shape the old one refused and the new one passes is read before the commit.
+- Seen again 2026-11-25: round 1's fix read text after a command's span when it started with a listed character (`AFTER`), and round 2 found that 4d3336e refused text starting with a dash, a bracket, a digit or another quote mark, which `AFTER` let through. Round 1's repro ran the new samples on 4d3336e's scanner, not 4d3336e's refusals on the new one. The route test also said it read fences as the curlyquote scan does, and split lines another way. Round 2 lists what is sure prose instead (`PROSE`) and the route test now splits a skill's lines as the curlyquote scan does.
+- Seen again 2026-11-25 (PR 156, the review gate's round 1, note 3): round 2's `read` tagged fence lines, and the route test returned early on them, so a route sentence on a fence line, which f885821's test read, passed. Round 2's plants ran the new reading's cases on the old test, not the old test's reach on the new one. A third sighting, so this rule is a promotion candidate for Q78.
+- Status: open
+
+## 2026-11-25: A Lessons checked line was stored as thinking, and the gate denied six pushes
+
+- What went wrong: the lessons-learned hook denied the push of PR 153's merge commit d3fdbb3 six times. Each time the session believed it had written a visible `Lessons checked:` line, and it first reported so. The transcript held none: one mention sat in backticks, which the hook skips on purpose, and three messages whose text held the line were stored as thinking records with no text record. A message whose text was one line was stored as text, and the push passed at 14:19:44.
+- Why: the session judged its output by what it meant to write, not by what the transcript held, and retried before it read the hook's code. Why the longer text was stored as thinking was not found (HYPOTHESIZED: the app, not the hook).
+- Rule going forward: before a gated commit or push, write the `Lessons checked:` line as a short line of its own. After a denial, read the turn's records (`q69-hook-shape.js` in the sessions' notes folder, `q69/`) and the hook's code before any retry, and report the line as written only once a text record holds it.
+- Status: open
+
+## 2026-11-25: GitHub writes that returned an error had landed
+
+- What went wrong: on PR 153, between 10:44 and 10:50, GitHub's API answered writes with a 504, an HTML error page or an empty response. The 504 and the HTML page still created their comments; the empty response created nothing. Thread resolves failed then and worked at 11:29. A retry on the error alone would have posted twice.
+- Why: an error from a write does not say whether the write happened.
+- Rule going forward: after a GitHub write that errors, read the target (the comment list, the thread's state) before any retry. A post is retried only when the read shows it missing; a resolve may be repeated.
+- Status: open
+
+## 2026-11-25: write-handoff from the scratchpad was refused
+
+- What went wrong: `write-handoff --from` run with the session's scratchpad as the working folder exited 1 and wrote nothing.
+- Why: the launcher finds the memory folder from the working folder's repo, and the scratchpad is in no repo.
+- Rule going forward: run trailmark commands from a folder in the repo whose memory they write (the PR's worktree), and give scripts by their full path.
+- Status: open
+
 ## 2026-11-25: A lessons line in a paragraph before a tool call was stored as thinking
 
 - What went wrong: in the Q85 session (64b5dcb7) the lessons line, written as visible reply text with a paragraph around it before a Bash call, reached the transcript only as a `thinking` block that paraphrased it without the words "Lessons checked:" (175 characters at 19:23:42Z). A retry with a short paragraph and a one-line line went the same way (189 characters at 19:24:46Z). The session that had Q85 before could make no Edit for the same reason (from the supervisor's brief for Q85, not re-checked here). The times are the transcript records' own timestamps (UTC), and the lengths come from a read-only script over that transcript.
@@ -145,6 +196,7 @@ Format:
 - What went wrong: a milestone sent to the supervisor was headed 22:50 when the clock read 22:27, 23 minutes ahead. An earlier message and three headings in the session's plan notes carried estimates as well. The supervisor pointed it out.
 - Why: each time was worked out from the last time seen and the work done since. No command read the clock in the step that wrote it.
 - Rule going forward: a time in a status, a note or a heading comes from `date` (or a tool's own timestamp) read in the same step. A time taken from someone else's report says whose clock it is.
+- Seen again 2026-11-25 (third sighting, Q70): two status messages to the supervisor were headed 16:41 and 17:00 and arrived at 16:35 and 16:54 by the supervisor's `Get-Date`, and two headings of the plan notes were estimates too. The supervisor pointed it out. The steps that wrote them ran no `date`. Its `PLAYBOOK.md` step waits for Q78, as the second sighting says.
 - Status: open
 
 ## 2026-11-24: A rule about a guard's input was written, then applied to one line

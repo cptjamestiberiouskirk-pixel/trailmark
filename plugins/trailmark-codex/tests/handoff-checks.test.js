@@ -9280,50 +9280,135 @@ test('note and search take free text from --from or stdin, and the skills pass i
   assert.ok(fs.existsSync(unsetNote) && !log().includes('not saved'), 'the note drop file stays in a repo not set up');
   fs.renameSync(path.join(s.memdir, 'marker.off'), path.join(s.memdir, S.MARKER));
   // The skills never put the text of a note, a search or a park in a shell
-  // string. Every fenced code line or code span that runs one of them holds
-  // only its options, a --from="..." file, the heredoc marker, or the fixed
-  // words of tm-memory-setup's check, and nothing is piped into it.
-  // The command word, quoted or not, at the start or after a space or a shell
-  // operator, and followed by anything but a letter, digit, dash or dot.
-  const CMD = /(^|[\s|;&(])['"]?(note|search|park)['"]?(?![\w.-])/;
+  // string, and never write a file through a shell. Every piece of code that
+  // runs one of them holds only its options, a --from="..." file, the
+  // heredoc marker, or the fixed words of tm-memory-setup's check, and
+  // nothing is piped into it. A drop file named in code is a bare name or
+  // the --from of one of the commands that take one (RS-S-scanwrites).
+  // The command word, quoted or not, at the start or after a space, a comma
+  // or a shell operator, and followed by anything but a letter, digit, dash
+  // or dot.
+  const CMD = /(^|[\s|;&(,])['"]?(note|search|park)['"]?(?![\w.-])/;
+  // node and the launcher's path in quotes, in which only ${NAME} may expand
+  // (no $(...) and no backtick).
+  const LAUNCHER = /^node "(?:[^"$`]|\$\{[A-Z_]+\})*"$/;
+  const FROM = /(^|\s)--from="<memory folder>\/incoming-(handoff|park|note|search)(-\$\{CLAUDE_SESSION_ID\}|-<session id>)?\.md"(?=\s|$)/g;
+  const SESSION = /(^|\s)--session=(<session id>|\$\{CLAUDE_SESSION_ID\})(?=\s|$)/g;
+  // A drop file's name or path, in any case (Windows takes any case).
+  const DROP = /^(<memory folder>[\/\\])?incoming-(\*|handoff|park|note|search)(-(\$\{CLAUDE_SESSION_ID\}|<[a-z ]+>|\*))?\.md$/i;
+  // A write through a shell: a cmdlet or tee that writes a file, or a > that
+  // does not end a <placeholder>.
+  const writes = (code) => /\b(Set-Content|Add-Content|Out-File|New-Item|Tee-Object|tee)\b/i.test(code) || code.replace(/<[^<>]*>/g, '').includes('>');
+  // A drop file in code: a bare name, or the --from of write-handoff, note,
+  // search or park (with the launcher in front, or not). note, search and
+  // park go on to offence's own reading; write-handoff may have only --base,
+  // --session and --drop-others besides. Anything else names the file
+  // outside a command that takes one.
+  const dropOffence = (code) => {
+    if (!/incoming-/i.test(code) || DROP.test(code.trim())) return null;
+    const m = /^\s*(?:(node "[^"]*") )?(write-handoff|note|search|park)(?=\s|$)(.*)$/.exec(code);
+    if (!m || (m[1] && !LAUNCHER.test(m[1]))) return `a drop file outside a command that takes one: ${code.trim()}`;
+    if (m[2] !== 'write-handoff') return null;
+    const rest = m[3].replace(FROM, ' ').replace(SESSION, ' ').split(/\s+/).filter(w => w && !/^(--base=(<version>|none)|--drop-others)$/.test(w)).join(' ');
+    return rest === '' ? null : `write-handoff with more than its file: ${rest}`;
+  };
   const offence = (code) => {
+    if (writes(code)) return `a write through a shell: ${code.trim()}`;
+    const drop = dropOffence(code);
+    if (drop) return drop;
     const m = CMD.exec(code);
     if (!m) return null;
-    // Before the command: nothing, or node and the launcher's path.
+    // Before the command: nothing, or the launcher.
     const before = code.slice(0, m.index + m[1].length).trim();
-    if (before && !/^node "[^"]*"$/.test(before)) return `before the command: ${before}`;
+    if (before && !LAUNCHER.test(before)) return `before the command: ${before}`;
     if (/^['"]/.test(m[0].trim())) return 'a quoted command word';
     const rest = code.slice(m.index + m[0].length)
-      .replace(/(^|\s)--from="<memory folder>\/incoming-(handoff|park|note|search)(-\$\{CLAUDE_SESSION_ID\}|-<session id>)?\.md"(?=\s|$)/g, ' ')
-      .replace(/(^|\s)--session=(<session id>|\$\{CLAUDE_SESSION_ID\})(?=\s|$)/g, ' ')
+      .replace(FROM, ' ')
+      .replace(SESSION, ' ')
       .replace(/(^|\s)<<'JBMEM_EOF_\$\{CLAUDE_SESSION_ID\}'$/, ' ')
       .split(/\s+/).filter(w => w && !/^(--slug=<slug>|--replace)$/.test(w)).join(' ');
     return rest === '' || rest === 'Codex setup check' ? null : rest;
   };
-  // Fenced lines (``` or ~~~), code spans, and any other line that names the
-  // launcher, from the launcher on (prose, an indented block, a quote).
-  const codeOf = (text) => {
+  // Shapes the scan does not read, refused instead of read (RS-S-scanwrites
+  // round 1): an HTML element that can hold code, on any line; outside a
+  // fence, a line with an odd number of backticks or a run of two or more,
+  // so that a span never crosses a line, and node run on a path in prose
+  // (outside a span); inside a fence, a fence line that does not close it, a
+  // close at another indent than its open, and a fence left open.
+  const NODE_RUN = /\b(node|nodejs|node\.exe)\s+(?=["'$%<\-.\/\\~({\[]|\S*[\/\\]|\S+\.[cm]?js\b)/i;
+  const shapes = (text) => {
     const out = [];
+    const lines = text.split(/\r?\n/);
     let fence = null;
-    text.split(/\r?\n/).forEach((l, i) => {
-      const f = /^\s*(`{3,}|~{3,})/.exec(l);
-      if (f && (!fence || f[1][0] === fence[0] && f[1].length >= fence.length)) { fence = fence ? null : f[1]; return; }
-      if (fence) { out.push([i + 1, l]); return; }
-      const spans = [...l.matchAll(/`([^`\n]+)`/g)].map(c => c[1]);
-      for (const c of spans) out.push([i + 1, c]);
-      const bare = l.replace(/`[^`\n]+`/g, ' ');
-      const at = bare.search(/node "[^"]*(trailmark\.js|<launcher>)"/);
-      if (at >= 0) out.push([i + 1, bare.slice(at)]);
+    lines.forEach((l, i) => {
+      const n = i + 1;
+      if (/<\/?(pre|code|kbd|samp|xmp|textarea|listing|plaintext)\b/i.test(l)) out.push([n, `an HTML element that can hold code: ${l.trim()}`]);
+      const f = /^(\s*)(`{3,}|~{3,})(.*)$/.exec(l);
+      if (fence) {
+        if (f && f[2][0] === fence.ch && f[2].length >= fence.len && f[3].trim() === '') {
+          if (f[1].length !== fence.ind) out.push([n, `a fence closed at another indent than it opened: ${l.trim()}`]);
+          fence = null;
+        } else if (f) out.push([n, `a fence line inside a fence that does not close it: ${l.trim()}`]);
+        return;
+      }
+      if (f) { fence = { ch: f[2][0], len: f[2].length, ind: f[1].length }; return; }
+      if ((l.match(/`/g) || []).length % 2) out.push([n, `an odd number of backticks: ${l.trim()}`]);
+      if (l.includes('``')) out.push([n, `a run of backticks: ${l.trim()}`]);
+      if (NODE_RUN.test(l.replace(/`[^`]*`/g, ' '))) out.push([n, `node run in prose (put it in a span or a fence): ${l.trim()}`]);
     });
+    if (fence) out.push([lines.length, 'a fence left open']);
     return out;
   };
+  // Where code sits, read line by line: fenced lines (``` or ~~~; a fence
+  // closes only on its own character, at least as long, with nothing after
+  // it) and code spans. A fenced line that ends in |, \ or ` runs on into
+  // the next, with the \ or ` taken off as the shell takes it. After a span
+  // that runs a command, the rest of its line is read with it unless it is
+  // sure to be prose (round 2): nothing; a letter; a space and a letter;
+  // stops (. , ; : ! ? ) * ]) and then a space and a letter, or nothing; a
+  // dash or two and a word; a number and a word; 's and a word (a
+  // possessive); a ( and a letter; a link's target; or a stop, ( or / and
+  // then a span that starts with a letter or -. Text that starts with a
+  // letter is prose by design, so it is not read (RS-S-q70r1rest).
+  const PROSE = /^(?:[.,;:!?)*\]]*(?:\s+[A-Za-z]|\s*$)|[A-Za-z]|\s+--?\s+[A-Za-z]|\s+\d+\s+[A-Za-z]|'s\s+[A-Za-z]|\s*\(\s*[A-Za-z]|\]\([#\w./-]*\)|\s*[(.,;:!?)*\]/][\s(.,;:!?)*\]/]*`[A-Za-z-])/;
+  const codeOf = (text) => {
+    const out = [];
+    let fence = null, held = null;
+    text.split(/\r?\n/).forEach((l, i) => {
+      const n = i + 1;
+      const f = /^\s*(`{3,}|~{3,})(.*)$/.exec(l);
+      if (fence) {
+        if (f && f[1][0] === fence[0] && f[1].length >= fence.length && f[2].trim() === '') {
+          if (held) out.push(held);
+          held = null;
+          fence = null;
+        } else if (held && /[|\\`]\s*$/.test(held[1])) held[1] = held[1].replace(/[\\`]\s*$/, '') + ' ' + l.trim();
+        else {
+          if (held) out.push(held);
+          held = [n, l];
+        }
+        return;
+      }
+      if (f) { fence = f[1]; return; }
+      for (const c of l.matchAll(/`([^`]+)`/g)) {
+        out.push([n, c[1]]);
+        const after = l.slice(c.index + c[0].length);
+        if (CMD.test(c[1]) && !PROSE.test(after)) out.push([n, `${c[1]} ${after}`]);
+      }
+    });
+    if (held) out.push(held);
+    return out;
+  };
+  const found = (text) => shapes(text).length > 0 || codeOf(text).some(([, c]) => offence(c) !== null);
   const skills = path.join(ROOT, 'skills');
   let read = 0, commands = 0;
   for (const d of fs.readdirSync(skills)) {
     const f = path.join(skills, d, 'SKILL.md');
     if (!fs.existsSync(f)) continue;
     read++;
-    for (const [n, code] of codeOf(fs.readFileSync(f, 'utf8'))) {
+    const text = fs.readFileSync(f, 'utf8');
+    assert.deepStrictEqual(shapes(text).map(([n, why]) => `${d}/SKILL.md:${n}: ${why}`), [], 'a shape the scan does not read');
+    for (const [n, code] of codeOf(text)) {
       if (CMD.test(code)) commands++;
       const bad = offence(code);
       assert.strictEqual(bad, null, `${d}/SKILL.md:${n} passes text to note, search or park in the command: ${code}`);
@@ -9339,15 +9424,74 @@ test('note and search take free text from --from or stdin, and the skills pass i
     L + 'search<<<\'<words>\'', L + 'search;\'<words>\'', L + '"search" \'<words>\'', '\'note\' \'<text>\'',
     L + 'note --session=\'<text>\'', L + 'search --session=$(<words>)', L + 'note --from="<text>"',
     L + 'search --from="$(echo \'<words>\')"', 'Q=\'<words>\' ' + L + 'search', '$q = \'<words>\'; ' + L + 'search --from="<memory folder>/incoming-search.md"',
+    // A drop file written through a shell (RS-S-scanwrites).
+    'Set-Content -Path "<memory folder>/incoming-search.md" -Value \'<words>\'', 'echo \'<text>\' > "<memory folder>/incoming-note.md"',
+    '\'<text>\' | Out-File "<memory folder>/incoming-note-<session id>.md"', L + 'write-handoff --from="<memory folder>/incoming-handoff.md" \'<text>\'',
+    // Round 1: other writes through a shell, a launcher path that runs a
+    // command, a comma before the command word, and a drop file in another
+    // case.
+    'Add-Content x \'<text>\'', '\'<text>\' | tee "<memory folder>/incoming-note.md"', 'New-Item -Path "<memory folder>/INCOMING-note.md" -Value \'<text>\'',
+    'echo \'<text>\' >> "$F-note.md"', 'Set-Content -Value \'<text>\'', 'node "$(echo \'<words>\' >q; echo <launcher>)" search', 'node "$(id)" search',
+    '& node "<launcher>",search,\'<words>\'', 'Start-Process node -ArgumentList \'"<launcher>"\',\'search\',\'<words>\'',
+    L + 'write-handoff --from="<memory folder>/INCOMING-handoff.md"',
   ]) assert.notStrictEqual(offence(bad), null, `not found: ${bad}`);
   // Where such a line can sit: each of these is found.
   for (const where of [
     '~~~bash\n' + L + 'search \'<words>\'\n~~~', '    ' + L + 'search \'<words>\'', 'Run ' + L + 'search \'<words>\' now.',
     '> ' + L + 'search \'<words>\'', '````\nx\n````\n```\n' + L + 'search \'<words>\'\n```',
-  ]) assert.ok(codeOf(where).some(([, c]) => offence(c) !== null), `not found in: ${where}`);
+    // RS-S-scanwrites: a fence line with an info string inside a fence, a
+    // pipe or a continuation over two lines, text after a span, and a shell
+    // write in a span.
+    '```\n```text\nsearch \'<words>\'\n```', '```\necho \'<words>\' |\n' + L + 'search\n```',
+    '```\n\'<words>\' `\n| ' + L + 'search\n```', 'Run `' + L + 'search` \'<words>\' now.', 'Run `' + L + 'note --session=<session id>` <text> now.',
+    'First `Set-Content -Path "<memory folder>/incoming-search.md" -Value \'<words>\'`, then search.',
+    // Round 1: a continuation with \ or `, text after a stop, a span right
+    // after the span, a write in a span of its own, and a span on a line
+    // that also names <pre>.
+    '```\nQ=\'<words>\' \\\n' + L + 'search\n```', '```\nQ=\'<words>\' `\n' + L + 'search\n```',
+    'Run `' + L + 'search`: \'<words>\'.', 'Run `' + L + 'note`.<text>', 'Run `search` `\'<words>\'` now.',
+    'Save `<memory folder>/incoming-note.md` with `Set-Content -Value \'<text>\'`.', 'Run `search \'<words>\'` as in <pre>x</pre>',
+    // Round 2: after a command's span, text that starts with a character
+    // that is not sure prose, and a stop then a span that holds the text.
+    'Run `' + L + 'search` (\'<words>\') now.', 'Run `' + L + 'search` -- \'<words>\'', 'Run `' + L + 'search` - "<words>" now.',
+    'Run `' + L + 'search` @\'<words>\'@', 'Run `' + L + 'search` [\'<words>\']', 'Run `' + L + 'search` 2>&1 now.',
+    'Run `' + L + 'search` #<words>', 'Run `' + L + 'search` 5 <words>', 'Run `search` / $q now.', 'Run `search` \\\'<words>\\\'',
+    'Run `search` ' + String.fromCharCode(0xab) + '<words>' + String.fromCharCode(0xbb), 'Run `search`* `<words>`', 'Run `search`, `\'<words>\'`.',
+  ]) assert.ok(found(where), `not found in: ${where}`);
+  // The shapes the scan refuses instead of reading, each refused alone
+  // (round 1): <pre> in any case and in a span, a span over two lines, an
+  // odd backtick, a backtick run, a fence line inside a fence, a close at
+  // another indent, a fence left open, and node run in prose in each form.
+  for (const shape of [
+    '<pre>\nsearch \'<words>\'\n</pre>', 'See <PRE>out</PRE> here.', 'Never use `<pre>`.', 'Run `' + L + 'search\n\'<words>\'` now.',
+    'Use a backtick (`) to continue a line.', 'Write it as `` a`b `` here.', '~~~markdown\n```\n~~~', '```bash\n    ```\necho x\n```', '```\nx',
+    'Run node $j search \'<words>\' now.', 'Run node "${J}" note \'<text>\' now.', 'Run node \'x/trailmark.js\' search now.',
+    'Run node x/trailmark.js search now.', 'Run NODE "<launcher>", then search \'<words>\'.', 'Run node --no-warnings "<launcher>" search now.',
+    'Run node.exe "<launcher>" search now.', '    echo \'<words>\' | node "<launcher>" search',
+  ]) assert.ok(shapes(shape).length > 0, `shape not refused: ${shape}`);
+  // And what reads as code but passes: a span then prose, a drop file's
+  // name or path, a template, write-handoff with its file, a heredoc.
+  for (const fine of [
+    'Run `' + L + 'search --from="<memory folder>/incoming-search-<session id>.md"`, then read the hits.', 'Save it as `incoming-note-<session id>.md` there.',
+    'The file is `<memory folder>/incoming-search.md`.', '```text\nWhat: <one line>\n<full handoff>\n```',
+    '```\n' + L + 'write-handoff --base=<version> --session=<session id> --from="<memory folder>/incoming-handoff-<session id>.md"\n```',
+    '```bash\nnode "x/trailmark.js" search <<\'JBMEM_EOF_${CLAUDE_SESSION_ID}\'\n<words>\nJBMEM_EOF_${CLAUDE_SESSION_ID}\n```',
+    'Run `' + L + 'search --from="<memory folder>/incoming-search.md"` and read.',
+    // Round 1: text after a span that is no argument, drop file names,
+    // write-handoff's other options and a continuation, and node in words.
+    'Run `search` -- it reads stdin.', 'Read `search`\'s output first.', '- **`note`**: saves a line.', 'Use `search` / `note`.', 'Use `search` (`--from`).',
+    'See [`search`](#search).', 'Run `search` 2 times.', 'Two writes (`note`, `undo-handoff`, or a note file).',
+    'Files named `incoming-*.md`, `incoming-note-<id>.md` or `<memory folder>\\incoming-note.md`.',
+    '```\n' + L + 'write-handoff --base=none --session=<session id> --drop-others --from="<memory folder>/incoming-handoff-<session id>.md"\n```',
+    '```\n' + L + 'write-handoff --base=<version> \\\n  --from="<memory folder>/incoming-handoff.md"\n```',
+    'If the trailmark.js path does not work (node says it can\'t find trailmark.js), stop.', 'It needs Node 18 or later; Node.js is enough.',
+    // Round 2: prose after a command's span that the reading lets through.
+    'Run `search` (see step 3).', 'Run `search`, `note` and `park`.', 'Run `search` (`' + L + 'note` for a note).', 'Run `search`. Then stop.',
+  ]) assert.ok(!found(fine), `refused in: ${fine}`);
   for (const good of [
     'node "x/trailmark.js" search <<\'JBMEM_EOF_${CLAUDE_SESSION_ID}\'', 'note --session=<session id> --from="<memory folder>/incoming-note-<session id>.md"',
     L + 'note Codex setup check', 'park --slug=<slug> --replace --from="<memory folder>/incoming-park-<session id>.md"', 'search', 'incoming-note-${CLAUDE_SESSION_ID}.md',
+    'node "${CLAUDE_PLUGIN_ROOT}/scripts/trailmark.js" note --session=${CLAUDE_SESSION_ID} --from="<memory folder>/incoming-note-${CLAUDE_SESSION_ID}.md"',
   ]) assert.strictEqual(offence(good), null, `refused: ${good}`);
 });
 
