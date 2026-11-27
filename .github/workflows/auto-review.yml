@@ -372,6 +372,10 @@ jobs:
                                   replies: [.comments.nodes[1:][] | {author: .author.login, body}]}]}' > .review/threads.json
           gh api "repos/$REPO/pulls?state=closed&base=$DEFAULT_BRANCH&sort=updated&direction=desc&per_page=100" \
             --jq '[.[] | select(.merged_at != null) | {number, body, labels: [.labels[].name]}]' > .review/merged.json
+          # The head's statuses, for decide's hold (Q89). A failed read leaves no
+          # file, and the gate then writes its decision as before and says so.
+          gh api "repos/$REPO/commits/$head/statuses?per_page=100" > .review/statuses.json \
+            || { echo "::warning::could not read the statuses of $head, so a running review's pending status is not kept"; rm -f .review/statuses.json; }
           jq -n --arg head "$head" --arg owner "${REPO%/*}" --arg repo "$REPO" --argjson pr "$PR" \
             --slurpfile pull .review/pull.json --slurpfile tier .review/tier.json \
             --slurpfile c .review/comments.json --slurpfile b .review/bot.json \
@@ -404,7 +408,14 @@ jobs:
         if: env.SKIP != '1'
         run: |
           set -euo pipefail
-          node dev/review-gate.js decide dev/risk-tiers.json .review
+          node dev/review-gate.js decide dev/risk-tiers.json .review "$REVIEW_RESULT"
+          # A run that reviewed nothing (a body edit, a comment) leaves the pending
+          # status of a review still running on this head: that run's own gate job
+          # writes the result (holds() in dev/review-gate.js says when).
+          if [ "$(jq -r .hold .review/gate.json)" = true ]; then
+            echo "a review of this head is still running; its own gate job sets the status" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           state=$(jq -r .state .review/gate.json)
           desc=$(jq -r .description .review/gate.json)
           if [ "$REVIEW_RESULT" = failure ] || [ "$REVIEW_RESULT" = cancelled ]; then
