@@ -19,7 +19,7 @@ Format:
 - What went wrong: PR 156's body was written in an older PR's shape (What changed, Reviews, Checks). The review gate's first finished status on 02e3547 failed with "PR body section empty or missing: Testing, Risk, How to revert", and the PR waited on it until the supervisor read the status.
 - Why: `.github/pull_request_template.md` holds the three sections, and `gh pr create --body-file` does not use it. Nothing in the session's PR step ran the gate's `sections()` on the body.
 - Rule going forward: a PR body starts from `.github/pull_request_template.md`. Before `gh pr create` or `gh pr edit`, the body file goes through `sections()` of `dev/review-gate.js` on `origin/main` (`q70/q70-body-sections.js` in the sessions' notes folder does it, read-only) and shows none missing.
-- Status: open
+- Status: promoted to PLAYBOOK ("Pushing and CI" step 5)
 
 ## 2026-11-25: A check run during the app's restart failed at process start
 
@@ -33,7 +33,7 @@ Format:
 - What went wrong: the `AFTER` pattern of Q70's round 1 batch in `handoff-checks.test.js` held U+2018 and U+201F as characters, where the edit was meant to write the escapes for them. `--sums --quick` passed on it; the commit script's scan of the added lines stopped the commit. The pattern was rebuilt with `String.fromCharCode`, and `--sums --quick` ran again (15 minutes).
 - Why: which step turned the escapes into characters was not found (HYPOTHESIZED: the edit tool's input). `dev/release-check.sh` does not scan added lines for non-ASCII; only the commit script does, after `--sums`.
 - Rule going forward: a test that needs a non-ASCII character builds it with `String.fromCharCode`, as the file already does for `Q`. After an edit of code, scan its added lines for non-ASCII (`git diff | grep '^+' | LC_ALL=C grep -c $'[^\t -~]'`) before `--sums`.
-- Status: open
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 22, with the escape entries of 2026-11-07, 2026-11-21 and 2026-11-24)
 
 ## 2026-11-25: A scan that read more of Markdown let more through
 
@@ -42,21 +42,21 @@ Format:
 - Rule going forward: a check that reads a format reads only the part it can read exactly, refuses the rest by name, and is run over the real files first to show they hold none of what it refuses. Before a new reading replaces an old one, both run over the old samples and a list of neighbor shapes, and every shape the old one refused and the new one passes is read before the commit.
 - Seen again 2026-11-25: round 1's fix read text after a command's span when it started with a listed character (`AFTER`), and round 2 found that 4d3336e refused text starting with a dash, a bracket, a digit or another quote mark, which `AFTER` let through. Round 1's repro ran the new samples on 4d3336e's scanner, not 4d3336e's refusals on the new one. The route test also said it read fences as the curlyquote scan does, and split lines another way. Round 2 lists what is sure prose instead (`PROSE`) and the route test now splits a skill's lines as the curlyquote scan does.
 - Seen again 2026-11-25 (PR 156, the review gate's round 1, note 3): round 2's `read` tagged fence lines, and the route test returned early on them, so a route sentence on a fence line, which f885821's test read, passed. Round 2's plants ran the new reading's cases on the old test, not the old test's reach on the new one. A third sighting, so this rule is a promotion candidate for Q78.
-- Status: open
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 23)
 
 ## 2026-11-25: A Lessons checked line was stored as thinking, and the gate denied six pushes
 
 - What went wrong: the lessons-learned hook denied the push of PR 153's merge commit d3fdbb3 six times. Each time the session believed it had written a visible `Lessons checked:` line, and it first reported so. The transcript held none: one mention sat in backticks, which the hook skips on purpose, and three messages whose text held the line were stored as thinking records with no text record. A message whose text was one line was stored as text, and the push passed at 14:19:44.
 - Why: the session judged its output by what it meant to write, not by what the transcript held, and retried before it read the hook's code. Why the longer text was stored as thinking was not found (HYPOTHESIZED: the app, not the hook).
 - Rule going forward: before a gated commit or push, write the `Lessons checked:` line as a short line of its own. After a denial, read the turn's records (`q69-hook-shape.js` in the sessions' notes folder, `q69/`) and the hook's code before any retry, and report the line as written only once a text record holds it.
-- Status: open
+- Status: promoted to PLAYBOOK ("The lessons check" step 2)
 
 ## 2026-11-25: GitHub writes that returned an error had landed
 
 - What went wrong: on PR 153, between 10:44 and 10:50, GitHub's API answered writes with a 504, an HTML error page or an empty response. The 504 and the HTML page still created their comments; the empty response created nothing. Thread resolves failed then and worked at 11:29. A retry on the error alone would have posted twice.
 - Why: an error from a write does not say whether the write happened.
 - Rule going forward: after a GitHub write that errors, read the target (the comment list, the thread's state) before any retry. A post is retried only when the read shows it missing; a resolve may be repeated.
-- Status: open
+- Status: promoted to PLAYBOOK ("Pushing and CI" step 5)
 
 ## 2026-11-25: write-handoff from the scratchpad was refused
 
@@ -70,28 +70,29 @@ Format:
 - What went wrong: in the Q85 session (64b5dcb7) the lessons line, written as visible reply text with a paragraph around it before a Bash call, reached the transcript only as a `thinking` block that paraphrased it without the words "Lessons checked:" (175 characters at 19:23:42Z). A retry with a short paragraph and a one-line line went the same way (189 characters at 19:24:46Z). The session that had Q85 before could make no Edit for the same reason (from the supervisor's brief for Q85, not re-checked here). The times are the transcript records' own timestamps (UTC), and the lengths come from a read-only script over that transcript.
 - Why: NOT proven. Text of several sentences before a tool call was stored as a paraphrase in a `thinking` block; short status lines without the phrase were kept as `text`. The lessons hook reads only `text` blocks.
 - Rule going forward: before an Edit, Write, commit or push, write the single line `Lessons checked: <names>` as the whole text before the call, with no paragraph around it, and read the transcript once (a `text` block that starts with it) before the first Edit. The one-line form was stored as `text` here (19:26:25Z), and every Edit after it went through.
-- Status: open (seen twice; its step belongs in the PLAYBOOK promotions PR, not in this one)
+- Status: promoted to PLAYBOOK ("The lessons check" step 2)
 
 ## 2026-11-25: A check listed the characters a copy can lose, and each review found more
 
 - What went wrong: the fix for the gate's finding on PR 153 (d9c5fa4) tested a line for the heredoc end marker after dropping control characters and taking two classes of character (Cf, Default_Ignorable_Code_Point) off the line's front. Review round 3 on 64b7e98 found two ways past it, and run 21 confirmed both here: a character of those classes inside the word (`JBMEM_<U+200B>EOF_...`), and a character in front that is in neither class (U+2800, a combining mark). The supervisor chose an allowlist: every character but tab and printable ASCII out of the whole line, then the test. My first build of that escaped the line first, and the escape puts a backslash after a fullwidth less-than sign, so a marker behind that sign passed the test while the file held no backslash. That was found while reading `escapeTags` for a mutant that takes the escape out (it read PASS), before any commit, and a probe confirmed it. None of these forms was pushed.
-- Why: each form answered the repro in hand (a character in front) and not the question the check exists for: can this line become the marker when a copy loses or changes characters. A list of classes that can be lost has no end. The notes also said `store.js` and `gitfacts.js` "already use those two classes together", and their classes hold U+2800 and marks as well (read after the review; a second sighting of "A comment said two readers of the frontmatter agree, and they differ", in the notes this time). The supervisor's first wording could be read as the line's front or the whole line, and it was not asked back. In the first build of the allowlist a step of the old form, the escape, was kept without asking what it changes once the strip follows it.
+- Why: each form answered the repro in hand (a character in front) and not the question the check exists for: can this line become the marker when a copy loses or changes characters. A list of classes that can be lost has no end. The notes also said `store.js` and `gitfacts.js` "already use those two classes together", and their classes hold U+2800 and marks as well (read after the review; a second sighting of "A comment said two readers of the frontmatter agree, and they differ", in the notes this time). The supervisor's first wording ("Cf characters off the front") could be read as the line's front or the whole line, and it was not asked back. In the first build of the allowlist a step of the old form, the escape, was kept without asking what it changes once the strip follows it.
 - Rule going forward: when a check asks whether a text can turn into a fixed ASCII word after a copy, keep only the characters sure to survive (printable ASCII and the white space the check counts on), take the rest out of the whole stored text, and test what is left: no list of what may be lost. Its rows put a character in front of the word, inside it, at each edge of the kept range, and one that shows (the cost), with a control that white space in front is kept. A step carried over from an older form gets a mutant that takes it out, and when that mutant passes, what the step changes is read before it stays. An instruction that reads two ways is asked back before the build.
-- Status: open
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 23, with "A scan that read more of Markdown let more through")
 
 ## 2026-11-25: A new list of stored lines skipped the function that makes them safe to copy
 
 - What went wrong: Q69's exit 4 refusal lists the lines a text left out and tells the session to put each back word for word. It printed a line through `escapeTags`, which drops control characters, and not through `handoffShown`, which also indents a line that then starts with `JBMEM_EOF`. The checkpoint skill passes the text in a heredoc that ends at `JBMEM_EOF_<session ID>`. So a stored line of an escape character and that marker was listed as the bare marker, and put back it ended the heredoc early: the line after it ran as a shell command. Review round 1 read the list and called it clean. The PR's review gate found it on 99b3578, and a test that runs the skill's own command with bash showed it. Behind it sat an older gap: the write's check read the text as sent, so the marker was saved with a control character or a character that shows as nothing in front of it.
 - Why: the list was judged as a display, by the characters it prints, and not as text a session is told to copy into a command. `handoffShown` was written for that copy, and the new printer was not read beside it.
 - Rule going forward: when new output prints stored text that a session is told to copy, write down where the copy goes next (a heredoc, a quoted argument, a file) and send the text through the function the older printers of that text use. Its test takes the output through that next step as the skill runs it, with a line built to break it. A check of a text and the display of that text test a line in the same form.
-- Status: open
+- Seen again 2026-11-25 (second sighting, Q69's review round 4 on 4400d50, Fable): the batch chose on purpose to test the stored line in the write and the escaped line in `handoffShown`, and the other side was missed, an escape that adds a printable backslash. A stored U+FF1C or U+FE64 in front of the end marker is shown with a backslash after it and no indent, where the write refuses the line (CONFIRMED by Fable, not re-run; RS-S-q69shownform in `dev/release-state.md`).
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 24)
 
 ## 2026-11-25: A fix closed the route a test of the same batch used for its setup
 
 - What went wrong: the heredoc test of Q69's second batch had a session save an escape character and the end marker through the launcher. The root fix that joined the batch refuses that write, so the test's own control step failed before the code under test ran. The test was changed: the session saves the line indented, and the test puts the control character into the file in place of the indent.
 - Why: the test was written for the first form of the fix, and the write's check was changed after it. The batch's own new tests were not read for texts the new refusal stops.
 - Rule going forward: none new; "A test set up a state through the writer that the writer can't produce" (2026-11-23) holds, and this is its second sighting. Its step for `PLAYBOOK.md` waits for the promotions PR (Q78).
-- Status: open
+- Status: promoted to PLAYBOOK ("Testing" step 22)
 
 ## 2026-11-25: A mutant's new text was a part of its old text, and the run stopped on the script's own check
 
@@ -106,21 +107,21 @@ Format:
 - Why: the timeout was typed from habit, as for a long foreground command.
 - Rule going forward: a run started in the tool's background mode gets no timeout parameter. Its own start and end lines are what count, as "A check in the background ended with no result line" (2026-11-13) says.
 - Seen again 2026-11-25 (second sighting, Q77): both `--sums --quick` runs of Q77 went to the background with a timeout of 600,000 ms beside them. The first ran 20:05:50 to 20:18:56 and its end line reads exit 0, so it was not cut. The lessons check before the runs named other rules and not this one. A second sighting, so this rule is a promotion candidate for Q78.
-- Status: open
+- Status: promoted to PLAYBOOK ("Testing" step 2)
 
 ## 2026-11-25: A name pattern meant for every test of an item left out one test
 
 - What went wrong: run 11 of Q69's batch was planned and noted as "every Q69 test". Its pattern held `\(Q69\)`, and the eleventh test's name ends "(Q69, a known limit)", so the run did not select it. The run read PASS, and the gap showed only when its Q69 `ok` lines were counted (20, where 22 were expected).
 - Why: the pattern was written when every tag was a bare "(Q69)", and it was not read again when a test with a longer tag was added. The PASS line was read before the names.
 - Rule going forward: a pattern run that stands for a set of tests is read by name against the list of that set (`grep -c` of each name in the kept TAP) before its PASS counts for the set. A second sighting of "`--only '<name>'` passed a dev/ test that never ran" (2026-11-21); its step for `PLAYBOOK.md` waits for the promotions PR (Q78).
-- Status: open
+- Status: promoted to PLAYBOOK ("Testing" step 1)
 
 ## 2026-11-25: A heading's time in the notes was written before the clock was read
 
 - What went wrong: a section heading of Q69's plan file said "State at 04:22" and "started about 04:21" for a run whose own lines read 04:20:08 to 04:20:29. The next section corrected it.
 - Why: the heading was typed with the section's text, and `date` was not run in that step.
 - Rule going forward: none new; the rule of "Times in a status and in notes were written from memory" (2026-11-24) holds, and this is its second sighting. Its step for `PLAYBOOK.md` waits for the promotions PR (Q78).
-- Status: open
+- Status: promoted to PLAYBOOK ("At each milestone" step 7)
 
 ## 2026-11-25: A new check read its input with a read that fails without a word
 
@@ -134,7 +135,7 @@ Format:
 - What went wrong: the comment on `ownableLines` in Q69's batch said the frontmatter's fence is read "as ensureFrontmatter and stampUpdated read it, so this agrees with what a save writes". `ensureFrontmatter` ends the frontmatter at any line that starts with `---`, and `stampUpdated` at a line that is exactly `---`. Fable's round 1 probe showed the difference with an end line that has a space after the dashes (RS-S-q69fence).
 - Why: the two functions were named together without their tests for the end line being compared (the first is a regex, the second an exact match).
 - Rule going forward: a comment that says code agrees with other code is written after each function it names was read at the lines that decide it, and it says how they differ where they do.
-- Status: open
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 12; its second sighting is in the Why of "A check listed the characters a copy can lose, and each review found more")
 
 ## 2026-11-25: A guard compared a line with the file, and sessions copy the line from a display that changes it
 
@@ -148,7 +149,7 @@ Format:
 - What went wrong: Q69 makes `write-handoff` refuse a whole text that leaves out a line another session wrote (exit code 4). The first run of the touched tests on the fix failed in "version check: a write needs a base, a stale base is refused with a diff, a merged write goes through" (run 2), and a wider run failed in two more, "0.3.3 Updated line: ..." and "short session IDs: ... (RS-D-codexshortid)" (run 2b): each sent such a text as a second session. The skill that sends the text for real, checkpoint's step 3, still said only "Compose the complete new handoff from the template below". That gap was found after the supervisor asked for an end-to-end run of the checkpoint path beside a second session (marker tm-0228), not before.
 - Why: the plan listed the tests that match the changed messages and skill words, not the tests and skills that send the input the guard refuses. The first finder for those tests (`q69-two-session-tests.js` in the sessions' notes folder) looked for tests that name two sessions. A test whose first writer is the helper's default names one, so a second finder (`q69-second-writer.js`) reads for a write by a session other than the default.
 - Rule going forward: before the first run of a guard that refuses an input, list who sends that input: every test that writes as a session other than its helper's default, and every skill step that tells a session how to make the text, in both copies. Each skill route gets a test that runs the skill's own command beside the case the guard is for and ends with exit 0.
-- Status: open (a second sighting of "A review fix refused a route another client needed", 2026-11-24: its step for PLAYBOOK goes in the PLAYBOOK promotions PR, Q78)
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 8, with "A review fix refused a route another client needed", 2026-11-24)
 
 ## 2026-11-25: A read-only check went in as an inline node -e
 
@@ -162,21 +163,21 @@ Format:
 - What went wrong: batch r7 of PR 151 (4df7b10) promoted a lesson and added its step to `PLAYBOOK.md`. `dev/risk-tiers.json` rates that file high, so the next push would have made the PR tier high, and its merge would have waited for the owner's signed `/ship`. It showed two batches later, in a run of the tier step's `classify()` on the whole diff that the supervisor asked for before the push.
 - Why: the tier was read from the label on the pushed head and not again for the commits made after it. The promotion rule was followed without reading what a change to that file does to the PR's tier.
 - Rule going forward: before a commit, read its files against the high rules of `dev/risk-tiers.json`, and before a push run `classify()` of `dev/tier.js` on `origin/main...HEAD` (`q62/q62-tier-check.js` in the sessions' notes folder does it, read-only). A lesson's step for `PLAYBOOK.md` does not go into a PR meant to merge at low or medium. The lesson stays open, and its step goes with the other waiting promotions into a PR that changes `PLAYBOOK.md` alone, which the owner merges after a signed `/ship` (the supervisor, 2026-11-25, marker tm-2434).
-- Status: open
+- Status: promoted to PLAYBOOK ("The lessons check" step 7 and "Pushing and CI" step 5)
 
 ## 2026-11-25: Notes copied a reviewer's claim past the correction in its own report
 
 - What went wrong: the notes commit of PR 151 (13e7208) said of a mutant that "it has no input the tests should catch it with". The reviewer's report says so in its body, and under its Cleanup heading it says the probe did not compare the two texts for all 66 characters. The same commit pointed at "the bullet above" for a label that is in another bullet, and wrote "every line PASS" for a run with one SKIP line. A docs pass found the three.
 - Why: the notes summed up the Cleanup section in one sentence ("None changes a finding") and did not read it against each claim taken from the report's body. The two other sentences were written without the bullet and the saved output open beside them.
 - Rule going forward: before a reviewer's claim goes into the notes, read the report's corrections (a Cleanup or errata section) against it. A pointer names the bullet it points to, and a sentence about a run's lines is read against the saved output, line by line.
-- Status: open (a second sighting of the entries "A doc line said how a probe ran without the probe's script being read", 2026-11-23, and "A record gave one reading for three cases, and a rule's reach without its skips", 2026-11-15: its step for PLAYBOOK goes in the PLAYBOOK promotions PR, Q78)
+- Status: promoted to PLAYBOOK ("Writing code and docs" steps 10 and 15, with "A doc line said how a probe ran without the probe's script being read", 2026-11-23; "A record gave one reading for three cases, and a rule's reach without its skips", 2026-11-15, stays open, since its search for each case a repro names is in no step)
 
 ## 2026-11-25: A count of tests failing on the parent hid a changed test that passes there
 
 - What went wrong: the notes and the commit message of batch r8 of PR 151 gave "6 failed of 12" and "8 failed of 12" for "the new and changed tests" on the parent's code. Of the 12, two are a test the batch does not change, and on Linux two more are a changed test that passes on the parent, because it accepts a stop as well as an answer. The reviewer found it from its own run of the same check.
 - Why: the entry "Two new tests passed on the parent, counted as a total" (2026-11-22) was read as a rule for new tests only. The count was copied from the run's summary line, and the tests that passed were not read by name.
 - Rule going forward: after a run on the parent, read the result of every test the pattern selects, by name. Each new or changed test that passes there gets its reason in the notes, and a count says which tests it counts.
-- Status: open (the second sighting of the 2026-11-22 entry: both become part of PLAYBOOK "Testing" step 8 in the PLAYBOOK promotions PR, Q78)
+- Status: promoted to PLAYBOOK ("Testing" step 8, with "Two new tests passed on the parent, counted as a total", 2026-11-22)
 
 ## 2026-11-25: A reviewer's run ended three times on an API error before its last message
 
@@ -199,7 +200,7 @@ Format:
 - Rule going forward: a time in a status, a note or a heading comes from `date` (or a tool's own timestamp) read in the same step. A time taken from someone else's report says whose clock it is.
 - Seen again 2026-11-25 (third sighting, Q70): two status messages to the supervisor were headed 16:41 and 17:00 and arrived at 16:35 and 16:54 by the supervisor's `Get-Date`, and two headings of the plan notes were estimates too. The supervisor pointed it out. The steps that wrote them ran no `date`. Its `PLAYBOOK.md` step waits for Q78, as the second sighting says.
 - Seen again 2026-11-25 (fourth sighting, Q77): a message to the supervisor said its facts were "read 20:20 to 20:22". By `date`, the tier check ended at 20:20:05 and the last fact was read by 20:20:50; the end time was an estimate. The session caught it on the next `date`. This line first said the supervisor had the correction, which went out only by 21:12:47, after the verify reviewer found no such message.
-- Status: open
+- Status: promoted to PLAYBOOK ("At each milestone" step 7)
 
 ## 2026-11-24: A rule about a guard's input was written, then applied to one line
 
@@ -213,7 +214,7 @@ Format:
 - What went wrong: test text written with the Write tool held escapes for the line separator, the paragraph separator and the zero-width space. The file got the characters themselves, and the test file stopped parsing (a line separator inside a regex). The lessons of 2026-11-07, 2026-11-21 and 2026-11-24 already say to build such characters in code.
 - Why: the rule was known and nothing ran it before the file was used.
 - Rule going forward: name such a character by its class or build it in code, and count the non-ASCII lines of each file after it is written, before it is used.
-- Status: open (a repeat of the entries of 2026-11-07, 2026-11-21 and 2026-11-24; to be promoted to PLAYBOOK "Writing code and docs" in the PLAYBOOK promotions PR, Q78, with the step as 4df7b10 worded it: see the entry of 2026-11-25, "A playbook step in a batch turned a medium PR into a high one")
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 22, as 4df7b10 worded it, with the entries of 2026-11-07, 2026-11-21 and 2026-11-24)
 
 ## 2026-11-24: A finding fixed in one place came back from two others
 
@@ -227,7 +228,7 @@ Format:
 - What went wrong: Q62 round 1 found that a `--from` search in a repo not set up let the launcher remove the file. The fix refused a `--from` search there. Round 2 found that this stopped Codex's only search route in such a repo, which worked at 54f50a3.
 - Why: the fix blocked the input that led to the effect instead of guarding the effect itself (the removal), and it was checked only against the finding's repro, not against each client that sends that input.
 - Rule going forward: fix a finding at the effect it names where possible. Before a fix refuses an input, list who sends it (each skill, both copies) and test that their routes still work.
-- Status: open
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 8)
 
 ## 2026-11-24: A skill edit broke a test that --quick skips
 
@@ -241,7 +242,7 @@ Format:
 - What went wrong: for RS-S-curlyquote, the new test was written through the Edit tool with the JavaScript escape for U+2019 (backslash, `u2019`) in a string literal, and the file got the curly quote itself. Writing this lesson did the same. The added-line byte check for non-ASCII caught it before the commit.
 - Why: the escape sequence in the tool's text was turned into the character it names on the way to the file.
 - Rule going forward: in code written through Edit or Write, build a character outside printable ASCII with `String.fromCharCode(0x...)` (or `new RegExp` from a string with a doubled backslash), and byte-grep the added lines for non-ASCII before the commit.
-- Status: open
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 22)
 
 ## 2026-11-24: A read-only sweep missed a site that a test then found
 
@@ -431,7 +432,7 @@ Format:
 - What went wrong: the first draft of SECURITY.md's temp-file entry said the fallback was probed "under `codex exec`". `csga-probe.sh` ran `codex sandbox`. Caught before the commit, by reading the probe's script for the entry's wording.
 - Why: the wording came from the Codex README's own "in `codex exec`", which is about the writable-root trial, not this probe.
 - Rule going forward: a doc line that says how something was run is checked against the script or output that ran it, not against another doc.
-- Status: open
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 15)
 
 ## 2026-11-23: Two background waits on a PR ended without printing a state
 
@@ -494,7 +495,7 @@ Format:
 - What went wrong: the first RS-T-headlate test wrote its "no facts from git" handoff with the sandbox's `write`, which runs `write-handoff` in a git repo. It restamped the line with the repo's branch and HEAD, so the session-start check failed on the fixed code.
 - Why: the helper's name says what it does to the file, not what the launcher adds on the way.
 - Rule going forward: when a test needs a file in a state that only another place produces (here, a checkpoint with no git), put the file down raw and read it through the real reader; check the file's content before the assertion that depends on it.
-- Status: open
+- Status: promoted to PLAYBOOK ("Testing" step 22)
 
 ## 2026-11-23: A reviewer's clone under the session scratchpad broke the sandbox tests
 
@@ -561,7 +562,7 @@ Format:
 - What went wrong: RS-T-lockagemono's first mutation pass gave "10 of 14 fail" on 5d202b2's `store.js`. The four that passed were two new tests in both copies: the one-clock test, a premise, and the live holder's stamped lock test, which could not tell the fix apart: every clock it used was a move the waiter sees, so the parent's watch kept the lock (review round 1, Opus F1).
 - Why: the parent's result was read as a count, not test by test against what each new test is for.
 - Rule going forward: on the parent, list each new test that passes and give it a reason (a premise test, a case the parent already handled); one with no reason gets the case it is missing.
-- Status: open
+- Status: promoted to PLAYBOOK ("Testing" step 8)
 
 ## 2026-11-22: A test input far from its check's edge let a mutation pass
 - What went wrong: RS-T-lockagemono's first mutation pass showed that `monoAge`'s check that a stamp is not ahead of now could be replaced by `Math.abs(age)` with every test passing. The test's stamp was an hour ahead, so read as a distance it was an hour old, and the 60 s rule broke the lock either way.
@@ -742,7 +743,7 @@ Format:
 - What went wrong: to check that a new test in `dev/review-gate.test.js` fails on the parent commit, `dev/release-check.sh --only 'linear time'` printed "PASS ... 2/2 pass" on the parent. The 2 tests were in the plugin suites: a name pattern runs the plugin test files only (`HC`, `TCC`, `TCX` in `release-check.sh`), so the dev/ test was never run. The file form, `--only dev/review-gate.test.js`, showed it failing (CONFIRMED, both runs kept under `trailmark-release-check/`).
 - Why: "every test file" in the summary line reads as every file, and a pass count that is not zero looked like the test had run.
 - Rule going forward: a test in `dev/` runs with `--only <its file>`; when a pattern run is used, check the TAP names the test before reading its result.
-- Status: open
+- Status: promoted to PLAYBOOK ("Testing" step 1)
 
 ## 2026-11-21: A brief's install step, "tested in a scratch copy", left only a stub to run
 - What went wrong: the agent review brief installed the reviewer CLI with `npm install -g --ignore-scripts "@anthropic-ai/claude-code@$CLI_VERSION"`. For 2.1.319, `bin/claude.exe` in the package is a 500-byte script that prints "claude native binary not installed" and exits 1; the package's postinstall (`install.cjs`) is what copies the platform binary over it, and `--ignore-scripts` skips it. CONFIRMED by an install in the scratch folder. The brief's tests had run the gate's logic, not the step that installs the program the gate calls.
@@ -761,7 +762,7 @@ Format:
 - What went wrong: `clean()` in `dev/review-gate.js`, written with the Write tool from the brief's escaped zero-width space after `@`, held a literal zero-width space. The dash scan of the staged diff (its non-ASCII line) found it before the commit; it now reads `String.fromCharCode(0x200b)`.
 - Why: the same as the 2026-11-07 entry on escapes in a test's source: an escape is turned into its character on the way into a file.
 - Rule going forward: none new; that entry and the scan of "Committing" step 4 hold, and this time the scan caught it.
-- Status: open
+- Status: promoted to PLAYBOOK ("Writing code and docs" step 22)
 
 ## 2026-11-21: A read-only research subagent moved the worktree's HEAD
 - What went wrong: a subagent briefed for read-only git research in the session's worktree ran `git checkout --detach` there by mistake, then switched back. HEAD was back at 4d0c958 and the uncommitted files were unchanged afterwards (CONFIRMED by `git status` and `git rev-parse HEAD` after; what ran while it was detached is not known), but the brief's read-only rule did not hold.
@@ -2297,7 +2298,7 @@ The entries below were seeded on 2026-11-07 from `dev/release-state.md`, `CLAUDE
 - What went wrong: S1's new test in `codex.test.js` was written with `\u201c`, `\u202e` and similar escapes in an Edit call, and the file got the raw characters, a bidi override among them (Opus round 1, finding 5). A mutation probe's `sed` pattern with `\\u201e` lost its backslashes in a Bash heredoc, so the edit never applied and the test "passed" the mutation.
 - Why: the edit tool wrote the escapes as the characters they name. The Bash tool collapses `\\` even in a quoted heredoc (PLAYBOOK's constraints).
 - Rule going forward: build non-ASCII and backslash characters in test source with `String.fromCharCode`, and grep the diff for non-ASCII after writing it. A mutation probe checks that its edit applied (count the new text) before reading the result.
-- Status: open (pass of 2026-11-15: its second sentence is PLAYBOOK "Testing" step 16; the first is not a step)
+- Status: promoted to PLAYBOOK (its second sentence is "Testing" step 16, since the pass of 2026-11-15; its first is "Writing code and docs" step 22)
 
 ## 2026-11-07: The control was a cheaper call than the one it stood in for
 
